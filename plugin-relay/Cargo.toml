@@ -1,0 +1,31 @@
+[package]
+name = "plugin-relay"
+version = "0.6.0"
+edition = "2021"
+
+[features]
+default = ["client", "server"]
+client = []
+server = []
+
+[dependencies]
+alumet = { path = "../alumet" }
+anyhow = "1.0.88"
+hostname = "0.4.0"
+log = "0.4.22"
+serde = { version = "1.0.210", features = ["derive"] }
+tokio = { version = "1.40.0", features = ["rt", "net", "io-util"] }
+tokio-stream = "0.1.16"
+futures = "0.3.30"
+humantime-serde = "1.1.1"
+postcard = { version = "1.0.10", features = ["alloc"] }
+bytes = "1.8.0"
+tokio-util = "0.7.12"
+thiserror = "2.0.3"
+nohash-hasher = "0.2.0"
+
+[build-dependencies]
+tonic-build = "0.12.2"
+
+[lints]
+workspace = true

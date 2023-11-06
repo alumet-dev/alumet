@@ -1,0 +1,40 @@
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: alumet_cluster_role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  - pods/logs
+  - pods/status
+  - nodes
+  - namespaces
+  verbs:
+  - get
+  - list
+  - watch
+
+---
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: alumet-reader
+  namespace: alumet
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: alumet_cluster_role_binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: alumet_cluster_role
+subjects:
+  - kind: ServiceAccount
+    name: alumet-reader
+    namespace: alumet

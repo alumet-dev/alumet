@@ -1,0 +1,20 @@
+[package]
+name = "plugin-procfs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alumet = { path = "../alumet" }
+anyhow = "1.0.88"
+humantime-serde = "1.1.1"
+log = "0.4.22"
+procfs = "0.16.0"
+regex = "1.10.6"
+serde = { version = "1.0.210", features = ["derive"] }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+pretty_assertions = "1.4.0"
+toml = "0.8.19"

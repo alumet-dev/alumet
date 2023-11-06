@@ -1,0 +1,118 @@
+{
+    "version": "0.2",
+    "ignoreWords": [],
+    "enableGlobDot": true,
+    "ignorePaths": [
+        "*.csv",
+        "*.c",
+        "*.txt",
+        "Makefile",
+        "tmp/*",
+        "*.toml",
+        "*.proto",
+        "*.h",
+        ".git/*",
+        ".gitignore",
+        ".github/",
+        "**/**.yaml",
+        ".circleci/"
+    ],
+    "import": [
+        "@cspell/dict-rust/cspell-ext.json"
+    ],
+    "useGitignore": true,
+    "caseSensitive": false,
+    "language": "en",
+    "languageSettings": [
+        {
+            "languageId": "rust",
+            "includeRegExpList": [
+                "comments",
+                "rust_error_messages",
+                "rust_string_format",
+            ],
+            "ignoreRegExpList": [
+                "rustdoc_code_block",
+                "`.*`",
+                "\\/[\\w.\\-_]+",
+                "[\\w.\\-_]+\\/",
+                "pod[a-zA-Z0-9]+",
+                "\", .*\"",
+                "JWT",
+            ]
+        },
+        {
+            "languageId": "markdown",
+            "ignoreRegExpList": [
+                "markdown_code_block"
+            ]
+        }
+    ],
+    "dictionaryDefinitions": [
+        {
+            "name": "project-words",
+            "path": ".cspell/project-words.txt",
+            "description": "Words used in this project",
+            "addWords": true
+        }
+    ],
+    "dictionaries": [
+        "rust",
+        "project-words",
+        "makefile",
+        "en-gb",
+        "cpp",
+        "cpp-legacy",
+        "cpp-refined",
+        "networking-terms",
+        "python",
+        "scala"
+    ],
+    "patterns": [
+        {
+            "name": "comment-single-line",
+            "pattern": "//.*"
+        },
+        {
+            "name": "comment-multi-line",
+            "pattern": "/(?:\\/\\*[\\s\\S]*?\\*\\/)/g"
+        },
+        {
+            "name": "comments",
+            "pattern": [
+                "comment-single-line",
+                "comment-multi-line"
+            ]
+        },
+        {
+            "name": "string",
+            "pattern": "\".*\""
+        },
+        {
+            "name": "JWT",
+            "pattern": "/([A-Za-z0-9+\/]+={0,2}\\.[A-Za-z0-9+\/]+={0,2}\\.[A-Za-z0-9+\/]+={0,2})/g"
+        },
+        {
+            "name": "markdown_code_block",
+            "pattern": "^```[\\s\\S]*?^\\s*```/gm"
+        },
+        {
+            // Markdown code block in Rust documentation.
+            // NOTE: with /gm it doesn't work!
+            "name": "rustdoc_code_block",
+            "pattern": "^\\/\\/\\/ ```[\\s\\S]*?^\\/\\/\\/ ```"
+        },
+        {
+            // .expect("this") or .context("this")
+            // See https://github.com/streetsidesoftware/cspell/issues/6080
+            // Note that parentheses are automatically excluded by cspell.
+            "name": "rust_error_messages",
+            "pattern": "(?<=\\.(expect|context|panic!))\\(\".+\"\\)"
+        },
+        {
+            // format!("this") or formatdoc!("this") or indoc!("this")
+            "name": "rust-string-format",
+            "pattern": "(?<=\\.(format!|formatdoc!|indoc!))\\(\".+\"\\)"
+        }
+    ]
+}

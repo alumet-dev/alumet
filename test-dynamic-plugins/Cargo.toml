@@ -1,0 +1,19 @@
+[package]
+name = "test-dynamic-plugins"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+alumet = { path = "../alumet" }
+alumet_ffi = { path = "../alumet-ffi", features = ["dynamic"] }
+env_logger = "0.11.5"
+log = "0.4.22"
+pretty_assertions = "1.4.0"
+regex = "1.10.6"
+toml = "0.8.19"
+
+[build-dependencies]
+# alumet_ffi/build.rs needs to run before our build.rs
+alumet_ffi = { path = "../alumet-ffi", features = ["dynamic"] }

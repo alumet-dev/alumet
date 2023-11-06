@@ -1,0 +1,13 @@
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: alumet-host
+  namespace: default
+  labels:
+    release: promstack
+spec:
+  staticConfigs:
+    - labels:
+        job: alumet-host
+      targets:
+        - X.X.X.X:9091

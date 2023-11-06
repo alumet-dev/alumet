@@ -1,0 +1,188 @@
+version: 2.1
+
+# reusable commands (see https://circleci.com/docs/reusing-config/)
+commands:
+  generate_cargo_cache_key:
+    steps:
+      - run:
+          name: Create combined cache key
+          command: |
+            find -name 'Cargo\.toml' | xargs cat > .combined_cache_key
+            if [ -f .cargo/config.toml ]; then
+              cat .cargo/config.toml >> .combined_cache_key
+            fi
+            if [ -f Cargo.lock ]; then
+              cat Cargo.lock >> .combined_cache_key
+            fi
+            cargo --version >> .combined_cache_key
+
+# CI jobs
+jobs:
+  build_and_test:
+    resource_class: large
+    docker:
+      - image: cimg/rust:1.81.0
+    environment:
+      RUSTFLAGS: -Awarnings
+      CONTINUE_TEST_IF_NO_POWERCAP: "true"
+      NO_IPV6: "true"
+    steps:
+      - checkout
+      - run: cargo --version
+      - generate_cargo_cache_key
+      - run: cat /etc/hosts
+      - run:
+          name: Install required packages.
+          command: sudo apt-get update && sudo apt-get install llvm-dev libclang-dev --no-install-recommends
+      - restore_cache:
+          keys:
+            - v2-dependency-cache-{{ checksum ".combined_cache_key" }}
+            - v2-dependency-cache
+      - run:
+          name: Compile Alumet core
+          command: "cargo build -p alumet"
+      # build libraries and agents now to avoid a timeout in the tests
+      - run:
+          name: Build all libraries
+          command: "cargo build"
+      - run:
+          name: Build the agents
+          command: cargo build -p alumet-agent --bins --all-features
+      - run:
+          name: Run Tests (including doc tests)
+          command: cargo test --all-features -- --show-output
+          no_output_timeout: 45s
+
+      # Caching "target" is not worth it because it is costly to extract the huge cache.
+      # So, we only cache some cargo data.
+      - save_cache:
+          key: v2-dependency-cache-{{ checksum ".combined_cache_key" }}
+          paths:
+            # .cargo/registry/src is removed by 'cargo cache' and uncompressed from .cargo/registry/cache
+            - ~/.cargo/.crates.toml
+            - ~/.cargo/.crates2.json
+            - ~/.cargo/bin/
+            - ~/.cargo/registry/index/
+            - ~/.cargo/registry/cache/
+            - ~/.cargo/git/db/
+
+  build_on_musl:
+    resource_class: medium
+    docker:
+      - image: cimg/rust:1.81.0
+    steps:
+      - checkout
+      - run: cargo --version
+      - generate_cargo_cache_key
+      - run: cat /etc/hosts
+      - run:
+          name: Install required packages.
+          command: sudo apt-get update && sudo apt-get install llvm-dev libclang-dev musl-dev musl-tools --no-install-recommends
+      - run:
+          name: Install MUSL toolchain
+          command: rustup target add x86_64-unknown-linux-musl
+      - restore_cache:
+          keys:
+            - v2-dependency-cache-{{ checksum ".combined_cache_key" }}
+            - v2-dependency-cache
+      - run:
+          name: Compile Alumet standard agent as a static MUSL binary
+          command: "cargo build -p alumet-agent --target=x86_64-unknown-linux-musl"
+          environment:
+            RUSTFLAGS: "-C target-feature=+crt-static"
+
+  lint:
+    resource_class: medium
+    docker:
+      - image: cimg/rust:1.81.0
+    steps:
+      - checkout
+      - run: cargo --version
+      - generate_cargo_cache_key
+      - run:
+          name: Install required packages.
+          command: sudo apt-get update && sudo apt-get install llvm-dev libclang-dev --no-install-recommends
+      - restore_cache:
+          keys:
+            - v2-dependency-cache-{{ checksum ".combined_cache_key" }}
+            - v2-dependency-cache
+      - run:
+          name: Run Clippy linter
+          command: "cargo clippy --no-deps"
+
+  check_format:
+    resource_class: medium
+    docker:
+      - image: cimg/rust:1.81.0
+    steps:
+      - checkout
+      - run: cargo --version
+      - generate_cargo_cache_key
+      - restore_cache:
+          keys:
+            - v2-dependency-cache-{{ checksum ".combined_cache_key" }}
+            - v2-dependency-cache
+      - run:
+          name: Check formatting
+          command: "cargo fmt --check"
+
+  miri_test:
+    resource_class: medium
+    docker:
+      - image: cimg/rust:1.81.0
+    environment:
+      RUSTFLAGS: -Awarnings
+      CONTINUE_TEST_IF_NO_POWERCAP: "true"
+    steps:
+      - checkout
+      - run: cargo --version && rustup --version
+      - generate_cargo_cache_key
+      - restore_cache:
+          keys:
+            - v2-dependency-cache-{{ checksum ".combined_cache_key" }}
+            - v2-dependency-cache
+      - run:
+          name: Install Miri on nightly rust
+          command: "rustup +nightly component add miri"
+      - run:
+          name: Run Miri on some tests
+          command: "cd alumet && cargo +nightly miri test -- ffi"
+          environment:
+            SKIP_BINDGEN: "true"
+
+workflows:
+  # Workflow for external PRs: require manual approval for long jobs.
+  rust_workflow_external:
+    when:
+      matches: { value: "<< pipeline.git.branch >>", pattern: "^pull\\/.+$" }
+
+    jobs:
+      # Format check is very fast and not risky, do it automatically
+      - check_format
+
+      # Other jobs require an approval to run.
+      - build_and_test:
+          requires: [hold]
+      - build_on_musl:
+          requires: [hold]
+      - lint:
+          requires: [hold]
+      - miri_test:
+          requires: [hold]
+
+      - hold:
+          type: approval # The job will wait for a manual approval in CircleCI web UI.
+          requires:
+            - check_format
+
+  # Workflow for internal branches: execute automatically.
+  rust_workflow_internal:
+    when:
+      matches: { value: "<< pipeline.git.branch >>", pattern: "^(?!pull\\/).+$" }
+
+    jobs:
+      - check_format
+      - build_and_test
+      - build_on_musl
+      - lint
+      - miri_test

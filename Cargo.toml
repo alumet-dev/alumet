@@ -1,0 +1,33 @@
+[workspace]
+resolver = "2"
+members = [
+    "agent",
+    "alumet",
+    "alumet-ffi",
+    "plugin-csv",
+    "plugin-cgroupv2",
+    "plugin-energy-attribution",
+    "plugin-energy-estimation-tdp",
+    "plugin-influxdb",
+    "plugin-nvidia",
+    "plugin-oar2",
+    "plugin-perf",
+    "plugin-procfs",
+    "plugin-prometheus-exporter",
+    "plugin-rapl",
+    "plugin-relay",
+    "plugin-socket-control",
+    "plugin-mongodb",
+    "test-dynamic-plugins",
+]
+
+# To apply the following lint settings to a workspace member,
+# set "lints.workspace" to true in the member's Cargo.toml.
+[workspace.lints.clippy]
+redundant_field_names = "deny"
+needless_return = "deny"
+needless_borrow = "deny"
+comparison_to_empty = "deny"
+single_char_pattern = "deny"
+unused_enumerate_index = "deny"
+useless_format = "deny"
