@@ -1,0 +1,10 @@
+[package]
+name = "locomen-app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.4.7", features = ["derive"] }
+locomen-core = { path = "../locomen-core" }
+serde = "1.0.190"
+toml = "0.8.6"

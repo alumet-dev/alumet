@@ -1,0 +1,8 @@
+[package]
+name = "locomen-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.33.0", features = ["rt", "time"] }
+tokio-timerfd = "0.2.0"

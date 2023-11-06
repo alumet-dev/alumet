@@ -1,0 +1,10 @@
+[package]
+name = "locomen-c-api"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+locomen-core = { path = "../locomen-core" }

@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = [
+    "locomen-app",
+    "locomen-c-api",
+    "locomen-core",
+]
