@@ -15,6 +15,7 @@ members = [
     "plugin-oar2",
     "plugin-perf",
     "plugin-procfs",
+    "plugin-prometheus-exporter",
     "plugin-rapl",
     "plugin-relay",
     "plugin-socket-control",
