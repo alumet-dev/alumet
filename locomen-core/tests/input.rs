@@ -1,85 +1,75 @@
-use std::error::Error;
-
-use locomen_core::metrics::{MetricId, MetricBuffer, MetricSource, MetricTransformer, Metric, TypedMetric, Metric2};
-
+use std::{collections::HashMap, error::Error};
 
 #[test]
 fn test_input_api() {
-    println!("size_of u64 {}", std::mem::size_of::<u64>());
-    println!("size_of MetricId {}", std::mem::size_of::<MetricId<u64>>());
-    println!("size_of MetricId {}", std::mem::size_of::<MetricId<f64>>());
-    println!("size_of TypedMetric {}", std::mem::size_of::<TypedMetric>());
-    println!("size_of Metric {}", std::mem::size_of::<Metric>());
-    println!("size_of Metric2 {}", std::mem::size_of::<Metric2>());
-    println!("size_of Vec<> {}", std::mem::size_of::<Vec<(String,String)>>());
+    // With a dynamically loaded plugin, this struct will be filled by Locomen CLI app.
+    // The plugin's binary must contain the symbols PLUGIN_NAME, PLUGIN_VERSION and plugin_init.
+    let manual_plugin = LocomenPlugin {
+        name: "test_input",
+        version: "0.0.1",
+        init: crate::init,
+    };
+    let locomen = Locomen::new();
+    let test_input_plugin: TestInputPlugin = locomen.plugins().register(manual_plugin)?;
 }
 
-struct TestPlugin {}
-
-// impl LocomenPlugin for TestPlugin {
-//     fn init(&mut self, locomen: &mut Locomen) -> Result<()> {
-//         let rapl_energy_metric = locomen.new_metric::<u64>("rapl_energy");
-//         let pid_cpu_usage_metric = locomen.new_metric::<f64>("cpu_usage");
-//         let input = TestInput {
-//             rapl_energy_metric,
-//             pid_cpu_usage_metric,
-//             processes: vec![],
-//             disks: vec![],
-//         };
-//         Ok(())
-//     }
-// }
-
-struct TestInput {
-    rapl_energy_metric: MetricId<u64>,
-    pid_cpu_usage_metric: MetricId<f64>,
-    disk_usage_metric: MetricId<u64>,
-    processes: Vec<u64>,
-    disks: Vec<String>,
+struct TestInputPlugin {
+    cpu_ids: Vec<u32>,
+    cpu_consumption: TypedMetricId<u64, CpuConsumptionAttributes>,
+    disk_usage: MetricId<f64, ()>,
 }
 
-impl MetricSource for TestInput {
-    type Err = Box<dyn Error>;
+//#[derive(Attributes)]
+struct CpuConsumptionAttributes {
+    cpu_id: u32,
+}
 
-    fn poll(&self, buf: &mut MetricBuffer) -> Result<(), Self::Err> {
-        // get RAPL energy value
-        let core_energy = 10u64;
-        let pkg_energy = 50u64;
-        buf.add(&self.rapl_energy_metric, core_energy, vec![("domain", "core")]);
-        buf.add(&self.rapl_energy_metric, pkg_energy, vec![("domain", "pkg")]);
+pub fn init(&mut locomen: PluginInitializer) -> Result<TestInputPlugin, Box<dyn Error>> {
+    let cpu_consumption = locomen
+        .new_metric("cpu_consumption", MetricType::U64, MetricUnit::Joules)
+        .description(
+            "Energy consumption of the whole CPU socket, since the previous measurement",
+        )
+        .build()?;
 
-        // get process cpu stat
-        for p in &self.processes {
-            let cpu_usage = 1.25;
-            buf.add(&self.pid_cpu_usage_metric, cpu_usage, vec![("pid", &p.to_string())]);
+    let disk_usage = locomen
+        .new_metric("disk_usage", MetricType::F64, MetricUnit::Percent)
+        .description("Percentage of allocated disk space")
+        .build()?;
+
+    let cpu_ids = vec![0]; // monitor cpu 0
+    let f = 1.0; // 1 Hz
+
+    locomen
+        .inputs()
+        .register_polling(self, PollingPolicy::Frequency(f));
+    
+    Ok(TestInputPlugin { cpu_ids, cpu_consumption, disk_usage })
+}
+
+impl TestInputPlugin {
+    pub fn poll(&mut self, &mut dest: MetricAccumulator) {
+        fn measure_consumption(cpu_id: u32) -> u64 {
+            return 123; // dummy measurement
         }
-
-        // get disk stat
-        for d in &self.disks {
-            let disk_used_mo = 10_420;
-            let mount_path = format!("/mnt/disk_{d}");
-            buf.add(&self.disk_usage_metric, disk_used_mo, vec![("mount", &mount_path), ("uid", d)]);
+        fn measure_usage() -> f64 {
+            return 0.5;
         }
-        Ok(())
-    }
-}
+        dest.push(self.disk_usage, measure_usage(), ());
 
-struct TestTranformer {}
-
-impl MetricTransformer for TestTranformer {
-    type Err = Box<dyn Error>;
-
-    fn transform(&self, m: &mut MetricBuffer) -> Result<(), Self::Err> {
-        let test_metric_u64 = Metric { typed: TypedMetric::U64 { id: todo!(), value: 50 }, metadata: vec![("domain".to_owned(), "core".to_owned())] };
-        let test_metric_f64 = Metric { typed: TypedMetric::F64 { id: todo!(), value: 1.25 }, metadata: vec![("pid".to_owned(), "1234".to_owned())] };
-        let mut metrics = vec![test_metric_u64, test_metric_f64];
-        metrics.iter()
-        .for_each(|metric| {
-            // if let Some(pid) = metric.metadata.get("pid") {
-            //     let container = containers.get_for_pid(pid);
-            //     metric.add_metadata("container", container);
-            // }
-        });
-        Ok(())
+        for cpu_id in self.cpu_ids {
+            let measurement = measure_consumption(cpu_id);
+            dest.push_detailed(
+                self.cpu_consumption,
+                measurement,
+                CpuConsumptionAttributes { cpu_id },
+            );
+            // or
+            dest.push_detailed(
+                self.cpu_consumption,
+                measurement,
+                vec![("cpu_id", cpu_id)]
+            )
+        }
     }
 }

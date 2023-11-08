@@ -1,17 +1,18 @@
-// use std::ffi::{c_char, CString, CStr};
-// // use libc::size_t;
+use std::collections::HashMap;
 
-// pub struct MetricId(u32);
+use metric::{Resource, Metric, MetricId, ResourceId};
 
-// pub struct PluginMetadata {
-//     name: String,
-//     version: String,
-// }
+pub mod metric;
 
-// #[no_mangle]
-// pub extern "C" fn register_metric_int(name: *const c_char) -> MetricId {
-//     let str = unsafe { CStr::from_ptr(name) };
-//     todo!()
-// }
+pub struct Locomen {
+    metrics: HashMap<MetricId, Metric>,
+    resources: HashMap<ResourceId, Resource>,
+}
 
-pub mod metrics;
+impl Locomen {
+    pub fn new() -> Locomen {
+        Locomen { metrics: HashMap::new(), resources: HashMap::new() }
+    }
+}
+
+// todo a "global" access to Locomen?
