@@ -5,3 +5,4 @@ use metric::{Metric, MetricId, MetricGroupId, MetricGroup, AttributeValue, Metri
 pub mod metric;
 pub mod resource;
 pub mod plugin;
+pub mod config;
