@@ -1,4 +1,4 @@
 
-struct OutputExamplePlugin<'a> {
+// struct OutputExamplePlugin<'a> {
     
-}
+// }
