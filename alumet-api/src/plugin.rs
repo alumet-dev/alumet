@@ -1,9 +1,7 @@
 use core::fmt;
-use std::{error::Error, time::Duration, collections::HashMap, ffi::c_void};
+use std::{error::Error, time::Duration, collections::HashMap};
 
 use crate::{metric::{MeasurementBuffer, MetricRegistry}, config};
-
-pub type ExternPluginInit = extern fn(config: &mut config::ConfigTable) -> *const c_void;
 
 pub struct PluginInfo {
     pub name: String,
@@ -140,5 +138,19 @@ impl Error for MetricOutputError {
 impl fmt::Display for MetricOutputError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "failed to write measurements")
+    }
+}
+
+// ====== FFI API for C ======
+pub mod ffi {
+    use std::ffi::c_void;
+    use crate::config;
+    use super::SourceRegistry;
+    
+    pub type ExternPluginInitFn = extern fn(config: *const config::ConfigTable) -> *const c_void;
+
+    #[no_mangle]
+    pub extern fn metric_register(registry: &mut SourceRegistry) {
+        todo!()
     }
 }

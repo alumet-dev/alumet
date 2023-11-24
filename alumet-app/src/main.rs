@@ -13,7 +13,7 @@ use clap::{Parser, Subcommand};
 use libloading::{Symbol, Library};
 use locomen_core::{
     metric::{MeasurementBuffer, MetricRegistry},
-    plugin::{Plugin, MetricSource, OutputRegistry, RegisteredSourceType, SourceRegistry, PluginInfo}, config,
+    plugin::{Plugin, MetricSource, OutputRegistry, RegisteredSourceType, SourceRegistry, PluginInfo, ffi::ExternPluginInitFn}, config,
 };
 use log::{debug, error, info, log_enabled, Level};
 use tokio::{
@@ -25,18 +25,19 @@ use tokio_stream::StreamExt;
 #[derive(Parser)]
 #[command(author, version, about)]
 pub struct Cli {
-    #[arg(short, long, value_name = "FILE")]
-    config: Option<PathBuf>,
+    #[arg(long, value_name = "FILE", default_value = "alumet.toml")]
+    config: PathBuf,
+    
+    #[arg(long, value_name = "FOLDER", default_value = "plugins")]
+    plugins: PathBuf,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
-    // let cli = Cli::parse();
+    let cli = Cli::parse();
+    let mut global_config = toml::from_str(cli.)
 
     let mut global_config = toml::Table::new();
-    // let mut source_registry: SourceRegistry = SourceRegistry::new();
-    // let mut output_registry: OutputRegistry = OutputRegistry::new();
-
     let test_path = std::env::args().nth(1).unwrap();
     let files = vec![Path::new(&test_path)];
     let plugins = load_plugins(files, global_config);
@@ -53,20 +54,20 @@ fn load_plugins(files: Vec<&Path>, mut global_config: toml::Table) -> Vec<Plugin
         // However, to load a function of type `fn(A,B) -> R`, a `Symbol<extern fn(A,B) -> R>` must be used.
         let lib = unsafe { Library::new(file)? };
         log::debug!("library loaded");
-        let sym_name: Symbol<*const *const c_char> = unsafe { lib.get(b"PLUGIN_NAME\0")? }; // todo add trailing zero to optimize
+        let sym_name: Symbol<*const *const c_char> = unsafe { lib.get(b"PLUGIN_NAME\0")? };
         let sym_version: Symbol<*const *const c_char> = unsafe { lib.get(b"PLUGIN_VERSION\0")? };
-        let sym_init: Symbol<extern fn(*const config::ConfigTable)> = unsafe { lib.get(b"plugin_init")? };
+        let sym_init: Symbol<ExternPluginInitFn> = unsafe { lib.get(b"plugin_init\0")? };
 
         // todo add LOCOMEN_VERSION and check that the plugin is compatible
         log::debug!("symbols loaded");
-        
+
         // convert the strings to Rust strings
         log::debug!("raw PLUGIN_NAME = {:?}", unsafe{CStr::from_ptr(**sym_name)});
         log::debug!("raw PLUGIN_VERSION = {:?}", unsafe{CStr::from_ptr(**sym_version)});
         let name = unsafe { CStr::from_ptr(**sym_name) }.to_str()?.to_owned();
         let version = unsafe { CStr::from_ptr(**sym_version) }.to_str()?.to_owned();
         log::debug!("PLUGIN LOADED: {name} v{version}");
-        sym_init(std::ptr::null());
+        let plugin_instance = sym_init(std::ptr::null());
         log::debug!("init called from Rust");
         Ok(todo!())
         // Ok(PluginInfo { name, version, init: *sym_init })

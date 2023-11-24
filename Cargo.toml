@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
 members = [
-    "locomen-app",
-    "locomen-core",
+    "alumet-app",
+    "alumet-core",
 ]
