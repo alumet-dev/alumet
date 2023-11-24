@@ -1,16 +1,19 @@
 use core::fmt;
-use std::{error::Error, time::Duration, collections::HashMap};
+use std::{error::Error, time::Duration, collections::HashMap, ffi::c_void};
 
-use crate::metric::{MeasurementBuffer, MetricRegistry};
+use crate::{metric::{MeasurementBuffer, MetricRegistry}, config};
 
-pub struct PluginInfo<C> {
+pub type ExternPluginInit = extern fn(config: &mut config::ConfigTable) -> *const c_void;
+
+pub struct PluginInfo {
     pub name: String,
     pub version: String,
-    pub init: fn(config: &mut C) -> Result<Box<dyn LocomenPlugin>, PluginError>,
+    pub init: fn(config: &mut config::ConfigTable) -> Result<Box<dyn Plugin>, PluginError>
 }
 
-pub trait LocomenPlugin {
-    fn info(&self) -> PluginInfo<String>;
+pub trait Plugin {
+    fn name(&self) -> &str;
+    fn version(&self) -> &str;
     fn start(&mut self, metrics: &mut MetricRegistry, sources: &mut SourceRegistry, outputs: &mut OutputRegistry) -> Result<(), PluginError>;
     fn stop(&mut self) -> Result<(), PluginError>;
 }

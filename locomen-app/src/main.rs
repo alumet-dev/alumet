@@ -2,17 +2,18 @@ use core::fmt;
 use std::{
     error::Error,
     future::{self, Future},
-    ops::DerefMut,
+    ops::{DerefMut, Deref},
     path::{PathBuf, Path},
     pin::Pin,
     sync::{mpsc, Arc, Mutex},
-    time::Duration, fs::File, ffi::c_char,
+    time::Duration, fs::File, ffi::{c_char, CStr, CString},
 };
 
 use clap::{Parser, Subcommand};
+use libloading::{Symbol, Library};
 use locomen_core::{
-    metric::{MeasurementBuffer, MeasurementPoint, MetricRegistry},
-    plugin::{LocomenPlugin, MetricSource, OutputRegistry, RegisteredSourceType, SourceRegistry, PluginInfo}, config::{self, PluginConfig},
+    metric::{MeasurementBuffer, MetricRegistry},
+    plugin::{Plugin, MetricSource, OutputRegistry, RegisteredSourceType, SourceRegistry, PluginInfo}, config,
 };
 use log::{debug, error, info, log_enabled, Level};
 use tokio::{
@@ -30,52 +31,75 @@ pub struct Cli {
 
 fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
-    let cli = Cli::parse();
+    // let cli = Cli::parse();
 
-    let mut config = toml::Table::new();
-    let mut source_registry: SourceRegistry = SourceRegistry::new();
-    let mut output_registry: OutputRegistry = OutputRegistry::new();
+    let mut global_config = toml::Table::new();
+    // let mut source_registry: SourceRegistry = SourceRegistry::new();
+    // let mut output_registry: OutputRegistry = OutputRegistry::new();
 
-    // // create the plugin instances
-    // for mut p in uninit_plugins {
-    //     let config = config
-    //         .get_mut(p.name())
-    //         .expect("no plugin config")
-    //         .as_table_mut()
-    //         .expect("plugin config must be a table");
-    //     match p.init(config) {
-    //         Ok(plugin) => {
-    //             initialized_plugins.push(plugin);
-    //         }
-    //         Err(_) => todo!(),
-    //     }
-    // }
-
-    let plugins = todo!();
-    start_with_plugins(plugins);
+    let test_path = std::env::args().nth(1).unwrap();
+    let files = vec![Path::new(&test_path)];
+    let plugins = load_plugins(files, global_config);
+    // start_with_plugins(plugins);
 
     Ok(())
 }
 
-fn load_plugins(files: Vec<&Path>, config: toml::Table) -> Vec<PluginInfo<toml::Table>> {
-    fn load(file: &Path) -> Result<PluginInfo<toml::Table>, libloading::Error> {
-        unsafe {
-            let lib = libloading::Library::new(file)?;
-            let name = lib.get::<*const c_char>(b"PLUGIN_NAME")?; // todo add trailing zero to optimize
-            let version = lib.get::<*const c_char>(b"PLUGIN_VERSION")?;
-            // todo add LOCOMEN_VERSION and check that the plugin is compatible
-            let init = lib.get::<extern fn(*const PluginConfig)>(b"plugin_init")?;
-            // todo rendre la config repr(C)
-        }
-        Ok(todo!())
-    }
-    for f in files {
+fn load_plugins(files: Vec<&Path>, mut global_config: toml::Table) -> Vec<PluginInfo> {
+    fn load(file: &Path) -> Result<PluginInfo, Box<dyn Error>> {
+        log::debug!("loading dynamic library {}", file.display());
+        // load the library and the symbols we need to initialize the plugin
+        // BEWARE: to load a constant of type `T` from the shared library, a `Symbol<*const T>` or `Symbol<*mut T>` must be used.
+        // However, to load a function of type `fn(A,B) -> R`, a `Symbol<extern fn(A,B) -> R>` must be used.
+        let lib = unsafe { Library::new(file)? };
+        log::debug!("library loaded");
+        let sym_name: Symbol<*const *const c_char> = unsafe { lib.get(b"PLUGIN_NAME\0")? }; // todo add trailing zero to optimize
+        let sym_version: Symbol<*const *const c_char> = unsafe { lib.get(b"PLUGIN_VERSION\0")? };
+        let sym_init: Symbol<extern fn(*const config::ConfigTable)> = unsafe { lib.get(b"plugin_init")? };
+
+        // todo add LOCOMEN_VERSION and check that the plugin is compatible
+        log::debug!("symbols loaded");
         
+        // convert the strings to Rust strings
+        log::debug!("raw PLUGIN_NAME = {:?}", unsafe{CStr::from_ptr(**sym_name)});
+        log::debug!("raw PLUGIN_VERSION = {:?}", unsafe{CStr::from_ptr(**sym_version)});
+        let name = unsafe { CStr::from_ptr(**sym_name) }.to_str()?.to_owned();
+        let version = unsafe { CStr::from_ptr(**sym_version) }.to_str()?.to_owned();
+        log::debug!("PLUGIN LOADED: {name} v{version}");
+        sym_init(std::ptr::null());
+        log::debug!("init called from Rust");
+        Ok(todo!())
+        // Ok(PluginInfo { name, version, init: *sym_init })
     }
-    todo!()
+    fn init_with_config(p: PluginInfo, plugin_config: Option<toml::Value>) -> Result<Box<dyn Plugin>, Box<dyn Error>> {
+        // get the plugin config (remove to take ownership)
+        // let plugin_config = global_config.remove(&p.name);
+        match plugin_config {
+            Some(toml::Value::Table(subconfig)) => {
+                // convert the subconfig to a ffi-safe version
+                let ffi_config = config::ConfigTable::new(subconfig)?;
+                // initialize the plugin
+                // sym_init(&ffi_config)
+                todo!("sym_init")
+            },
+            // Some(toml::Value::Array(multiple_configs)) =>
+            // todo: multiple instances of the same plugin ?
+            _ => {
+                Err(todo!("invalid plugin config: expected table"))
+            },
+        }
+    }
+
+    for f in files {
+        let plugin_info = load(&f).unwrap();
+        // get the plugin config (remove to take ownership)
+        let plugin_config = global_config.remove(&plugin_info.name);
+        // let plugin = init_with_config(plugin_info, plugin_config);
+    }
+    todo!("let's stop here")
 }
 
-fn start_with_plugins(plugins: Vec<Box<dyn LocomenPlugin>>) {
+fn start_with_plugins(plugins: Vec<Box<dyn Plugin>>) {
     let mut metrics = MetricRegistry::new();
     let mut sources = SourceRegistry::new();
     let mut outputs = OutputRegistry::new();
@@ -180,14 +204,15 @@ fn start_with_plugins(plugins: Vec<Box<dyn LocomenPlugin>>) {
     }
 }
 
-fn start_plugins(plugins: Vec<Box<dyn LocomenPlugin>>, metrics: &mut MetricRegistry, sources: &mut SourceRegistry, outputs: &mut OutputRegistry) {
+fn start_plugins(plugins: Vec<Box<dyn Plugin>>, metrics: &mut MetricRegistry, sources: &mut SourceRegistry, outputs: &mut OutputRegistry) {
     log::info!("Starting plugins...");
     let mut n_plugins = 0;
     for mut p in plugins {
-        let info = p.info();
-        log::info!("Starting plugin {} v{}", info.name, info.version);
+        let name = p.name();
+        let version = p.version();
+        log::info!("Starting plugin {name} v{version}");
         if let Err(e) = p.start(metrics, sources, outputs) {
-            log::error!("Failed to start {} v{}: {}", info.name, info.version, e)
+            log::error!("Failed to start {name} v{version}: {e}")
         } else {
             n_plugins += 1;
         }

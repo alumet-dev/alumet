@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "c_locomen.h": "c",
+        "stdio.h": "c",
+        "stdlib.h": "c"
+    }
+}
