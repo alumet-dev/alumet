@@ -2,5 +2,6 @@
 resolver = "2"
 members = [
     "alumet-app",
-    "alumet-core",
+    "alumet-api",
+    "plugins-embedded",
 ]
