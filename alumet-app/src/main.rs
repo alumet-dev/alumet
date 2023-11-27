@@ -6,14 +6,14 @@ use std::{
     path::{PathBuf, Path},
     pin::Pin,
     sync::{mpsc, Arc, Mutex},
-    time::Duration, fs::File, ffi::{c_char, CStr, CString},
+    time::Duration, fs::{File, self}, ffi::{c_char, CStr, CString}, io,
 };
 
 use clap::{Parser, Subcommand};
 use libloading::{Symbol, Library};
-use locomen_core::{
+use alumet_api::{
     metric::{MeasurementBuffer, MetricRegistry},
-    plugin::{Plugin, MetricSource, OutputRegistry, RegisteredSourceType, SourceRegistry, PluginInfo, ffi::ExternPluginInitFn}, config,
+    plugin::{Plugin, MetricSource, OutputRegistry, RegisteredSourceType, SourceRegistry, PluginInfo, ffi}, config,
 };
 use log::{debug, error, info, log_enabled, Level};
 use tokio::{
@@ -21,6 +21,8 @@ use tokio::{
     task::{futures, JoinSet}, net::unix::pipe::Receiver,
 };
 use tokio_stream::StreamExt;
+
+mod plugin_loader;
 
 #[derive(Parser)]
 #[command(author, version, about)]
@@ -35,69 +37,15 @@ pub struct Cli {
 fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
     let cli = Cli::parse();
-    let mut global_config = toml::from_str(cli.)
 
-    let mut global_config = toml::Table::new();
-    let test_path = std::env::args().nth(1).unwrap();
-    let files = vec![Path::new(&test_path)];
-    let plugins = load_plugins(files, global_config);
+    let config_content = fs::read_to_string(&cli.config)?;
+    let mut global_config = toml::from_str(&config_content)?;
+    
+    let plugin_entries: io::Result<Vec<fs::DirEntry>> = cli.plugins.read_dir()?.collect();
+    let plugin_files: Vec<PathBuf> = plugin_entries?.iter().map(|e| e.path()).collect();
     // start_with_plugins(plugins);
 
     Ok(())
-}
-
-fn load_plugins(files: Vec<&Path>, mut global_config: toml::Table) -> Vec<PluginInfo> {
-    fn load(file: &Path) -> Result<PluginInfo, Box<dyn Error>> {
-        log::debug!("loading dynamic library {}", file.display());
-        // load the library and the symbols we need to initialize the plugin
-        // BEWARE: to load a constant of type `T` from the shared library, a `Symbol<*const T>` or `Symbol<*mut T>` must be used.
-        // However, to load a function of type `fn(A,B) -> R`, a `Symbol<extern fn(A,B) -> R>` must be used.
-        let lib = unsafe { Library::new(file)? };
-        log::debug!("library loaded");
-        let sym_name: Symbol<*const *const c_char> = unsafe { lib.get(b"PLUGIN_NAME\0")? };
-        let sym_version: Symbol<*const *const c_char> = unsafe { lib.get(b"PLUGIN_VERSION\0")? };
-        let sym_init: Symbol<ExternPluginInitFn> = unsafe { lib.get(b"plugin_init\0")? };
-
-        // todo add LOCOMEN_VERSION and check that the plugin is compatible
-        log::debug!("symbols loaded");
-
-        // convert the strings to Rust strings
-        log::debug!("raw PLUGIN_NAME = {:?}", unsafe{CStr::from_ptr(**sym_name)});
-        log::debug!("raw PLUGIN_VERSION = {:?}", unsafe{CStr::from_ptr(**sym_version)});
-        let name = unsafe { CStr::from_ptr(**sym_name) }.to_str()?.to_owned();
-        let version = unsafe { CStr::from_ptr(**sym_version) }.to_str()?.to_owned();
-        log::debug!("PLUGIN LOADED: {name} v{version}");
-        let plugin_instance = sym_init(std::ptr::null());
-        log::debug!("init called from Rust");
-        Ok(todo!())
-        // Ok(PluginInfo { name, version, init: *sym_init })
-    }
-    fn init_with_config(p: PluginInfo, plugin_config: Option<toml::Value>) -> Result<Box<dyn Plugin>, Box<dyn Error>> {
-        // get the plugin config (remove to take ownership)
-        // let plugin_config = global_config.remove(&p.name);
-        match plugin_config {
-            Some(toml::Value::Table(subconfig)) => {
-                // convert the subconfig to a ffi-safe version
-                let ffi_config = config::ConfigTable::new(subconfig)?;
-                // initialize the plugin
-                // sym_init(&ffi_config)
-                todo!("sym_init")
-            },
-            // Some(toml::Value::Array(multiple_configs)) =>
-            // todo: multiple instances of the same plugin ?
-            _ => {
-                Err(todo!("invalid plugin config: expected table"))
-            },
-        }
-    }
-
-    for f in files {
-        let plugin_info = load(&f).unwrap();
-        // get the plugin config (remove to take ownership)
-        let plugin_config = global_config.remove(&plugin_info.name);
-        // let plugin = init_with_config(plugin_info, plugin_config);
-    }
-    todo!("let's stop here")
 }
 
 fn start_with_plugins(plugins: Vec<Box<dyn Plugin>>) {
@@ -209,8 +157,8 @@ fn start_plugins(plugins: Vec<Box<dyn Plugin>>, metrics: &mut MetricRegistry, so
     log::info!("Starting plugins...");
     let mut n_plugins = 0;
     for mut p in plugins {
-        let name = p.name();
-        let version = p.version();
+        let name = p.name().to_owned();
+        let version = p.version().to_owned();
         log::info!("Starting plugin {name} v{version}");
         if let Err(e) = p.start(metrics, sources, outputs) {
             log::error!("Failed to start {name} v{version}: {e}")
@@ -242,7 +190,7 @@ fn increase_thread_priority() -> std::io::Result<()> {
         };
         let res = unsafe { libc::sched_setscheduler(0, libc::SCHED_FIFO, &params) };
         if res < 0 {
-            return Err(std::io::Error::last_os_error());
+            Err(std::io::Error::last_os_error())
         } else {
             Ok(())
         }
