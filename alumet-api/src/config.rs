@@ -1,3 +1,9 @@
+//! Configuration structures and utilities.
+//! 
+//! This module defines the configuration structures that can be passed to plugins
+//! during their initialization. It provides an abstraction over specific structures
+//! provided by underlying libraries like serde_json or toml.
+
 use std::{
     collections::BTreeMap,
     ffi::{c_char, CStr, CString, NulError},

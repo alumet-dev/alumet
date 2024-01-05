@@ -1,7 +1,12 @@
-use alumet_api::plugin::Plugin;
+use std::time::SystemTime;
 
+use alumet_api::{
+    metric::MeasurementPoint,
+    plugin::{AlumetStart, Plugin, PluginError, Source},
+    units::Unit::Joule,
+};
 
-struct RaplPlugin;
+struct RaplPlugin {}
 
 impl Plugin for RaplPlugin {
     fn name(&self) -> &str {
@@ -12,11 +17,22 @@ impl Plugin for RaplPlugin {
         "0.0.1"
     }
 
-    fn start(&mut self, metrics: &mut alumet_api::metric::MetricRegistry, sources: &mut alumet_api::plugin::SourceRegistry, outputs: &mut alumet_api::plugin::OutputRegistry) -> alumet_api::plugin::PluginResult<()> {
-        todo!()
+    fn start(&mut self, alumet: &mut AlumetStart) -> Result<(), PluginError> {
+        // todo provide a way for plugins to emit some data* on start?
+        // *that will not change later, e.g. configuration data, list of available domains, etc.
+        let domains: Vec<&str> = vec![]; // todo list the domains
+        let rapl_metric = alumet
+            .metrics
+            .new_builder("rapl_energy")
+            .description("RAPL energy counter")
+            .unit(Joule)
+            .build()
+            .unwrap();
+        for d in domains {}
+        Ok(())
     }
 
-    fn stop(&mut self) -> alumet_api::plugin::PluginResult<()> {
+    fn stop(&mut self) -> Result<(), PluginError> {
         todo!()
     }
 }

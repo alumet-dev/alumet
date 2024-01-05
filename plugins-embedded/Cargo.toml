@@ -7,3 +7,5 @@ edition = "2021"
 
 [dependencies]
 alumet-api = { path = "../alumet-api" }
+anyhow = "1.0.75"
+perf-event-open-sys = "4.0.0"

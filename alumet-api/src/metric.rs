@@ -1,31 +1,18 @@
 use std::{collections::HashMap, time::SystemTime};
 
-use crate::resource::ResourceId;
+use crate::{resource::ResourceId, units::Unit};
 
 /// All information about a metric.
 pub struct Metric {
     id: MetricId,
     name: String,
     description: Option<String>,
-    unit: Option<String>,
-    group: Option<MetricGroupId>,
+    unit: Unit,
 }
 
 /// A metric id, used for internal purposes such as storing the list of metrics.
 #[derive(PartialEq, Eq, Hash, Clone)] // not Copy because the struct may change of the future
 pub struct MetricId(usize);
-
-/// A group of metrics allows to deduplicate the attributes that are the same across all the metrics of the group.
-pub struct MetricGroup {
-    id: MetricGroupId,
-    name: String,
-    description: Option<String>,
-    attributes: HashMap<String, AttributeValue>,
-}
-
-/// ID of a MetricGroup.
-#[derive(PartialEq, Eq, Hash, Clone)]
-pub struct MetricGroupId(usize);
 
 /// A data point about a metric that has been measured.
 pub struct MeasurementPoint {
@@ -44,6 +31,28 @@ pub struct MeasurementPoint {
     /// Additional attributes on the measurement point
     attributes: Option<Box<HashMap<String, AttributeValue>>>,
     // the HashMap is Boxed to make the struct smaller, which is good for the cache
+}
+
+impl MeasurementPoint {
+    pub fn new(timestamp: SystemTime, metric: MetricId, resource: ResourceId, value: MeasurementValue) -> MeasurementPoint {
+        MeasurementPoint {
+            metric,
+            timestamp,
+            value,
+            resource,
+            attributes: None,
+        }
+    }
+    
+    pub fn with_attrs(metric: MetricId, resource: ResourceId, value: MeasurementValue, attrs: Box<HashMap<String, AttributeValue>>) -> MeasurementPoint {
+        MeasurementPoint {
+            metric,
+            timestamp: SystemTime::now(),
+            value,
+            resource,
+            attributes: Some(attrs),
+        }
+    }
 }
 
 pub enum MeasurementValue {
@@ -81,126 +90,97 @@ impl MeasurementBuffer {
     }
 }
 
+#[derive(Debug)]
+pub enum RegistryError {
+    Conflict,
+    AlreadyRegistered,
+}
+
 pub struct MetricRegistry {
-    metrics: HashMap<MetricId, Metric>,
-    groups: HashMap<MetricGroupId, MetricGroup>,
-    global_attributes: HashMap<String, AttributeValue>,
+    metrics_by_id: HashMap<MetricId, Metric>,
+    metrics_by_name: HashMap<String, MetricId>,
 }
 
 impl MetricRegistry {
     pub fn new() -> MetricRegistry {
         MetricRegistry {
-            metrics: HashMap::new(),
-            groups: HashMap::new(),
-            global_attributes: HashMap::new(),
+            metrics_by_id: HashMap::new(),
+            metrics_by_name: HashMap::new(),
         }
     }
-    
+
     pub fn len(&self) -> usize {
-        self.metrics.len()
+        self.metrics_by_id.len()
     }
 
-    pub fn new_metric(&mut self, name: String) -> MetricBuilder {
-        MetricBuilder::new(self, name, None)
+    /// Creates a new metric.
+    ///
+    /// The metric is registered when `build()` is called, and its `MetricId` is returned.
+    ///
+    /// # Example
+    /// ```
+    /// # let metrics = MetricRegistry::new();
+    /// let my_metric = metrics.new_builder("light-consumption")
+    ///     .unit(Units::Joules)
+    ///     .description("electricity consumption of the connected light bulb")
+    ///     .build();
+    /// ```
+    pub fn new_builder(&mut self, name: &str) -> MetricBuilder {
+        MetricBuilder::new(self, name.to_owned())
     }
 
-    pub fn metric(&self, id: &MetricId) -> Option<&Metric> {
-        self.metrics.get(id)
+    /// Registers a new metric.
+    fn register(&mut self, mut m: Metric) -> Result<MetricId, RegistryError> {
+        let id = MetricId(self.len());
+        m.id = id.clone();
+        if let Some(name_conflict) = self.metrics_by_name.get(&m.name) {
+            return Err(RegistryError::Conflict)
+        }
+        let id_conflict = self.metrics_by_id.insert(id.clone(), m);
+        debug_assert!(id_conflict.is_none(), "metrics ids must be unique");
+        Ok(id)
     }
 
-    pub fn metric_mut(&mut self, id: &MetricId) -> Option<&mut Metric> {
-        self.metrics.get_mut(id)
+    pub fn get(&self, id: &MetricId) -> Option<&Metric> {
+        self.metrics_by_id.get(id)
     }
 
-    pub fn group(&self, id: &MetricGroupId) -> Option<&MetricGroup> {
-        self.groups.get(id)
-    }
-
-    pub fn group_mut(&mut self, id: &MetricGroupId) -> Option<&mut MetricGroup> {
-        self.groups.get_mut(id)
-    }
-
-    pub fn new_group(&mut self, name: String) -> MetricGroupBuilder {
-        MetricGroupBuilder::new(self, name)
+    pub fn get_by_name(&self, metric_name: &str) -> Option<&Metric> {
+        self.metrics_by_name
+            .get(metric_name)
+            .and_then(|id| self.metrics_by_id.get(id))
     }
 }
 
 pub struct MetricBuilder<'a> {
-    manager: &'a mut MetricRegistry,
+    registry: &'a mut MetricRegistry,
     inner: Metric,
 }
+
 impl<'a> MetricBuilder<'a> {
-    pub fn new(
-        manager: &'a mut MetricRegistry,
-        name: String,
-        group: Option<MetricGroupId>,
-    ) -> MetricBuilder<'a> {
+    pub fn new(registry: &'a mut MetricRegistry, name: String) -> MetricBuilder<'a> {
         MetricBuilder {
-            manager,
+            registry,
             inner: Metric {
                 id: MetricId(0),
                 name,
                 description: None,
-                unit: None,
-                group,
+                unit: Unit::Unity,
             },
         }
     }
 
-    pub fn description(&mut self, desc: String) -> &mut Self {
-        self.inner.description = Some(desc);
+    pub fn description(mut self, desc: &str) -> Self {
+        self.inner.description = Some(desc.to_owned());
         self
     }
 
-    pub fn unit_custom(&mut self, unit: String) -> &mut Self {
-        self.inner.unit = Some(unit);
+    pub fn unit(mut self, unit: Unit) -> Self {
+        self.inner.unit = unit;
         self
     }
 
-    pub fn group(&mut self, group: MetricGroupId) -> &mut Self {
-        self.inner.group = Some(group);
-        self
-    }
-
-    pub fn build(mut self) -> MetricId {
-        let id = MetricId(self.manager.metrics.len());
-        self.inner.id = id.clone();
-        self.manager.metrics.insert(id.clone(), self.inner);
-        id
-    }
-}
-
-pub struct MetricGroupBuilder<'a> {
-    manager: &'a mut MetricRegistry,
-    inner: MetricGroup,
-}
-impl<'a> MetricGroupBuilder<'a> {
-    fn new(manager: &'a mut MetricRegistry, name: String) -> MetricGroupBuilder<'a> {
-        MetricGroupBuilder {
-            manager,
-            inner: MetricGroup {
-                id: MetricGroupId(0),
-                name,
-                description: None,
-                attributes: HashMap::new(),
-            },
-        }
-    }
-
-    pub fn description(&mut self, desc: String) -> &mut Self {
-        self.inner.description = Some(desc);
-        self
-    }
-
-    pub fn attribute(&mut self, key: String, value: AttributeValue) -> &mut Self {
-        self.inner.attributes.insert(key, value);
-        self
-    }
-
-    pub fn build(mut self) -> MetricGroupId {
-        let id = MetricGroupId(self.manager.groups.len());
-        self.inner.id = id.clone();
-        self.manager.groups.insert(id.clone(), self.inner);
-        id
+    pub fn build(self) -> Result<MetricId, RegistryError> {
+        self.registry.register(self.inner)
     }
 }

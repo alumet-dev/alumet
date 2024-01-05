@@ -1,12 +1,13 @@
 use std::{
+    collections::HashMap,
     error::Error,
     ffi::{c_char, CStr},
-    path::{Path, PathBuf}, collections::HashMap,
+    path::{Path},
 };
 
 use alumet_api::{
     config::{self, ConfigTable},
-    plugin::{ffi, Plugin, PluginError, PluginInfo, PluginResult},
+    plugin::{ffi, AlumetStart, Plugin, PluginError, PluginInfo},
 };
 use libc::c_void;
 use libloading::{Library, Symbol};
@@ -32,17 +33,12 @@ impl Plugin for DylibPlugin {
         &self.version
     }
 
-    fn start(
-        &mut self,
-        metrics: &mut alumet_api::metric::MetricRegistry,
-        sources: &mut alumet_api::plugin::SourceRegistry,
-        outputs: &mut alumet_api::plugin::OutputRegistry,
-    ) -> Result<(), alumet_api::plugin::PluginError> {
+    fn start(&mut self, alumet: &mut AlumetStart) -> Result<(), PluginError> {
         (self.start_fn)(self.instance); // TODO, metrics, sources, outputs);
         Ok(())
     }
 
-    fn stop(&mut self) -> Result<(), alumet_api::plugin::PluginError> {
+    fn stop(&mut self) -> Result<(), PluginError> {
         (self.stop_fn)(self.instance); // TODO error handling for ffi
         Ok(())
     }
@@ -147,15 +143,17 @@ pub fn plugin_subconfig(plugin: &PluginInfo, global_config: &mut toml::Table) ->
 }
 
 pub struct PluginRegistry {
-    plugins: HashMap<String, Box<dyn Plugin>>
+    plugins: HashMap<String, Box<dyn Plugin>>,
 }
 
 impl PluginRegistry {
     pub fn register(&mut self, plugin: Box<dyn Plugin>) {
         self.plugins.insert(plugin.name().into(), plugin);
     }
-    
-    pub fn get_mut(&self, name: &str) -> Option<&mut dyn Plugin> {
-        self.plugins.get_mut(name).map(|boxed| boxed.as_mut())
+
+    pub fn get_mut(&mut self, name: &str) -> Option<&mut dyn Plugin> {
+        self.plugins.get_mut(name).map(|b| &mut **b as _)
+        // the cast is necessary here to coerce the lifetime
+        // `&mut dyn Plugin + 'static` to `&mut dyn Plugin + 'a`
     }
 }

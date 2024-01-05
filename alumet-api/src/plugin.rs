@@ -1,15 +1,37 @@
 use core::fmt;
-use std::{error::Error, time::Duration, collections::HashMap};
+use std::{
+    collections::HashMap,
+    error::Error,
+    fmt::{Debug, Display},
+    time::{Duration, SystemTime},
+};
 
-use crate::{metric::{MeasurementBuffer, MetricRegistry}, config};
+use crate::{
+    config,
+    metric::{MeasurementBuffer, MetricRegistry},
+};
 
 pub struct PluginInfo {
     pub name: String,
     pub version: String,
     // todo try to avoid boxing here?
-    pub init: Box<dyn FnOnce(&mut config::ConfigTable) -> PluginResult<Box<dyn Plugin>>>
+    pub init: Box<dyn FnOnce(&mut config::ConfigTable) -> Result<Box<dyn Plugin>, PluginError>>,
 }
 
+/// Structure given to a plugin when it starts, and enables it to register metrics, sources and more.
+/// The advantage of using a struct here is that it allows to provide new capabilities to plugins
+/// without changing the plugin interface.
+pub struct AlumetStart<'a> {
+    pub metrics: &'a mut MetricRegistry,
+    pub sources: &'a mut SourceRegistry,
+    pub transforms: &'a mut TransformRegistry,
+    pub outputs: &'a mut OutputRegistry,
+}
+
+/// The ALUMET plugin trait.
+///
+/// Plugins are a central part of ALUMET, because they produce, transform and export the measurements.
+/// Please refer to the module documentation.
 pub trait Plugin {
     /// The name of the plugin. It must be unique: two plugins cannot have the same name.
     fn name(&self) -> &str;
@@ -20,27 +42,29 @@ pub trait Plugin {
     /// Starts the plugin, allowing it to register metrics, sources and outputs.
     ///
     /// ## Plugin restart
-    /// A plugin can be started and stopped multiple times, for instance when the switching from monitoring to profiling mode.
+    /// A plugin can be started and stopped multiple times, for instance when ALUMET switches from monitoring to profiling mode.
     /// [`Plugin::stop`] is guaranteed to be called between two calls of [`Plugin::start`].
-    fn start(&mut self, metrics: &mut MetricRegistry, sources: &mut SourceRegistry, outputs: &mut OutputRegistry) -> PluginResult<()>;
+    fn start(&mut self, alumet: &mut AlumetStart) -> Result<(), PluginError>;
 
     /// Stops the plugin.
     ///
     /// This method is called _after_ all the metrics, sources and outputs previously registered
     /// by [`Plugin::start`] have been stopped and unregistered.
-    fn stop(&mut self) -> PluginResult<()>;
+    fn stop(&mut self) -> Result<(), PluginError>;
 }
 
-pub trait MetricSource: Send {
-    fn poll(&mut self, into: &mut MeasurementBuffer) -> Result<(), MetricSourceError>;
+/// Produces measurements related to some metrics.
+pub trait Source: Send {
+    fn poll(&mut self, into: &mut MeasurementBuffer, time: SystemTime) -> Result<(), PollError>;
 }
 
-pub trait MetricOutput: Send {
-    fn write(&mut self, measurements: &MeasurementBuffer) -> Result<(), MetricOutputError>;
+/// Exports measurements to an external entity, like a file or a database.
+pub trait Output: Send {
+    fn write(&mut self, measurements: &MeasurementBuffer) -> Result<(), WriteError>;
 }
 
 pub struct SourceRegistry {
-    sources: HashMap<RegisteredSourceKey, Vec<Box<dyn MetricSource>>>
+    sources: HashMap<RegisteredSourceKey, Vec<Box<dyn Source>>>,
 }
 
 #[derive(PartialEq, Eq, Hash)]
@@ -58,26 +82,30 @@ pub enum RegisteredSourceType {
 
 impl SourceRegistry {
     pub fn new() -> SourceRegistry {
-        SourceRegistry { sources: HashMap::new() }
+        SourceRegistry {
+            sources: HashMap::new(),
+        }
     }
 
     pub fn len(&self) -> usize {
         self.sources.len()
     }
 
-    pub fn register(&mut self, source: Box<dyn MetricSource>, source_type: RegisteredSourceType, poll_interval: Duration) {
-        self.sources
-            .entry(RegisteredSourceKey { poll_interval, source_type })
-            .or_default().push(source);
+    pub fn register(&mut self, source: Box<dyn Source>, source_type: RegisteredSourceType, poll_interval: Duration) {
+        let key = RegisteredSourceKey {
+            poll_interval,
+            source_type,
+        };
+        self.sources.entry(key).or_default().push(source);
     }
 
-    pub fn grouped(self) ->HashMap<RegisteredSourceKey, Vec<Box<dyn MetricSource>>> {
+    pub fn grouped(self) -> HashMap<RegisteredSourceKey, Vec<Box<dyn Source>>> {
         self.sources
     }
 }
 
 pub struct OutputRegistry {
-    pub outputs: Vec<Box<dyn MetricOutput>>
+    pub outputs: Vec<Box<dyn Output>>,
 }
 
 impl OutputRegistry {
@@ -90,87 +118,176 @@ impl OutputRegistry {
     }
 }
 
+pub struct TransformRegistry {
+    // todo
+}
+
 // ====== Errors ======
-pub type PluginResult<T> = Result<T, PluginError>;
+pub struct PluginError(GenericError<PluginErrorKind>);
+pub struct PollError(GenericError<PollErrorKind>);
+pub struct WriteError(GenericError<WriteErrorKind>);
 
-#[derive(Debug)]
-pub enum PluginError {
-    Io { description: String, source: std::io::Error },
-    Config { description: String, source: Option<Box<dyn Error>> },
-    External { description: String },
-    Internal(),
-}
-
-impl Error for PluginError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            PluginError::Io { source, .. } => Some(source),
-            _ => None,
-        }
+impl PluginError {
+    pub fn new(kind: PluginErrorKind) -> PluginError {
+        PluginError(GenericError {
+            kind,
+            cause: None,
+            description: None,
+        })
     }
-}
 
-impl fmt::Display for PluginError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "plugin initialization failed")
+    pub fn with_description(kind: PluginErrorKind, description: &str) -> PluginError {
+        PluginError(GenericError {
+            kind,
+            cause: None,
+            description: Some(description.to_owned()),
+        })
     }
-}
 
-#[derive(Debug)]
-pub enum MetricSourceError {
-    Io { description: String, source: std::io::Error },
-    Internal()
-}
-
-impl Error for MetricSourceError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            MetricSourceError::Io { source, .. } => Some(source),
-            _ => None,
-        }
-    }
-}
-
-impl fmt::Display for MetricSourceError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "failed to poll measurements")
+    pub fn with_cause<E: Error + 'static>(kind: PluginErrorKind, description: &str, cause: E) -> PluginError {
+        PluginError(GenericError {
+            kind,
+            cause: Some(Box::new(cause)),
+            description: Some(description.to_owned()),
+        })
     }
 }
 
 #[derive(Debug)]
-pub enum MetricOutputError {
-    Io { description: String, source: std::io::Error },
-    Internal()
+#[non_exhaustive]
+pub enum PluginErrorKind {
+    /// The plugin's configuration could not be parsed or contains invalid entries.
+    InvalidConfiguration,
+    /// The plugin requires a sensor that could not be found.
+    /// For example, the plugin fetches information from an internal wattmeter, but the host does not have one.
+    SensorNotFound,
+    /// The plugin attempted an IO operation, but failed.
+    IoFailure,
 }
 
-impl Error for MetricOutputError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
+impl Display for PluginErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            MetricOutputError::Io { source, .. } => Some(source),
-            _ => None,
+            PluginErrorKind::InvalidConfiguration => todo!(),
+            PluginErrorKind::SensorNotFound => todo!(),
+            PluginErrorKind::IoFailure => todo!(),
         }
     }
 }
 
-impl fmt::Display for MetricOutputError {
+impl PollError {
+    pub fn new(kind: PollErrorKind) -> PollError {
+        PollError(GenericError {
+            kind,
+            cause: None,
+            description: None,
+        })
+    }
+
+    pub fn with_description(kind: PollErrorKind, description: &str) -> PollError {
+        PollError(GenericError {
+            kind,
+            cause: None,
+            description: Some(description.to_owned()),
+        })
+    }
+
+    pub fn with_source<E: Error + 'static>(kind: PollErrorKind, description: &str, source: E) -> PollError {
+        PollError(GenericError {
+            kind,
+            cause: Some(Box::new(source)),
+            description: Some(description.to_owned()),
+        })
+    }
+}
+
+#[derive(Debug)]
+pub enum PollErrorKind {
+    /// The source of the data could not be read.
+    /// For instance, when a file contains the measurements to poll, but reading
+    /// it fails, `poll()` returns an error of kind [`ReadFailed`].
+    ReadFailed,
+    /// The raw data could be read, but turning it into a proper measurement failed.
+    /// For instance, when a file contains the measurements in some format, but reading
+    /// it does not give the expected value, which causes the parsing to fail,
+    /// `poll()` returns an error of kind [`ParsingFailed`].
+    ParsingFailed,
+}
+impl Display for PollErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "failed to write measurements")
+        let s = match self {
+            PollErrorKind::ReadFailed => "read failed",
+            PollErrorKind::ParsingFailed => "parsing failed",
+        };
+        f.write_str(s)
+    }
+}
+
+#[derive(Debug)]
+pub enum WriteErrorKind {
+    /// The data could not be written properly.
+    /// For instance, the data was in the process of being sent over the network,
+    /// but the connection was lost.
+    WriteFailed,
+    /// The data could not be transformed into a form that is appropriate for writing.
+    /// For instance, the measurements lack some metadata, which causes the formatting
+    /// to fail.
+    FormattingFailed,
+}
+impl Display for WriteErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            WriteErrorKind::WriteFailed => "write failed",
+            WriteErrorKind::FormattingFailed => "formatting failed",
+        };
+        f.write_str(s)
+    }
+}
+
+#[derive(Debug)]
+struct GenericError<K: Display + Debug> {
+    kind: K,
+    cause: Option<Box<dyn Error>>,
+    description: Option<String>,
+}
+
+impl<K: Display + Debug> Error for GenericError<K> {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.cause.as_deref()
+    }
+}
+
+impl<K: Display + Debug> fmt::Display for GenericError<K> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.kind)?;
+        if let Some(desc) = &self.description {
+            write!(f, ": {desc}")?;
+        }
+        if let Some(err) = &self.cause {
+            write!(f, "\nCaused by: {err}")?;
+        }
+        Ok(())
+    }
+}
+impl Display for PollError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "failed to poll measurements: {}", self.0)
     }
 }
 
 // ====== FFI API for C ======
 pub mod ffi {
-    use std::ffi::c_void;
-    use crate::config;
     use super::SourceRegistry;
+    use crate::config;
+    use std::ffi::c_void;
 
-    pub type InitFn = extern fn(config: *const config::ConfigTable) -> *mut c_void;
-    pub type StartFn = extern fn(instance: *mut c_void);
-    pub type StopFn = extern fn(instance: *mut c_void);
-    pub type DropFn = extern fn(instance: *mut c_void);
+    pub type InitFn = extern "C" fn(config: *const config::ConfigTable) -> *mut c_void;
+    pub type StartFn = extern "C" fn(instance: *mut c_void);
+    pub type StopFn = extern "C" fn(instance: *mut c_void);
+    pub type DropFn = extern "C" fn(instance: *mut c_void);
 
     #[no_mangle]
-    pub extern fn metric_register(registry: &mut SourceRegistry) {
+    pub extern "C" fn metric_register(registry: &mut SourceRegistry) {
         todo!()
     }
 }

@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "alumet-app",
     "alumet-api",
+    "alumet-app",
     "plugins-embedded",
 ]

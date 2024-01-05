@@ -13,7 +13,7 @@ use clap::{Parser, Subcommand};
 use libloading::{Symbol, Library};
 use alumet_api::{
     metric::{MeasurementBuffer, MetricRegistry},
-    plugin::{Plugin, MetricSource, OutputRegistry, RegisteredSourceType, SourceRegistry, PluginInfo, ffi}, config,
+    plugin::{Plugin, Source, OutputRegistry, RegisteredSourceType, SourceRegistry, PluginInfo, ffi}, config,
 };
 use log::{debug, error, info, log_enabled, Level};
 use tokio::{
@@ -48,6 +48,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+// TODO: turn this into a separate lib "alumet-core"
+// in order to allow multiple apps to customize the pipeline (e.g. for relay mode)
 fn start_with_plugins(plugins: Vec<Box<dyn Plugin>>) {
     let mut metrics = MetricRegistry::new();
     let mut sources = SourceRegistry::new();
@@ -104,7 +106,7 @@ fn start_with_plugins(plugins: Vec<Box<dyn Plugin>>) {
             ),
         };
         if blocking {
-            let guarded_sources: Vec<Arc<Mutex<Box<dyn MetricSource>>>> = sources
+            let guarded_sources: Vec<Arc<Mutex<Box<dyn Source>>>> = sources
                 .into_iter()
                 .map(|src| Arc::new(Mutex::new(src)))
                 .collect();
