@@ -20,14 +20,14 @@ pub enum Unit {
     /// Energy in Kilowatt-hour (1 kW⋅h = 3.6 megajoule = 3.6 × 10^6 Joules)
     KiloWattHour,
     /// A custom unit.
-    Custom { name: String, display_name: String },
+    Custom { unique_name: String, display_name: String },
     /// Indicates a dimensionless value. This is suitable for counters.
     Unity,
 }
 
 impl Unit {
     /// Returns the case sensitive name of the unit, for use in transmission and storage.
-    pub fn name(&self) -> &str {
+    pub fn unique_name(&self) -> &str {
         match self {
             Unit::Second => "s",
             Unit::Watt => "W",
@@ -38,7 +38,7 @@ impl Unit {
             Unit::DegreeCelsius => "Cel",
             Unit::DegreeFahrenheit => "[degF]",
             Unit::KiloWattHour => "kW.h",
-            Unit::Custom { name, .. } => name,
+            Unit::Custom { unique_name, .. } => unique_name,
             Unit::Unity => "1", // the official name of the "default unit", which means "no unit"
         }
     }
@@ -54,7 +54,7 @@ impl Display for Unit {
             Unit::DegreeFahrenheit => "°F",
             Unit::Unity => "", // dimensionless
             Unit::Custom { display_name, .. } => &display_name,
-            _ => self.name(),
+            _ => self.unique_name(), // the unique_name is nice enough to be displayed as it is
         };
         write!(f, "{display_name}")
     }

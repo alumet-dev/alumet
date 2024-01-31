@@ -1,0 +1,10 @@
+[package]
+name = "app-agent"
+version = "0.1.0"
+edition = "2021"
+description = "Metric collector agent to install on each node."
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+alumet = { path = "../alumet" }

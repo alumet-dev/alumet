@@ -6,8 +6,9 @@ use std::{
 };
 
 use alumet_api::{
+    AlumetStart,
     config::{self, ConfigTable},
-    plugin::{ffi, AlumetStart, Plugin, PluginError, PluginInfo},
+    plugin::{ffi, Plugin, PluginError, PluginInfo},
 };
 use libc::c_void;
 use libloading::{Library, Symbol};

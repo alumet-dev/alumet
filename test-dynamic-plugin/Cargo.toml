@@ -1,0 +1,11 @@
+[package]
+name = "test-dynamic-plugin"
+version = "0.1.0"
+edition = "2021"
+description = "Example of a dynamic ALUMET plugin."
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+alumet-api-dynamic = { path = "../alumet-api-dynamic" }
+alumet-api-macros = { path = "../alumet-api-macros" }

@@ -1,0 +1,23 @@
+[package]
+name = "alumet"
+version = "0.1.0"
+edition = "2021"
+description = "Core of ALUMET, which includes an async measurement pipeline for use in applications, a plugin API, and an automatically generated C header for dynamic plugins."
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+toml = "0.8.8"
+libc = "0.2.152"
+log = "0.4.20"
+tokio = { version = "1.34.0", features = [
+    "time",
+    "rt",
+    "rt-multi-thread",
+    "macros",
+] }
+tokio-stream = "0.1.14"
+tokio-timerfd = "0.2.0"
+
+[build-dependencies]
+cbindgen = { git = "https://github.com/TheElectronWill/cbindgen.git", branch = "symbols-files" }

@@ -1,7 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
-    "alumet-api",
-    "alumet-app",
-    "plugins-embedded",
+    "alumet",
+    "alumet-api-dynamic",
+    "alumet-api-macros",
+    "app-agent",
+    "test-dynamic-plugin",
+    "test-static-plugin",
 ]

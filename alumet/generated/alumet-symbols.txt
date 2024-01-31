@@ -1,0 +1,14 @@
+{
+config_string_in;
+config_int_in;
+config_bool_in;
+config_float_in;
+config_array_in;
+config_table_in;
+config_string_at;
+config_int_at;
+config_bool_at;
+config_float_at;
+config_array_at;
+config_table_at;
+};

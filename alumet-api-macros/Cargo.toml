@@ -1,11 +1,9 @@
 [package]
-name = "plugins-embedded"
+name = "alumet-api-macros"
 version = "0.1.0"
 edition = "2021"
+description = "Macros to help creating static and dynamic ALUMET plugins in Rust."
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-alumet-api = { path = "../alumet-api" }
-anyhow = "1.0.75"
-perf-event-open-sys = "4.0.0"

@@ -1,9 +1,0 @@
-[package]
-name = "alumet-api"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-tokio = { version = "1.33.0", features = ["rt", "time"] }
-tokio-timerfd = "0.2.0"
-toml = { version = "0.8.8", default-features = false }
