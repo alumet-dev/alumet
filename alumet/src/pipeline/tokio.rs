@@ -12,7 +12,7 @@ use crate::{
 use tokio::sync::broadcast;
 use tokio::{runtime::Runtime, task::JoinSet};
 
-use super::threading;
+use super::{registry::MetricRegistry, threading};
 use tokio_stream::StreamExt;
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
@@ -99,9 +99,12 @@ impl MeasurementPipeline {
         self.params.priority_worker_threads = Some(n);
     }
 
-    pub fn start(self) -> RunningPipeline {
+    pub fn start(self, metrics: MetricRegistry) -> RunningPipeline {
         let params = self.params;
         let elems = self.elements;
+        
+        // set the global metric registry, which can be accessed by the pipeline's elements (sources, transforms, outputs)
+        MetricRegistry::init_global(metrics);
 
         // group sources by type and polling interval (this may change in the future)
         let sources = group_sources(elems.sources);

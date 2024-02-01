@@ -1,24 +1,31 @@
+use core::fmt;
 use std::{collections::HashMap, time::SystemTime};
 
-use crate::units::Unit;
+use crate::{pipeline::registry::MetricRegistry, units::Unit};
 
 /// All information about a metric.
 pub struct Metric {
     pub id: MetricId,
     pub name: String,
     pub description: String,
-    pub value_type: MetricType,
+    pub value_type: MeasurementType,
     pub unit: Unit,
 }
 
 /// A metric id, used for internal purposes such as storing the list of metrics.
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
 #[repr(C)]
-pub struct MetricId(pub usize);
+pub struct MetricId(pub(crate) usize);
 
 impl MetricId {
     pub fn name(&self) -> &str {
-        todo!("call the registry to get the name")
+        let metric = MetricRegistry::global().with_id(self).unwrap_or_else(|| {
+            panic!(
+                "Every metric should be in the global registry, but this one was not found: {}",
+                self.0
+            )
+        });
+        &metric.name
     }
 }
 
@@ -59,10 +66,15 @@ impl MeasurementPoint {
     }
 }
 
-#[derive(Clone)]
-pub enum MetricType {
+#[derive(Debug, Clone)]
+pub enum MeasurementType {
     Float,
     UInt,
+}
+impl fmt::Display for MeasurementType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self:?}")
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -110,10 +122,11 @@ impl MeasurementBuffer {
 
 impl std::fmt::Debug for MeasurementBuffer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MeasurementBuffer").field("len", &self.points.len()).finish()
+        f.debug_struct("MeasurementBuffer")
+            .field("len", &self.points.len())
+            .finish()
     }
 }
-
 
 /// An accumulator stores measured data points.
 /// Unlike a [`MeasurementBuffer`], the accumulator only allows to [`push()`] new points, not to modify them.
@@ -129,7 +142,7 @@ impl<'a> MeasurementAccumulator<'a> {
 /// Hardware or software entity for which metrics can be gathered.
 #[non_exhaustive]
 #[repr(u8)]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum ResourceId {
     /// The whole local machine, for instance the whole physical server.
     LocalMachine,
@@ -146,11 +159,22 @@ pub enum ResourceId {
     /// A dedicated GPU.
     Gpu { bus_id: String },
     /// A custom resource
-    Custom { kind: String, id: String },
+    Custom { data: Box<CustomResource> },
+}
+
+#[derive(Debug, Clone)]
+pub struct CustomResource {
+    pub kind: String,
+    pub id: String,
 }
 
 impl ResourceId {
     pub fn custom(kind: &str, id: &str) -> ResourceId {
-        ResourceId::Custom { kind: kind.to_owned(), id: id.to_owned() }
+        ResourceId::Custom {
+            data: Box::new(CustomResource {
+                kind: kind.to_owned(),
+                id: id.to_owned(),
+            }),
+        }
     }
 }

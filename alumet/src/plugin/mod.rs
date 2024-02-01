@@ -1,9 +1,10 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::metrics::{MetricId, MetricType};
+use crate::metrics::{MetricId, MeasurementType};
+use crate::pipeline;
+use crate::pipeline::registry::{MetricRegistry, ElementRegistry};
 use crate::units::Unit;
-use crate::pipeline::{self, registry::Registry};
 use crate::config::ConfigTable;
 use crate::error::GenericError;
 
@@ -44,21 +45,22 @@ pub trait Plugin {
 /// `AlumetStart` allows the plugins to perform some actions before starting the measurment pipeline,
 /// such as registering new measurement sources.
 pub struct AlumetStart<'a> {
-    pub(crate) registry: &'a mut Registry
+    pub metrics: &'a mut MetricRegistry,
+    pub pipeline_elements: &'a mut ElementRegistry
 }
 
 impl AlumetStart<'_> {
-    pub fn create_metric(&mut self, name: &str, value_type: MetricType, unit: Unit, description: &str) -> Result<MetricId, PluginError> {
-        self.registry.create_metric(name,value_type,unit,description).map_err(|e| todo!(""))
+    pub fn create_metric(&mut self, name: &str, value_type: MeasurementType, unit: Unit, description: &str) -> Result<MetricId, PluginError> {
+        self.metrics.create_metric(name,value_type,unit,description).map_err(|e| todo!(""))
     }
     pub fn add_source(&mut self, source: Box<dyn pipeline::Source>) {
-        self.registry.add_source(source)
+        self.pipeline_elements.add_source(source)
     }
     pub fn add_transform(&mut self, transform: Box<dyn pipeline::Transform>) {
-        self.registry.add_transform(transform)
+        self.pipeline_elements.add_transform(transform)
     }
     pub fn add_output(&mut self, output: Box<dyn pipeline::Output>) {
-        self.registry.add_output(output)
+        self.pipeline_elements.add_output(output)
     }
 }
 

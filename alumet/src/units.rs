@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 
 pub enum Unit {
     /// Time
@@ -41,6 +41,12 @@ impl Unit {
             Unit::Custom { unique_name, .. } => unique_name,
             Unit::Unity => "1", // the official name of the "default unit", which means "no unit"
         }
+    }
+}
+
+impl Debug for Unit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.unique_name())
     }
 }
 

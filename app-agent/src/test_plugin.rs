@@ -1,4 +1,4 @@
-use alumet::{metrics::{MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, MeasurementValue, MetricId, MetricType, ResourceId}, pipeline::{Output, PollError, Source, Transform, TransformError, WriteError}, plugin::{AlumetStart, Plugin, PluginError}, units::Unit};
+use alumet::{metrics::{MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, MeasurementValue, MetricId, MeasurementType, ResourceId}, pipeline::{Output, PollError, Source, Transform, TransformError, WriteError}, plugin::{AlumetStart, Plugin, PluginError}, units::Unit};
 
 
 struct TestPlugin;
@@ -22,8 +22,8 @@ impl Plugin for TestPlugin {
     #[rustfmt::skip] 
     fn start(&mut self, alumet: &mut AlumetStart) -> Result<(), PluginError> {
         // Register the metrics
-        let metric_a = alumet.create_metric("test-energy-a", MetricType::UInt, Unit::Watt, "Test metric A, in Watts.")?;
-        let metric_b = alumet.create_metric("test-counter-b", MetricType::UInt, Unit::Unity, "Test metric B, counter without unit.")?;
+        let metric_a = alumet.create_metric("test-energy-a", MeasurementType::UInt, Unit::Watt, "Test metric A, in Watts.")?;
+        let metric_b = alumet.create_metric("test-counter-b", MeasurementType::UInt, Unit::Unity, "Test metric B, counter without unit.")?;
         
         // Add steps to the pipeline
         alumet.add_source(Box::new(TestSource{metric_a,metric_b,b_counter:0}));
