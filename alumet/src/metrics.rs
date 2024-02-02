@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{collections::HashMap, time::SystemTime};
+use std::{collections::HashMap, fmt::Display, time::SystemTime};
 
 use crate::{pipeline::registry::MetricRegistry, units::Unit};
 
@@ -175,6 +175,48 @@ impl ResourceId {
                 kind: kind.to_owned(),
                 id: id.to_owned(),
             }),
+        }
+    }
+    
+    pub fn kind(&self) -> &str {
+        match self {
+            ResourceId::LocalMachine => "local_machine",
+            ResourceId::Process { .. } => "process",
+            ResourceId::ControlGroup { .. } => "cgroup",
+            ResourceId::CpuPackage { .. } => "cpu_package",
+            ResourceId::CpuCore { .. } => "cpu_core",
+            ResourceId::Dram { .. } => "dram",
+            ResourceId::Gpu { .. } => "gpu",
+            ResourceId::Custom { data } => &data.kind,
+        }
+    }
+    
+    pub fn id_str(&self) -> impl Display + '_ {
+        match self {
+            ResourceId::LocalMachine => LazyDisplayable::Str(""),
+            ResourceId::Process { pid } => LazyDisplayable::U32(*pid),
+            ResourceId::ControlGroup { path } => LazyDisplayable::Str(&path),
+            ResourceId::CpuPackage { id } => LazyDisplayable::U32(*id),
+            ResourceId::CpuCore { id } => LazyDisplayable::U32(*id),
+            ResourceId::Dram { pkg_id } => LazyDisplayable::U32(*pkg_id),
+            ResourceId::Gpu { bus_id } => LazyDisplayable::Str(&bus_id),
+            ResourceId::Custom { data } => LazyDisplayable::Str(&data.id),
+        }
+    }
+}
+
+enum LazyDisplayable<'a> {
+    U32(u32),
+    U64(u64),
+    Str(&'a str)
+}
+
+impl<'a> Display for LazyDisplayable<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LazyDisplayable::U32(id) => write!(f, "{id}"),
+            LazyDisplayable::U64(id) => write!(f, "{id}"),
+            LazyDisplayable::Str(id) => write!(f, "{id}"),
         }
     }
 }

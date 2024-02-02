@@ -1,21 +1,18 @@
 use std::{
-    collections::BTreeMap,
-    io,
-    sync::{mpsc, Arc, Mutex},
-    time::{Duration, SystemTime},
+    collections::{BTreeMap, HashMap}, io, sync::{mpsc, Arc, Mutex}, time::{Duration, SystemTime}
 };
 
 use crate::{
     metrics::MeasurementBuffer,
     pipeline::{Output, Source, Transform},
 };
-use tokio::sync::broadcast;
+use tokio::{sync::broadcast, task::JoinHandle};
 use tokio::{runtime::Runtime, task::JoinSet};
 
 use super::{registry::MetricRegistry, threading};
 use tokio_stream::StreamExt;
 
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SourceType {
     Normal,
     Blocking,
@@ -26,6 +23,7 @@ pub struct TaggedSource {
     pub source: Box<dyn Source>,
     pub source_type: SourceType,
     pub poll_interval: Duration,
+    pub plugin_name: String,
 }
 
 pub struct MeasurementPipeline {
@@ -74,8 +72,23 @@ impl PipelineParameters {
 /// The pipeline is automatically stopped when dropped.
 pub struct RunningPipeline {
     // This is necessary to keep the runtimes "alive": runtimes are stopped when dropped.
-    normal_runtime: Runtime,
-    priority_runtime: Option<Runtime>
+    _normal_runtime: Runtime,
+    _priority_runtime: Option<Runtime>,
+    
+    // Handles to join and abort the tasks
+    source_handles_per_plugin: HashMap<String, Vec<JoinHandle<()>>>,
+}
+
+impl RunningPipeline {
+    pub fn join_all(self) {
+        self._normal_runtime.block_on(async {
+            for (_plugin_name, tasks) in self.source_handles_per_plugin {
+                for t in tasks {
+                    t.await.unwrap_err();
+                }
+            }
+        });
+    }
 }
 
 impl MeasurementPipeline {
@@ -106,9 +119,6 @@ impl MeasurementPipeline {
         // set the global metric registry, which can be accessed by the pipeline's elements (sources, transforms, outputs)
         MetricRegistry::init_global(metrics);
 
-        // group sources by type and polling interval (this may change in the future)
-        let sources = group_sources(elems.sources);
-
         // Build the normal runtime now but the priority runtime on demand
         let normal_runtime: Runtime = params
             .build_normal_runtime()
@@ -126,7 +136,8 @@ impl MeasurementPipeline {
         let out_tx = broadcast::Sender::<MeasurementBuffer>::new(256);
 
         // Start the tasks, starting at the end of the pipeline (to avoid filling the buffers too quickly).
-        // Outputs (run in parallel, blocking)
+
+        // 1. Outputs (run in parallel, blocking)
         for out in elems.outputs {
             let out_rx = out_tx.subscribe();
             normal_runtime.spawn_blocking(move || {
@@ -134,20 +145,28 @@ impl MeasurementPipeline {
             });
         }
 
-        // Transforms (run sequentially)
+        // 2. Transforms (run sequentially)
         normal_runtime.spawn(apply_transforms(elems.transforms, in_rx, out_tx));
 
-        // Sources (run in parallel, some blocking, some non-blocking)
-        for ((typ, poll_interval), grouped_sources) in sources {
+        // 3. Sources (run in parallel, some blocking, some non-blocking)
+        let mut source_handles_per_plugin: HashMap<String, Vec<JoinHandle<()>>> = HashMap::new();
+        for src in elems.sources {
+            println!("source: {:?} {:?} from {}", src.source_type, src.poll_interval, src.plugin_name);
             let in_tx = in_tx.clone();
-            let timer = tokio_timerfd::Interval::new_interval(poll_interval).unwrap();
-            match typ {
+            // The timer must be created from the context of a tokio runtime
+            let handle: JoinHandle<()> = match src.source_type {
                 SourceType::Normal => {
-                    normal_runtime.spawn(poll_sources(timer, grouped_sources, in_tx));
+                    normal_runtime.spawn(async move {
+                        let timer = tokio_timerfd::Interval::new_interval(src.poll_interval).unwrap();
+                        poll_source(timer, src.source, in_tx).await;
+                    })
                 }
                 SourceType::Blocking => {
-                    let guarded_sources = grouped_sources.into_iter().map(|s| Arc::new(Mutex::new(s))).collect();
-                    normal_runtime.spawn(poll_blocking_sources(timer, guarded_sources, in_tx));
+                    let guarded_sources = vec![src.source].into_iter().map(|s| Arc::new(Mutex::new(s))).collect();
+                    normal_runtime.spawn(async move {
+                        let timer = tokio_timerfd::Interval::new_interval(src.poll_interval).unwrap();
+                        poll_blocking_sources(timer, guarded_sources, in_tx).await;
+                    })
                 }
                 SourceType::RealtimePriority => {
                     priority_runtime
@@ -156,15 +175,20 @@ impl MeasurementPipeline {
                                 "Some sources require a high-priority mode, but the tokio runtime failed to start",
                             )
                         })
-                        .spawn(poll_sources(timer, grouped_sources, in_tx));
+                        .spawn(async move {
+                            let timer = tokio_timerfd::Interval::new_interval(src.poll_interval).unwrap();
+                            poll_source(timer, src.source, in_tx).await;
+                        })
                 }
-            }
+            };
+            source_handles_per_plugin.entry(src.plugin_name).or_default().push(handle);
         }
         
         // prevent the runtimes from being dropped (that would stop them) 
         RunningPipeline {
-            normal_runtime,
-            priority_runtime,
+            _normal_runtime: normal_runtime,
+            _priority_runtime: priority_runtime,
+            source_handles_per_plugin,
         }
     }
 }
@@ -213,6 +237,25 @@ pub async fn poll_blocking_sources(
                 Err(err) => log::error!("blocking task failed {}", err),
             }
         }
+    }
+}
+
+pub async fn poll_source(
+    mut timer: tokio_timerfd::Interval,
+    mut src: Box<dyn Source>,
+    tx: mpsc::Sender<MeasurementBuffer>,
+) {
+    loop {
+        // wait for the next tick
+        timer.next().await;
+
+        // poll the source
+        let mut buf = MeasurementBuffer::new();
+        let timestamp = SystemTime::now();
+        src.poll(&mut buf.as_accumulator(), timestamp).unwrap();
+
+        // send the results to another task
+        tx.send(buf).expect("send failed");
     }
 }
 

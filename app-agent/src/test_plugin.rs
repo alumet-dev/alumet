@@ -1,7 +1,7 @@
 use alumet::{metrics::{MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, MeasurementValue, MetricId, MeasurementType, ResourceId}, pipeline::{Output, PollError, Source, Transform, TransformError, WriteError}, plugin::{AlumetStart, Plugin, PluginError}, units::Unit};
 
 
-struct TestPlugin;
+pub struct TestPlugin;
 struct TestSource {
     metric_a: MetricId,
     metric_b: MetricId,
@@ -10,6 +10,11 @@ struct TestSource {
 struct TestTransform;
 struct TestOutput;
 
+impl TestPlugin {
+    pub fn init() -> Box<TestPlugin> {
+        Box::new(TestPlugin)
+    }
+}
 impl Plugin for TestPlugin {
     fn name(&self) -> &str {
         "test-plugin"
@@ -41,7 +46,7 @@ impl Source for TestSource {
     fn poll(&mut self, acc: &mut MeasurementAccumulator, timestamp: std::time::SystemTime) -> Result<(), PollError> {
         // generate some values for testing purposes, that evolve over time
         self.b_counter += 1;
-        let value_a = 98 + (self.b_counter % 2);
+        let value_a = 98 + 4*(self.b_counter % 2);
         
         // create a "resource id" to tag the data with an information about what the measurement is about
         let resource = ResourceId::custom("test", "imaginary-thing");
@@ -68,9 +73,11 @@ impl Output for TestOutput {
     fn write(&mut self, measurements: &MeasurementBuffer) -> Result<(), WriteError> {
         for m in measurements.iter() {
             let ts = &m.timestamp;
+            let res_kind = m.resource.kind();
+            let res_id = m.resource.id_str();
             let name = m.metric.name();
             let value = &m.value;
-            println!(">> {ts:?} {name} = {value:?}");
+            println!(">> {ts:?} on {res_kind} {res_id} :{name} = {value:?}");
         }
         Ok(())
     }

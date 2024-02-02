@@ -1,9 +1,10 @@
+use std::collections::HashMap;
 use std::time::Duration;
 
-use alumet::pipeline::{Source, Transform, Output};
 use alumet::pipeline::registry::{ElementRegistry, MetricRegistry};
-use alumet::pipeline::tokio::{MeasurementPipeline, TaggedSource, SourceType};
-use alumet::plugin::{AlumetStart, Plugin};
+use alumet::pipeline::tokio::{MeasurementPipeline, SourceType, TaggedSource};
+use alumet::pipeline::{Output, Source, Transform};
+use alumet::plugin::{AlumetStart, Plugin, PluginStarter};
 
 mod test_plugin;
 
@@ -14,30 +15,28 @@ fn main() {
 
     // create the plugins
     println!("Initializing plugins...");
-    let mut plugins: Vec<Box<dyn Plugin>> = Vec::new();
+    let mut plugins: Vec<Box<dyn Plugin>> = vec![test_plugin::TestPlugin::init()];
 
     // start the plugins
     let mut metrics = MetricRegistry::new();
     let mut elements = ElementRegistry::new();
-    let mut entrypoint = AlumetStart {
-        metrics: &mut metrics,
-        pipeline_elements: &mut elements,
-    };
+    let mut starter = PluginStarter::new(&mut metrics, &mut elements);
     for p in plugins.iter_mut() {
-        p.start(&mut entrypoint)
+        starter
+            .start(p)
             .unwrap_or_else(|err| panic!("Plugin failed to start: {} v{} - {}", p.name(), p.version(), err));
     }
     print_stats(&metrics, &elements, &plugins);
 
     // start the pipeline
     println!("Starting the pipeline...");
-    let tagged = tag_sources(elements.sources);
-    let pipeline = MeasurementPipeline::new(tagged, elements.transforms, elements.outputs);
-    let _pipeline = pipeline.start(metrics);
+    let tagged = tag_sources(elements.sources_per_plugin);
+    let pipeline = MeasurementPipeline::new(tagged, elements.transforms, elements.outputs).start(metrics);
 
     println!("🔥 ALUMET agent is ready");
 
-    // drop the pipeline, wait for the tokio runtime(s) to finish
+    // wait for the tokio runtime(s) to finish
+    pipeline.join_all();
 }
 
 fn print_stats(metrics: &MetricRegistry, elems: &ElementRegistry, plugins: &[Box<dyn Plugin>]) {
@@ -45,26 +44,37 @@ fn print_stats(metrics: &MetricRegistry, elems: &ElementRegistry, plugins: &[Box
     for p in plugins {
         println!("  - {} v{}", p.name(), p.version());
     }
-    println!(" {} metrics registered: ", metrics.len());
+    println!("📏 {} metrics registered: ", metrics.len());
     for m in metrics {
         println!("  - {}: {} ({})", m.name, m.value_type, m.unit);
     }
     println!(
         "📥 {} sources, 🔀 {} transforms and 📝 {} outputs registered.",
-        elems.sources.len(),
+        mapvec_count(&elems.sources_per_plugin),
         elems.transforms.len(),
         elems.outputs.len()
     );
 }
 
-fn tag_sources(src: Vec<Box<dyn Source>>) -> Vec<TaggedSource> {
-    src.into_iter()
-        .map(|src| {
+fn mapvec_count<K,V> (map: &HashMap<K,Vec<V>>) -> usize {
+    let mut res = 0;
+    for (k, v) in map {
+        res += v.len();
+    }
+    res
+}
+
+fn tag_sources(src: HashMap<String, Vec<Box<dyn Source>>>) -> Vec<TaggedSource> {
+    let mut res = Vec::new();
+    for (plugin_name, sources) in src {
+        res.extend(sources.into_iter().map(|src| {
             TaggedSource {
                 source: src,
-                source_type: SourceType::Normal, // todo get from config
-                poll_interval: Duration::from_secs(1),                    // todo get from config
+                source_type: SourceType::Normal,       // todo get from config
+                poll_interval: Duration::from_secs(1), // todo get from config
+                plugin_name: plugin_name.clone(),
             }
-        })
-        .collect()
+        }));
+    }
+    res
 }

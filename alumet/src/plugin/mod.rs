@@ -42,11 +42,28 @@ pub trait Plugin {
     fn stop(&mut self) -> Result<(), PluginError>;
 }
 
+/// Provides [`AlumetStart`] to start plugins.
+pub struct PluginStarter<'a> {
+    start: AlumetStart<'a>
+}
+
+impl<'a> PluginStarter<'a> {
+    pub fn new(metrics: &'a mut MetricRegistry, pipeline_elements: &'a mut ElementRegistry) -> Self {
+        PluginStarter { start: AlumetStart { metrics, pipeline_elements, current_plugin_name: None } }
+    }
+    
+    pub fn start(&mut self, plugin: &mut Box<dyn Plugin>) -> Result<(), PluginError> {
+        self.start.current_plugin_name = Some(plugin.name().to_owned());
+        plugin.start(&mut self.start)
+    }
+}
+
 /// `AlumetStart` allows the plugins to perform some actions before starting the measurment pipeline,
 /// such as registering new measurement sources.
 pub struct AlumetStart<'a> {
-    pub metrics: &'a mut MetricRegistry,
-    pub pipeline_elements: &'a mut ElementRegistry
+    metrics: &'a mut MetricRegistry,
+    pipeline_elements: &'a mut ElementRegistry,
+    current_plugin_name: Option<String>,
 }
 
 impl AlumetStart<'_> {
@@ -54,7 +71,8 @@ impl AlumetStart<'_> {
         self.metrics.create_metric(name,value_type,unit,description).map_err(|e| todo!(""))
     }
     pub fn add_source(&mut self, source: Box<dyn pipeline::Source>) {
-        self.pipeline_elements.add_source(source)
+        let plugin_name = self.current_plugin_name.clone().expect("The current plugin must be set before passing the AlumetStart struct to a plugin");
+        self.pipeline_elements.add_source(plugin_name, source)
     }
     pub fn add_transform(&mut self, transform: Box<dyn pipeline::Transform>) {
         self.pipeline_elements.add_transform(transform)

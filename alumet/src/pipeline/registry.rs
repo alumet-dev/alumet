@@ -112,7 +112,7 @@ impl<'a> IntoIterator for &'a MetricRegistry {
 }
 
 pub struct ElementRegistry {
-    pub sources: Vec<Box<dyn Source>>,
+    pub sources_per_plugin: HashMap<String, Vec<Box<dyn Source>>>,
     pub transforms: Vec<Box<dyn Transform>>,
     pub outputs: Vec<Box<dyn Output>>,
 }
@@ -120,14 +120,14 @@ pub struct ElementRegistry {
 impl ElementRegistry {
     pub fn new() -> Self {
         ElementRegistry {
-            sources: Vec::new(),
+            sources_per_plugin: HashMap::new(),
             transforms: Vec::new(),
             outputs: Vec::new(),
         }
     }
 
-    pub(crate) fn add_source(&mut self, source: Box<dyn pipeline::Source>) {
-        self.sources.push(source);
+    pub(crate) fn add_source(&mut self, plugin_key: String, source: Box<dyn pipeline::Source>) {
+        self.sources_per_plugin.entry(plugin_key).or_default().push(source);
     }
 
     pub(crate) fn add_transform(&mut self, transform: Box<dyn pipeline::Transform>) {
