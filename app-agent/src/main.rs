@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use alumet::pipeline::registry::{ElementRegistry, MetricRegistry};
-use alumet::pipeline::tokio::{MeasurementPipeline, SourceType, TaggedSource};
+use alumet::pipeline::tokio::{MeasurementPipeline, MeasurementPipelineBuilder, SourceType, TaggedSource};
 use alumet::pipeline::{Output, Source, Transform};
 use alumet::plugin::{AlumetStart, Plugin, PluginStarter};
 
@@ -28,15 +28,13 @@ fn main() {
     }
     print_stats(&metrics, &elements, &plugins);
 
-    // start the pipeline
+    // start the pipeline and wait for the tasks to finish
     println!("Starting the pipeline...");
     let tagged = tag_sources(elements.sources_per_plugin);
-    let pipeline = MeasurementPipeline::new(tagged, elements.transforms, elements.outputs).start(metrics);
-
-    println!("🔥 ALUMET agent is ready");
-
-    // wait for the tokio runtime(s) to finish
-    pipeline.join_all();
+    let pipeline = MeasurementPipelineBuilder::new(tagged, elements.transforms, elements.outputs)
+        .build()
+        .expect("Async runtime failed to build.");
+    pipeline.run(metrics, || println!("🔥 ALUMET agent is ready"));
 }
 
 fn print_stats(metrics: &MetricRegistry, elems: &ElementRegistry, plugins: &[Box<dyn Plugin>]) {
@@ -56,7 +54,7 @@ fn print_stats(metrics: &MetricRegistry, elems: &ElementRegistry, plugins: &[Box
     );
 }
 
-fn mapvec_count<K,V> (map: &HashMap<K,Vec<V>>) -> usize {
+fn mapvec_count<K, V>(map: &HashMap<K, Vec<V>>) -> usize {
     let mut res = 0;
     for (k, v) in map {
         res += v.len();
@@ -67,14 +65,11 @@ fn mapvec_count<K,V> (map: &HashMap<K,Vec<V>>) -> usize {
 fn tag_sources(src: HashMap<String, Vec<Box<dyn Source>>>) -> Vec<TaggedSource> {
     let mut res = Vec::new();
     for (plugin_name, sources) in src {
-        res.extend(sources.into_iter().map(|src| {
-            TaggedSource {
-                source: src,
-                source_type: SourceType::Normal,       // todo get from config
-                poll_interval: Duration::from_secs(1), // todo get from config
-                plugin_name: plugin_name.clone(),
-            }
-        }));
+        res.extend(
+            sources
+                .into_iter()
+                .map(|src| TaggedSource::new(src, SourceType::Normal, Duration::from_secs(1), plugin_name.clone())),
+        );
     }
     res
 }
