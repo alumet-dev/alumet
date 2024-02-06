@@ -61,7 +61,15 @@ impl Source for TestSource {
 
 impl Transform for TestTransform {
     fn apply(&mut self, measurements: &mut MeasurementBuffer) -> Result<(), TransformError> {
-        let copy: Vec<_> = measurements.iter().map(|m| m.clone()).collect();
+        fn copy_and_change_to_float(m: &MeasurementPoint) -> MeasurementPoint {
+            let mut res = m.clone();
+            res.value = match res.value {
+                f @ MeasurementValue::Float(_) => f,
+                MeasurementValue::UInt(i) => MeasurementValue::Float(i as f64),
+            };
+            res
+        }
+        let copy: Vec<_> = measurements.iter().map(copy_and_change_to_float).collect();
         for m in copy {
             measurements.push(m);
         }

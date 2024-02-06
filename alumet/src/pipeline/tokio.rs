@@ -1,18 +1,22 @@
 use std::{
-    collections::HashMap,
+    future::Future,
     io,
-    sync::{mpsc, Arc, Mutex},
-    time::{Duration, SystemTime},
+    pin::Pin,
+    time::{Duration, Instant, SystemTime},
 };
 
 use crate::{
-    metrics::MeasurementBuffer, pipeline::{Output, Source, Transform}, plugin::Plugin
+    metrics::MeasurementBuffer,
+    pipeline::{Output, Source, Transform},
 };
-use tokio::runtime::Runtime;
-use tokio::sync::{broadcast, Mutex as TokioMutex};
-use tokio::task::{JoinHandle, JoinSet};
+use tokio::sync::{broadcast, mpsc};
+use tokio::task::JoinHandle;
+use tokio::{runtime::Runtime, sync::watch};
 
-use super::{registry::MetricRegistry, threading};
+use super::registry::MetricRegistry;
+use super::{
+    threading, PollError, PollErrorKind, TransformError, TransformErrorKind, WriteError,
+};
 use tokio_stream::StreamExt;
 
 pub struct TaggedTransform {
@@ -24,31 +28,63 @@ pub struct TaggedOutput {
     plugin_name: String,
 }
 pub struct TaggedSource {
-    source: GuardedSource,
-    poll_interval: Duration,
+    source: Box<dyn Source>,
+    source_type: SourceType,
+    trigger_provider: SourceTriggerProvider,
     plugin_name: String,
 }
-enum GuardedSource {
-    Normal(Arc<TokioMutex<Box<dyn Source>>>),
-    Blocking(Arc<Mutex<Box<dyn Source>>>),
-    RealtimePriority(Arc<TokioMutex<Box<dyn Source>>>),
+/// A boxed future, from the `futures` crate.
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+#[derive(Clone, Debug)]
+pub enum SourceTriggerProvider {
+    TimeInterval {
+        start_time: Instant,
+        poll_interval: Duration,
+        flush_interval: Duration,
+    },
+    Future {
+        f: fn() -> BoxFuture<'static, SourceTriggerOutput>,
+        flush_rounds: usize,
+    },
+}
+impl SourceTriggerProvider {
+    pub fn provide(self) -> io::Result<(SourceTrigger, usize)> {
+        match self {
+            SourceTriggerProvider::TimeInterval {
+                start_time,
+                poll_interval,
+                flush_interval,
+            } => {
+                let flush_rounds = (flush_interval.as_micros() / poll_interval.as_micros()) as usize;
+                let trigger = SourceTrigger::TimeInterval(tokio_timerfd::Interval::new(start_time, poll_interval)?);
+                Ok((trigger, flush_rounds))
+            }
+            SourceTriggerProvider::Future { f, flush_rounds } => {
+                let trigger = SourceTrigger::Future(f);
+                Ok((trigger, flush_rounds))
+            }
+        }
+    }
+}
+
+pub type SourceTriggerOutput = Result<(), PollError>;
+pub enum SourceTrigger {
+    TimeInterval(tokio_timerfd::Interval),
+    Future(fn() -> BoxFuture<'static, SourceTriggerOutput>),
 }
 
 impl TaggedSource {
     pub fn new(
         source: Box<dyn Source>,
         source_type: SourceType,
-        poll_interval: Duration,
+        trigger_provider: SourceTriggerProvider,
         plugin_name: String,
     ) -> TaggedSource {
-        let source = match source_type {
-            SourceType::Normal => GuardedSource::Normal(Arc::new(TokioMutex::new(source))),
-            SourceType::Blocking => GuardedSource::Blocking(Arc::new(Mutex::new(source))),
-            SourceType::RealtimePriority => GuardedSource::RealtimePriority(Arc::new(TokioMutex::new(source))),
-        };
         TaggedSource {
             source,
-            poll_interval,
+            source_type,
+            trigger_provider,
             plugin_name,
         }
     }
@@ -56,14 +92,14 @@ impl TaggedSource {
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SourceType {
     Normal,
-    Blocking,
+    // Blocking, // todo: how to provide this type properly?
     RealtimePriority,
 }
 
 struct PipelineElements {
     sources: Vec<TaggedSource>,
-    transforms: Arc<Mutex<Vec<Box<dyn Transform>>>>,
-    outputs: Vec<Arc<Mutex<Box<dyn Output>>>>,
+    transforms: Vec<Box<dyn Transform>>,
+    outputs: Vec<Box<dyn Output>>,
 }
 
 struct PipelineParameters {
@@ -97,18 +133,61 @@ impl PipelineParameters {
 }
 
 /// A builder for measurement pipelines.
-pub struct MeasurementPipelineBuilder {
+pub struct PendingPipeline {
     elements: PipelineElements,
     params: PipelineParameters,
 }
 
-impl MeasurementPipelineBuilder {
+pub struct PipelineController {
+    // Keep the tokio runtimes alive
+    normal_runtime: Runtime,
+    priority_runtime: Option<Runtime>,
+
+    // Handles to wait for sources to finish.
+    source_handles: Vec<JoinHandle<Result<(), PollError>>>,
+    output_handles: Vec<JoinHandle<Result<(), WriteError>>>,
+    transform_handle: JoinHandle<Result<(), TransformError>>,
+
+    // Senders to keep the receivers alive and to send commands.
+    source_command_senders: Vec<watch::Sender<SourceCmd>>,
+    output_command_senders: Vec<watch::Sender<OutputCmd>>,
+}
+impl PipelineController {
+    /// Blocks the current thread until all tasks in the pipeline finish.
+    pub fn wait_for_all(&mut self) {
+        self.normal_runtime.block_on(async {
+            for handle in &mut self.source_handles {
+                handle.await.unwrap().unwrap();// todo: handle errors
+            }
+
+            (&mut self.transform_handle).await.unwrap().unwrap();
+
+            for handle in &mut self.output_handles {
+                handle.await.unwrap().unwrap();
+            }
+        });
+    }
+
+    pub fn command_all_sources(&self, command: SourceCmd) {
+        for sender in &self.source_command_senders {
+            sender.send(command.clone()).unwrap();
+        }
+    }
+
+    pub fn command_all_outputs(&self, command: OutputCmd) {
+        for sender in &self.output_command_senders {
+            sender.send(command.clone()).unwrap();
+        }
+    }
+}
+
+impl PendingPipeline {
     pub fn new(sources: Vec<TaggedSource>, transforms: Vec<Box<dyn Transform>>, outputs: Vec<Box<dyn Output>>) -> Self {
-        MeasurementPipelineBuilder {
+        PendingPipeline {
             elements: PipelineElements {
                 sources,
-                transforms: Arc::new(Mutex::new(transforms)),
-                outputs: outputs.into_iter().map(|o| Arc::new(Mutex::new(o))).collect(),
+                transforms: transforms,
+                outputs: outputs,
             },
             params: PipelineParameters {
                 normal_worker_threads: None,
@@ -123,254 +202,276 @@ impl MeasurementPipelineBuilder {
         self.params.priority_worker_threads = Some(n);
     }
 
-    /// Creates a new pipeline with the selected parameters, but don't start it yet.
-    pub fn build(self) -> io::Result<MeasurementPipeline> {
-        // create the runtimes
-        let normal_runtime: Runtime = self.params.build_normal_runtime()?;
-
-        let mut priority_runtime: Option<Runtime> = None;
-        for src in &self.elements.sources {
-            if let GuardedSource::RealtimePriority(_) = src.source {
-                priority_runtime = Some(self.params.build_priority_runtime()?);
-                break;
-            }
-        }
-
-        // create the pipeline struct
-        Ok(MeasurementPipeline {
-            normal_runtime,
-            priority_runtime,
-            elements: self.elements,
-            source_handles_per_plugin: HashMap::new(),
-        })
-    }
-}
-
-/// A pipeline that has been started.
-///
-/// The pipeline is automatically stopped when dropped.
-pub struct MeasurementPipeline {
-    // This is necessary to keep the runtimes "alive": runtimes are stopped when dropped.
-    normal_runtime: Runtime,
-    priority_runtime: Option<Runtime>,
-
-    // We also don't want to lose the pipeline elements when their task finish (we could start a new task).
-    // Moreover, the elements are *not* Sync (that would put to much burden on plugin authors), therefore
-    // we must ensure that a given element is only being used from one thread at a time.
-    // todo: try std::sync::Exclusive instead of Mutex?
-    elements: PipelineElements,
-
-    /// Handles to join and abort the tasks
-    source_handles_per_plugin: HashMap<String, Vec<JoinHandle<()>>>,
-}
-
-impl MeasurementPipeline {
-    /// Starts the pipeline and waits for the tasks to finish.
-    pub fn run(mut self, metrics: MetricRegistry, on_ready: fn() -> ()) {
+    pub fn start(self, metrics: MetricRegistry) -> PipelineController {
         // set the global metric registry, which can be accessed by the pipeline's elements (sources, transforms, outputs)
         MetricRegistry::init_global(metrics);
 
+        // Create the runtimes
+        let normal_runtime: Runtime = self.params.build_normal_runtime().unwrap();
+
+        let priority_runtime: Option<Runtime> = {
+            let mut res = None;
+            for src in &self.elements.sources {
+                if src.source_type == SourceType::RealtimePriority {
+                    res = Some(self.params.build_priority_runtime().unwrap());
+                    break;
+                }
+            }
+            res
+        };
+
         // Channel sources -> transforms
-        let (in_tx, in_rx) = mpsc::channel::<MeasurementBuffer>();
+        let (in_tx, in_rx) = mpsc::channel::<MeasurementBuffer>(256);
 
         // if self.elements.transforms.is_empty() && self.elements.outputs.len() == 1 {
-            // TODO: If no transforms and one output, the pipeline can be reduced
+        // TODO: If no transforms and one output, the pipeline can be reduced
         // }
 
         // Broadcast queue transforms -> outputs
         let out_tx = broadcast::Sender::<MeasurementBuffer>::new(256);
 
+        // Store the task handles in order to wait for them to complete before stopping,
+        // and the command senders in order to keep the receivers alive and to be able to send commands after the launch.
+        let mut source_handles = Vec::with_capacity(self.elements.sources.len());
+        let mut output_handles = Vec::with_capacity(self.elements.outputs.len());
+        let mut source_command_senders = Vec::with_capacity(self.elements.sources.len());
+        let mut output_command_senders = Vec::with_capacity(self.elements.outputs.len());
+
         // Start the tasks, starting at the end of the pipeline (to avoid filling the buffers too quickly).
-
-        // 1. Outputs (run in parallel, blocking)
-        for out in &self.elements.outputs {
-            // outputs receive (rx) data from transforms (out_tx)
-            let out_rx = out_tx.subscribe();
-
-            // clone the necessary data and spawn the task
-            let out = Arc::clone(out);
-            self.normal_runtime.spawn_blocking(move || {
-                let mut out = out.lock().unwrap();
-                run_blocking_output_from_broadcast(out.as_mut(), out_rx);
-            });
+        // 1. Outputs
+        for out in self.elements.outputs {
+            let data_rx = out_tx.subscribe();
+            let (command_tx, command_rx) = watch::channel(OutputCmd::Run);
+            let handle = normal_runtime.spawn(run_output_from_broadcast(out, data_rx, command_rx));
+            output_handles.push(handle);
+            output_command_senders.push(command_tx);
         }
 
-        // 2. Transforms (run sequentially in one task)
-        let transforms = Arc::clone(&self.elements.transforms);
-        self.normal_runtime
-            .spawn(async move { apply_transforms(transforms, in_rx, out_tx).await });
+        // 2. Transforms
+        let transform_handle = normal_runtime.spawn(run_transforms(self.elements.transforms, in_rx, out_tx));
 
-        // 3. Sources (run in parallel, some blocking, some non-blocking)
-        for tagged_src in self.elements.sources {
-            // clone the necessary data
-            // Note: the timer must be created from the context of a tokio runtime.
-            let in_tx = in_tx.clone();
-            let plugin_name = tagged_src.plugin_name.clone();
-            let poll_interval = tagged_src.poll_interval.clone();
-
-            let handle: JoinHandle<()> = match tagged_src.source {
-                GuardedSource::Normal(source) => {
-                    let source = source.clone();
-                    self.normal_runtime.spawn(async move {
-                        let timer = tokio_timerfd::Interval::new_interval(poll_interval).unwrap();
-                        let mut source = source.lock().await;
-                        poll_source(timer, source.as_mut(), in_tx).await;
-                    })
-                }
-                GuardedSource::Blocking(source) => self.normal_runtime.spawn(async move {
-                    let timer = tokio_timerfd::Interval::new_interval(poll_interval).unwrap();
-                    poll_blocking_sources(timer, vec![source.clone()], in_tx).await;
-                }),
-                GuardedSource::RealtimePriority(source) => self
-                    .priority_runtime
-                    .as_ref()
-                    .expect("Some sources require a high-priority runtime, but it was not constructed.")
-                    .spawn(async move {
-                        let timer = tokio_timerfd::Interval::new_interval(poll_interval).unwrap();
-                        let mut source = source.lock().await;
-                        poll_source(timer, source.as_mut(), in_tx).await;
-                    }),
+        // 3. Sources
+        for src in self.elements.sources {
+            let data_tx = in_tx.clone();
+            let (command_tx, command_rx) = watch::channel(SourceCmd::SetTrigger(Some(src.trigger_provider)));
+            let runtime = match src.source_type {
+                SourceType::Normal => &normal_runtime,
+                SourceType::RealtimePriority => priority_runtime.as_ref().unwrap(),
             };
-            self.source_handles_per_plugin
-                .entry(plugin_name)
-                .or_default()
-                .push(handle);
+            let handle = runtime.spawn(run_source(src.source, data_tx, command_rx));
+            source_handles.push(handle);
+            source_command_senders.push(command_tx);
         }
 
-        // The pipeline is now fully started.
-        on_ready();
+        PipelineController {
+            normal_runtime,
+            priority_runtime,
+            source_handles,
+            output_handles,
+            transform_handle,
+            source_command_senders,
+            output_command_senders,
+        }
+    }
+}
 
-        // Join all source tasks, otherwise the runtime will be dropped and terminate
-        self.normal_runtime.block_on(async {
-            for (_, tasks) in &mut self.source_handles_per_plugin {
-                for t in tasks.iter_mut() {
-                    t.await.unwrap_err();
+#[derive(Clone, Debug)]
+pub enum SourceCmd {
+    Run,
+    Pause,
+    Stop,
+    SetTrigger(Option<SourceTriggerProvider>),
+}
+
+async fn run_source(
+    mut source: Box<dyn Source>,
+    tx: mpsc::Sender<MeasurementBuffer>,
+    mut commands: watch::Receiver<SourceCmd>,
+) -> Result<(), PollError> {
+    fn init_trigger(provider: &mut Option<SourceTriggerProvider>) -> Result<(SourceTrigger, usize), PollError> {
+        provider
+            .take()
+            .expect("invalid empty trigger in message Init(trigger)")
+            .provide()
+            .map_err(|e| {
+                PollError::with_source(PollErrorKind::Unrecoverable, "Source trigger initialization failed", e)
+            })
+    }
+
+    // the first command must be "init"
+    let (mut trigger, mut flush_rounds) = {
+        let init_cmd = commands
+            .wait_for(|c| matches!(c, SourceCmd::SetTrigger(_)))
+            .await
+            .map_err(|e| {
+                PollError::with_source(PollErrorKind::Unrecoverable, "Source task initialization failed", e)
+            })?;
+
+        match (*init_cmd).clone() {
+            // cloning required to borrow opt as mut below
+            SourceCmd::SetTrigger(mut opt) => init_trigger(&mut opt)?,
+            _ => unreachable!(),
+        }
+    };
+
+    // main loop
+    let mut buffer = MeasurementBuffer::new();
+    let mut i = 1usize; // start at 1 to avoid flushing right away
+    'run: loop {
+        if i % flush_rounds == 0 {
+            // flush and update the command, not on every round for performance reasons
+            // flush
+            tx.try_send(buffer).expect("todo: handle failed send (source too fast)");
+            buffer = MeasurementBuffer::new();
+
+            // update state based on the latest command
+            if commands.has_changed().unwrap() {
+                let mut paused = false;
+                'pause: loop {
+                    let cmd = if paused {
+                        commands
+                            .changed()
+                            .await
+                            .expect("The output channel of paused source should be open.");
+                        (*commands.borrow()).clone()
+                    } else {
+                        (*commands.borrow_and_update()).clone()
+                    };
+                    println!("Source COMMAND has changed: {cmd:?}");
+                    match cmd {
+                        SourceCmd::Run => break 'pause,
+                        SourceCmd::Pause => paused = true,
+                        SourceCmd::Stop => break 'run,
+                        SourceCmd::SetTrigger(mut opt) => {
+                            (trigger, flush_rounds) = init_trigger(&mut opt)?;
+                            if !paused {
+                                break 'pause;
+                            }
+                        }
+                    }
                 }
             }
-        });
-    }
-}
-
-async fn poll_blocking_sources(
-    mut timer: tokio_timerfd::Interval,
-    sources: Vec<Arc<Mutex<Box<dyn Source>>>>,
-    tx: mpsc::Sender<MeasurementBuffer>,
-) {
-    let mut set = JoinSet::new();
-    loop {
-        // wait for the next tick
-        timer.next().await;
-        let timestamp = SystemTime::now();
-
-        // spawn one polling task per source, on the "blocking" thread pool
-        for src_guard in &sources {
-            let src_guard = src_guard.clone();
-            let tx = tx.clone();
-            set.spawn_blocking(move || {
-                // lock the mutex and poll the source
-                let mut src = src_guard.lock().unwrap();
-                let mut buf = MeasurementBuffer::new(); // todo add size hint
-                src.poll(&mut buf.as_accumulator(), timestamp).unwrap();
-
-                // send the results to another task
-                tx.send(buf).unwrap();
-            });
         }
+        i += 1;
 
-        // wait for all the tasks to finish
-        while let Some(res) = set.join_next().await {
-            match res {
-                Ok(()) => log::debug!("blocking task finished"),
-                Err(err) => log::error!("blocking task failed {}", err),
+        // wait for trigger
+        match trigger {
+            SourceTrigger::TimeInterval(ref mut interval) => {
+                interval.next().await.unwrap().unwrap();
             }
-        }
-    }
-}
-
-async fn poll_source(mut timer: tokio_timerfd::Interval, src: &mut dyn Source, tx: mpsc::Sender<MeasurementBuffer>) {
-    loop {
-        // wait for the next tick
-        timer.next().await;
+            SourceTrigger::Future(f) => {
+                f().await?;
+            }
+        };
 
         // poll the source
-        let mut buf = MeasurementBuffer::new();
         let timestamp = SystemTime::now();
-        src.poll(&mut buf.as_accumulator(), timestamp).unwrap();
-
-        // send the results to another task
-        tx.send(buf).expect("send failed");
+        source.poll(&mut buffer.as_accumulator(), timestamp);
     }
+    Ok(())
 }
 
-async fn poll_sources(
-    mut timer: tokio_timerfd::Interval,
-    mut sources: Vec<Box<dyn Source>>,
-    tx: mpsc::Sender<MeasurementBuffer>,
-) {
-    loop {
-        // wait for the next tick
-        timer.next().await;
-
-        // poll the sources
-        let mut buf = MeasurementBuffer::new();
-        let timestamp = SystemTime::now();
-
-        for src in sources.iter_mut() {
-            src.poll(&mut buf.as_accumulator(), timestamp).unwrap();
-        }
-
-        // send the results to another task
-        tx.send(buf).expect("send failed");
-    }
-}
-
-async fn apply_transforms(
-    transforms: Arc<Mutex<Vec<Box<dyn Transform>>>>,
-    rx: mpsc::Receiver<MeasurementBuffer>,
+async fn run_transforms(
+    mut transforms: Vec<Box<dyn Transform>>,
+    mut rx: mpsc::Receiver<MeasurementBuffer>,
     tx: broadcast::Sender<MeasurementBuffer>,
-) {
-    let mut transforms = transforms.lock().unwrap();
+) -> Result<(), TransformError> {
     loop {
-        // wait for incoming measurements
-        if let Ok(mut measurements) = rx.recv() {
-            // run the transforms one after another
-            for t in transforms.iter_mut() {
-                t.apply(&mut measurements).expect("transform failed");
+        if let Some(mut measurements) = rx.recv().await {
+            for t in &mut transforms {
+                // if one transform fails, we cannot continue:
+                // each transform depends on the previous one, and the outputs may need the transformed data
+                t.apply(&mut measurements)?;
             }
-            tx.send(measurements).expect("send failed");
+            tx.send(measurements).map_err(|e| {
+                TransformError::with_source(TransformErrorKind::Unrecoverable, "sending the measurements failed", e)
+            })?;
         } else {
+            log::warn!("The channel connected to the transform step has been closed, the transforms will stop.");
             break;
         }
     }
+    Ok(())
 }
 
-fn run_blocking_output_from_broadcast(output: &mut dyn Output, mut rx: broadcast::Receiver<MeasurementBuffer>) {
+/// A command for an output.
+#[derive(Clone, PartialEq, Eq)]
+pub enum OutputCmd {
+    Run,
+    Pause,
+    Stop,
+}
+
+async fn run_output_from_broadcast(
+    mut output: Box<dyn Output>,
+    mut rx: broadcast::Receiver<MeasurementBuffer>,
+    mut commands: watch::Receiver<OutputCmd>,
+) -> Result<(), WriteError> {
+    // Two possible designs:
+    // A) Use one mpsc channel + one shared variable that contains the current command,
+    // - when a message is received, check the command and act accordingly
+    // - to change the command, update the variable and send a special message through the channel
+    // In this alternative design, each Output would have one mpsc channel, and the Transform step would call send() or try_send() on each of them.
+    //
+    // B) use a broadcast + watch, where the broadcast discards old values when a receiver (output) lags behind,
+    // instead of either (with option A):
+    // - preventing the transform from running (mpsc channel's send() blocks when the queue is full).
+    // - losing the most recent messages in transform, for one output. Other outputs that are not lagging behind will receive all messages fine, since try_send() does not block, the problem is: what to do with messages that could not be sent, when try_send() fails?)
     loop {
-        // wait for incoming measurements
-        match rx.blocking_recv() {
-            Ok(measurements) => {
-                output.write(&measurements).unwrap();
-            }
-            Err(broadcast::error::RecvError::Closed) => {
-                break;
-            }
-            Err(broadcast::error::RecvError::Lagged(n_missed)) => {
-                log::warn!("output is too slow, missed {n_missed} entries");
+        tokio::select! {
+            received_cmd = commands.changed() => {
+                // Process new command, clone it to quickly end the borrow (which releases the internal lock as suggested by the doc)
+                match received_cmd.map(|_| commands.borrow().clone()) {
+                    Ok(OutputCmd::Run) => (), // continue running
+                    Ok(OutputCmd::Pause) => {
+                        // wait for the command to change
+                        match commands.wait_for(|cmd| cmd != &OutputCmd::Pause).await {
+                            Ok(new_cmd) => match *new_cmd {
+                                OutputCmd::Run => (), // exit the wait
+                                OutputCmd::Stop => break, // stop the loop
+                                OutputCmd::Pause => unreachable!(),
+                            },
+                            Err(_) => todo!("watch channel closed"),
+                        }
+                    },
+                    Ok(OutputCmd::Stop) => break, // stop the loop
+                    Err(_) => todo!("watch channel closed")
+                }
+            },
+            received_msg = rx.recv() => {
+                match received_msg {
+                    Ok(measurements) => {
+                        // output.write() is blocking, do it in a dedicated thread
+                        // Output is not Sync, move the value to the future and back
+                        let res = tokio::task::spawn_blocking(move || {
+                            (output.write(&measurements), output)
+                        }).await;
+                        match res {
+                            Ok((write_res, out)) => {
+                                output = out;
+                                if let Err(e) = write_res {
+                                    log::error!("Output failed: {:?}", e); // todo give a name to the output
+                                }
+                            },
+                            Err(await_err) => {
+                                if await_err.is_panic() {
+                                    return Err(WriteError::with_source(super::WriteErrorKind::Unrecoverable, "The blocking writing task panicked.", await_err))
+                                } else {
+                                    todo!("unhandled error")
+                                }
+                            },
+                        }
+                    },
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        log::warn!("Output is too slow, it lost the oldest {n} messages.");
+                    },
+                    Err(broadcast::error::RecvError::Closed) => {
+                        log::warn!("The channel connected to output was closed, it will now stop.");
+                        break;
+                    }
+                }
             }
         }
     }
-}
-
-fn run_blocking_output_from_channel(mut output: &mut dyn Output, rx: mpsc::Receiver<MeasurementBuffer>) {
-    loop {
-        // wait for incoming measurements
-        match rx.recv() {
-            Ok(measurements) => {
-                output.write(&measurements).unwrap();
-            }
-            Err(mpsc::RecvError) => {
-                break;
-            }
-        }
-    }
+    Ok(())
 }

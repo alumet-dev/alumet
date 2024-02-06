@@ -104,7 +104,7 @@ impl PluginError {
         })
     }
 
-    pub fn with_cause<E: Error + 'static>(kind: PluginErrorKind, description: &str, cause: E) -> PluginError {
+    pub fn with_cause<E: Error + Send + 'static>(kind: PluginErrorKind, description: &str, cause: E) -> PluginError {
         PluginError(GenericError {
             kind,
             cause: Some(Box::new(cause)),

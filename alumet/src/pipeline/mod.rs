@@ -31,27 +31,20 @@ pub struct WriteError(GenericError<WriteErrorKind>);
 
 impl PollError {
     pub fn new(kind: PollErrorKind) -> PollError {
-        PollError(GenericError {
-            kind,
-            cause: None,
-            description: None,
-        })
+        PollError(GenericError::new(kind))
     }
 
     pub fn with_description(kind: PollErrorKind, description: &str) -> PollError {
-        PollError(GenericError {
-            kind,
-            cause: None,
-            description: Some(description.to_owned()),
-        })
+        PollError(GenericError::with_description(kind, description))
     }
 
-    pub fn with_source<E: Error + 'static>(kind: PollErrorKind, description: &str, source: E) -> PollError {
-        PollError(GenericError {
-            kind,
-            cause: Some(Box::new(source)),
-            description: Some(description.to_owned()),
-        })
+    pub fn with_source<E: Error + Send + 'static>(kind: PollErrorKind, description: &str, source: E) -> PollError {
+        PollError(GenericError::with_source(kind, description, source))
+    }
+}
+impl fmt::Display for PollError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
     }
 }
 
@@ -66,12 +59,20 @@ pub enum PollErrorKind {
     /// it does not give the expected value, which causes the parsing to fail,
     /// `poll()` returns an error of kind [`ParsingFailed`].
     ParsingFailed,
+    /// Polling failed in an unrecoverable way, for instance a panic has been caught,
+    /// or internal data structures have been messed up. After an error of this kind is
+    /// returned, `poll()` should never be called on this source.
+    /// 
+    /// This error is usually created by wrappers in the core of alumet, seldom by the
+    /// implementation of poll().
+    Unrecoverable,
 }
 impl fmt::Display for PollErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match self {
             PollErrorKind::ReadFailed => "read failed",
             PollErrorKind::ParsingFailed => "parsing failed",
+            PollErrorKind::Unrecoverable => "unrecoverable error",
         };
         f.write_str(s)
     }
@@ -83,14 +84,41 @@ pub enum TransformErrorKind {
     UnexpectedInput,
     /// The transformation should have worked for the input measurements, but an internal error occured.
     TransformFailed,
+    /// The transformation failed in an unrecoverable way, for instance a panic has been caught,
+    /// or internal data structures have been messed up. After an error of this kind is
+    /// returned, `apply()` should never be called on this source.
+    /// 
+    /// This error is usually created by wrappers in the core of alumet, seldom by the
+    /// implementation of apply().
+    Unrecoverable,
 }
 impl fmt::Display for TransformErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match self {
             TransformErrorKind::UnexpectedInput => "unexpected input for transform",
             TransformErrorKind::TransformFailed => "transformation failed",
+            TransformErrorKind::Unrecoverable => "unrecoverable error",
+            
         };
         f.write_str(s)
+    }
+}
+impl TransformError {
+    pub fn new(kind: TransformErrorKind) -> TransformError {
+        TransformError(GenericError::new(kind))
+    }
+
+    pub fn with_description(kind: TransformErrorKind, description: &str) -> TransformError {
+        TransformError(GenericError::with_description(kind, description))
+    }
+
+    pub fn with_source<E: Error + Send + 'static>(kind: TransformErrorKind, description: &str, source: E) -> TransformError {
+        TransformError(GenericError::with_source(kind, description, source))
+    }
+}
+impl fmt::Display for TransformError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
     }
 }
 
@@ -104,13 +132,39 @@ pub enum WriteErrorKind {
     /// For instance, the measurements lack some metadata, which causes the formatting
     /// to fail.
     FormattingFailed,
+    /// Writing failed in an unrecoverable way, for instance a panic has been caught,
+    /// or internal data structures have been messed up. After an error of this kind is
+    /// returned, `write()` should never be called on this source.
+    /// 
+    /// This error is usually created by wrappers in the core of alumet, seldom by the
+    /// implementation of write().
+    Unrecoverable,
 }
 impl fmt::Display for WriteErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match self {
             WriteErrorKind::WriteFailed => "write failed",
             WriteErrorKind::FormattingFailed => "formatting failed",
+            WriteErrorKind::Unrecoverable => "unrecoverable error",
         };
         f.write_str(s)
+    }
+}
+impl WriteError {
+    pub fn new(kind: WriteErrorKind) -> WriteError {
+        WriteError(GenericError::new(kind))
+    }
+
+    pub fn with_description(kind: WriteErrorKind, description: &str) -> WriteError {
+        WriteError(GenericError::with_description(kind, description))
+    }
+
+    pub fn with_source<E: Error + Send + 'static>(kind: WriteErrorKind, description: &str, source: E) -> WriteError {
+        WriteError(GenericError::with_source(kind, description, source))
+    }
+}
+impl fmt::Display for WriteError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
     }
 }
