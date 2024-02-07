@@ -330,12 +330,28 @@ async fn run_source(
     // main loop
     let mut i = 1usize;
     'run: loop {
-        // flush the measurements and update the command, not on every round for performance reasons
+        // wait for trigger
+        match trigger {
+            SourceTrigger::TimeInterval(ref mut interval) => {
+                interval.next().await.unwrap().unwrap();
+            }
+            SourceTrigger::Future(f) => {
+                f().await?;
+            }
+        };
+
+        // poll the source
+        let timestamp = SystemTime::now();
+        source.poll(&mut buffer.as_accumulator(), timestamp)?;
+
+        // Flush the measurements and update the command, not on every round for performance reasons.
+        // This is done _after_ polling, to ensure that we poll at least once before flushing, even if flush_rounds is 1.
         if i % flush_rounds == 0 {
             // flush and create a new buffer
             let prev_length = buffer.len(); // hint for the new buffer size, great if the number of measurements per flush doesn't change much
             tx.try_send(buffer).expect("todo: handle failed send (source too fast)");
             buffer = MeasurementBuffer::with_capacity(prev_length);
+            log::debug!("source flushed {prev_length} measurements");
 
             // update state based on the latest command
             if commands.has_changed().unwrap() {
@@ -365,21 +381,7 @@ async fn run_source(
                 }
             }
         }
-        i += 1;
-
-        // wait for trigger
-        match trigger {
-            SourceTrigger::TimeInterval(ref mut interval) => {
-                interval.next().await.unwrap().unwrap();
-            }
-            SourceTrigger::Future(f) => {
-                f().await?;
-            }
-        };
-
-        // poll the source
-        let timestamp = SystemTime::now();
-        source.poll(&mut buffer.as_accumulator(), timestamp)?;
+        i = i.wrapping_add(1);
     }
     Ok(())
 }
