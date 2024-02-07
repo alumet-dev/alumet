@@ -99,30 +99,44 @@ pub struct MeasurementBuffer {
 }
 
 impl MeasurementBuffer {
+    /// Constructs a new buffer.
     pub fn new() -> MeasurementBuffer {
         MeasurementBuffer { points: Vec::new() }
     }
     
+    /// Constructs a new buffer with at least the specified capacity (allocated on construction).
     pub fn with_capacity(capacity: usize) -> MeasurementBuffer {
         MeasurementBuffer { points: Vec::with_capacity(capacity) }
     }
     
+    /// Returns the number of measurement points in the buffer.
     pub fn len(&self) -> usize {
         self.points.len()
     }
-
+    
+    /// Reserves capacity for at least `additional` more elements.
+    /// See [`Vec::reserve`].
+    pub fn reserve(&mut self, additional: usize) {
+        self.points.reserve(additional);
+    }
+    
+    /// Adds a measurement to the buffer.
+    /// The measurement points are *not* automatically deduplicated by the buffer.
     pub fn push(&mut self, point: MeasurementPoint) {
         self.points.push(point);
     }
 
+    /// Creates an iterator on the buffer's content.
     pub fn iter(&self) -> impl Iterator<Item = &MeasurementPoint> {
         self.points.iter()
     }
 
+    /// Creates an iterator that allows to modify the measurements.
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut MeasurementPoint> {
         self.points.iter_mut()
     }
 
+    /// Returns a `MeasurementAccumulator` that will push all measurements to this buffer.
     pub fn as_accumulator(&mut self) -> MeasurementAccumulator {
         MeasurementAccumulator(self)
     }

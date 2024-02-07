@@ -373,6 +373,8 @@ async fn run_source(
                         SourceCmd::Stop => break 'run,
                         SourceCmd::SetTrigger(mut opt) => {
                             (trigger, flush_rounds) = init_trigger(&mut opt)?;
+                            let hint_additional_elems = flush_rounds - (i % flush_rounds);
+                            buffer.reserve(hint_additional_elems);
                             if !paused {
                                 break 'pause;
                             }
