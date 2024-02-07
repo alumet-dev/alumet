@@ -10,7 +10,7 @@ description = "Core of ALUMET, which includes an async measurement pipeline for 
 toml = "0.8.8"
 libc = "0.2.152"
 log = "0.4.20"
-tokio = { version = "1.34.0", features = [
+tokio = { version = "1.36.0", features = [
     "time",
     "rt",
     "rt-multi-thread",
