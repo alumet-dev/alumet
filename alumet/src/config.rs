@@ -205,7 +205,6 @@ pub extern "C" fn config_table_at(array: &ConfigArray, index: usize) -> *const C
 
 mod tests {
     use std::ffi::{CStr, CString};
-    use std::ptr;
 
     use super::*;
 

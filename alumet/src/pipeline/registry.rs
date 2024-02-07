@@ -113,29 +113,29 @@ impl<'a> IntoIterator for &'a MetricRegistry {
 
 pub struct ElementRegistry {
     pub sources_per_plugin: HashMap<String, Vec<Box<dyn Source>>>,
-    pub transforms: Vec<Box<dyn Transform>>,
-    pub outputs: Vec<Box<dyn Output>>,
+    pub transforms_per_plugin: HashMap<String, Vec<Box<dyn Transform>>>,
+    pub outputs_per_plugin: HashMap<String, Vec<Box<dyn Output>>>,
 }
 
 impl ElementRegistry {
     pub fn new() -> Self {
         ElementRegistry {
             sources_per_plugin: HashMap::new(),
-            transforms: Vec::new(),
-            outputs: Vec::new(),
+            transforms_per_plugin: HashMap::new(),
+            outputs_per_plugin: HashMap::new(),
         }
     }
 
-    pub(crate) fn add_source(&mut self, plugin_key: String, source: Box<dyn pipeline::Source>) {
-        self.sources_per_plugin.entry(plugin_key).or_default().push(source);
+    pub(crate) fn add_source(&mut self, plugin_name: String, source: Box<dyn pipeline::Source>) {
+        self.sources_per_plugin.entry(plugin_name).or_default().push(source);
     }
 
-    pub(crate) fn add_transform(&mut self, transform: Box<dyn pipeline::Transform>) {
-        self.transforms.push(transform);
+    pub(crate) fn add_transform(&mut self, plugin_name: String, transform: Box<dyn pipeline::Transform>) {
+        self.transforms_per_plugin.entry(plugin_name).or_default().push(transform);
     }
 
-    pub(crate) fn add_output(&mut self, output: Box<dyn pipeline::Output>) {
-        self.outputs.push(output);
+    pub(crate) fn add_output(&mut self, plugin_name: String, output: Box<dyn pipeline::Output>) {
+        self.outputs_per_plugin.entry(plugin_name).or_default().push(output);
     }
 }
 

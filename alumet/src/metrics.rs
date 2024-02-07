@@ -187,6 +187,9 @@ pub enum ResourceId {
 pub type StrCow = Cow<'static, str>;
 
 impl ResourceId {
+    /// Creates a new [`ResourceId::Custom`] with the given kind and id.
+    /// You can pass `&'static str` as kind, id, or both in order to avoid allocating memory.
+    /// Strings are also accepted and will be moved into the ResourceId.
     pub fn custom(kind: impl Into<StrCow>, id: impl Into<StrCow>) -> ResourceId {
         ResourceId::Custom {
             kind: kind.into(),

@@ -1,9 +1,6 @@
 use core::fmt;
 use std::{
-    future::Future,
-    io,
-    pin::Pin,
-    time::{Duration, Instant, SystemTime},
+    collections::HashMap, future::Future, io, ops::BitOrAssign, pin::Pin, sync::{atomic::{AtomicU64, AtomicUsize, Ordering}, Arc}, time::{Duration, Instant, SystemTime}
 };
 
 use crate::{
@@ -98,6 +95,16 @@ impl TaggedSource {
         }
     }
 }
+impl TaggedOutput {
+    pub fn new(plugin_name: String, output: Box<dyn Output>) -> TaggedOutput {
+        TaggedOutput { output, plugin_name }
+    }
+}
+impl TaggedTransform {
+    pub fn new(plugin_name: String, transform: Box<dyn Transform>) -> TaggedTransform {
+        TaggedTransform { transform, plugin_name }
+    }
+}
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SourceType {
     Normal,
@@ -107,8 +114,8 @@ pub enum SourceType {
 
 struct PipelineElements {
     sources: Vec<TaggedSource>,
-    transforms: Vec<Box<dyn Transform>>,
-    outputs: Vec<Box<dyn Output>>,
+    transforms: Vec<TaggedTransform>,
+    outputs: Vec<TaggedOutput>,
 }
 
 struct PipelineParameters {
@@ -158,8 +165,14 @@ pub struct PipelineController {
     transform_handle: JoinHandle<Result<(), TransformError>>,
 
     // Senders to keep the receivers alive and to send commands.
-    source_command_senders: Vec<watch::Sender<SourceCmd>>,
-    output_command_senders: Vec<watch::Sender<OutputCmd>>,
+    source_command_senders_by_plugin: HashMap<String, Vec<watch::Sender<SourceCmd>>>,
+    output_command_senders_by_plugin: HashMap<String, Vec<watch::Sender<OutputCmd>>>,
+    
+    /// Currently active transforms.
+    /// Note: it could be generalized to support more than 64 values,
+    /// either with a crate like arc-swap, or by using multiple Vec of transforms, each with an AtomicU64. 
+    active_transforms: Arc<AtomicU64>,
+    transforms_mask_by_plugin: HashMap<String, u64>,
 }
 impl PipelineController {
     /// Blocks the current thread until all tasks in the pipeline finish.
@@ -177,26 +190,52 @@ impl PipelineController {
         });
     }
 
+    pub fn command_plugin_transforms(&self, plugin_name: &str, command: TransformCmd) {
+        let mask: u64 = *self.transforms_mask_by_plugin.get(plugin_name).unwrap();
+        match command {
+            TransformCmd::Enable => self.active_transforms.fetch_or(mask, Ordering::Relaxed),
+            TransformCmd::Disable => self.active_transforms.fetch_nand(mask, Ordering::Relaxed),
+        };
+    }
+
+    pub fn command_plugin_sources(&self, plugin_name: &str, command: SourceCmd) {
+        let senders = self.source_command_senders_by_plugin.get(plugin_name).unwrap();
+        for s in senders {
+            s.send(command.clone()).unwrap();
+        }
+    }
+
     pub fn command_all_sources(&self, command: SourceCmd) {
-        for sender in &self.source_command_senders {
-            sender.send(command.clone()).unwrap();
+        for (_, senders) in &self.source_command_senders_by_plugin {
+            for s in senders {
+                s.send(command.clone()).unwrap();
+            }
+        }
+    }
+
+    pub fn command_plugin_outputs(&self, plugin_name: &str, command: OutputCmd) {
+        let senders = self.output_command_senders_by_plugin.get(plugin_name).unwrap();
+        for s in senders {
+            s.send(command.clone()).unwrap();
         }
     }
 
     pub fn command_all_outputs(&self, command: OutputCmd) {
-        for sender in &self.output_command_senders {
-            sender.send(command.clone()).unwrap();
+        for (_, senders) in &self.output_command_senders_by_plugin {
+            for s in senders {
+                s.send(command.clone()).unwrap();
+            }
         }
     }
 }
 
 impl PendingPipeline {
-    pub fn new(sources: Vec<TaggedSource>, transforms: Vec<Box<dyn Transform>>, outputs: Vec<Box<dyn Output>>) -> Self {
+    pub fn new(sources: Vec<TaggedSource>, transforms: Vec<TaggedTransform>, outputs: Vec<TaggedOutput>) -> Self {
         PendingPipeline {
             elements: PipelineElements {
                 sources,
-                transforms: transforms,
-                outputs: outputs,
+                transforms,
+                outputs,
             },
             params: PipelineParameters {
                 normal_worker_threads: None,
@@ -243,21 +282,29 @@ impl PendingPipeline {
         // and the command senders in order to keep the receivers alive and to be able to send commands after the launch.
         let mut source_handles = Vec::with_capacity(self.elements.sources.len());
         let mut output_handles = Vec::with_capacity(self.elements.outputs.len());
-        let mut source_command_senders = Vec::with_capacity(self.elements.sources.len());
-        let mut output_command_senders = Vec::with_capacity(self.elements.outputs.len());
+        let mut source_command_senders_by_plugin: HashMap<_, Vec<_>> = HashMap::new();
+        let mut output_command_senders_by_plugin: HashMap<_, Vec<_>> = HashMap::new();
+        let mut transforms_indexes_by_plugin: HashMap<_, u64> = HashMap::new();
 
         // Start the tasks, starting at the end of the pipeline (to avoid filling the buffers too quickly).
         // 1. Outputs
         for out in self.elements.outputs {
             let data_rx = out_tx.subscribe();
             let (command_tx, command_rx) = watch::channel(OutputCmd::Run);
-            let handle = normal_runtime.spawn(run_output_from_broadcast(out, data_rx, command_rx));
+            let handle = normal_runtime.spawn(run_output_from_broadcast(out.output, data_rx, command_rx));
             output_handles.push(handle);
-            output_command_senders.push(command_tx);
+            output_command_senders_by_plugin.entry(out.plugin_name).or_default().push(command_tx);
         }
 
         // 2. Transforms
-        let transform_handle = normal_runtime.spawn(run_transforms(self.elements.transforms, in_rx, out_tx));
+        let active_transforms = Arc::new(AtomicU64::new(u64::MAX)); // all active by default
+        let mut transforms = Vec::with_capacity(self.elements.transforms.len());
+        for (i, t) in self.elements.transforms.into_iter().enumerate() {
+            transforms.push(t.transform);
+            let mask: u64 = 1 << i;
+            transforms_indexes_by_plugin.entry(t.plugin_name).or_default().bitor_assign(mask);
+        }
+        let transform_handle = normal_runtime.spawn(run_transforms(transforms, in_rx, out_tx, active_transforms.clone()));
 
         // 3. Sources
         for src in self.elements.sources {
@@ -269,7 +316,7 @@ impl PendingPipeline {
             };
             let handle = runtime.spawn(run_source(src.source, data_tx, command_rx));
             source_handles.push(handle);
-            source_command_senders.push(command_tx);
+            source_command_senders_by_plugin.entry(src.plugin_name).or_default().push(command_tx);
         }
 
         PipelineController {
@@ -278,8 +325,10 @@ impl PendingPipeline {
             source_handles,
             output_handles,
             transform_handle,
-            source_command_senders,
-            output_command_senders,
+            source_command_senders_by_plugin,
+            output_command_senders_by_plugin,
+            active_transforms,
+            transforms_mask_by_plugin: transforms_indexes_by_plugin,
         }
     }
 }
@@ -366,7 +415,6 @@ async fn run_source(
                     } else {
                         (*commands.borrow_and_update()).clone()
                     };
-                    println!("Source COMMAND has changed: {cmd:?}");
                     match cmd {
                         SourceCmd::Run => break 'pause,
                         SourceCmd::Pause => paused = true,
@@ -388,18 +436,32 @@ async fn run_source(
     Ok(())
 }
 
+#[derive(Debug)]
+pub enum TransformCmd {
+    Enable,
+    Disable,
+}
+
 async fn run_transforms(
     mut transforms: Vec<Box<dyn Transform>>,
     mut rx: mpsc::Receiver<MeasurementBuffer>,
     tx: broadcast::Sender<MeasurementBuffer>,
+    active_flags: Arc<AtomicU64>,
 ) -> Result<(), TransformError> {
     loop {
         if let Some(mut measurements) = rx.recv().await {
-            for t in &mut transforms {
-                // if one transform fails, we cannot continue:
-                // each transform depends on the previous one, and the outputs may need the transformed data
-                t.apply(&mut measurements)?;
+            // Update the list of active transforms (the PipelineController can update the flags).
+            let current_flags = active_flags.load(Ordering::Relaxed);
+            
+            // Run the enabled transforms. If one of them fails, we cannot continue.
+            for (i, t) in &mut transforms.iter_mut().enumerate() {
+                let t_flag = 1 << i;
+                if current_flags & t_flag != 0 {
+                    t.apply(&mut measurements)?;
+                }
             }
+            
+            // Send the results to the outputs.
             tx.send(measurements).map_err(|e| {
                 TransformError::with_source(TransformErrorKind::Unrecoverable, "sending the measurements failed", e)
             })?;

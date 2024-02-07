@@ -1,12 +1,12 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::metrics::{MetricId, MeasurementType};
-use crate::pipeline;
-use crate::pipeline::registry::{MetricRegistry, ElementRegistry};
-use crate::units::Unit;
 use crate::config::ConfigTable;
 use crate::error::GenericError;
+use crate::metrics::{MeasurementType, MetricId};
+use crate::pipeline;
+use crate::pipeline::registry::{ElementRegistry, MetricRegistry};
+use crate::units::Unit;
 
 // pub mod dyn_load;
 
@@ -44,14 +44,20 @@ pub trait Plugin {
 
 /// Provides [`AlumetStart`] to start plugins.
 pub struct PluginStarter<'a> {
-    start: AlumetStart<'a>
+    start: AlumetStart<'a>,
 }
 
 impl<'a> PluginStarter<'a> {
     pub fn new(metrics: &'a mut MetricRegistry, pipeline_elements: &'a mut ElementRegistry) -> Self {
-        PluginStarter { start: AlumetStart { metrics, pipeline_elements, current_plugin_name: None } }
+        PluginStarter {
+            start: AlumetStart {
+                metrics,
+                pipeline_elements,
+                current_plugin_name: None,
+            },
+        }
     }
-    
+
     pub fn start(&mut self, plugin: &mut Box<dyn Plugin>) -> Result<(), PluginError> {
         self.start.current_plugin_name = Some(plugin.name().to_owned());
         plugin.start(&mut self.start)
@@ -67,18 +73,36 @@ pub struct AlumetStart<'a> {
 }
 
 impl AlumetStart<'_> {
-    pub fn create_metric(&mut self, name: &str, value_type: MeasurementType, unit: Unit, description: &str) -> Result<MetricId, PluginError> {
-        self.metrics.create_metric(name,value_type,unit,description).map_err(|e| todo!(""))
+    fn get_current_plugin_name(&self) -> String {
+        self.current_plugin_name
+            .clone()
+            .expect("The current plugin must be set before passing the AlumetStart struct to a plugin")
     }
+
+    pub fn create_metric(
+        &mut self,
+        name: &str,
+        value_type: MeasurementType,
+        unit: Unit,
+        description: &str,
+    ) -> Result<MetricId, PluginError> {
+        self.metrics
+            .create_metric(name, value_type, unit, description)
+            .map_err(|e| todo!(""))
+    }
+
     pub fn add_source(&mut self, source: Box<dyn pipeline::Source>) {
-        let plugin_name = self.current_plugin_name.clone().expect("The current plugin must be set before passing the AlumetStart struct to a plugin");
-        self.pipeline_elements.add_source(plugin_name, source)
+        let plugin = self.get_current_plugin_name();
+        self.pipeline_elements.add_source(plugin, source)
     }
     pub fn add_transform(&mut self, transform: Box<dyn pipeline::Transform>) {
-        self.pipeline_elements.add_transform(transform)
+        let plugin = self.get_current_plugin_name();
+        self.pipeline_elements.add_transform(plugin, transform)
     }
+
     pub fn add_output(&mut self, output: Box<dyn pipeline::Output>) {
-        self.pipeline_elements.add_output(output)
+        let plugin = self.get_current_plugin_name();
+        self.pipeline_elements.add_output(plugin, output)
     }
 }
 
@@ -128,9 +152,9 @@ pub enum PluginErrorKind {
 impl fmt::Display for PluginErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            PluginErrorKind::InvalidConfiguration => todo!(),
-            PluginErrorKind::SensorNotFound => todo!(),
-            PluginErrorKind::IoFailure => todo!(),
+            PluginErrorKind::InvalidConfiguration => f.write_str("invalid configuration"),
+            PluginErrorKind::SensorNotFound => f.write_str("required sensor not found"),
+            PluginErrorKind::IoFailure => f.write_str("I/O failure"),
         }
     }
 }
