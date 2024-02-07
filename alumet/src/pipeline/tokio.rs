@@ -1,3 +1,4 @@
+use core::fmt;
 use std::{
     future::Future,
     io,
@@ -72,6 +73,14 @@ pub type SourceTriggerOutput = Result<(), PollError>;
 pub enum SourceTrigger {
     TimeInterval(tokio_timerfd::Interval),
     Future(fn() -> BoxFuture<'static, SourceTriggerOutput>),
+}
+impl fmt::Debug for SourceTrigger {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TimeInterval(_) => f.write_str("TimeInterval"),
+            Self::Future(_) => f.write_str("Future"),
+        }
+    }
 }
 
 impl TaggedSource {
@@ -314,15 +323,19 @@ async fn run_source(
         }
     };
 
+    // Stores measurements in this buffer, and replace it every `flush_rounds` rounds.
+    // We probably need the capacity to store at least one measurement per round.
+    let mut buffer = MeasurementBuffer::with_capacity(flush_rounds);
+
     // main loop
-    let mut buffer = MeasurementBuffer::new();
-    let mut i = 1usize; // start at 1 to avoid flushing right away
+    let mut i = 1usize;
     'run: loop {
+        // flush the measurements and update the command, not on every round for performance reasons
         if i % flush_rounds == 0 {
-            // flush and update the command, not on every round for performance reasons
-            // flush
+            // flush and create a new buffer
+            let prev_length = buffer.len(); // hint for the new buffer size, great if the number of measurements per flush doesn't change much
             tx.try_send(buffer).expect("todo: handle failed send (source too fast)");
-            buffer = MeasurementBuffer::new();
+            buffer = MeasurementBuffer::with_capacity(prev_length);
 
             // update state based on the latest command
             if commands.has_changed().unwrap() {
@@ -366,7 +379,7 @@ async fn run_source(
 
         // poll the source
         let timestamp = SystemTime::now();
-        source.poll(&mut buffer.as_accumulator(), timestamp);
+        source.poll(&mut buffer.as_accumulator(), timestamp)?;
     }
     Ok(())
 }

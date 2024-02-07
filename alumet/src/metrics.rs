@@ -102,6 +102,14 @@ impl MeasurementBuffer {
     pub fn new() -> MeasurementBuffer {
         MeasurementBuffer { points: Vec::new() }
     }
+    
+    pub fn with_capacity(capacity: usize) -> MeasurementBuffer {
+        MeasurementBuffer { points: Vec::with_capacity(capacity) }
+    }
+    
+    pub fn len(&self) -> usize {
+        self.points.len()
+    }
 
     pub fn push(&mut self, point: MeasurementPoint) {
         self.points.push(point);
