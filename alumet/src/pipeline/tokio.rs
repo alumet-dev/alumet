@@ -150,7 +150,7 @@ pub struct PendingPipeline {
 pub struct PipelineController {
     // Keep the tokio runtimes alive
     normal_runtime: Runtime,
-    priority_runtime: Option<Runtime>,
+    _priority_runtime: Option<Runtime>,
 
     // Handles to wait for sources to finish.
     source_handles: Vec<JoinHandle<Result<(), PollError>>>,
@@ -274,7 +274,7 @@ impl PendingPipeline {
 
         PipelineController {
             normal_runtime,
-            priority_runtime,
+            _priority_runtime: priority_runtime,
             source_handles,
             output_handles,
             transform_handle,

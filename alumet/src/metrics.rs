@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{collections::HashMap, fmt::Display, time::SystemTime};
+use std::{borrow::Cow, collections::HashMap, fmt::Display, time::SystemTime};
 
 use crate::{pipeline::registry::MetricRegistry, units::Unit};
 
@@ -45,8 +45,7 @@ pub struct MeasurementPoint {
     pub resource: ResourceId,
 
     /// Additional attributes on the measurement point
-    attributes: Box<HashMap<String, AttributeValue>>,
-    // the HashMap is Boxed to make the struct smaller, which is good for the cache
+    attributes: Option<HashMap<String, AttributeValue>>,
 }
 
 impl MeasurementPoint {
@@ -61,7 +60,7 @@ impl MeasurementPoint {
             timestamp,
             value,
             resource,
-            attributes: Box::new(HashMap::new()),
+            attributes: None,
         }
     }
 }
@@ -161,9 +160,9 @@ impl<'a> MeasurementAccumulator<'a> {
         self.0.push(point)
     }
 }
+
 /// Hardware or software entity for which metrics can be gathered.
 #[non_exhaustive]
-#[repr(u8)]
 #[derive(Debug, Clone)]
 pub enum ResourceId {
     /// The whole local machine, for instance the whole physical server.
@@ -171,7 +170,7 @@ pub enum ResourceId {
     /// A process at the OS level.
     Process { pid: u32 },
     /// A control group, often abbreviated cgroup.
-    ControlGroup { path: String },
+    ControlGroup { path: StrCow },
     /// A physical CPU package (which is not the same as a NUMA node).
     CpuPackage { id: u32 },
     /// A CPU core.
@@ -179,27 +178,22 @@ pub enum ResourceId {
     /// The RAM attached to a CPU package.
     Dram { pkg_id: u32 },
     /// A dedicated GPU.
-    Gpu { bus_id: String },
+    Gpu { bus_id: StrCow },
     /// A custom resource
-    Custom { data: Box<CustomResource> },
+    Custom { kind: StrCow, id: StrCow },
 }
 
-#[derive(Debug, Clone)]
-pub struct CustomResource {
-    pub kind: String,
-    pub id: String,
-}
+/// Alias to a static cow. It helps avoiding allocations of Strings.
+pub type StrCow = Cow<'static, str>;
 
 impl ResourceId {
-    pub fn custom(kind: &str, id: &str) -> ResourceId {
+    pub fn custom(kind: impl Into<StrCow>, id: impl Into<StrCow>) -> ResourceId {
         ResourceId::Custom {
-            data: Box::new(CustomResource {
-                kind: kind.to_owned(),
-                id: id.to_owned(),
-            }),
+            kind: kind.into(),
+            id: id.into(),
         }
     }
-    
+
     pub fn kind(&self) -> &str {
         match self {
             ResourceId::LocalMachine => "local_machine",
@@ -209,7 +203,7 @@ impl ResourceId {
             ResourceId::CpuCore { .. } => "cpu_core",
             ResourceId::Dram { .. } => "dram",
             ResourceId::Gpu { .. } => "gpu",
-            ResourceId::Custom { data } => &data.kind,
+            ResourceId::Custom { kind, id } => &kind,
         }
     }
     
@@ -222,7 +216,7 @@ impl ResourceId {
             ResourceId::CpuCore { id } => LazyDisplayable::U32(*id),
             ResourceId::Dram { pkg_id } => LazyDisplayable::U32(*pkg_id),
             ResourceId::Gpu { bus_id } => LazyDisplayable::Str(&bus_id),
-            ResourceId::Custom { data } => LazyDisplayable::Str(&data.id),
+            ResourceId::Custom { kind, id } => LazyDisplayable::Str(&id),
         }
     }
 }
