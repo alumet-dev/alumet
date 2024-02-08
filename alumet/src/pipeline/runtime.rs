@@ -1,109 +1,39 @@
-use core::fmt;
-use std::{
-    collections::HashMap, future::Future, io, ops::BitOrAssign, pin::Pin, sync::{atomic::{AtomicU64, AtomicUsize, Ordering}, Arc}, time::{Duration, Instant, SystemTime}
-};
+use std::collections::HashMap;
+use std::io;
+use std::ops::BitOrAssign;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::SystemTime;
+
+use tokio::sync::{broadcast, mpsc};
+use tokio::task::JoinHandle;
+use tokio::{runtime::Runtime, sync::watch};
+use tokio_stream::StreamExt;
 
 use crate::{
     metrics::MeasurementBuffer,
     pipeline::{Output, Source, Transform},
 };
-use tokio::sync::{broadcast, mpsc};
-use tokio::task::JoinHandle;
-use tokio::{runtime::Runtime, sync::watch};
 
-use super::registry::MetricRegistry;
-use super::{
-    threading, PollError, PollErrorKind, TransformError, TransformErrorKind, WriteError,
-};
-use tokio_stream::StreamExt;
+use super::trigger::{SourceTrigger, TriggerProvider, ConfiguredTrigger};
+use super::registry::{ElementRegistry, MetricRegistry};
+use super::{threading, PollError, PollErrorKind, TransformError, TransformErrorKind, WriteError};
 
-pub struct TaggedTransform {
-    transform: Box<dyn Transform>,
-    plugin_name: String,
+/// A measurement pipeline that has not been started yet.
+/// Use [`PendingPipeline::start`] to launch it.
+pub struct MeasurementPipeline {
+    elements: PipelineElements,
+    params: PipelineParameters,
 }
-pub struct TaggedOutput {
-    output: Box<dyn Output>,
-    plugin_name: String,
+/// The elements of a measurement pipeline, with all required information (e.g. source triggers).
+struct PipelineElements {
+    sources: Vec<ConfiguredSource>,
+    transforms: Vec<ConfiguredTransform>,
+    outputs: Vec<ConfiguredOutput>,
 }
-pub struct TaggedSource {
-    source: Box<dyn Source>,
-    source_type: SourceType,
-    trigger_provider: SourceTriggerProvider,
-    plugin_name: String,
-}
-/// A boxed future, from the `futures` crate.
-pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
-
-#[derive(Clone, Debug)]
-pub enum SourceTriggerProvider {
-    TimeInterval {
-        start_time: Instant,
-        poll_interval: Duration,
-        flush_interval: Duration,
-    },
-    Future {
-        f: fn() -> BoxFuture<'static, SourceTriggerOutput>,
-        flush_rounds: usize,
-    },
-}
-impl SourceTriggerProvider {
-    pub fn provide(self) -> io::Result<(SourceTrigger, usize)> {
-        match self {
-            SourceTriggerProvider::TimeInterval {
-                start_time,
-                poll_interval,
-                flush_interval,
-            } => {
-                let flush_rounds = (flush_interval.as_micros() / poll_interval.as_micros()) as usize;
-                let trigger = SourceTrigger::TimeInterval(tokio_timerfd::Interval::new(start_time, poll_interval)?);
-                Ok((trigger, flush_rounds))
-            }
-            SourceTriggerProvider::Future { f, flush_rounds } => {
-                let trigger = SourceTrigger::Future(f);
-                Ok((trigger, flush_rounds))
-            }
-        }
-    }
-}
-
-pub type SourceTriggerOutput = Result<(), PollError>;
-pub enum SourceTrigger {
-    TimeInterval(tokio_timerfd::Interval),
-    Future(fn() -> BoxFuture<'static, SourceTriggerOutput>),
-}
-impl fmt::Debug for SourceTrigger {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::TimeInterval(_) => f.write_str("TimeInterval"),
-            Self::Future(_) => f.write_str("Future"),
-        }
-    }
-}
-
-impl TaggedSource {
-    pub fn new(
-        source: Box<dyn Source>,
-        source_type: SourceType,
-        trigger_provider: SourceTriggerProvider,
-        plugin_name: String,
-    ) -> TaggedSource {
-        TaggedSource {
-            source,
-            source_type,
-            trigger_provider,
-            plugin_name,
-        }
-    }
-}
-impl TaggedOutput {
-    pub fn new(plugin_name: String, output: Box<dyn Output>) -> TaggedOutput {
-        TaggedOutput { output, plugin_name }
-    }
-}
-impl TaggedTransform {
-    pub fn new(plugin_name: String, transform: Box<dyn Transform>) -> TaggedTransform {
-        TaggedTransform { transform, plugin_name }
-    }
+struct PipelineParameters {
+    normal_worker_threads: Option<usize>,
+    priority_worker_threads: Option<usize>,
 }
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SourceType {
@@ -111,49 +41,25 @@ pub enum SourceType {
     // Blocking, // todo: how to provide this type properly?
     RealtimePriority,
 }
-
-struct PipelineElements {
-    sources: Vec<TaggedSource>,
-    transforms: Vec<TaggedTransform>,
-    outputs: Vec<TaggedOutput>,
+pub struct ConfiguredSource {
+    pub source: Box<dyn Source>,
+    pub plugin_name: String,
+    pub source_type: SourceType,
+    pub trigger_provider: TriggerProvider,
+}
+pub struct ConfiguredTransform {
+    pub transform: Box<dyn Transform>,
+    pub plugin_name: String,
+}
+pub struct ConfiguredOutput {
+    pub output: Box<dyn Output>,
+    pub plugin_name: String,
 }
 
-struct PipelineParameters {
-    normal_worker_threads: Option<usize>,
-    priority_worker_threads: Option<usize>,
-}
-
-impl PipelineParameters {
-    fn build_normal_runtime(&self) -> io::Result<tokio::runtime::Runtime> {
-        let mut builder = tokio::runtime::Builder::new_multi_thread();
-        builder.enable_all().thread_name("normal-worker");
-        if let Some(n) = self.normal_worker_threads {
-            builder.worker_threads(n);
-        }
-        builder.build()
-    }
-
-    fn build_priority_runtime(&self) -> io::Result<tokio::runtime::Runtime> {
-        let mut builder = tokio::runtime::Builder::new_multi_thread();
-        builder
-            .enable_all()
-            .on_thread_start(|| {
-                threading::increase_thread_priority().expect("failed to create high-priority thread for worker")
-            })
-            .thread_name("priority-worker");
-        if let Some(n) = self.priority_worker_threads {
-            builder.worker_threads(n);
-        }
-        builder.build()
-    }
-}
-
-/// A builder for measurement pipelines.
-pub struct PendingPipeline {
-    elements: PipelineElements,
-    params: PipelineParameters,
-}
-
+/// A `PipelineController` allows to dynamically change the configuration of a running measurement pipeline.
+///
+/// Dropping the controller aborts all the tasks of the pipeline (the internal Tokio [`Runtime`]s are dropped).
+/// To keep the pipeline running, use [`wait_for_all`].
 pub struct PipelineController {
     // Keep the tokio runtimes alive
     normal_runtime: Runtime,
@@ -167,75 +73,29 @@ pub struct PipelineController {
     // Senders to keep the receivers alive and to send commands.
     source_command_senders_by_plugin: HashMap<String, Vec<watch::Sender<SourceCmd>>>,
     output_command_senders_by_plugin: HashMap<String, Vec<watch::Sender<OutputCmd>>>,
-    
+
     /// Currently active transforms.
     /// Note: it could be generalized to support more than 64 values,
-    /// either with a crate like arc-swap, or by using multiple Vec of transforms, each with an AtomicU64. 
+    /// either with a crate like arc-swap, or by using multiple Vec of transforms, each with an AtomicU64.
     active_transforms: Arc<AtomicU64>,
     transforms_mask_by_plugin: HashMap<String, u64>,
 }
-impl PipelineController {
-    /// Blocks the current thread until all tasks in the pipeline finish.
-    pub fn wait_for_all(&mut self) {
-        self.normal_runtime.block_on(async {
-            for handle in &mut self.source_handles {
-                handle.await.unwrap().unwrap();// todo: handle errors
-            }
 
-            (&mut self.transform_handle).await.unwrap().unwrap();
-
-            for handle in &mut self.output_handles {
-                handle.await.unwrap().unwrap();
-            }
-        });
-    }
-
-    pub fn command_plugin_transforms(&self, plugin_name: &str, command: TransformCmd) {
-        let mask: u64 = *self.transforms_mask_by_plugin.get(plugin_name).unwrap();
-        match command {
-            TransformCmd::Enable => self.active_transforms.fetch_or(mask, Ordering::Relaxed),
-            TransformCmd::Disable => self.active_transforms.fetch_nand(mask, Ordering::Relaxed),
-        };
-    }
-
-    pub fn command_plugin_sources(&self, plugin_name: &str, command: SourceCmd) {
-        let senders = self.source_command_senders_by_plugin.get(plugin_name).unwrap();
-        for s in senders {
-            s.send(command.clone()).unwrap();
-        }
-    }
-
-    pub fn command_all_sources(&self, command: SourceCmd) {
-        for (_, senders) in &self.source_command_senders_by_plugin {
-            for s in senders {
-                s.send(command.clone()).unwrap();
-            }
-        }
-    }
-
-    pub fn command_plugin_outputs(&self, plugin_name: &str, command: OutputCmd) {
-        let senders = self.output_command_senders_by_plugin.get(plugin_name).unwrap();
-        for s in senders {
-            s.send(command.clone()).unwrap();
-        }
-    }
-
-    pub fn command_all_outputs(&self, command: OutputCmd) {
-        for (_, senders) in &self.output_command_senders_by_plugin {
-            for s in senders {
-                s.send(command.clone()).unwrap();
-            }
-        }
-    }
-}
-
-impl PendingPipeline {
-    pub fn new(sources: Vec<TaggedSource>, transforms: Vec<TaggedTransform>, outputs: Vec<TaggedOutput>) -> Self {
-        PendingPipeline {
+impl MeasurementPipeline {
+    /// Creates a new measurement pipeline with the elements in the registry and some additional settings applied to the sources
+    /// by the function `f`.
+    ///
+    /// The returned pipeline is not started, use [`PendingPipeline::start`] to start it.
+    pub fn with_settings<F>(elements: ElementRegistry, mut f: F) -> MeasurementPipeline
+    where
+        F: FnMut(Box<dyn Source>, String) -> ConfiguredSource,
+    {
+        let sources: Vec<_> = elements.sources.into_iter().map(|(s, p)| f(s, p)).collect();
+        MeasurementPipeline {
             elements: PipelineElements {
                 sources,
-                transforms,
-                outputs,
+                transforms: elements.transforms,
+                outputs: elements.outputs,
             },
             params: PipelineParameters {
                 normal_worker_threads: None,
@@ -243,13 +103,18 @@ impl PendingPipeline {
             },
         }
     }
+
+    /// Sets the number of threads in the "normal" tokio [`Runtime`].
+    /// No more than `n` sources of type [`SourceType::Normal`] can be polled at the same time.
     pub fn normal_worker_threads(&mut self, n: usize) {
         self.params.normal_worker_threads = Some(n);
     }
+    /// Sets the number of threads in the "priority" tokio [`Runtime`], which runs the sources of type [`SourceType::RealtimePriority`].
     pub fn priority_worker_threads(&mut self, n: usize) {
         self.params.priority_worker_threads = Some(n);
     }
 
+    /// Starts the measurement pipeline and returns a controller for it.
     pub fn start(self, metrics: MetricRegistry) -> PipelineController {
         // set the global metric registry, which can be accessed by the pipeline's elements (sources, transforms, outputs)
         MetricRegistry::init_global(metrics);
@@ -293,7 +158,10 @@ impl PendingPipeline {
             let (command_tx, command_rx) = watch::channel(OutputCmd::Run);
             let handle = normal_runtime.spawn(run_output_from_broadcast(out.output, data_rx, command_rx));
             output_handles.push(handle);
-            output_command_senders_by_plugin.entry(out.plugin_name).or_default().push(command_tx);
+            output_command_senders_by_plugin
+                .entry(out.plugin_name)
+                .or_default()
+                .push(command_tx);
         }
 
         // 2. Transforms
@@ -302,9 +170,13 @@ impl PendingPipeline {
         for (i, t) in self.elements.transforms.into_iter().enumerate() {
             transforms.push(t.transform);
             let mask: u64 = 1 << i;
-            transforms_indexes_by_plugin.entry(t.plugin_name).or_default().bitor_assign(mask);
+            transforms_indexes_by_plugin
+                .entry(t.plugin_name)
+                .or_default()
+                .bitor_assign(mask);
         }
-        let transform_handle = normal_runtime.spawn(run_transforms(transforms, in_rx, out_tx, active_transforms.clone()));
+        let transform_handle =
+            normal_runtime.spawn(run_transforms(transforms, in_rx, out_tx, active_transforms.clone()));
 
         // 3. Sources
         for src in self.elements.sources {
@@ -316,7 +188,10 @@ impl PendingPipeline {
             };
             let handle = runtime.spawn(run_source(src.source, data_tx, command_rx));
             source_handles.push(handle);
-            source_command_senders_by_plugin.entry(src.plugin_name).or_default().push(command_tx);
+            source_command_senders_by_plugin
+                .entry(src.plugin_name)
+                .or_default()
+                .push(command_tx);
         }
 
         PipelineController {
@@ -338,7 +213,7 @@ pub enum SourceCmd {
     Run,
     Pause,
     Stop,
-    SetTrigger(Option<SourceTriggerProvider>),
+    SetTrigger(Option<TriggerProvider>),
 }
 
 async fn run_source(
@@ -346,18 +221,18 @@ async fn run_source(
     tx: mpsc::Sender<MeasurementBuffer>,
     mut commands: watch::Receiver<SourceCmd>,
 ) -> Result<(), PollError> {
-    fn init_trigger(provider: &mut Option<SourceTriggerProvider>) -> Result<(SourceTrigger, usize), PollError> {
+    fn init_trigger(provider: &mut Option<TriggerProvider>) -> Result<ConfiguredTrigger, PollError> {
         provider
             .take()
             .expect("invalid empty trigger in message Init(trigger)")
-            .provide()
+            .auto_configured()
             .map_err(|e| {
                 PollError::with_source(PollErrorKind::Unrecoverable, "Source trigger initialization failed", e)
             })
     }
 
     // the first command must be "init"
-    let (mut trigger, mut flush_rounds) = {
+    let mut trigger = {
         let init_cmd = commands
             .wait_for(|c| matches!(c, SourceCmd::SetTrigger(_)))
             .await
@@ -374,13 +249,13 @@ async fn run_source(
 
     // Stores measurements in this buffer, and replace it every `flush_rounds` rounds.
     // We probably need the capacity to store at least one measurement per round.
-    let mut buffer = MeasurementBuffer::with_capacity(flush_rounds);
+    let mut buffer = MeasurementBuffer::with_capacity(trigger.flush_rounds);
 
     // main loop
     let mut i = 1usize;
     'run: loop {
         // wait for trigger
-        match trigger {
+        match trigger.trigger {
             SourceTrigger::TimeInterval(ref mut interval) => {
                 interval.next().await.unwrap().unwrap();
             }
@@ -395,7 +270,7 @@ async fn run_source(
 
         // Flush the measurements and update the command, not on every round for performance reasons.
         // This is done _after_ polling, to ensure that we poll at least once before flushing, even if flush_rounds is 1.
-        if i % flush_rounds == 0 {
+        if i % trigger.flush_rounds == 0 {
             // flush and create a new buffer
             let prev_length = buffer.len(); // hint for the new buffer size, great if the number of measurements per flush doesn't change much
             tx.try_send(buffer).expect("todo: handle failed send (source too fast)");
@@ -420,8 +295,8 @@ async fn run_source(
                         SourceCmd::Pause => paused = true,
                         SourceCmd::Stop => break 'run,
                         SourceCmd::SetTrigger(mut opt) => {
-                            (trigger, flush_rounds) = init_trigger(&mut opt)?;
-                            let hint_additional_elems = flush_rounds - (i % flush_rounds);
+                            trigger = init_trigger(&mut opt)?;
+                            let hint_additional_elems = trigger.flush_rounds - (i % trigger.flush_rounds);
                             buffer.reserve(hint_additional_elems);
                             if !paused {
                                 break 'pause;
@@ -452,7 +327,7 @@ async fn run_transforms(
         if let Some(mut measurements) = rx.recv().await {
             // Update the list of active transforms (the PipelineController can update the flags).
             let current_flags = active_flags.load(Ordering::Relaxed);
-            
+
             // Run the enabled transforms. If one of them fails, we cannot continue.
             for (i, t) in &mut transforms.iter_mut().enumerate() {
                 let t_flag = 1 << i;
@@ -460,7 +335,7 @@ async fn run_transforms(
                     t.apply(&mut measurements)?;
                 }
             }
-            
+
             // Send the results to the outputs.
             tx.send(measurements).map_err(|e| {
                 TransformError::with_source(TransformErrorKind::Unrecoverable, "sending the measurements failed", e)
@@ -553,4 +428,89 @@ async fn run_output_from_broadcast(
         }
     }
     Ok(())
+}
+
+impl PipelineParameters {
+    fn build_normal_runtime(&self) -> io::Result<tokio::runtime::Runtime> {
+        let mut builder = tokio::runtime::Builder::new_multi_thread();
+        builder.enable_all().thread_name("normal-worker");
+        if let Some(n) = self.normal_worker_threads {
+            builder.worker_threads(n);
+        }
+        builder.build()
+    }
+
+    fn build_priority_runtime(&self) -> io::Result<tokio::runtime::Runtime> {
+        let mut builder = tokio::runtime::Builder::new_multi_thread();
+        builder
+            .enable_all()
+            .on_thread_start(|| {
+                threading::increase_thread_priority().expect("failed to create high-priority thread for worker")
+            })
+            .thread_name("priority-worker");
+        if let Some(n) = self.priority_worker_threads {
+            builder.worker_threads(n);
+        }
+        builder.build()
+    }
+}
+
+impl PipelineController {
+    /// Blocks the current thread until all tasks in the pipeline finish.
+    pub fn wait_for_all(&mut self) {
+        self.normal_runtime.block_on(async {
+            for handle in &mut self.source_handles {
+                handle.await.unwrap().unwrap(); // todo: handle errors
+            }
+
+            (&mut self.transform_handle).await.unwrap().unwrap();
+
+            for handle in &mut self.output_handles {
+                handle.await.unwrap().unwrap();
+            }
+        });
+    }
+
+    /// Sends a command to all the [`Transform`]s of a specific plugin.
+    pub fn command_plugin_transforms(&self, plugin_name: &str, command: TransformCmd) {
+        let mask: u64 = *self.transforms_mask_by_plugin.get(plugin_name).unwrap();
+        match command {
+            TransformCmd::Enable => self.active_transforms.fetch_or(mask, Ordering::Relaxed),
+            TransformCmd::Disable => self.active_transforms.fetch_nand(mask, Ordering::Relaxed),
+        };
+    }
+
+    /// Sends a command to all the [`Source`]s of a specific plugin.
+    pub fn command_plugin_sources(&self, plugin_name: &str, command: SourceCmd) {
+        let senders = self.source_command_senders_by_plugin.get(plugin_name).unwrap();
+        for s in senders {
+            s.send(command.clone()).unwrap();
+        }
+    }
+
+    /// Sends a command to all the [`Source`]s in the pipeline.
+    pub fn command_all_sources(&self, command: SourceCmd) {
+        for (_, senders) in &self.source_command_senders_by_plugin {
+            for s in senders {
+                s.send(command.clone()).unwrap();
+            }
+        }
+    }
+
+    /// Sends a command to all the [`Output`]s of a specific plugin.
+    pub fn command_plugin_outputs(&self, plugin_name: &str, command: OutputCmd) {
+        let senders = self.output_command_senders_by_plugin.get(plugin_name).unwrap();
+        for s in senders {
+            s.send(command.clone()).unwrap();
+        }
+    }
+
+    /// Sends a command to all the [`Output`]s in the pipeline.
+    pub fn command_all_outputs(&self, command: OutputCmd) {
+        for (_, senders) in &self.output_command_senders_by_plugin {
+            for s in senders {
+                s.send(command.clone()).unwrap();
+            }
+        }
+    }
 }

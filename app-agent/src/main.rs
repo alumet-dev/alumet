@@ -1,9 +1,9 @@
-use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
+use alumet::pipeline;
 use alumet::pipeline::registry::{ElementRegistry, MetricRegistry};
-use alumet::pipeline::tokio::{PendingPipeline, SourceTriggerProvider, SourceType, TaggedOutput, TaggedSource, TaggedTransform, TransformCmd};
-use alumet::pipeline::{Output, Source, Transform};
+use alumet::pipeline::runtime::{MeasurementPipeline, SourceType, ConfiguredSource, TransformCmd, SourceCmd, OutputCmd};
+use alumet::pipeline::trigger::TriggerProvider;
 use alumet::plugin::{Plugin, PluginStarter};
 
 mod test_plugin;
@@ -30,25 +30,22 @@ fn main() {
 
     // start the pipeline and wait for the tasks to finish
     println!("Starting the pipeline...");
-    let tagged_sources = tag_sources(elements.sources_per_plugin);
-    let tagged_transforms = tag_transforms(elements.transforms_per_plugin);
-    let tagged_outputs = tag_outputs(elements.outputs_per_plugin);
-    let mut pipeline = PendingPipeline::new(tagged_sources, tagged_transforms, tagged_outputs).start(metrics);
+    let mut pipeline = MeasurementPipeline::with_settings(elements, apply_source_settings).start(metrics);
     println!("🔥 ALUMET agent is ready");
 
     // test commands
     std::thread::sleep(Duration::from_secs(2));
-    pipeline.command_all_outputs(alumet::pipeline::tokio::OutputCmd::Pause);
+    pipeline.command_all_outputs(OutputCmd::Pause);
     std::thread::sleep(Duration::from_secs(1));
-    pipeline.command_all_sources(alumet::pipeline::tokio::SourceCmd::Pause);
+    pipeline.command_all_sources(SourceCmd::Pause);
     std::thread::sleep(Duration::from_secs(1));
     pipeline.command_plugin_transforms("test-plugin", TransformCmd::Disable);
-    pipeline.command_all_outputs(alumet::pipeline::tokio::OutputCmd::Run);
+    pipeline.command_all_outputs(OutputCmd::Run);
     std::thread::sleep(Duration::from_secs(1));
-    pipeline.command_all_sources(alumet::pipeline::tokio::SourceCmd::Run);
+    pipeline.command_all_sources(SourceCmd::Run);
     std::thread::sleep(Duration::from_secs(1));
-    pipeline.command_all_sources(alumet::pipeline::tokio::SourceCmd::SetTrigger(
-        Some(SourceTriggerProvider::TimeInterval { start_time: Instant::now(), poll_interval: Duration::from_millis(100), flush_interval: Duration::from_secs(1) }))
+    pipeline.command_all_sources(SourceCmd::SetTrigger(
+        Some(TriggerProvider::TimeInterval { start_time: Instant::now(), poll_interval: Duration::from_millis(100), flush_interval: Duration::from_secs(1) }))
     );
     std::thread::sleep(Duration::from_secs(3));
     pipeline.command_plugin_transforms("test-plugin", TransformCmd::Enable);
@@ -72,50 +69,19 @@ fn print_stats(metrics: &MetricRegistry, elems: &ElementRegistry, plugins: &[Box
     // pipeline elements
     println!(
         "📥 {} sources, 🔀 {} transforms and 📝 {} outputs registered.",
-        mapvec_count(&elems.sources_per_plugin),
-        elems.transforms_per_plugin.len(),
-        elems.outputs_per_plugin.len()
+        elems.source_count(),
+        elems.transform_count(),
+        elems.output_count()
     );
 }
 
-fn mapvec_count<K, V>(map: &HashMap<K, Vec<V>>) -> usize {
-    let mut res = 0;
-    for v in map.values() {
-        res += v.len();
-    }
-    res
-}
-
-fn tag_sources(src: HashMap<String, Vec<Box<dyn Source>>>) -> Vec<TaggedSource> {
-    fn tag(plugin_name: &str, src: Box<dyn Source>) -> TaggedSource {
-        let trigger_provider = SourceTriggerProvider::TimeInterval {
-            start_time: Instant::now(),
-            poll_interval: Duration::from_secs(1),
-            flush_interval: Duration::from_secs(1),
-        };
-        TaggedSource::new(src, SourceType::Normal, trigger_provider, plugin_name.to_owned())
-    }
-
-    let mut res = Vec::new();
-    for (plugin_name, sources) in src {
-        res.extend(sources.into_iter().map(|src| tag(&plugin_name, src)));
-    }
-    res
-}
-
-fn tag_outputs(map: HashMap<String, Vec<Box<dyn Output>>>) -> Vec<TaggedOutput> {
-    let mut res = Vec::new();
-    for (plugin_name, vec) in map {
-        res.extend(vec.into_iter().map(|out| TaggedOutput::new(plugin_name.to_owned(), out)));
-    }
-    res
-}
-
-
-fn tag_transforms(map: HashMap<String, Vec<Box<dyn Transform>>>) -> Vec<TaggedTransform> {
-    let mut res = Vec::new();
-    for (plugin_name, vec) in map {
-        res.extend(vec.into_iter().map(|tr| TaggedTransform::new(plugin_name.to_owned(), tr)));
-    }
-    res
+fn apply_source_settings(source: Box<dyn pipeline::Source>, plugin_name: String) -> ConfiguredSource {
+    // normally this would be fetched from the config
+    let source_type = SourceType::Normal;
+    let trigger_provider = TriggerProvider::TimeInterval {
+        start_time: Instant::now(),
+        poll_interval: Duration::from_secs(1),
+        flush_interval: Duration::from_secs(1),
+    };
+    ConfiguredSource { source, plugin_name, source_type, trigger_provider }
 }

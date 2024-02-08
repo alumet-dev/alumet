@@ -1,13 +1,19 @@
-use std::{fmt, sync::OnceLock};
-use std::error::Error;
 use std::collections::HashMap;
+use std::error::Error;
+use std::{fmt, sync::OnceLock};
+
+use crate::units::Unit;
 
 use crate::{
-    pipeline::{Output, Source, Transform}, units::Unit
+    metrics::{MeasurementType, Metric, MetricId},
+    pipeline,
 };
+use super::runtime::{ConfiguredOutput, ConfiguredTransform};
 
-use crate::{metrics::{Metric, MetricId, MeasurementType}, pipeline};
-
+/// A registry of metrics.
+/// 
+/// New metrics are created by the plugins during their initialization.
+/// To do so, they use the methods provided by [`crate::plugin::AlumetStart`], not `MetricRegistry`.
 pub struct MetricRegistry {
     pub(crate) metrics_by_id: HashMap<MetricId, Metric>,
     pub(crate) metrics_by_name: HashMap<String, MetricId>,
@@ -26,46 +32,51 @@ impl MetricRegistry {
     }
 
     /// Returns the global metric registry.
-    /// 
+    ///
     /// This function panics the registry has not been initialized with [`MetricRegistry::init_global()`].
     pub(crate) fn global() -> &'static MetricRegistry {
         // `get` is just one atomic read, this is much cheaper than a Mutex or RwLock
-        GLOBAL_METRICS.get().expect("The MetricRegistry must be initialized before use.")
+        GLOBAL_METRICS
+            .get()
+            .expect("The MetricRegistry must be initialized before use.")
     }
 
     /// Sets the global metric registry.
-    /// 
+    ///
     /// This function can only be called once.
     /// The global metric registry must be set before using a `Source`, `Transform` or `Output`, because
     /// they may call functions such as [`MetricId::name`] that use the global registry.
     pub(crate) fn init_global(reg: MetricRegistry) {
-        GLOBAL_METRICS.set(reg).unwrap_or_else(|_| panic!("The MetricRegistry can be initialized only once."));
+        GLOBAL_METRICS
+            .set(reg)
+            .unwrap_or_else(|_| panic!("The MetricRegistry can be initialized only once."));
     }
 
     /// Finds the metric that has the given id.
     pub fn with_id(&self, id: &MetricId) -> Option<&Metric> {
         self.metrics_by_id.get(id)
     }
-    
+
     /// Finds the metric that has the given name.
     pub fn with_name(&self, name: &str) -> Option<&Metric> {
-        self.metrics_by_name.get(name).and_then(|id| self.metrics_by_id.get(id))        
+        self.metrics_by_name.get(name).and_then(|id| self.metrics_by_id.get(id))
     }
-    
+
     /// The number of metrics in the registry.
     pub fn len(&self) -> usize {
         self.metrics_by_id.len()
     }
-    
+
     /// An iterator on the registered metrics.
     pub fn iter(&self) -> MetricIter<'_> {
         // return new iterator
         MetricIter {
-            values: self.metrics_by_id.values()
+            values: self.metrics_by_id.values(),
         }
     }
 
     /// Creates a new metric and registers it in this registry.
+    /// For internal use only to keep the registry's internal structure private.
     pub(crate) fn create_metric(
         &mut self,
         name: &str,
@@ -92,7 +103,9 @@ impl MetricRegistry {
     }
 }
 
-pub struct MetricIter<'a> { values: std::collections::hash_map::Values<'a, MetricId, Metric> }
+pub struct MetricIter<'a> {
+    values: std::collections::hash_map::Values<'a, MetricId, Metric>,
+}
 impl<'a> Iterator for MetricIter<'a> {
     type Item = &'a Metric;
 
@@ -111,31 +124,50 @@ impl<'a> IntoIterator for &'a MetricRegistry {
     }
 }
 
+/// A registry of pipeline elements: [`pipeline::Source`], [`pipeline::Transform`] and [`pipeline::Output`].
+/// 
+/// New elements are registered by the plugins during their initialization.
+/// To do so, they use the methods provided by [`crate::plugin::AlumetStart`], not `ElementRegistry`.
 pub struct ElementRegistry {
-    pub sources_per_plugin: HashMap<String, Vec<Box<dyn Source>>>,
-    pub transforms_per_plugin: HashMap<String, Vec<Box<dyn Transform>>>,
-    pub outputs_per_plugin: HashMap<String, Vec<Box<dyn Output>>>,
+    pub(crate) sources: Vec<(Box<dyn pipeline::Source>, String)>,
+    pub(crate) transforms: Vec<pipeline::runtime::ConfiguredTransform>,
+    pub(crate) outputs: Vec<pipeline::runtime::ConfiguredOutput>,
 }
 
 impl ElementRegistry {
     pub fn new() -> Self {
         ElementRegistry {
-            sources_per_plugin: HashMap::new(),
-            transforms_per_plugin: HashMap::new(),
-            outputs_per_plugin: HashMap::new(),
+            sources: Vec::new(),
+            transforms: Vec::new(),
+            outputs: Vec::new(),
         }
     }
 
+    /// Returns the total number of sources in the registry (all plugins included).
+    pub fn source_count(&self) -> usize {
+        self.sources.len()
+    }
+
+    /// Returns the total number of transforms in the registry (all plugins included).
+    pub fn transform_count(&self) -> usize {
+        self.transforms.len()
+    }
+
+    /// Returns the total number of outputs in the registry (all plugins included).
+    pub fn output_count(&self) -> usize {
+        self.outputs.len()
+    }
+
     pub(crate) fn add_source(&mut self, plugin_name: String, source: Box<dyn pipeline::Source>) {
-        self.sources_per_plugin.entry(plugin_name).or_default().push(source);
+        self.sources.push((source, plugin_name));
     }
 
     pub(crate) fn add_transform(&mut self, plugin_name: String, transform: Box<dyn pipeline::Transform>) {
-        self.transforms_per_plugin.entry(plugin_name).or_default().push(transform);
+        self.transforms.push(ConfiguredTransform{transform, plugin_name});
     }
 
     pub(crate) fn add_output(&mut self, plugin_name: String, output: Box<dyn pipeline::Output>) {
-        self.outputs_per_plugin.entry(plugin_name).or_default().push(output);
+        self.outputs.push(ConfiguredOutput{output, plugin_name});
     }
 }
 

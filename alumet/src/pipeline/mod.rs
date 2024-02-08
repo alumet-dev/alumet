@@ -2,8 +2,9 @@ use std::{error::Error, fmt, time::SystemTime};
 
 use crate::{error::GenericError, metrics::{MeasurementBuffer, MeasurementAccumulator}};
 
-pub mod tokio;
+pub mod runtime;
 pub mod registry;
+pub mod trigger;
 mod threading;
 
 /// Produces measurements related to some metrics.
