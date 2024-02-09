@@ -56,20 +56,33 @@ pub struct ConfiguredOutput {
     pub plugin_name: String,
 }
 
+enum ControlMessage {
+    Source(Option<String>, SourceCmd),
+    Output(Option<String>, OutputCmd),
+    Transform(Option<String>, TransformCmd),
+}
+
 /// A `PipelineController` allows to dynamically change the configuration of a running measurement pipeline.
 ///
 /// Dropping the controller aborts all the tasks of the pipeline (the internal Tokio [`Runtime`]s are dropped).
 /// To keep the pipeline running, use [`wait_for_all`].
-pub struct PipelineController {
+pub struct RunningPipeline {
     // Keep the tokio runtimes alive
     normal_runtime: Runtime,
     _priority_runtime: Option<Runtime>,
 
-    // Handles to wait for sources to finish.
+    // Handles to wait for pipeline elements to finish.
     source_handles: Vec<JoinHandle<Result<(), PollError>>>,
     output_handles: Vec<JoinHandle<Result<(), WriteError>>>,
     transform_handle: JoinHandle<Result<(), TransformError>>,
-
+    
+    // Controller, initially Some, taken (replaced by None) by the control task started by the first control handle.
+    controller: Option<PipelineController>,
+    
+    // Control handle, initially None, set by the first call to `control_handle`.
+    control_handle: Option<ControlHandle>,
+}
+struct PipelineController {
     // Senders to keep the receivers alive and to send commands.
     source_command_senders_by_plugin: HashMap<String, Vec<watch::Sender<SourceCmd>>>,
     output_command_senders_by_plugin: HashMap<String, Vec<watch::Sender<OutputCmd>>>,
@@ -79,6 +92,10 @@ pub struct PipelineController {
     /// either with a crate like arc-swap, or by using multiple Vec of transforms, each with an AtomicU64.
     active_transforms: Arc<AtomicU64>,
     transforms_mask_by_plugin: HashMap<String, u64>,
+}
+#[derive(Clone)]
+pub struct ControlHandle {
+    tx: mpsc::Sender<ControlMessage>,
 }
 
 impl MeasurementPipeline {
@@ -115,7 +132,7 @@ impl MeasurementPipeline {
     }
 
     /// Starts the measurement pipeline and returns a controller for it.
-    pub fn start(self, metrics: MetricRegistry) -> PipelineController {
+    pub fn start(self, metrics: MetricRegistry) -> RunningPipeline {
         // set the global metric registry, which can be accessed by the pipeline's elements (sources, transforms, outputs)
         MetricRegistry::init_global(metrics);
 
@@ -149,7 +166,7 @@ impl MeasurementPipeline {
         let mut output_handles = Vec::with_capacity(self.elements.outputs.len());
         let mut source_command_senders_by_plugin: HashMap<_, Vec<_>> = HashMap::new();
         let mut output_command_senders_by_plugin: HashMap<_, Vec<_>> = HashMap::new();
-        let mut transforms_indexes_by_plugin: HashMap<_, u64> = HashMap::new();
+        let mut transforms_mask_by_plugin: HashMap<_, u64> = HashMap::new();
 
         // Start the tasks, starting at the end of the pipeline (to avoid filling the buffers too quickly).
         // 1. Outputs
@@ -170,7 +187,7 @@ impl MeasurementPipeline {
         for (i, t) in self.elements.transforms.into_iter().enumerate() {
             transforms.push(t.transform);
             let mask: u64 = 1 << i;
-            transforms_indexes_by_plugin
+            transforms_mask_by_plugin
                 .entry(t.plugin_name)
                 .or_default()
                 .bitor_assign(mask);
@@ -193,17 +210,21 @@ impl MeasurementPipeline {
                 .or_default()
                 .push(command_tx);
         }
-
-        PipelineController {
+        
+        RunningPipeline {
             normal_runtime,
             _priority_runtime: priority_runtime,
             source_handles,
             output_handles,
             transform_handle,
-            source_command_senders_by_plugin,
-            output_command_senders_by_plugin,
-            active_transforms,
-            transforms_mask_by_plugin: transforms_indexes_by_plugin,
+            
+            controller: Some(PipelineController {
+                source_command_senders_by_plugin,
+                output_command_senders_by_plugin,
+                active_transforms,
+                transforms_mask_by_plugin,
+            }),
+            control_handle: None,
         }
     }
 }
@@ -455,7 +476,7 @@ impl PipelineParameters {
     }
 }
 
-impl PipelineController {
+impl RunningPipeline {
     /// Blocks the current thread until all tasks in the pipeline finish.
     pub fn wait_for_all(&mut self) {
         self.normal_runtime.block_on(async {
@@ -471,46 +492,121 @@ impl PipelineController {
         });
     }
 
-    /// Sends a command to all the [`Transform`]s of a specific plugin.
-    pub fn command_plugin_transforms(&self, plugin_name: &str, command: TransformCmd) {
-        let mask: u64 = *self.transforms_mask_by_plugin.get(plugin_name).unwrap();
-        match command {
-            TransformCmd::Enable => self.active_transforms.fetch_or(mask, Ordering::Relaxed),
-            TransformCmd::Disable => self.active_transforms.fetch_nand(mask, Ordering::Relaxed),
-        };
-    }
-
-    /// Sends a command to all the [`Source`]s of a specific plugin.
-    pub fn command_plugin_sources(&self, plugin_name: &str, command: SourceCmd) {
-        let senders = self.source_command_senders_by_plugin.get(plugin_name).unwrap();
-        for s in senders {
-            s.send(command.clone()).unwrap();
-        }
-    }
-
-    /// Sends a command to all the [`Source`]s in the pipeline.
-    pub fn command_all_sources(&self, command: SourceCmd) {
-        for (_, senders) in &self.source_command_senders_by_plugin {
-            for s in senders {
-                s.send(command.clone()).unwrap();
+    /// Returns a [`xxx`], which allows to change the configuration
+    /// of the pipeline while it is running.
+    pub fn control_handle(&mut self) -> ControlHandle {
+        fn handle_message(controller: &mut PipelineController, msg: ControlMessage) {
+            match msg {
+                ControlMessage::Source(plugin_name, cmd) => {
+                    if let Some(plugin) = plugin_name {
+                        for s in controller.source_command_senders_by_plugin.get(&plugin).unwrap() {
+                            s.send(cmd.clone()).unwrap();
+                        }
+                    } else {
+                        for senders in controller.source_command_senders_by_plugin.values() {
+                            for s in senders {
+                                s.send(cmd.clone()).unwrap();
+                            }
+                        }
+                    }
+                },
+                ControlMessage::Output(plugin_name, cmd) => {
+                    if let Some(plugin) = plugin_name {
+                        for s in controller.output_command_senders_by_plugin.get(&plugin).unwrap() {
+                            s.send(cmd.clone()).unwrap();
+                        }
+                    } else {
+                        for senders in controller.output_command_senders_by_plugin.values() {
+                            for s in senders {
+                                s.send(cmd.clone()).unwrap();
+                            }
+                        }
+                    }
+                },
+                ControlMessage::Transform(plugin_name, cmd) => {
+                    let mask: u64 = if let Some(plugin) = plugin_name {
+                        *controller.transforms_mask_by_plugin.get(&plugin).unwrap()
+                    } else {
+                        u64::MAX
+                    };
+                    match cmd {
+                        TransformCmd::Enable => controller.active_transforms.fetch_or(mask, Ordering::Relaxed),
+                        TransformCmd::Disable => controller.active_transforms.fetch_nand(mask, Ordering::Relaxed),
+                    };
+                },
             }
         }
-    }
 
-    /// Sends a command to all the [`Output`]s of a specific plugin.
-    pub fn command_plugin_outputs(&self, plugin_name: &str, command: OutputCmd) {
-        let senders = self.output_command_senders_by_plugin.get(plugin_name).unwrap();
-        for s in senders {
-            s.send(command.clone()).unwrap();
+        match self.controller.take() {
+            Some(mut controller) => {
+                // This is the first handle, starts the control task.
+                let (tx, mut rx) = mpsc::channel::<ControlMessage>(256);
+                self.normal_runtime.spawn(async move {
+                    loop {
+                        if let Some(msg) = rx.recv().await {
+                            handle_message(&mut controller, msg);
+                        } else {
+                            break; // channel closed
+                        }
+                    }
+                });
+                let handle = ControlHandle { tx };
+                self.control_handle = Some(handle.clone());
+                handle
+            },
+            None => {
+                // This is NOT the first handle, get the existing handle and clone it.
+                self.control_handle.as_ref().unwrap().clone()
+            },
         }
     }
+}
 
-    /// Sends a command to all the [`Output`]s in the pipeline.
-    pub fn command_all_outputs(&self, command: OutputCmd) {
-        for (_, senders) in &self.output_command_senders_by_plugin {
-            for s in senders {
-                s.send(command.clone()).unwrap();
-            }
-        }
+impl ControlHandle {
+    pub fn all(&self) -> ScopedControlHandle {
+        ScopedControlHandle { handle: self, plugin_name: None }
+    }
+    pub fn plugin(&self, plugin_name: impl Into<String>) -> ScopedControlHandle {
+        ScopedControlHandle { handle: self, plugin_name: Some(plugin_name.into()) }
+    }
+    
+    pub fn blocking_all(&self) -> BlockingControlHandle {
+        BlockingControlHandle { handle: self, plugin_name: None }
+    }
+    
+    pub fn blocking_plugin(&self, plugin_name: impl Into<String>) -> BlockingControlHandle {
+        BlockingControlHandle { handle: self, plugin_name: Some(plugin_name.into()) }
+    }
+}
+
+pub struct ScopedControlHandle<'a> {
+    handle: &'a ControlHandle,
+    plugin_name: Option<String>,
+}
+impl<'a> ScopedControlHandle<'a> {
+    pub async fn control_sources(self, cmd: SourceCmd) {
+        self.handle.tx.send(ControlMessage::Source(self.plugin_name, cmd)).await.unwrap();
+    }
+    pub async fn control_transforms(self, cmd: TransformCmd) {
+        self.handle.tx.send(ControlMessage::Transform(self.plugin_name, cmd)).await.unwrap();
+    }
+    pub async fn control_outputs(self, cmd: OutputCmd) {
+        self.handle.tx.send(ControlMessage::Output(self.plugin_name, cmd)).await.unwrap();
+    }
+}
+
+pub struct BlockingControlHandle<'a> {
+    handle: &'a ControlHandle,
+    plugin_name: Option<String>,
+}
+impl<'a> BlockingControlHandle<'a> {
+    pub fn control_sources(self, cmd: SourceCmd) {
+        self.handle.tx.blocking_send(ControlMessage::Source(self.plugin_name, cmd)).unwrap();
+    }
+    pub fn control_transforms(self, cmd: TransformCmd) {
+        self.handle.tx.blocking_send(ControlMessage::Transform(self.plugin_name, cmd)).unwrap();
+    }
+    pub fn control_outputs(self, cmd: OutputCmd) {
+        self.handle.tx.blocking_send(ControlMessage::Output(self.plugin_name, cmd)).unwrap();
     }
 }

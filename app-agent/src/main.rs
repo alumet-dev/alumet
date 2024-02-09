@@ -34,21 +34,22 @@ fn main() {
     println!("🔥 ALUMET agent is ready");
 
     // test commands
+    let control = pipeline.control_handle();
     std::thread::sleep(Duration::from_secs(2));
-    pipeline.command_all_outputs(OutputCmd::Pause);
+    control.blocking_all().control_outputs(OutputCmd::Pause);
     std::thread::sleep(Duration::from_secs(1));
-    pipeline.command_all_sources(SourceCmd::Pause);
+    control.blocking_all().control_sources(SourceCmd::Pause);
     std::thread::sleep(Duration::from_secs(1));
-    pipeline.command_plugin_transforms("test-plugin", TransformCmd::Disable);
-    pipeline.command_all_outputs(OutputCmd::Run);
+    control.blocking_plugin("test-plugin").control_transforms(TransformCmd::Disable);
+    control.blocking_all().control_outputs(OutputCmd::Run);
     std::thread::sleep(Duration::from_secs(1));
-    pipeline.command_all_sources(SourceCmd::Run);
+    control.blocking_all().control_sources(SourceCmd::Run);
     std::thread::sleep(Duration::from_secs(1));
-    pipeline.command_all_sources(SourceCmd::SetTrigger(
+    control.blocking_all().control_sources(SourceCmd::SetTrigger(
         Some(TriggerProvider::TimeInterval { start_time: Instant::now(), poll_interval: Duration::from_millis(100), flush_interval: Duration::from_secs(1) }))
     );
     std::thread::sleep(Duration::from_secs(3));
-    pipeline.command_plugin_transforms("test-plugin", TransformCmd::Enable);
+    control.blocking_plugin("test-plugin").control_transforms(TransformCmd::Enable);
     // keep the pipeline running until the app closes
     pipeline.wait_for_all();
 }
