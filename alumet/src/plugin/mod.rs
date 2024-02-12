@@ -58,7 +58,7 @@ impl<'a> PluginStarter<'a> {
         }
     }
 
-    pub fn start(&mut self, plugin: &mut Box<dyn Plugin>) -> Result<(), PluginError> {
+    pub fn start(&mut self, plugin: &mut dyn Plugin) -> Result<(), PluginError> {
         self.start.current_plugin_name = Some(plugin.name().to_owned());
         plugin.start(&mut self.start)
     }

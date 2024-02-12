@@ -1,5 +1,6 @@
 use std::fmt::{Debug, Display};
 
+#[derive(PartialEq, Eq)]
 pub enum Unit {
     /// Time
     Second,

@@ -13,7 +13,7 @@ pub struct Metric {
 }
 
 /// A metric id, used for internal purposes such as storing the list of metrics.
-#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 #[repr(C)]
 pub struct MetricId(pub(crate) usize);
 
@@ -65,7 +65,7 @@ impl MeasurementPoint {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MeasurementType {
     Float,
     UInt,
@@ -80,6 +80,15 @@ impl fmt::Display for MeasurementType {
 pub enum MeasurementValue {
     Float(f64),
     UInt(u64),
+}
+
+impl MeasurementValue {
+    pub fn measurement_type(&self) -> MeasurementType {
+        match self {
+            MeasurementValue::Float(_) => MeasurementType::Float,
+            MeasurementValue::UInt(_) => MeasurementType::UInt,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -163,7 +172,7 @@ impl<'a> MeasurementAccumulator<'a> {
 
 /// Hardware or software entity for which metrics can be gathered.
 #[non_exhaustive]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResourceId {
     /// The whole local machine, for instance the whole physical server.
     LocalMachine,

@@ -1,23 +1,35 @@
 use alumet::{metrics::{MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, MeasurementValue, MetricId, MeasurementType, ResourceId}, pipeline::{Output, PollError, Source, Transform, TransformError, WriteError}, plugin::{AlumetStart, Plugin, PluginError}, units::Unit};
 
-
-pub struct TestPlugin;
+pub struct TestPlugin {
+    name: String,
+    base_value_a: u64,
+    pub state: State,
+}
 struct TestSource {
     metric_a: MetricId,
     metric_b: MetricId,
+    a_base: u64,
     b_counter: u64,
 }
 struct TestTransform;
 struct TestOutput;
+#[derive(Debug, PartialEq, Eq)]
+pub enum State {
+    Initialized,
+    Started,
+    Stopped,
+}
 
 impl TestPlugin {
-    pub fn init() -> Box<TestPlugin> {
-        Box::new(TestPlugin)
+    pub fn init(name: &str, base_value_a: u64) -> Box<TestPlugin> {
+        Box::new(TestPlugin{name: name.to_owned(), base_value_a, state: State::Initialized})
     }
 }
 impl Plugin for TestPlugin {
     fn name(&self) -> &str {
-        "test-plugin"
+        // In the tests, we use multiple instances of TestPlugin with different parameters.
+        // In a real-world plugin, you would simply return a &str directly, such as "my-plugin-name".
+        &self.name
     }
 
     fn version(&self) -> &str {
@@ -26,19 +38,25 @@ impl Plugin for TestPlugin {
 
     #[rustfmt::skip] 
     fn start(&mut self, alumet: &mut AlumetStart) -> Result<(), PluginError> {
-        // Register the metrics
-        let metric_a = alumet.create_metric("test-energy-a", MeasurementType::UInt, Unit::Watt, "Test metric A, in Watts.")?;
-        let metric_b = alumet.create_metric("test-counter-b", MeasurementType::UInt, Unit::Unity, "Test metric B, counter without unit.")?;
-        
+        // Register the metrics (for a normal plugin, you would simply give the name directly as a &str)
+        let metric_name_a = self.name.clone() + ":energy-a";
+        let metric_name_b = self.name.clone() + ":counter-b";
+        let metric_a = alumet.create_metric(&metric_name_a, MeasurementType::UInt, Unit::Watt, "Test metric A, in Watts.")?;
+        let metric_b = alumet.create_metric(&metric_name_b, MeasurementType::UInt, Unit::Unity, "Test metric B, counter without unit.")?;
+
         // Add steps to the pipeline
-        alumet.add_source(Box::new(TestSource{metric_a,metric_b,b_counter:0}));
+        alumet.add_source(Box::new(TestSource{metric_a,metric_b,a_base: self.base_value_a,b_counter:0}));
         alumet.add_transform(Box::new(TestTransform));
         alumet.add_output(Box::new(TestOutput));
+        
+        // Update state (for testing purposes)
+        self.state = State::Started;
         Ok(())
     }
 
     fn stop(&mut self) -> Result<(), PluginError> {
-        todo!()
+        self.state = State::Stopped;
+        Ok(())
     }
 }
 
@@ -46,7 +64,7 @@ impl Source for TestSource {
     fn poll(&mut self, acc: &mut MeasurementAccumulator, timestamp: std::time::SystemTime) -> Result<(), PollError> {
         // generate some values for testing purposes, that evolve over time
         self.b_counter += 1;
-        let value_a = 98 + 4*(self.b_counter % 2);
+        let value_a = self.a_base + 4*(self.b_counter % 2);
         
         // create a "resource id" to tag the data with an information about what the measurement is about
         let resource = ResourceId::custom("test", "imaginary-thing");

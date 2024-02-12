@@ -190,3 +190,57 @@ impl fmt::Display for MetricCreationError {
         write!(f, "This metric has already been registered: {}", self.key)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{metrics::{MeasurementType, MeasurementValue}, units::Unit};
+
+    use super::MetricRegistry;
+
+    #[test]
+    fn no_duplicate_metrics() {
+        let mut metrics = MetricRegistry::new();
+        assert_eq!(metrics.len(), 0);
+        metrics.create_metric("metric", MeasurementType::UInt, Unit::Watt, "...").unwrap();
+        metrics.create_metric("metric", MeasurementType::UInt, Unit::Watt, "...").unwrap_err();
+        metrics.create_metric("metric", MeasurementType::Float, Unit::Unity, "").unwrap_err();
+        assert_eq!(metrics.len(), 1);
+    }
+    
+    #[test]
+    fn metric_registry() {
+        let mut metrics = MetricRegistry::new();
+        assert_eq!(metrics.len(), 0);
+        let metric_id = metrics.create_metric("metric", MeasurementType::UInt, Unit::Watt, "...").unwrap();
+        let metric_id2 = metrics.create_metric("metric2", MeasurementType::Float, Unit::Joule, "...").unwrap();
+        assert_eq!(metrics.len(), 2);
+        
+        let metric = metrics.with_name("metric").expect("metrics.with_name failed");
+        let metric2 = metrics.with_name("metric2").expect("metrics.with_name failed");
+        assert_eq!("metric", metric.name);
+        assert_eq!("metric2", metric2.name);
+
+        let metric = metrics.with_id(&metric_id).expect("metrics.with_id failed");
+        let metric2 = metrics.with_id(&metric_id2).expect("metrics.with_id failed");
+        assert_eq!("metric", metric.name);
+        assert_eq!("metric2", metric2.name);
+        
+        let mut names: Vec<&str> = metrics.iter().map(|m| &*m.name).collect();
+        names.sort();
+        assert_eq!(vec!["metric", "metric2"], names);
+    }
+    
+    #[test]
+    fn metric_global() {
+        let mut metrics = MetricRegistry::new();
+        let id = metrics.create_metric("metric", MeasurementType::UInt, Unit::Second, "time").unwrap();
+        
+        MetricRegistry::init_global(metrics);
+        let metrics = MetricRegistry::global();
+        let metric = metrics.with_id(&id).unwrap();
+        assert_eq!("metric", &metric.name);
+        assert_eq!(MeasurementType::UInt, metric.value_type);
+        assert_eq!(Unit::Second, metric.unit);
+        assert_eq!("time", metric.description);
+    }
+}
