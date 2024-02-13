@@ -3,6 +3,11 @@ use std::{fs, env, path::Path};
 use cbindgen::Language::C;
 
 fn main() {
+    if !cfg!(feature = "dynamic") {
+        // do nothing if the `dynamic` feature is disabled
+        return;
+    }
+
     let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let out_dir = Path::new("generated");
     fs::create_dir_all(out_dir).unwrap();

@@ -6,7 +6,7 @@ use alumet::pipeline::runtime::{MeasurementPipeline, SourceType, ConfiguredSourc
 use alumet::pipeline::trigger::TriggerProvider;
 use alumet::plugin::{Plugin, PluginStarter};
 
-mod test_plugin;
+// mod test_plugin;
 
 const VERSION: &str = "0.1.0";
 
@@ -15,7 +15,7 @@ fn main() {
 
     // create the plugins
     println!("Initializing plugins...");
-    let mut plugins: Vec<Box<dyn Plugin>> = vec![test_plugin::TestPlugin::init()];
+    let mut plugins: Vec<Box<dyn Plugin>> = vec![/*test_plugin::TestPlugin::init()*/];
 
     // start the plugins
     let mut metrics = MetricRegistry::new();
@@ -23,7 +23,7 @@ fn main() {
     let mut starter = PluginStarter::new(&mut metrics, &mut elements);
     for p in plugins.iter_mut() {
         starter
-            .start(p)
+            .start(p.as_mut())
             .unwrap_or_else(|err| panic!("Plugin failed to start: {} v{} - {}", p.name(), p.version(), err));
     }
     print_stats(&metrics, &elements, &plugins);

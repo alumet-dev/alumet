@@ -23,6 +23,12 @@ pub trait Output: Send {
 }
 
 // ====== Errors ======
+// pub struct PipelineError(GenericError<PipelineErrorKind>);
+
+// enum PipelineErrorKind {
+    
+// }
+
 #[derive(Debug)]
 pub struct PollError(GenericError<PollErrorKind>);
 #[derive(Debug)]

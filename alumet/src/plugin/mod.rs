@@ -8,7 +8,12 @@ use crate::pipeline;
 use crate::pipeline::registry::{ElementRegistry, MetricRegistry};
 use crate::units::Unit;
 
-// pub mod dyn_load;
+#[cfg(feature = "dynamic")]
+pub mod dyn_load;
+#[cfg(feature = "dynamic")]
+mod dyn_ffi;
+
+pub(crate) mod version;
 
 pub struct PluginInfo {
     pub name: String,
@@ -147,6 +152,8 @@ pub enum PluginErrorKind {
     SensorNotFound,
     /// The plugin attempted an IO operation, but failed.
     IoFailure,
+    /// The plugin failed to initialize.
+    InitFailure,
 }
 
 impl fmt::Display for PluginErrorKind {
@@ -155,6 +162,7 @@ impl fmt::Display for PluginErrorKind {
             PluginErrorKind::InvalidConfiguration => f.write_str("invalid configuration"),
             PluginErrorKind::SensorNotFound => f.write_str("required sensor not found"),
             PluginErrorKind::IoFailure => f.write_str("I/O failure"),
+            PluginErrorKind::InitFailure => f.write_str("initialization failure"),
         }
     }
 }

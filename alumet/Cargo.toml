@@ -5,6 +5,10 @@ edition = "2021"
 description = "Core of ALUMET, which includes an async measurement pipeline for use in applications, a plugin API, and an automatically generated C header for dynamic plugins."
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = ["dynamic"]
+# enables dynamic plugins
+dynamic = ["dep:libloading"]
 
 [dependencies]
 toml = "0.8.8"
@@ -18,6 +22,7 @@ tokio = { version = "1.36.0", features = [
 ] }
 tokio-stream = "0.1.14"
 tokio-timerfd = "0.2.0"
+libloading = { version = "0.8.1", optional = true }
 
 [build-dependencies]
 cbindgen = { git = "https://github.com/TheElectronWill/cbindgen.git", branch = "symbols-files" }
