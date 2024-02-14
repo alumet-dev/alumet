@@ -1,17 +1,13 @@
-use std::error::Error;
-use std::fmt;
-
 use crate::config::ConfigTable;
-use crate::error::GenericError;
 use crate::metrics::{MeasurementType, MetricId};
 use crate::pipeline;
-use crate::pipeline::registry::{ElementRegistry, MetricRegistry};
+use crate::pipeline::registry::{ElementRegistry, MetricCreationError, MetricRegistry};
 use crate::units::Unit;
 
 #[cfg(feature = "dynamic")]
-pub mod dyn_load;
-#[cfg(feature = "dynamic")]
 mod dyn_ffi;
+#[cfg(feature = "dynamic")]
+pub mod dyn_load;
 
 pub(crate) mod version;
 
@@ -19,7 +15,7 @@ pub struct PluginInfo {
     pub name: String,
     pub version: String,
     // todo try to avoid boxing here?
-    pub init: Box<dyn FnOnce(&mut ConfigTable) -> Result<Box<dyn Plugin>, PluginError>>,
+    pub init: Box<dyn FnOnce(&mut ConfigTable) -> anyhow::Result<Box<dyn Plugin>>>,
 }
 
 /// The ALUMET plugin trait.
@@ -38,13 +34,13 @@ pub trait Plugin {
     /// ## Plugin restart
     /// A plugin can be started and stopped multiple times, for instance when ALUMET switches from monitoring to profiling mode.
     /// [`Plugin::stop`] is guaranteed to be called between two calls of [`Plugin::start`].
-    fn start(&mut self, alumet: &mut AlumetStart) -> Result<(), PluginError>;
+    fn start(&mut self, alumet: &mut AlumetStart) -> anyhow::Result<()>;
 
     /// Stops the plugin.
     ///
     /// This method is called _after_ all the metrics, sources and outputs previously registered
     /// by [`Plugin::start`] have been stopped and unregistered.
-    fn stop(&mut self) -> Result<(), PluginError>;
+    fn stop(&mut self) -> anyhow::Result<()>;
 }
 
 /// Provides [`AlumetStart`] to start plugins.
@@ -63,7 +59,7 @@ impl<'a> PluginStarter<'a> {
         }
     }
 
-    pub fn start(&mut self, plugin: &mut dyn Plugin) -> Result<(), PluginError> {
+    pub fn start(&mut self, plugin: &mut dyn Plugin) -> anyhow::Result<()> {
         self.start.current_plugin_name = Some(plugin.name().to_owned());
         plugin.start(&mut self.start)
     }
@@ -90,10 +86,8 @@ impl AlumetStart<'_> {
         value_type: MeasurementType,
         unit: Unit,
         description: &str,
-    ) -> Result<MetricId, PluginError> {
-        self.metrics
-            .create_metric(name, value_type, unit, description)
-            .map_err(|e| todo!(""))
+    ) -> Result<MetricId, MetricCreationError> {
+        self.metrics.create_metric(name, value_type, unit, description)
     }
 
     pub fn add_source(&mut self, source: Box<dyn pipeline::Source>) {
@@ -108,67 +102,5 @@ impl AlumetStart<'_> {
     pub fn add_output(&mut self, output: Box<dyn pipeline::Output>) {
         let plugin = self.get_current_plugin_name();
         self.pipeline_elements.add_output(plugin, output)
-    }
-}
-
-// ====== Errors ======
-
-#[derive(Debug)]
-pub struct PluginError(GenericError<PluginErrorKind>);
-
-impl PluginError {
-    pub fn new(kind: PluginErrorKind) -> PluginError {
-        PluginError(GenericError {
-            kind,
-            cause: None,
-            description: None,
-        })
-    }
-
-    pub fn with_description(kind: PluginErrorKind, description: &str) -> PluginError {
-        PluginError(GenericError {
-            kind,
-            cause: None,
-            description: Some(description.to_owned()),
-        })
-    }
-
-    pub fn with_cause<E: Error + Send + 'static>(kind: PluginErrorKind, description: &str, cause: E) -> PluginError {
-        PluginError(GenericError {
-            kind,
-            cause: Some(Box::new(cause)),
-            description: Some(description.to_owned()),
-        })
-    }
-}
-
-#[derive(Debug)]
-#[non_exhaustive]
-pub enum PluginErrorKind {
-    /// The plugin's configuration could not be parsed or contains invalid entries.
-    InvalidConfiguration,
-    /// The plugin requires a sensor that could not be found.
-    /// For example, the plugin fetches information from an internal wattmeter, but the host does not have one.
-    SensorNotFound,
-    /// The plugin attempted an IO operation, but failed.
-    IoFailure,
-    /// The plugin failed to initialize.
-    InitFailure,
-}
-
-impl fmt::Display for PluginErrorKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            PluginErrorKind::InvalidConfiguration => f.write_str("invalid configuration"),
-            PluginErrorKind::SensorNotFound => f.write_str("required sensor not found"),
-            PluginErrorKind::IoFailure => f.write_str("I/O failure"),
-            PluginErrorKind::InitFailure => f.write_str("initialization failure"),
-        }
-    }
-}
-
-impl fmt::Display for PluginError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
     }
 }

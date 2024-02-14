@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    error::Error,
     ffi::{c_char, CStr},
     path::Path,
 };
@@ -10,16 +9,12 @@ use std::{
 //     config::{self, ConfigTable},
 //     plugin::{ffi, Plugin, PluginError, PluginInfo},
 // };
+use crate::{config::ConfigTable, plugin::version::Version};
+use anyhow::Context;
 use libc::c_void;
 use libloading::{Library, Symbol};
 
-use crate::{config::ConfigTable, plugin::{version::{self, Version}, PluginErrorKind::InitFailure}};
-
-use super::{
-    dyn_ffi, AlumetStart, Plugin, PluginError,
-    PluginErrorKind::{self, InvalidConfiguration},
-    PluginInfo,
-};
+use super::{dyn_ffi, version, AlumetStart, Plugin, PluginInfo};
 
 /// A plugin initialized from a dynamic library (aka. shared library).
 struct DylibPlugin {
@@ -29,7 +24,7 @@ struct DylibPlugin {
     stop_fn: dyn_ffi::StopFn,
     drop_fn: dyn_ffi::DropFn,
     // the library must stay loaded for the symbols to be valid
-    library: Library,
+    _library: Library,
     instance: *mut c_void,
 }
 
@@ -42,12 +37,12 @@ impl Plugin for DylibPlugin {
         &self.version
     }
 
-    fn start(&mut self, alumet: &mut AlumetStart) -> Result<(), PluginError> {
-        (self.start_fn)(self.instance, alumet);
+    fn start(&mut self, alumet: &mut AlumetStart) -> anyhow::Result<()> {
+        (self.start_fn)(self.instance, alumet); // TODO error handling for ffi
         Ok(())
     }
 
-    fn stop(&mut self) -> Result<(), PluginError> {
+    fn stop(&mut self) -> anyhow::Result<()> {
         (self.stop_fn)(self.instance); // TODO error handling for ffi
         Ok(())
     }
@@ -65,9 +60,24 @@ impl Drop for DylibPlugin {
     }
 }
 
+#[derive(Debug)]
+pub enum LoadError {
+    /// Unable to load something the shared library.
+    LibraryLoad(libloading::Error),
+    /// A symbol loaded from the library contains an invalid value.
+    InvalidSymbol(String, Box<dyn std::error::Error + Send + Sync>),
+    /// `plugin_init` failed.
+    PluginInit,
+}
+
+pub struct PluginRegistry {
+    plugins: HashMap<String, Box<dyn Plugin>>,
+}
+
 /// Loads a dynamic plugin from a shared library file, and returns a [`PluginInfo`] that allows to initialize the plugin.
-pub fn load_cdylib(file: &Path) -> Result<PluginInfo, Box<dyn Error>> {
+pub fn load_cdylib(file: &Path) -> Result<PluginInfo, LoadError> {
     log::debug!("loading dynamic library {}", file.display());
+
     // load the library and the symbols we need to initialize the plugin
     // BEWARE: to load a constant of type `T` from the shared library, a `Symbol<*const T>` or `Symbol<*mut T>` must be used.
     // However, to load a function of type `fn(A,B) -> R`, a `Symbol<extern fn(A,B) -> R>` must be used.
@@ -84,14 +94,21 @@ pub fn load_cdylib(file: &Path) -> Result<PluginInfo, Box<dyn Error>> {
 
     log::debug!("symbols loaded");
 
-    // convert the strings to Rust strings
-    let name = unsafe { CStr::from_ptr(**sym_name) }.to_str()?.to_owned();
-    let version = unsafe { CStr::from_ptr(**sym_plugin_version) }.to_str()?.to_owned();
-    let required_alumet_version = unsafe { CStr::from_ptr(**sym_alumet_version) }.to_str()?.to_owned();
-    log::debug!("plugin found: {name} v{version}  (requires ALUMET v{required_alumet_version})");
-    
+    // convert the C strings to Rust strings
+    fn sym_to_string(sym: &Symbol<*const *const c_char>, name: &str) -> Result<String, LoadError> {
+        unsafe { CStr::from_ptr(***sym) }
+            .to_str()
+            .map_err(|e| LoadError::InvalidSymbol(name.into(), e.into()))
+            .map(|v| v.to_owned())
+    }
+
+    let name = sym_to_string(&sym_name, "PLUGIN_NAME")?;
+    let version = sym_to_string(&sym_plugin_version, "PLUGIN_VERSION")?;
+    let alumet_version = sym_to_string(&sym_alumet_version, "ALUMET_VERSION")?;
+    log::debug!("plugin found: {name} v{version}  (requires ALUMET v{alumet_version})");
+
     // check the required ALUMET version
-    let required_alumet_version = Version::parse(&required_alumet_version).unwrap(); // todo report error
+    let required_alumet_version = Version::parse(&alumet_version)?;
     if !Version::alumet().can_load(required_alumet_version) {
         todo!("invalid ALUMET version requirement");
     }
@@ -112,7 +129,7 @@ pub fn load_cdylib(file: &Path) -> Result<PluginInfo, Box<dyn Error>> {
             log::debug!("init called from Rust");
 
             if external_plugin.is_null() {
-                return Err(PluginError::with_description(InitFailure, "plugin_init returned null"));
+                return Err(LoadError::PluginInit.into());
             }
 
             // wrap the external plugin in a nice Rust struct
@@ -122,7 +139,7 @@ pub fn load_cdylib(file: &Path) -> Result<PluginInfo, Box<dyn Error>> {
                 start_fn,
                 stop_fn,
                 drop_fn,
-                library: lib,
+                _library: lib,
                 instance: external_plugin,
             };
             Ok(Box::new(plugin))
@@ -133,35 +150,49 @@ pub fn load_cdylib(file: &Path) -> Result<PluginInfo, Box<dyn Error>> {
 }
 
 /// Initializes a plugin, using its [`PluginInfo`] and config table (not the global configuration).
-pub fn initialize(plugin: PluginInfo, config: toml::Table) -> Result<Box<dyn Plugin>, PluginError> {
-    let mut ffi_config = ConfigTable::new(config).map_err(|err| {
-        PluginError::with_cause(InvalidConfiguration, "conversion to ffi-safe configuration failed", err)
-    })?;
+pub fn initialize(plugin: PluginInfo, config: toml::Table) -> anyhow::Result<Box<dyn Plugin>> {
+    let mut ffi_config = ConfigTable::new(config).context("conversion to ffi-safe configuration failed")?;
     let plugin_instance = (plugin.init)(&mut ffi_config)?;
     Ok(plugin_instance)
 }
 
-pub fn plugin_subconfig(plugin: &PluginInfo, global_config: &mut toml::Table) -> Result<toml::Table, PluginError> {
+pub fn plugin_subconfig(plugin: &PluginInfo, global_config: &mut toml::Table) -> anyhow::Result<toml::Table> {
     let name = &plugin.name;
     let sub_config = global_config.remove(name);
     match sub_config {
         Some(toml::Value::Table(t)) => Ok(t),
-        Some(bad_value) => Err(PluginError::with_description(
-            InvalidConfiguration,
-            &format!(
-                "invalid plugin configuration for '{name}': the value must be a table, not a {}.",
-                bad_value.type_str()
-            ),
+        Some(bad_value) => Err(anyhow::anyhow!(
+            "invalid plugin configuration for '{name}': the value must be a table, not a {}.",
+            bad_value.type_str()
         )),
-        None => Err(PluginError::with_description(
-            InvalidConfiguration,
-            &format!("missing plugin configuration for '{name}'"),
-        )),
+        None => Err(anyhow::anyhow!("missing plugin configuration for '{name}'")),
     }
 }
 
-pub struct PluginRegistry {
-    plugins: HashMap<String, Box<dyn Plugin>>,
+impl LoadError {
+    pub fn invalid_symbol(name: &str, source: Box<dyn std::error::Error + Send + Sync>) -> LoadError {
+        LoadError::InvalidSymbol(name.to_owned(), source)
+    }
+}
+impl std::error::Error for LoadError {}
+impl std::fmt::Display for LoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LoadError::LibraryLoad(err) => write!(f, "failed to load shared library: {err}"),
+            LoadError::InvalidSymbol(name, err) => write!(f, "invalid value for symbol {name}: {err}"),
+            LoadError::PluginInit => write!(f, "plugin_init returned NULL"),
+        }
+    }
+}
+impl From<libloading::Error> for LoadError {
+    fn from(value: libloading::Error) -> Self {
+        LoadError::LibraryLoad(value)
+    }
+}
+impl From<version::Error> for LoadError {
+    fn from(value: version::Error) -> Self {
+        LoadError::InvalidSymbol("ALUMET_VERSION".to_owned(), Box::new(value))
+    }
 }
 
 impl PluginRegistry {

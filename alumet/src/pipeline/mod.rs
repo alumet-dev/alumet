@@ -1,20 +1,20 @@
-use std::{error::Error, fmt, time::SystemTime};
+use std::{fmt, time::SystemTime};
 
-use crate::{error::GenericError, metrics::{MeasurementBuffer, MeasurementAccumulator}};
+use crate::metrics::{MeasurementAccumulator, MeasurementBuffer};
 
-pub mod runtime;
 pub mod registry;
-pub mod trigger;
+pub mod runtime;
 mod threading;
+pub mod trigger;
 
 /// Produces measurements related to some metrics.
 pub trait Source: Send {
-    fn poll(&mut self, into: &mut MeasurementAccumulator, time: SystemTime) -> Result<(), PollError>;
+    fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: SystemTime) -> Result<(), PollError>;
 }
 
 /// Transforms the measurements.
 pub trait Transform: Send {
-    fn apply(&mut self, on: &mut MeasurementBuffer) -> Result<(), TransformError>;
+    fn apply(&mut self, measurements: &mut MeasurementBuffer) -> Result<(), TransformError>;
 }
 
 /// Exports measurements to an external entity, like a file or a database.
@@ -23,155 +23,101 @@ pub trait Output: Send {
 }
 
 // ====== Errors ======
-// pub struct PipelineError(GenericError<PipelineErrorKind>);
-
-// enum PipelineErrorKind {
-    
-// }
 
 #[derive(Debug)]
-pub struct PollError(GenericError<PollErrorKind>);
-#[derive(Debug)]
-pub struct TransformError(GenericError<TransformErrorKind>);
-#[derive(Debug)]
-pub struct WriteError(GenericError<WriteErrorKind>);
-
-impl PollError {
-    pub fn new(kind: PollErrorKind) -> PollError {
-        PollError(GenericError::new(kind))
-    }
-
-    pub fn with_description(kind: PollErrorKind, description: &str) -> PollError {
-        PollError(GenericError::with_description(kind, description))
-    }
-
-    pub fn with_source<E: Error + Send + 'static>(kind: PollErrorKind, description: &str, source: E) -> PollError {
-        PollError(GenericError::with_source(kind, description, source))
-    }
+pub enum PollError {
+    /// Polling failed and the source cannot recover from this failure, it should be stopped.
+    Fatal(anyhow::Error),
+    /// The error is temporary, polling again may work.
+    ///
+    /// You should use this kind of error when:
+    /// - The source polls an external entity that you know can fail from time to time.
+    /// - And the source's `poll` method can be called again and work. Pay attention to the internal state of the source.
+    CanRetry(anyhow::Error),
 }
+
+#[derive(Debug)]
+pub enum TransformError {
+    /// The transformation failed and cannot recover from this failure, it should not be used anymore.
+    Fatal(anyhow::Error),
+    /// The measurements to transform are invalid, but the `Transform` itself is fine and can be used on other measurements.
+    UnexpectedInput(anyhow::Error),
+}
+
+#[derive(Debug)]
+pub enum WriteError {
+    /// The measurements could not be written properly, and the output cannot be used anymore.
+    ///
+    /// For instance, a panic may have been caught, or internal data structures may have been messed up.
+    Fatal(anyhow::Error),
+    /// The error is temporary, writing again may work.
+    ///
+    /// You should use this kind of error when:
+    /// - The output communicates with an external entity that you know can fail from time to time.
+    /// - And the output's `write` method can be called again and work. Pay attention to the internal state of the output.
+    CanRetry(anyhow::Error),
+}
+
 impl fmt::Display for PollError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-#[derive(Debug)]
-pub enum PollErrorKind {
-    /// The source of the data could not be read.
-    /// For instance, when a file contains the measurements to poll, but reading
-    /// it fails, `poll()` returns an error of kind [`ReadFailed`].
-    ReadFailed,
-    /// The raw data could be read, but turning it into a proper measurement failed.
-    /// For instance, when a file contains the measurements in some format, but reading
-    /// it does not give the expected value, which causes the parsing to fail,
-    /// `poll()` returns an error of kind [`ParsingFailed`].
-    ParsingFailed,
-    /// Polling failed in an unrecoverable way, for instance a panic has been caught,
-    /// or internal data structures have been messed up. After an error of this kind is
-    /// returned, `poll()` should never be called on this source.
-    /// 
-    /// This error is usually created by wrappers in the core of alumet, seldom by the
-    /// implementation of poll().
-    Unrecoverable,
-}
-impl fmt::Display for PollErrorKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let s = match self {
-            PollErrorKind::ReadFailed => "read failed",
-            PollErrorKind::ParsingFailed => "parsing failed",
-            PollErrorKind::Unrecoverable => "unrecoverable error",
-        };
-        f.write_str(s)
-    }
-}
-
-#[derive(Debug)]
-pub enum TransformErrorKind {
-    /// The measurements to transform are invalid.
-    UnexpectedInput,
-    /// The transformation should have worked for the input measurements, but an internal error occured.
-    TransformFailed,
-    /// The transformation failed in an unrecoverable way, for instance a panic has been caught,
-    /// or internal data structures have been messed up. After an error of this kind is
-    /// returned, `apply()` should never be called on this source.
-    /// 
-    /// This error is usually created by wrappers in the core of alumet, seldom by the
-    /// implementation of apply().
-    Unrecoverable,
-}
-impl fmt::Display for TransformErrorKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let s = match self {
-            TransformErrorKind::UnexpectedInput => "unexpected input for transform",
-            TransformErrorKind::TransformFailed => "transformation failed",
-            TransformErrorKind::Unrecoverable => "unrecoverable error",
-            
-        };
-        f.write_str(s)
-    }
-}
-impl TransformError {
-    pub fn new(kind: TransformErrorKind) -> TransformError {
-        TransformError(GenericError::new(kind))
-    }
-
-    pub fn with_description(kind: TransformErrorKind, description: &str) -> TransformError {
-        TransformError(GenericError::with_description(kind, description))
-    }
-
-    pub fn with_source<E: Error + Send + 'static>(kind: TransformErrorKind, description: &str, source: E) -> TransformError {
-        TransformError(GenericError::with_source(kind, description, source))
+        match self {
+            PollError::Fatal(e) => write!(f, "fatal error in Source::poll: {e}"),
+            PollError::CanRetry(e) => write!(f, "polling failed (but could work later): {e}"),
+        }
     }
 }
 impl fmt::Display for TransformError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-#[derive(Debug)]
-pub enum WriteErrorKind {
-    /// The data could not be written properly.
-    /// For instance, the data was in the process of being sent over the network,
-    /// but the connection was lost.
-    WriteFailed,
-    /// The data could not be transformed into a form that is appropriate for writing.
-    /// For instance, the measurements lack some metadata, which causes the formatting
-    /// to fail.
-    FormattingFailed,
-    /// Writing failed in an unrecoverable way, for instance a panic has been caught,
-    /// or internal data structures have been messed up. After an error of this kind is
-    /// returned, `write()` should never be called on this source.
-    /// 
-    /// This error is usually created by wrappers in the core of alumet, seldom by the
-    /// implementation of write().
-    Unrecoverable,
-}
-impl fmt::Display for WriteErrorKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let s = match self {
-            WriteErrorKind::WriteFailed => "write failed",
-            WriteErrorKind::FormattingFailed => "formatting failed",
-            WriteErrorKind::Unrecoverable => "unrecoverable error",
-        };
-        f.write_str(s)
-    }
-}
-impl WriteError {
-    pub fn new(kind: WriteErrorKind) -> WriteError {
-        WriteError(GenericError::new(kind))
-    }
-
-    pub fn with_description(kind: WriteErrorKind, description: &str) -> WriteError {
-        WriteError(GenericError::with_description(kind, description))
-    }
-
-    pub fn with_source<E: Error + Send + 'static>(kind: WriteErrorKind, description: &str, source: E) -> WriteError {
-        WriteError(GenericError::with_source(kind, description, source))
+        match self {
+            TransformError::Fatal(e) => write!(f, "fatal error in Transform::apply: {e}"),
+            TransformError::UnexpectedInput(e) => write!(
+                f,
+                "unexpected input for transform, is the plugin properly configured? {e}"
+            ),
+        }
     }
 }
 impl fmt::Display for WriteError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
+        match self {
+            WriteError::Fatal(e) => write!(f, "fatal error in Output::write: {e}"),
+            WriteError::CanRetry(e) => write!(f, "writing failed (but could work later): {e}"),
+        }
+    }
+}
+
+// Allow to convert from anyhow::Error to pipeline errors
+
+impl<T: Into<anyhow::Error>> From<T> for PollError {
+    fn from(value: T) -> Self {
+        Self::Fatal(value.into())
+    }
+}
+impl From<anyhow::Error> for TransformError {
+    fn from(value: anyhow::Error) -> Self {
+        Self::Fatal(value)
+    }
+}
+impl From<anyhow::Error> for WriteError {
+    fn from(value: anyhow::Error) -> Self {
+        Self::Fatal(value)
+    }
+}
+
+// Add convenient method `error.can_retry()`
+trait PollRetry {
+    fn can_retry(self) -> PollError;
+}
+impl<T: Into<anyhow::Error>> PollRetry for T {
+    fn can_retry(self) -> PollError {
+        PollError::CanRetry(self.into())
+    }
+}
+trait WriteRetry {
+    fn can_retry(self) -> WriteError;
+}
+impl<T: Into<anyhow::Error>> WriteRetry for T {
+    fn can_retry(self) -> WriteError {
+        WriteError::CanRetry(self.into())
     }
 }

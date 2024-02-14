@@ -5,6 +5,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::SystemTime;
 
+use anyhow::{anyhow, Context};
+
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tokio::{runtime::Runtime, sync::watch};
@@ -17,7 +19,7 @@ use crate::{
 
 use super::registry::{ElementRegistry, MetricRegistry};
 use super::trigger::{ConfiguredTrigger, SourceTrigger, TriggerProvider};
-use super::{threading, PollError, PollErrorKind, TransformError, TransformErrorKind, WriteError};
+use super::{threading, PollError, TransformError, WriteError};
 
 /// A measurement pipeline that has not been started yet.
 /// Use [`PendingPipeline::start`] to launch it.
@@ -242,14 +244,12 @@ async fn run_source(
     tx: mpsc::Sender<MeasurementBuffer>,
     mut commands: watch::Receiver<SourceCmd>,
 ) -> Result<(), PollError> {
-    fn init_trigger(provider: &mut Option<TriggerProvider>) -> Result<ConfiguredTrigger, PollError> {
+    fn init_trigger(provider: &mut Option<TriggerProvider>) -> anyhow::Result<ConfiguredTrigger> {
         provider
             .take()
             .expect("invalid empty trigger in message Init(trigger)")
             .auto_configured()
-            .map_err(|e| {
-                PollError::with_source(PollErrorKind::Unrecoverable, "Source trigger initialization failed", e)
-            })
+            .context("init_trigger failed")
     }
 
     // the first command must be "init"
@@ -257,9 +257,7 @@ async fn run_source(
         let init_cmd = commands
             .wait_for(|c| matches!(c, SourceCmd::SetTrigger(_)))
             .await
-            .map_err(|e| {
-                PollError::with_source(PollErrorKind::Unrecoverable, "Source task initialization failed", e)
-            })?;
+            .expect("watch channel must stay open during run_source");
 
         match (*init_cmd).clone() {
             // cloning required to borrow opt as mut below
@@ -294,7 +292,7 @@ async fn run_source(
         if i % trigger.flush_rounds == 0 {
             // flush and create a new buffer
             let prev_length = buffer.len(); // hint for the new buffer size, great if the number of measurements per flush doesn't change much
-            tx.try_send(buffer).expect("todo: handle failed send (source too fast)");
+            tx.try_send(buffer).context("todo: handle failed send (source too fast)")?;
             buffer = MeasurementBuffer::with_capacity(prev_length);
             log::debug!("source flushed {prev_length} measurements");
 
@@ -358,9 +356,7 @@ async fn run_transforms(
             }
 
             // Send the results to the outputs.
-            tx.send(measurements).map_err(|e| {
-                TransformError::with_source(TransformErrorKind::Unrecoverable, "sending the measurements failed", e)
-            })?;
+            tx.send(measurements).context("could not send the measurements from transforms to the outputs")?;
         } else {
             log::warn!("The channel connected to the transform step has been closed, the transforms will stop.");
             break;
@@ -430,9 +426,9 @@ async fn run_output_from_broadcast(
                             },
                             Err(await_err) => {
                                 if await_err.is_panic() {
-                                    return Err(WriteError::with_source(super::WriteErrorKind::Unrecoverable, "The blocking writing task panicked.", await_err))
+                                    return Err(anyhow!("A blocking writing task panicked, there is a bug somewhere! Details: {}", await_err).into());
                                 } else {
-                                    todo!("unhandled error")
+                                    todo!("unhandled error");
                                 }
                             },
                         }

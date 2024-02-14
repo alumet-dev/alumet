@@ -1,4 +1,7 @@
-use alumet::{metrics::{MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, MeasurementValue, MetricId, MeasurementType, ResourceId}, pipeline::{Output, PollError, Source, Transform, TransformError, WriteError}, plugin::{AlumetStart, Plugin, PluginError}, units::Unit};
+use alumet::metrics::{MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, MeasurementValue, MetricId, MeasurementType, ResourceId};
+use alumet::pipeline::{Output, PollError, Source, Transform, TransformError, WriteError};
+use alumet::plugin::{AlumetStart, Plugin};
+use alumet::units::Unit;
 
 pub struct TestPlugin {
     name: String,
@@ -37,7 +40,7 @@ impl Plugin for TestPlugin {
     }
 
     #[rustfmt::skip] 
-    fn start(&mut self, alumet: &mut AlumetStart) -> Result<(), PluginError> {
+    fn start(&mut self, alumet: &mut AlumetStart) -> anyhow::Result<()> {
         // Register the metrics (for a normal plugin, you would simply give the name directly as a &str)
         let metric_name_a = self.name.clone() + ":energy-a";
         let metric_name_b = self.name.clone() + ":counter-b";
@@ -54,7 +57,7 @@ impl Plugin for TestPlugin {
         Ok(())
     }
 
-    fn stop(&mut self) -> Result<(), PluginError> {
+    fn stop(&mut self) -> anyhow::Result<()> {
         self.state = State::Stopped;
         Ok(())
     }

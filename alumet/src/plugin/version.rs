@@ -3,10 +3,16 @@ use std::num::ParseIntError;
 /// The current version of the alumet crate, for checking purposes.
 const ALUMET_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-pub struct Version{
+pub struct Version {
     x: u8,
     y: u8,
-    z: u8
+    z: u8,
+}
+
+#[derive(Debug)]
+pub enum Error {
+    Parse(ParseIntError),
+    Invalid,
 }
 
 impl Version {
@@ -14,16 +20,20 @@ impl Version {
         Self::parse(ALUMET_VERSION).unwrap()
     }
 
-    pub fn parse(version_string: &str) -> Option<Version> {
+    pub fn parse(version_string: &str) -> Result<Version, Error> {
         let mut parts: Vec<&str> = version_string.split('.').collect();
         match parts.len() {
-            0 | 1 => return None, // invalid version
+            0 | 1 => return Err(Error::Invalid),
             2 => parts.push("0"), // a.b => a.b.0
-            _ => ()
+            _ => (),
         };
         let parts: Result<Vec<u8>, ParseIntError> = parts.into_iter().map(|p| p.parse()).collect();
-        let parts = parts.ok()?;
-        Some(Version{x:parts[0], y:parts[1], z:parts[2]})
+        let parts = parts.map_err(|e| Error::Parse(e))?;
+        Ok(Version {
+            x: parts[0],
+            y: parts[1],
+            z: parts[2],
+        })
     }
 
     pub fn can_load(&self, required_version: Version) -> bool {
@@ -39,10 +49,24 @@ impl Version {
     }
 }
 
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        None
+    }
+}
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::Parse(err) => write!(f, "version part could not be parsed: {}", err),
+            Error::Invalid => f.write_str("invalid version format, please use \"x.y.z\" with integers"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Version;
-    
+
     #[test]
     pub fn parsing() {
         // valid
@@ -51,14 +75,14 @@ mod tests {
         Version::parse("1.2").unwrap();
 
         // invalid
-        assert!(Version::parse("").is_none());
-        assert!(Version::parse("1").is_none());
-        assert!(Version::parse("123456789.2").is_none());
-        assert!(Version::parse("1.123456789").is_none());
-        assert!(Version::parse("1.2.123456789").is_none());
-        assert!(Version::parse("a.b.c").is_none());
-        assert!(Version::parse("1.0.1-beta").is_none());
-        assert!(Version::parse("1.0.1b572").is_none());
+        assert!(Version::parse("").is_err());
+        assert!(Version::parse("1").is_err());
+        assert!(Version::parse("123456789.2").is_err());
+        assert!(Version::parse("1.123456789").is_err());
+        assert!(Version::parse("1.2.123456789").is_err());
+        assert!(Version::parse("a.b.c").is_err());
+        assert!(Version::parse("1.0.1-beta").is_err());
+        assert!(Version::parse("1.0.1b572").is_err());
     }
 
     #[test]
