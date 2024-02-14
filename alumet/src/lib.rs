@@ -4,3 +4,4 @@ pub mod pipeline;
 pub mod plugin;
 pub mod units;
 pub(crate) mod error;
+pub mod util;
