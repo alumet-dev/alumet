@@ -1,0 +1,11 @@
+[package]
+name = "plugin-nvidia"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+alumet = { version = "0.1.0", path = "../alumet" }
+anyhow = "1.0.79"
+nvml-wrapper = { version = "0.10.0", features = ["legacy-functions"] }

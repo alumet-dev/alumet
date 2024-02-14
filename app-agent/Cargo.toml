@@ -8,3 +8,4 @@ description = "Metric collector agent to install on each node."
 
 [dependencies]
 alumet = { path = "../alumet" }
+plugin-rapl = { version = "0.1.0", path = "../plugin-rapl" }
