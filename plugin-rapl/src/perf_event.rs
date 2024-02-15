@@ -176,7 +176,7 @@ struct OpenedPowerEvent {
 }
 
 impl PerfEventProbe {
-    pub fn new(metric: MetricId, events_on_cpus: &[(PowerEvent, CpuId)]) -> anyhow::Result<PerfEventProbe> {
+    pub fn new(metric: MetricId, events_on_cpus: &[(&PowerEvent, &CpuId)]) -> anyhow::Result<PerfEventProbe> {
         const ADVICE: &str = "Try to set kernel.perf_event_paranoid to 0 or -1, or to give CAP_PERFMON to the application's binary (CAP_SYS_ADMIN before Linux 5.8).";
 
         let pmu_type = pmu_type()?;
@@ -228,7 +228,7 @@ impl alumet::pipeline::Source for PerfEventProbe {
                     timestamp,
                     self.metric,
                     evt.resource.clone(),
-                    MeasurementValue::Float(joules),
+                    MeasurementValue::F64(joules),
                 ));
             }
             // NOTE: the energy can be a floating-point number in Joules,

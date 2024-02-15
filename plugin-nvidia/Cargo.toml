@@ -8,4 +8,6 @@ edition = "2021"
 [dependencies]
 alumet = { version = "0.1.0", path = "../alumet" }
 anyhow = "1.0.79"
+log = "0.4.20"
 nvml-wrapper = { version = "0.10.0", features = ["legacy-functions"] }
+nvml-wrapper-sys = "0.8.0"

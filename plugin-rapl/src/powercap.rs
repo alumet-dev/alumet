@@ -223,7 +223,7 @@ impl alumet::pipeline::Source for PowercapProbe {
             };
             if let Some(value) = diff {
                 let joules = (value as f64) * POWERCAP_ENERGY_UNIT;
-                measurements.push(MeasurementPoint::new(timestamp, self.metric, zone.resource.clone(), MeasurementValue::Float(joules)))
+                measurements.push(MeasurementPoint::new(timestamp, self.metric, zone.resource.clone(), MeasurementValue::F64(joules)))
             };
 
             // clear the buffer, so that we can fill it again
