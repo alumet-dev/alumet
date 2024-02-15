@@ -2,20 +2,30 @@ use std::time::{Duration, Instant};
 
 use alumet::pipeline;
 use alumet::pipeline::registry::{ElementRegistry, MetricRegistry};
-use alumet::pipeline::runtime::{MeasurementPipeline, SourceType, ConfiguredSource, TransformCmd, SourceCmd, OutputCmd};
+use alumet::pipeline::runtime::{ConfiguredSource, MeasurementPipeline, SourceType};
 use alumet::pipeline::trigger::TriggerProvider;
 use alumet::plugin::{Plugin, PluginStarter};
 
-// mod test_plugin;
+use env_logger::Env;
+
+use crate::socket_control::SocketControl;
+
+mod default_plugin;
+mod socket_control;
+mod output_csv;
 
 const VERSION: &str = "0.1.0";
 
 fn main() {
-    println!("Starting ALUMET agent v{VERSION}");
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+    log::info!("Starting ALUMET agent v{VERSION}");
 
     // create the plugins
-    println!("Initializing plugins...");
-    let mut plugins: Vec<Box<dyn Plugin>> = vec![/*test_plugin::TestPlugin::init()*/];
+    log::info!("Starting plugins...");
+    let mut plugins: Vec<Box<dyn Plugin>> = vec![
+        Box::new(default_plugin::DefaultPlugin),
+        Box::new(plugin_rapl::RaplPlugin),
+    ];
 
     // start the plugins
     let mut metrics = MetricRegistry::new();
@@ -29,51 +39,44 @@ fn main() {
     print_stats(&metrics, &elements, &plugins);
 
     // start the pipeline and wait for the tasks to finish
-    println!("Starting the pipeline...");
+    log::info!("Starting the pipeline...");
     let mut pipeline = MeasurementPipeline::with_settings(elements, apply_source_settings).start(metrics);
-    println!("🔥 ALUMET agent is ready");
+    
+    log::info!("Starting socket control...");
+    let _control = SocketControl::start_new(pipeline.control_handle());
+    
+    log::info!("🔥 ALUMET agent is ready");
 
-    // test commands
-    let control = pipeline.control_handle();
-    std::thread::sleep(Duration::from_secs(2));
-    control.blocking_all().control_outputs(OutputCmd::Pause);
-    std::thread::sleep(Duration::from_secs(1));
-    control.blocking_all().control_sources(SourceCmd::Pause);
-    std::thread::sleep(Duration::from_secs(1));
-    control.blocking_plugin("test-plugin").control_transforms(TransformCmd::Disable);
-    control.blocking_all().control_outputs(OutputCmd::Run);
-    std::thread::sleep(Duration::from_secs(1));
-    control.blocking_all().control_sources(SourceCmd::Run);
-    std::thread::sleep(Duration::from_secs(1));
-    control.blocking_all().control_sources(SourceCmd::SetTrigger(
-        Some(TriggerProvider::TimeInterval { start_time: Instant::now(), poll_interval: Duration::from_millis(100), flush_interval: Duration::from_secs(1) }))
-    );
-    std::thread::sleep(Duration::from_secs(3));
-    control.blocking_plugin("test-plugin").control_transforms(TransformCmd::Enable);
     // keep the pipeline running until the app closes
     pipeline.wait_for_all();
 }
 
 fn print_stats(metrics: &MetricRegistry, elems: &ElementRegistry, plugins: &[Box<dyn Plugin>]) {
     // plugins
-    println!("🧩 {} plugins started:", plugins.len());
-    for p in plugins {
-        println!("- {} v{}", p.name(), p.version());
-    }
+    let plugins_list = plugins
+        .iter()
+        .map(|p| format!("    - {} v{}", p.name(), p.version()))
+        .collect::<Vec<_>>()
+        .join("\n");
 
-    // metrics
-    println!("📏 {} metrics registered: ", metrics.len());
-    for m in metrics {
-        println!("- {}: {} ({})", m.name, m.value_type, m.unit);
-    }
+    let metrics_list = metrics
+        .iter()
+        .map(|m| format!("    - {}: {} ({})", m.name, m.value_type, m.unit))
+        .collect::<Vec<_>>()
+        .join("\n");
 
-    // pipeline elements
-    println!(
+    let pipeline_elements = format!(
         "📥 {} sources, 🔀 {} transforms and 📝 {} outputs registered.",
         elems.source_count(),
         elems.transform_count(),
         elems.output_count()
     );
+
+    let n_plugins = plugins.len();
+    let n_metrics = metrics.len();
+    let str_plugin = if n_plugins > 1 { "plugins" } else { "plugin" };
+    let str_metric = if n_metrics > 1 { "metrics" } else { "metric" };
+    log::info!("Plugin startup complete.\n🧩 {n_plugins} {str_plugin} started:\n{plugins_list}.\n📏 {n_metrics} {str_metric} registered:\n{metrics_list}\n{pipeline_elements}");
 }
 
 fn apply_source_settings(source: Box<dyn pipeline::Source>, plugin_name: String) -> ConfiguredSource {
@@ -84,5 +87,10 @@ fn apply_source_settings(source: Box<dyn pipeline::Source>, plugin_name: String)
         poll_interval: Duration::from_secs(1),
         flush_interval: Duration::from_secs(1),
     };
-    ConfiguredSource { source, plugin_name, source_type, trigger_provider }
+    ConfiguredSource {
+        source,
+        plugin_name,
+        source_type,
+        trigger_provider,
+    }
 }
