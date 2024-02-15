@@ -690,7 +690,7 @@ mod tests {
                     n_polls += 2;
                     let last_point = measurements.iter().last().unwrap();
                     let last_point_value = match last_point.value {
-                        MeasurementValue::UInt(n) => n,
+                        MeasurementValue::U64(n) => n,
                         _ => panic!("unexpected value type"),
                     };
                     assert_eq!(n_polls, last_point_value);
@@ -756,22 +756,22 @@ mod tests {
             Box::new(TestTransform {
                 id: 1,
                 expected_input_len: 2, // 2 because flush_interval = 2*poll_interval
-                output_type: MeasurementType::UInt,
-                expected_input_type: MeasurementType::UInt,
+                output_type: MeasurementType::U64,
+                expected_input_type: MeasurementType::U64,
                 check_input_type: Arc::new(AtomicBool::new(true)),
             }),
             Box::new(TestTransform {
                 id: 2,
                 expected_input_len: 2,
-                output_type: MeasurementType::Float,
-                expected_input_type: MeasurementType::UInt,
+                output_type: MeasurementType::F64,
+                expected_input_type: MeasurementType::U64,
                 check_input_type: Arc::new(AtomicBool::new(true)),
             }),
             Box::new(TestTransform {
                 id: 3,
                 expected_input_len: 2,
-                output_type: MeasurementType::Float,
-                expected_input_type: MeasurementType::Float,
+                output_type: MeasurementType::F64,
+                expected_input_type: MeasurementType::F64,
                 check_input_type: check_input_type_for_transform3.clone(),
             }),
         ];
@@ -797,23 +797,23 @@ mod tests {
                     let transform3_enabled = current_flags & 4 != 0;
                     for m in measurements.iter() {
                         let int_val = match m.value {
-                            MeasurementValue::Float(f) => f as u32,
-                            MeasurementValue::UInt(u) => u as u32,
+                            MeasurementValue::F64(f) => f as u32,
+                            MeasurementValue::U64(u) => u as u32,
                         };
                         if transform3_enabled {
                             assert_eq!(int_val, 3);
-                            assert_eq!(m.value.measurement_type(), MeasurementType::Float);
+                            assert_eq!(m.value.measurement_type(), MeasurementType::F64);
                         } else if transform2_enabled {
                             assert_eq!(int_val, 2);
-                            assert_eq!(m.value.measurement_type(), MeasurementType::Float);
+                            assert_eq!(m.value.measurement_type(), MeasurementType::F64);
                         } else if transform1_enabled {
                             assert_eq!(int_val, 1);
-                            assert_eq!(m.value.measurement_type(), MeasurementType::UInt);
+                            assert_eq!(m.value.measurement_type(), MeasurementType::U64);
                         } else {
                             assert_ne!(int_val, 3);
                             assert_ne!(int_val, 2);
                             assert_ne!(int_val, 1);
-                            assert_eq!(m.value.measurement_type(), MeasurementType::UInt);
+                            assert_eq!(m.value.measurement_type(), MeasurementType::U64);
                         }
                     }
                 }
@@ -948,7 +948,7 @@ mod tests {
                 time,
                 MetricId(1),
                 ResourceId::LocalMachine,
-                MeasurementValue::UInt(self.n_calls as u64),
+                MeasurementValue::U64(self.n_calls as u64),
             );
             into.push(point);
             Ok(())
@@ -972,8 +972,8 @@ mod tests {
                     assert_eq!(m.value.measurement_type(), self.expected_input_type);
                 }
                 m.value = match self.output_type {
-                    MeasurementType::Float => MeasurementValue::Float(self.id as _),
-                    MeasurementType::UInt => MeasurementValue::UInt(self.id as _),
+                    MeasurementType::F64 => MeasurementValue::F64(self.id as _),
+                    MeasurementType::U64 => MeasurementValue::U64(self.id as _),
                 };
             }
             assert_eq!(measurements.len(), self.expected_input_len);

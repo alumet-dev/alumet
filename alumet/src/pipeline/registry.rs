@@ -84,12 +84,12 @@ impl MetricRegistry {
         unit: Unit,
         description: &str,
     ) -> Result<MetricId, MetricCreationError> {
-        let id = MetricId(self.metrics_by_id.len());
         if let Some(_name_conflict) = self.metrics_by_name.get(name) {
             return Err(MetricCreationError::new(format!(
                 "A metric with this name already exist: {name}"
             )));
         }
+        let id = MetricId(self.metrics_by_id.len());
         let m = Metric {
             id,
             name: String::from(name),
@@ -201,9 +201,9 @@ mod tests {
     fn no_duplicate_metrics() {
         let mut metrics = MetricRegistry::new();
         assert_eq!(metrics.len(), 0);
-        metrics.create_metric("metric", MeasurementType::UInt, Unit::Watt, "...").unwrap();
-        metrics.create_metric("metric", MeasurementType::UInt, Unit::Watt, "...").unwrap_err();
-        metrics.create_metric("metric", MeasurementType::Float, Unit::Unity, "").unwrap_err();
+        metrics.create_metric("metric", MeasurementType::U64, Unit::Watt, "...").unwrap();
+        metrics.create_metric("metric", MeasurementType::U64, Unit::Watt, "...").unwrap_err();
+        metrics.create_metric("metric", MeasurementType::F64, Unit::Unity, "").unwrap_err();
         assert_eq!(metrics.len(), 1);
     }
     
@@ -211,8 +211,8 @@ mod tests {
     fn metric_registry() {
         let mut metrics = MetricRegistry::new();
         assert_eq!(metrics.len(), 0);
-        let metric_id = metrics.create_metric("metric", MeasurementType::UInt, Unit::Watt, "...").unwrap();
-        let metric_id2 = metrics.create_metric("metric2", MeasurementType::Float, Unit::Joule, "...").unwrap();
+        let metric_id = metrics.create_metric("metric", MeasurementType::U64, Unit::Watt, "...").unwrap();
+        let metric_id2 = metrics.create_metric("metric2", MeasurementType::F64, Unit::Joule, "...").unwrap();
         assert_eq!(metrics.len(), 2);
         
         let metric = metrics.with_name("metric").expect("metrics.with_name failed");
@@ -233,13 +233,13 @@ mod tests {
     #[test]
     fn metric_global() {
         let mut metrics = MetricRegistry::new();
-        let id = metrics.create_metric("metric", MeasurementType::UInt, Unit::Second, "time").unwrap();
+        let id = metrics.create_metric("metric", MeasurementType::U64, Unit::Second, "time").unwrap();
         
         MetricRegistry::init_global(metrics);
         let metrics = MetricRegistry::global();
         let metric = metrics.with_id(&id).unwrap();
         assert_eq!("metric", &metric.name);
-        assert_eq!(MeasurementType::UInt, metric.value_type);
+        assert_eq!(MeasurementType::U64, metric.value_type);
         assert_eq!(Unit::Second, metric.unit);
         assert_eq!("time", metric.description);
     }

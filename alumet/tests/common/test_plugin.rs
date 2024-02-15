@@ -44,8 +44,8 @@ impl Plugin for TestPlugin {
         // Register the metrics (for a normal plugin, you would simply give the name directly as a &str)
         let metric_name_a = self.name.clone() + ":energy-a";
         let metric_name_b = self.name.clone() + ":counter-b";
-        let metric_a = alumet.create_metric(&metric_name_a, MeasurementType::UInt, Unit::Watt, "Test metric A, in Watts.")?;
-        let metric_b = alumet.create_metric(&metric_name_b, MeasurementType::UInt, Unit::Unity, "Test metric B, counter without unit.")?;
+        let metric_a = alumet.create_metric(&metric_name_a, MeasurementType::U64, Unit::Watt, "Test metric A, in Watts.")?;
+        let metric_b = alumet.create_metric(&metric_name_b, MeasurementType::U64, Unit::Unity, "Test metric B, counter without unit.")?;
 
         // Add steps to the pipeline
         alumet.add_source(Box::new(TestSource{metric_a,metric_b,a_base: self.base_value_a,b_counter:0}));
@@ -73,8 +73,8 @@ impl Source for TestSource {
         let resource = ResourceId::custom("test", "imaginary-thing");
 
         // push the values to ALUMET pipeline
-        acc.push(MeasurementPoint::new(timestamp, self.metric_a, resource.clone(), MeasurementValue::UInt(value_a)));
-        acc.push(MeasurementPoint::new(timestamp, self.metric_b, resource, MeasurementValue::UInt(self.b_counter)));
+        acc.push(MeasurementPoint::new(timestamp, self.metric_a, resource.clone(), MeasurementValue::U64(value_a)));
+        acc.push(MeasurementPoint::new(timestamp, self.metric_b, resource, MeasurementValue::U64(self.b_counter)));
 
         Ok(())
     }
@@ -85,8 +85,8 @@ impl Transform for TestTransform {
         fn copy_and_change_to_float(m: &MeasurementPoint) -> MeasurementPoint {
             let mut res = m.clone();
             res.value = match res.value {
-                f @ MeasurementValue::Float(_) => f,
-                MeasurementValue::UInt(i) => MeasurementValue::Float(i as f64),
+                f @ MeasurementValue::F64(_) => f,
+                MeasurementValue::U64(i) => MeasurementValue::F64(i as f64),
             };
             res
         }

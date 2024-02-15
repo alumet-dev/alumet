@@ -67,8 +67,8 @@ impl MeasurementPoint {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MeasurementType {
-    Float,
-    UInt,
+    F64,
+    U64,
 }
 impl fmt::Display for MeasurementType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -78,15 +78,15 @@ impl fmt::Display for MeasurementType {
 
 #[derive(Debug, Clone)]
 pub enum MeasurementValue {
-    Float(f64),
-    UInt(u64),
+    F64(f64),
+    U64(u64),
 }
 
 impl MeasurementValue {
     pub fn measurement_type(&self) -> MeasurementType {
         match self {
-            MeasurementValue::Float(_) => MeasurementType::Float,
-            MeasurementValue::UInt(_) => MeasurementType::UInt,
+            MeasurementValue::F64(_) => MeasurementType::F64,
+            MeasurementValue::U64(_) => MeasurementType::U64,
         }
     }
 }
@@ -182,6 +182,10 @@ pub enum ResourceId {
     ControlGroup { path: StrCow },
     /// A physical CPU package (which is not the same as a NUMA node).
     CpuPackage { id: u32 },
+    /// The "core" part of a CPU package.
+    CpuPackageCores { pkg_id: u32 },
+    /// The "uncore" part of a CPU package.
+    CpuPackageUncore { pkg_id: u32 },
     /// A CPU core.
     CpuCore { id: u32 },
     /// The RAM attached to a CPU package.
@@ -212,6 +216,8 @@ impl ResourceId {
             ResourceId::Process { .. } => "process",
             ResourceId::ControlGroup { .. } => "cgroup",
             ResourceId::CpuPackage { .. } => "cpu_package",
+            ResourceId::CpuPackageCores { .. } => "cpu_pkg_cores",
+            ResourceId::CpuPackageUncore { .. } => "cpu_pkg_uncore",
             ResourceId::CpuCore { .. } => "cpu_core",
             ResourceId::Dram { .. } => "dram",
             ResourceId::Gpu { .. } => "gpu",
@@ -225,6 +231,8 @@ impl ResourceId {
             ResourceId::Process { pid } => LazyDisplayable::U32(*pid),
             ResourceId::ControlGroup { path } => LazyDisplayable::Str(&path),
             ResourceId::CpuPackage { id } => LazyDisplayable::U32(*id),
+            ResourceId::CpuPackageCores { pkg_id } => LazyDisplayable::U32(*pkg_id),
+            ResourceId::CpuPackageUncore { pkg_id } => LazyDisplayable::U32(*pkg_id),
             ResourceId::CpuCore { id } => LazyDisplayable::U32(*id),
             ResourceId::Dram { pkg_id } => LazyDisplayable::U32(*pkg_id),
             ResourceId::Gpu { bus_id } => LazyDisplayable::Str(&bus_id),

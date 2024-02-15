@@ -93,31 +93,31 @@ impl<T: Into<anyhow::Error>> From<T> for PollError {
         Self::Fatal(value.into())
     }
 }
-impl From<anyhow::Error> for TransformError {
-    fn from(value: anyhow::Error) -> Self {
-        Self::Fatal(value)
+impl<T: Into<anyhow::Error>> From<T> for TransformError {
+    fn from(value: T) -> Self {
+        Self::Fatal(value.into())
     }
 }
-impl From<anyhow::Error> for WriteError {
-    fn from(value: anyhow::Error) -> Self {
-        Self::Fatal(value)
+impl<T: Into<anyhow::Error>> From<T> for WriteError {
+    fn from(value: T) -> Self {
+        Self::Fatal(value.into())
     }
 }
 
 // Add convenient method `error.can_retry()`
-trait PollRetry {
-    fn can_retry(self) -> PollError;
+pub trait PollRetry<T> {
+    fn retry_poll(self) -> Result<T, PollError>;
 }
-impl<T: Into<anyhow::Error>> PollRetry for T {
-    fn can_retry(self) -> PollError {
-        PollError::CanRetry(self.into())
+impl<T, E: Into<anyhow::Error>> PollRetry<T> for Result<T, E> {
+    fn retry_poll(self) -> Result<T, PollError> {
+        self.map_err(|e| PollError::CanRetry(e.into()))
     }
 }
-trait WriteRetry {
-    fn can_retry(self) -> WriteError;
+pub trait WriteRetry<T> {
+    fn retry_write(self) -> Result<T, WriteError>;
 }
-impl<T: Into<anyhow::Error>> WriteRetry for T {
-    fn can_retry(self) -> WriteError {
-        WriteError::CanRetry(self.into())
+impl<T, E: Into<anyhow::Error>> WriteRetry<T> for Result<T, E> {
+    fn retry_write(self) -> Result<T, WriteError> {
+        self.map_err(|e| WriteError::CanRetry(e.into()))
     }
 }
