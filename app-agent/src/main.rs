@@ -43,12 +43,14 @@ fn main() {
     let mut pipeline = MeasurementPipeline::with_settings(elements, apply_source_settings).start(metrics);
     
     log::info!("Starting socket control...");
-    let _control = SocketControl::start_new(pipeline.control_handle());
+    let control = SocketControl::start_new(pipeline.control_handle()).expect("Control thread failed to start");
     
     log::info!("🔥 ALUMET agent is ready");
 
     // keep the pipeline running until the app closes
     pipeline.wait_for_all();
+    control.stop();
+    control.join();
 }
 
 fn print_stats(metrics: &MetricRegistry, elems: &ElementRegistry, plugins: &[Box<dyn Plugin>]) {

@@ -193,7 +193,7 @@ impl fmt::Display for MetricCreationError {
 
 #[cfg(test)]
 mod tests {
-    use crate::{metrics::{MeasurementType, MeasurementValue}, units::Unit};
+    use crate::{metrics::MeasurementType, units::Unit};
 
     use super::MetricRegistry;
 

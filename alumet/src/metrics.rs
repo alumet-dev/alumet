@@ -221,7 +221,7 @@ impl ResourceId {
             ResourceId::CpuCore { .. } => "cpu_core",
             ResourceId::Dram { .. } => "dram",
             ResourceId::Gpu { .. } => "gpu",
-            ResourceId::Custom { kind, id } => &kind,
+            ResourceId::Custom { kind, id: _ } => &kind,
         }
     }
     
@@ -236,7 +236,7 @@ impl ResourceId {
             ResourceId::CpuCore { id } => LazyDisplayable::U32(*id),
             ResourceId::Dram { pkg_id } => LazyDisplayable::U32(*pkg_id),
             ResourceId::Gpu { bus_id } => LazyDisplayable::Str(&bus_id),
-            ResourceId::Custom { kind, id } => LazyDisplayable::Str(&id),
+            ResourceId::Custom { kind: _, id } => LazyDisplayable::Str(&id),
         }
     }
 }

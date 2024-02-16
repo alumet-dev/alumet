@@ -780,7 +780,7 @@ mod tests {
         let source = TestSource::new();
         let tp = new_tp();
         let (src_tx, src_rx) = mpsc::channel::<MeasurementBuffer>(64);
-        let (src_cmd_tx, src_cmd_rx) = watch::channel(SourceCmd::SetTrigger(Some(tp)));
+        let (_src_cmd_tx, src_cmd_rx) = watch::channel(SourceCmd::SetTrigger(Some(tp)));
 
         // create transform channels and control flags
         let (trans_tx, mut out_rx) = broadcast::channel::<MeasurementBuffer>(64);

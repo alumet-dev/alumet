@@ -87,22 +87,22 @@ impl ConfigTable {
         convert_table(table)
     }
     
-    fn get(&self, key: *const c_char) -> Option<&ConfigValue> {
+    pub fn get(&self, key: *const c_char) -> Option<&ConfigValue> {
         let key = unsafe { CStr::from_ptr(key) };
         self.content.get(key)
     }
     
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.content.len()
     }
 }
 
 impl ConfigArray {
-    fn get(&self, index: usize) -> Option<&ConfigValue> {
+    pub fn get(&self, index: usize) -> Option<&ConfigValue> {
         self.content.get(index)
     }
     
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.content.len()
     }
 }
@@ -203,6 +203,7 @@ pub extern "C" fn config_table_at(array: &ConfigArray, index: usize) -> *const C
     }
 }
 
+#[cfg(test)]
 mod tests {
     use std::ffi::{CStr, CString};
 
