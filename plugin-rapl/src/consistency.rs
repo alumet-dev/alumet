@@ -9,6 +9,7 @@ pub struct SafeSubset {
     pub domains: Vec<RaplDomainType>,
     pub perf_events: Vec<PowerEvent>,
     pub power_zones: Vec<PowerZone>,
+    pub is_whole: bool,
 }
 
 /// Checks the consistency of the RAPL domains reported by the different interfaces of the Linux kernel,
@@ -67,18 +68,19 @@ pub fn check_domains_consistency(perf_events: Vec<PowerEvent>, power_zones: Powe
             domains: domains_subset,
             perf_events: perf_events_subset,
             power_zones: power_zones_subset,
+            is_whole: false,
         }
     } else {
-        log::info!("Available RAPL domains: {}", mkstring(&perf_rapl_domains, ", "));
         SafeSubset {
             domains: perf_rapl_domains,
             perf_events,
             power_zones: power_zones.flat,
+            is_whole: true,
         }
     }
 }
 
 /// Takes a slice of elements that can be converted to strings, converts them and joins them all.
-fn mkstring<A: ToString>(elems: &[A], sep: &str) -> String {
+pub(crate) fn mkstring<A: ToString>(elems: &[A], sep: &str) -> String {
     elems.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(sep)
 }

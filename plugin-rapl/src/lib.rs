@@ -28,9 +28,11 @@ impl alumet::plugin::Plugin for RaplPlugin {
 
         let n_sockets = socket_cpus.len();
         let n_cpu_cores = all_cpus.len();
-        log::info!("{n_sockets}/{n_cpu_cores} monitorable CPU (cores) found: {socket_cpus:?}");
+        log::debug!("{n_sockets}/{n_cpu_cores} monitorable CPU (cores) found: {socket_cpus:?}");
 
         let available_domains = check_domains_consistency(perf_events, power_zones);
+        let subset_indicator = if available_domains.is_whole { "" } else { "(\"safe\" subset)" };
+        log::info!("Available RAPL domains {subset_indicator}: {}", consistency::mkstring(&available_domains.domains, ", "));
 
         // create the probe
         let metric = alumet.create_metric("rapl_consumed_energy", MeasurementType::F64, Unit::Joule, "Energy consumed since the previous measurement, as reported by RAPL.")?;
@@ -40,7 +42,7 @@ impl alumet::plugin::Plugin for RaplPlugin {
                 events_on_cpus.push((event, cpu));
             }
         }
-        log::info!("Events to read: {events_on_cpus:?}");
+        log::debug!("Events to read: {events_on_cpus:?}");
         let probe = PerfEventProbe::new(metric, &events_on_cpus)?;
         alumet.add_source(Box::new(probe));
         Ok(())
