@@ -1,5 +1,5 @@
 use alumet::{
-    metrics::{MeasurementPoint, MeasurementValue, MetricId, ResourceId},
+    metrics::{MeasurementPoint, MetricId, ResourceId, TypedMetricId, WrappedMeasurementValue},
     util::CounterDiff,
 };
 use anyhow::{Context, Result};
@@ -162,7 +162,7 @@ fn read_perf_event(fd: &mut File) -> io::Result<u64> {
 /// Energy probe based on perf_event for intel RAPL.
 pub struct PerfEventProbe {
     /// Id of the metric to push.
-    metric: MetricId,
+    metric: TypedMetricId<f64>,
     /// Ready-to-use power events with additional metadata.
     events: Vec<(OpenedPowerEvent, CounterDiff)>,
 }
@@ -176,7 +176,7 @@ struct OpenedPowerEvent {
 }
 
 impl PerfEventProbe {
-    pub fn new(metric: MetricId, events_on_cpus: &[(&PowerEvent, &CpuId)]) -> anyhow::Result<PerfEventProbe> {
+    pub fn new(metric: TypedMetricId<f64>, events_on_cpus: &[(&PowerEvent, &CpuId)]) -> anyhow::Result<PerfEventProbe> {
         const ADVICE: &str = "Try to set kernel.perf_event_paranoid to 0 or -1, or to give CAP_PERFMON to the application's binary (CAP_SYS_ADMIN before Linux 5.8).";
 
         let pmu_type = pmu_type()?;
@@ -228,7 +228,7 @@ impl alumet::pipeline::Source for PerfEventProbe {
                     timestamp,
                     self.metric,
                     evt.resource.clone(),
-                    MeasurementValue::F64(joules),
+                    joules,
                 ));
             }
             // NOTE: the energy can be a floating-point number in Joules,

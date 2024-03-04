@@ -2,7 +2,7 @@ use std::{ffi::CStr, time::SystemTime};
 
 use libc::{c_void, c_char};
 
-use crate::{config, metrics::{self, MeasurementBuffer, MeasurementPoint, MeasurementType}, pipeline, units::Unit};
+use crate::{config, metrics::{self, MeasurementBuffer, MeasurementPoint, WrappedMeasurementType}, pipeline, units::Unit};
 
 use super::AlumetStart;
 
@@ -21,14 +21,14 @@ pub type OutputWriteFn = extern "C" fn(instance: *mut c_void, buffer: *const met
 #[no_mangle]
 pub extern fn alumet_create_metric(alumet: &mut AlumetStart,
     name: *const c_char,
-    value_type: MeasurementType,
+    value_type: WrappedMeasurementType,
     unit: Unit,
     description: *const c_char
 ) -> u64 {
     let name = unsafe { CStr::from_ptr(name) }.to_str().unwrap();
     let description = unsafe { CStr::from_ptr(description)}.to_str().unwrap();
     // todo handle errors (how to pass them to C properly?)
-    let metric_id = alumet.create_metric(name, value_type, unit, description).unwrap();
+    let metric_id = alumet.create_metric_untyped(name, value_type, unit, description).unwrap();
     metric_id.0 as u64
 }
 

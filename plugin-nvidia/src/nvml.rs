@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::SystemTime};
 
 use alumet::{
-    metrics::{MeasurementAccumulator, MeasurementPoint, MeasurementType, MeasurementValue, MetricId, ResourceId},
+    metrics::{MeasurementAccumulator, MeasurementPoint, WrappedMeasurementType, WrappedMeasurementValue, MetricId, ResourceId, TypedMetricId},
     pipeline::{registry::MetricCreationError, PollError},
     plugin::AlumetStart,
     units::Unit,
@@ -78,7 +78,7 @@ impl alumet::pipeline::Source for NvmlSource {
                     timestamp,
                     self.metrics.total_energy_consumption,
                     self.resource.clone(),
-                    MeasurementValue::F64(joules),
+                    joules,
                 ))
             }
         }
@@ -92,25 +92,23 @@ impl alumet::pipeline::Source for NvmlSource {
                 timestamp,
                 self.metrics.instant_power,
                 self.resource.clone(),
-                MeasurementValue::F64(watts),
+                watts,
             ))
         }
 
         if features.major_utilization {
             let u = device.utilization_rates()?;
-            let major_gpu = MeasurementValue::U64(u.gpu as _);
-            let major_mem = MeasurementValue::U64(u.memory as _);
             measurements.push(MeasurementPoint::new(
                 timestamp,
                 self.metrics.major_utilization_gpu,
                 self.resource.clone(),
-                major_gpu,
+                u.gpu as u64,
             ));
             measurements.push(MeasurementPoint::new(
                 timestamp,
                 self.metrics.major_utilization_memory,
                 self.resource.clone(),
-                major_mem,
+                u.memory as u64,
             ));
         }
 
@@ -122,14 +120,14 @@ impl alumet::pipeline::Source for NvmlSource {
 
 #[derive(Clone)]
 pub struct Metrics {
-    total_energy_consumption: MetricId,
-    instant_power: MetricId,
-    major_utilization_gpu: MetricId,
-    major_utilization_memory: MetricId,
-    decoder_utilization: MetricId,
-    encoder_utilization: MetricId,
-    running_compute_processes: MetricId,
-    running_graphics_processes: MetricId,
+    total_energy_consumption: TypedMetricId<f64>,
+    instant_power: TypedMetricId<f64>,
+    major_utilization_gpu: TypedMetricId<u64>,
+    major_utilization_memory: TypedMetricId<u64>,
+    decoder_utilization: TypedMetricId<u64>,
+    encoder_utilization: TypedMetricId<u64>,
+    running_compute_processes: TypedMetricId<u64>,
+    running_graphics_processes: TypedMetricId<u64>,
 }
 
 impl Metrics {
@@ -137,34 +135,29 @@ impl Metrics {
         Ok(Self {
             total_energy_consumption: alumet.create_metric(
                 "nvml_consumed_energy",
-                MeasurementType::F64,
                 Unit::Joule,
                 "energy consumption by the GPU since the previous measurement",
             )?,
             instant_power: alumet.create_metric(
                 "nvml_instant_power",
-                MeasurementType::F64,
                 Unit::Watt,
                 "instantaneous power of the GPU at the time of the measurement",
             )?,
-            major_utilization_gpu: alumet.create_metric("gpu_utilization", MeasurementType::U64, Unit::Unity, "")?,
+            major_utilization_gpu: alumet.create_metric("gpu_utilization", Unit::Unity, "")?,
             major_utilization_memory: alumet.create_metric(
                 "memory_utilization",
-                MeasurementType::U64,
                 Unit::Unity,
                 "",
             )?,
-            decoder_utilization: alumet.create_metric("decoder_utilization", MeasurementType::U64, Unit::Unity, "")?,
-            encoder_utilization: alumet.create_metric("encoder_utilization", MeasurementType::U64, Unit::Unity, "")?,
+            decoder_utilization: alumet.create_metric("decoder_utilization", Unit::Unity, "")?,
+            encoder_utilization: alumet.create_metric("encoder_utilization", Unit::Unity, "")?,
             running_compute_processes: alumet.create_metric(
                 "n_compute_processes",
-                MeasurementType::U64,
                 Unit::Unity,
                 "",
             )?,
             running_graphics_processes: alumet.create_metric(
                 "n_graphic_processes",
-                MeasurementType::U64,
                 Unit::Unity,
                 "",
             )?,

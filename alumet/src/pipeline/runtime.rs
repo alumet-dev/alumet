@@ -657,7 +657,7 @@ mod tests {
     };
 
     use crate::{
-        metrics::{MeasurementBuffer, MeasurementPoint, MeasurementType, MeasurementValue, MetricId, ResourceId},
+        metrics::{MeasurementBuffer, MeasurementPoint, WrappedMeasurementType, WrappedMeasurementValue, MetricId, ResourceId, UntypedMetricId},
         pipeline::{trigger::TriggerProvider, Transform},
     };
 
@@ -690,7 +690,7 @@ mod tests {
                     n_polls += 2;
                     let last_point = measurements.iter().last().unwrap();
                     let last_point_value = match last_point.value {
-                        MeasurementValue::U64(n) => n,
+                        WrappedMeasurementValue::U64(n) => n,
                         _ => panic!("unexpected value type"),
                     };
                     assert_eq!(n_polls, last_point_value);
@@ -756,22 +756,22 @@ mod tests {
             Box::new(TestTransform {
                 id: 1,
                 expected_input_len: 2, // 2 because flush_interval = 2*poll_interval
-                output_type: MeasurementType::U64,
-                expected_input_type: MeasurementType::U64,
+                output_type: WrappedMeasurementType::U64,
+                expected_input_type: WrappedMeasurementType::U64,
                 check_input_type: Arc::new(AtomicBool::new(true)),
             }),
             Box::new(TestTransform {
                 id: 2,
                 expected_input_len: 2,
-                output_type: MeasurementType::F64,
-                expected_input_type: MeasurementType::U64,
+                output_type: WrappedMeasurementType::F64,
+                expected_input_type: WrappedMeasurementType::U64,
                 check_input_type: Arc::new(AtomicBool::new(true)),
             }),
             Box::new(TestTransform {
                 id: 3,
                 expected_input_len: 2,
-                output_type: MeasurementType::F64,
-                expected_input_type: MeasurementType::F64,
+                output_type: WrappedMeasurementType::F64,
+                expected_input_type: WrappedMeasurementType::F64,
                 check_input_type: check_input_type_for_transform3.clone(),
             }),
         ];
@@ -797,23 +797,23 @@ mod tests {
                     let transform3_enabled = current_flags & 4 != 0;
                     for m in measurements.iter() {
                         let int_val = match m.value {
-                            MeasurementValue::F64(f) => f as u32,
-                            MeasurementValue::U64(u) => u as u32,
+                            WrappedMeasurementValue::F64(f) => f as u32,
+                            WrappedMeasurementValue::U64(u) => u as u32,
                         };
                         if transform3_enabled {
                             assert_eq!(int_val, 3);
-                            assert_eq!(m.value.measurement_type(), MeasurementType::F64);
+                            assert_eq!(m.value.measurement_type(), WrappedMeasurementType::F64);
                         } else if transform2_enabled {
                             assert_eq!(int_val, 2);
-                            assert_eq!(m.value.measurement_type(), MeasurementType::F64);
+                            assert_eq!(m.value.measurement_type(), WrappedMeasurementType::F64);
                         } else if transform1_enabled {
                             assert_eq!(int_val, 1);
-                            assert_eq!(m.value.measurement_type(), MeasurementType::U64);
+                            assert_eq!(m.value.measurement_type(), WrappedMeasurementType::U64);
                         } else {
                             assert_ne!(int_val, 3);
                             assert_ne!(int_val, 2);
                             assert_ne!(int_val, 1);
-                            assert_eq!(m.value.measurement_type(), MeasurementType::U64);
+                            assert_eq!(m.value.measurement_type(), WrappedMeasurementType::U64);
                         }
                     }
                 }
@@ -944,11 +944,11 @@ mod tests {
             time: std::time::SystemTime,
         ) -> Result<(), crate::pipeline::PollError> {
             self.n_calls += 1;
-            let point = MeasurementPoint::new(
+            let point = MeasurementPoint::new_untyped(
                 time,
-                MetricId(1),
+                UntypedMetricId(1),
                 ResourceId::LocalMachine,
-                MeasurementValue::U64(self.n_calls as u64),
+                WrappedMeasurementValue::U64(self.n_calls as u64),
             );
             into.push(point);
             Ok(())
@@ -957,9 +957,9 @@ mod tests {
 
     struct TestTransform {
         id: u32,
-        output_type: MeasurementType,
+        output_type: WrappedMeasurementType,
         expected_input_len: usize,
-        expected_input_type: MeasurementType,
+        expected_input_type: WrappedMeasurementType,
         check_input_type: Arc<AtomicBool>,
     }
 
@@ -972,8 +972,8 @@ mod tests {
                     assert_eq!(m.value.measurement_type(), self.expected_input_type);
                 }
                 m.value = match self.output_type {
-                    MeasurementType::F64 => MeasurementValue::F64(self.id as _),
-                    MeasurementType::U64 => MeasurementValue::U64(self.id as _),
+                    WrappedMeasurementType::F64 => WrappedMeasurementValue::F64(self.id as _),
+                    WrappedMeasurementType::U64 => WrappedMeasurementValue::U64(self.id as _),
                 };
             }
             assert_eq!(measurements.len(), self.expected_input_len);

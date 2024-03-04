@@ -5,7 +5,7 @@ use std::{fmt, sync::OnceLock};
 use crate::units::Unit;
 
 use crate::{
-    metrics::{MeasurementType, Metric, MetricId},
+    metrics::{WrappedMeasurementType, Metric, InternalMetricId, UntypedMetricId},
     pipeline,
 };
 use super::runtime::{ConfiguredOutput, ConfiguredTransform};
@@ -15,8 +15,8 @@ use super::runtime::{ConfiguredOutput, ConfiguredTransform};
 /// New metrics are created by the plugins during their initialization.
 /// To do so, they use the methods provided by [`crate::plugin::AlumetStart`], not `MetricRegistry`.
 pub struct MetricRegistry {
-    pub(crate) metrics_by_id: HashMap<MetricId, Metric>,
-    pub(crate) metrics_by_name: HashMap<String, MetricId>,
+    pub(crate) metrics_by_id: HashMap<UntypedMetricId, Metric>,
+    pub(crate) metrics_by_name: HashMap<String, UntypedMetricId>,
 }
 
 /// Global registry of metrics, to be used from the pipeline, in any thread.
@@ -53,8 +53,8 @@ impl MetricRegistry {
     }
 
     /// Finds the metric that has the given id.
-    pub fn with_id(&self, id: &MetricId) -> Option<&Metric> {
-        self.metrics_by_id.get(id)
+    pub fn with_id<M: InternalMetricId>(&self, id: &M) -> Option<&Metric> {
+        self.metrics_by_id.get(&id.id())
     }
 
     /// Finds the metric that has the given name.
@@ -80,16 +80,16 @@ impl MetricRegistry {
     pub(crate) fn create_metric(
         &mut self,
         name: &str,
-        value_type: MeasurementType,
+        value_type: WrappedMeasurementType,
         unit: Unit,
         description: &str,
-    ) -> Result<MetricId, MetricCreationError> {
+    ) -> Result<UntypedMetricId, MetricCreationError> {
         if let Some(_name_conflict) = self.metrics_by_name.get(name) {
             return Err(MetricCreationError::new(format!(
                 "A metric with this name already exist: {name}"
             )));
         }
-        let id = MetricId(self.metrics_by_id.len());
+        let id = UntypedMetricId(self.metrics_by_id.len());
         let m = Metric {
             id,
             name: String::from(name),
@@ -104,7 +104,7 @@ impl MetricRegistry {
 }
 
 pub struct MetricIter<'a> {
-    values: std::collections::hash_map::Values<'a, MetricId, Metric>,
+    values: std::collections::hash_map::Values<'a, UntypedMetricId, Metric>,
 }
 impl<'a> Iterator for MetricIter<'a> {
     type Item = &'a Metric;
@@ -193,7 +193,7 @@ impl fmt::Display for MetricCreationError {
 
 #[cfg(test)]
 mod tests {
-    use crate::{metrics::MeasurementType, units::Unit};
+    use crate::{metrics::WrappedMeasurementType, units::Unit};
 
     use super::MetricRegistry;
 
@@ -201,9 +201,9 @@ mod tests {
     fn no_duplicate_metrics() {
         let mut metrics = MetricRegistry::new();
         assert_eq!(metrics.len(), 0);
-        metrics.create_metric("metric", MeasurementType::U64, Unit::Watt, "...").unwrap();
-        metrics.create_metric("metric", MeasurementType::U64, Unit::Watt, "...").unwrap_err();
-        metrics.create_metric("metric", MeasurementType::F64, Unit::Unity, "").unwrap_err();
+        metrics.create_metric("metric", WrappedMeasurementType::U64, Unit::Watt, "...").unwrap();
+        metrics.create_metric("metric", WrappedMeasurementType::U64, Unit::Watt, "...").unwrap_err();
+        metrics.create_metric("metric", WrappedMeasurementType::F64, Unit::Unity, "").unwrap_err();
         assert_eq!(metrics.len(), 1);
     }
     
@@ -211,8 +211,8 @@ mod tests {
     fn metric_registry() {
         let mut metrics = MetricRegistry::new();
         assert_eq!(metrics.len(), 0);
-        let metric_id = metrics.create_metric("metric", MeasurementType::U64, Unit::Watt, "...").unwrap();
-        let metric_id2 = metrics.create_metric("metric2", MeasurementType::F64, Unit::Joule, "...").unwrap();
+        let metric_id = metrics.create_metric("metric", WrappedMeasurementType::U64, Unit::Watt, "...").unwrap();
+        let metric_id2 = metrics.create_metric("metric2", WrappedMeasurementType::F64, Unit::Joule, "...").unwrap();
         assert_eq!(metrics.len(), 2);
         
         let metric = metrics.with_name("metric").expect("metrics.with_name failed");
@@ -233,13 +233,13 @@ mod tests {
     #[test]
     fn metric_global() {
         let mut metrics = MetricRegistry::new();
-        let id = metrics.create_metric("metric", MeasurementType::U64, Unit::Second, "time").unwrap();
+        let id = metrics.create_metric("metric", WrappedMeasurementType::U64, Unit::Second, "time").unwrap();
         
         MetricRegistry::init_global(metrics);
         let metrics = MetricRegistry::global();
         let metric = metrics.with_id(&id).unwrap();
         assert_eq!("metric", &metric.name);
-        assert_eq!(MeasurementType::U64, metric.value_type);
+        assert_eq!(WrappedMeasurementType::U64, metric.value_type);
         assert_eq!(Unit::Second, metric.unit);
         assert_eq!("time", metric.description);
     }

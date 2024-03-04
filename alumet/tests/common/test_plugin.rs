@@ -1,4 +1,4 @@
-use alumet::metrics::{MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, MeasurementValue, MetricId, MeasurementType, ResourceId};
+use alumet::metrics::{MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue, MetricId, ResourceId, TypedMetricId};
 use alumet::pipeline::{Output, PollError, Source, Transform, TransformError, WriteError};
 use alumet::plugin::{AlumetStart, Plugin};
 use alumet::units::Unit;
@@ -9,8 +9,8 @@ pub struct TestPlugin {
     pub state: State,
 }
 struct TestSource {
-    metric_a: MetricId,
-    metric_b: MetricId,
+    metric_a: TypedMetricId<u64>,
+    metric_b: TypedMetricId<u64>,
     a_base: u64,
     b_counter: u64,
 }
@@ -44,8 +44,8 @@ impl Plugin for TestPlugin {
         // Register the metrics (for a normal plugin, you would simply give the name directly as a &str)
         let metric_name_a = self.name.clone() + ":energy-a";
         let metric_name_b = self.name.clone() + ":counter-b";
-        let metric_a = alumet.create_metric(&metric_name_a, MeasurementType::U64, Unit::Watt, "Test metric A, in Watts.")?;
-        let metric_b = alumet.create_metric(&metric_name_b, MeasurementType::U64, Unit::Unity, "Test metric B, counter without unit.")?;
+        let metric_a = alumet.create_metric::<u64>(&metric_name_a, Unit::Watt, "Test metric A, in Watts.")?;
+        let metric_b = alumet.create_metric::<u64>(&metric_name_b, Unit::Unity, "Test metric B, counter without unit.")?;
 
         // Add steps to the pipeline
         alumet.add_source(Box::new(TestSource{metric_a,metric_b,a_base: self.base_value_a,b_counter:0}));
@@ -73,8 +73,8 @@ impl Source for TestSource {
         let resource = ResourceId::custom("test", "imaginary-thing");
 
         // push the values to ALUMET pipeline
-        acc.push(MeasurementPoint::new(timestamp, self.metric_a, resource.clone(), MeasurementValue::U64(value_a)));
-        acc.push(MeasurementPoint::new(timestamp, self.metric_b, resource, MeasurementValue::U64(self.b_counter)));
+        acc.push(MeasurementPoint::new(timestamp, self.metric_a, resource.clone(), value_a));
+        acc.push(MeasurementPoint::new(timestamp, self.metric_b, resource, self.b_counter));
 
         Ok(())
     }
@@ -85,8 +85,8 @@ impl Transform for TestTransform {
         fn copy_and_change_to_float(m: &MeasurementPoint) -> MeasurementPoint {
             let mut res = m.clone();
             res.value = match res.value {
-                f @ MeasurementValue::F64(_) => f,
-                MeasurementValue::U64(i) => MeasurementValue::F64(i as f64),
+                f @ WrappedMeasurementValue::F64(_) => f,
+                WrappedMeasurementValue::U64(i) => WrappedMeasurementValue::F64(i as f64),
             };
             res
         }

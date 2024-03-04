@@ -3,6 +3,11 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+typedef enum WrappedMeasurementType {
+  F64,
+  U64,
+} WrappedMeasurementType;
+
 /**
  * `AlumetStart` allows the plugins to perform some actions before starting the measurment pipeline,
  * such as registering new measurement sources.
@@ -29,8 +34,6 @@ typedef struct MeasurementBuffer MeasurementBuffer;
  * A data point about a metric that has been measured.
  */
 typedef struct MeasurementPoint MeasurementPoint;
-
-typedef struct MeasurementType MeasurementType;
 
 typedef struct TimeSpec TimeSpec;
 
@@ -70,7 +73,7 @@ const struct ConfigTable *config_table_at(const struct ConfigArray *array, uintp
 
 uint64_t alumet_create_metric(struct AlumetStart *alumet,
                               const char *name,
-                              struct MeasurementType value_type,
+                              enum WrappedMeasurementType value_type,
                               struct Unit unit,
                               const char *description);
 

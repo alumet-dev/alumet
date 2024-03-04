@@ -1,4 +1,4 @@
-use alumet::{metrics::MeasurementType, units::Unit};
+use alumet::{metrics::WrappedMeasurementType, units::Unit};
 
 use crate::{consistency::check_domains_consistency, perf_event::PerfEventProbe};
 
@@ -35,7 +35,7 @@ impl alumet::plugin::Plugin for RaplPlugin {
         log::info!("Available RAPL domains {subset_indicator}: {}", consistency::mkstring(&available_domains.domains, ", "));
 
         // create the probe
-        let metric = alumet.create_metric("rapl_consumed_energy", MeasurementType::F64, Unit::Joule, "Energy consumed since the previous measurement, as reported by RAPL.")?;
+        let metric = alumet.create_metric::<f64>("rapl_consumed_energy", Unit::Joule, "Energy consumed since the previous measurement, as reported by RAPL.")?;
         let mut events_on_cpus = Vec::new();
         for event in &available_domains.perf_events {
             for cpu in &socket_cpus {

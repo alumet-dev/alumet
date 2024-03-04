@@ -8,7 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use alumet::{metrics::{MeasurementAccumulator, MeasurementPoint, MeasurementValue, MetricId, ResourceId}, util::{CounterDiff, CounterDiffUpdate}};
+use alumet::{metrics::{MeasurementAccumulator, MeasurementPoint, MetricId, ResourceId, TypedMetricId, WrappedMeasurementValue}, util::{CounterDiff, CounterDiffUpdate}};
 use anyhow::{anyhow, Context};
 
 use super::domains::RaplDomainType;
@@ -144,7 +144,7 @@ pub fn all_power_zones() -> anyhow::Result<PowerZoneHierarchy> {
 
 /// Powercap probe
 pub struct PowercapProbe {
-    metric: MetricId,
+    metric: TypedMetricId<f64>,
 
     /// Ready-to-use powercap zones with additional metadata
     zones: Vec<(OpenedZone, CounterDiff)>,
@@ -161,7 +161,7 @@ struct OpenedZone {
 }
 
 impl PowercapProbe {
-    pub fn new(metric: MetricId, zones: &[&PowerZone]) -> anyhow::Result<PowercapProbe> {
+    pub fn new(metric: TypedMetricId<f64>, zones: &[&PowerZone]) -> anyhow::Result<PowercapProbe> {
         if zones.is_empty() {
             return Err(anyhow!("At least one power zone is required for PowercapProbe"))?;
         }
@@ -223,7 +223,7 @@ impl alumet::pipeline::Source for PowercapProbe {
             };
             if let Some(value) = diff {
                 let joules = (value as f64) * POWERCAP_ENERGY_UNIT;
-                measurements.push(MeasurementPoint::new(timestamp, self.metric, zone.resource.clone(), MeasurementValue::F64(joules)))
+                measurements.push(MeasurementPoint::new(timestamp, self.metric, zone.resource.clone(), joules))
             };
 
             // clear the buffer, so that we can fill it again

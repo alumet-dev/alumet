@@ -1,5 +1,5 @@
 use crate::config::ConfigTable;
-use crate::metrics::{MeasurementType, MetricId};
+use crate::metrics::{WrappedMeasurementType, MetricId, MeasurementType, TypedMetricId, UntypedMetricId};
 use crate::pipeline;
 use crate::pipeline::registry::{ElementRegistry, MetricCreationError, MetricRegistry};
 use crate::units::Unit;
@@ -80,13 +80,23 @@ impl AlumetStart<'_> {
             .expect("The current plugin must be set before passing the AlumetStart struct to a plugin")
     }
 
-    pub fn create_metric(
+    pub fn create_metric<T: MeasurementType>(
         &mut self,
         name: &str,
-        value_type: MeasurementType,
         unit: Unit,
         description: &str,
-    ) -> Result<MetricId, MetricCreationError> {
+    ) -> Result<TypedMetricId<T>, MetricCreationError> {
+        let untyped = self.metrics.create_metric(name, T::wrapped_type(), unit, description)?;
+        Ok(TypedMetricId::try_from(untyped).unwrap())
+    }
+    
+    pub fn create_metric_untyped(
+        &mut self,
+        name: &str,
+        value_type: WrappedMeasurementType,
+        unit: Unit,
+        description: &str,
+    ) -> Result<UntypedMetricId, MetricCreationError> {
         self.metrics.create_metric(name, value_type, unit, description)
     }
 

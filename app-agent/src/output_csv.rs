@@ -3,7 +3,7 @@ use std::{
     io::{self, BufWriter, Write}, path::Path,
 };
 
-use alumet::metrics::MeasurementValue;
+use alumet::metrics::{MetricId, WrappedMeasurementValue};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
@@ -31,8 +31,8 @@ impl alumet::pipeline::Output for CsvOutput {
             let datetime: OffsetDateTime = m.timestamp.into();
             let datetime: String = datetime.format(&Rfc3339)?;
             let value = match m.value {
-                MeasurementValue::F64(x) => x.to_string(),
-                MeasurementValue::U64(x) => x.to_string(),
+                WrappedMeasurementValue::F64(x) => x.to_string(),
+                WrappedMeasurementValue::U64(x) => x.to_string(),
             };
             let resource_kind = m.resource.kind();
             let resource_id = m.resource.id_str();
