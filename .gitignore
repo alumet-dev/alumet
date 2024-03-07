@@ -4,3 +4,4 @@ app-agent/flamegraph.svg
 app-agent/*.coz
 app-agent/perf.data
 app-agent/perf.data.old
+app-agent/*output.csv

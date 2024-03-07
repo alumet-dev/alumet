@@ -58,12 +58,10 @@ impl<T: MeasurementType> Clone for TypedMetricId<T> {
 }
 
 // Construction UntypedMetricId -> TypedMetricId
-impl<T: MeasurementType> TryFrom<UntypedMetricId> for TypedMetricId<T> {
-    type Error = MetricTypeError;
-
-    fn try_from(untyped: UntypedMetricId) -> Result<Self, Self::Error> {
+impl<T: MeasurementType> TypedMetricId<T> {
+    pub fn try_from(untyped: UntypedMetricId, registry: &MetricRegistry) -> Result<Self, MetricTypeError> {
         let expected_type = T::wrapped_type();
-        let actual_type = get_metric(&untyped).value_type.clone();
+        let actual_type = registry.with_id(&untyped).expect("the untyped metric should exist in the registry").value_type.clone();
         if expected_type != actual_type {
             Err(MetricTypeError {
                 expected: expected_type,

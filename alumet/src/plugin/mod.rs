@@ -50,6 +50,7 @@ pub struct PluginStarter<'a> {
 
 impl<'a> PluginStarter<'a> {
     pub fn new(metrics: &'a mut MetricRegistry, pipeline_elements: &'a mut ElementRegistry) -> Self {
+        
         PluginStarter {
             start: AlumetStart {
                 metrics,
@@ -87,7 +88,7 @@ impl AlumetStart<'_> {
         description: &str,
     ) -> Result<TypedMetricId<T>, MetricCreationError> {
         let untyped = self.metrics.create_metric(name, T::wrapped_type(), unit, description)?;
-        Ok(TypedMetricId::try_from(untyped).unwrap())
+        Ok(TypedMetricId::try_from(untyped, &self.metrics).unwrap())
     }
     
     pub fn create_metric_untyped(

@@ -51,7 +51,7 @@ impl MetricRegistry {
             .set(reg)
             .unwrap_or_else(|_| panic!("The MetricRegistry can be initialized only once."));
     }
-
+    
     /// Finds the metric that has the given id.
     pub fn with_id<M: InternalMetricId>(&self, id: &M) -> Option<&Metric> {
         self.metrics_by_id.get(&id.id())
