@@ -37,7 +37,65 @@ typedef struct MeasurementPoint MeasurementPoint;
 
 typedef struct TimeSpec TimeSpec;
 
-typedef struct Unit Unit;
+typedef struct CustomUnitId {
+  uint32_t _0;
+} CustomUnitId;
+
+enum Unit_Tag {
+  /**
+   * Indicates a dimensionless value. This is suitable for counters.
+   */
+  Unity,
+  /**
+   * Standard unit of **time**.
+   */
+  Second,
+  /**
+   * Standard unit of **power**.
+   */
+  Watt,
+  /**
+   * Standard unit of **energy**.
+   */
+  Joule,
+  /**
+   * Electric tension (aka voltage)
+   */
+  Volt,
+  /**
+   * Intensity of an electric current
+   */
+  Ampere,
+  /**
+   * Frequency (1 Hz = 1/second)
+   */
+  Hertz,
+  /**
+   * Temperature in °C
+   */
+  DegreeCelsius,
+  /**
+   * Temperature in °F
+   */
+  DegreeFahrenheit,
+  /**
+   * Energy in Watt-hour (1 W⋅h = 3.6 kiloJoule = 3.6 × 10^3 Joules)
+   */
+  WattHour,
+  /**
+   * A custom unit
+   */
+  Custom,
+};
+typedef uint8_t Unit_Tag;
+
+typedef union Unit {
+  Unit_Tag tag;
+  struct {
+    Unit_Tag custom_tag;
+    struct CustomUnitId custom;
+  };
+} Unit;
 
 typedef void (*SourcePollFn)(void *instance,
                              struct MeasurementAccumulator *buffer,
@@ -74,7 +132,7 @@ const struct ConfigTable *config_table_at(const struct ConfigArray *array, uintp
 uint64_t alumet_create_metric(struct AlumetStart *alumet,
                               const char *name,
                               enum WrappedMeasurementType value_type,
-                              struct Unit unit,
+                              union Unit unit,
                               const char *description);
 
 void alumet_add_source(struct AlumetStart *alumet, void *source_data, SourcePollFn source_poll_fn);
