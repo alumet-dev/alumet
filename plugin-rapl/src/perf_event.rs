@@ -1,5 +1,5 @@
 use alumet::{
-    metrics::{MeasurementPoint, MetricId, ResourceId, TypedMetricId, WrappedMeasurementValue},
+    metrics::{AttributeValue, MeasurementPoint, ResourceId, TypedMetricId},
     util::CounterDiff,
 };
 use anyhow::{Context, Result};
@@ -229,7 +229,7 @@ impl alumet::pipeline::Source for PerfEventProbe {
                     self.metric,
                     evt.resource.clone(),
                     joules,
-                ));
+                ).with_attr("domain", AttributeValue::String(evt.domain.to_string())));
             }
             // NOTE: the energy can be a floating-point number in Joules,
             // without any loss of precision. Why? Because multiplying any number

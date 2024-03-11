@@ -1,4 +1,5 @@
 use core::fmt;
+use fxhash::FxBuildHasher;
 use std::{borrow::Cow, collections::HashMap, fmt::Display, marker::PhantomData, time::SystemTime};
 
 use crate::{pipeline::registry::MetricRegistry, units::Unit};
@@ -61,7 +62,11 @@ impl<T: MeasurementType> Clone for TypedMetricId<T> {
 impl<T: MeasurementType> TypedMetricId<T> {
     pub fn try_from(untyped: UntypedMetricId, registry: &MetricRegistry) -> Result<Self, MetricTypeError> {
         let expected_type = T::wrapped_type();
-        let actual_type = registry.with_id(&untyped).expect("the untyped metric should exist in the registry").value_type.clone();
+        let actual_type = registry
+            .with_id(&untyped)
+            .expect("the untyped metric should exist in the registry")
+            .value_type
+            .clone();
         if expected_type != actual_type {
             Err(MetricTypeError {
                 expected: expected_type,
@@ -81,7 +86,11 @@ pub struct MetricTypeError {
 impl std::error::Error for MetricTypeError {}
 impl std::fmt::Display for MetricTypeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Incompatible metric type: expected {} but was {}", self.expected, self.actual)
+        write!(
+            f,
+            "Incompatible metric type: expected {} but was {}",
+            self.expected, self.actual
+        )
     }
 }
 
@@ -108,26 +117,28 @@ pub struct MeasurementPoint {
     /// The resource this measurement is about.
     pub resource: ResourceId,
 
-    /// Additional attributes on the measurement point
-    attributes: Option<HashMap<String, AttributeValue>>,
+    /// Additional attributes on the measurement point.
+    /// Not public because we could change how they are stored later.
+    attributes: HashMap<String, AttributeValue, FxBuildHasher>,
 }
 
 impl MeasurementPoint {
+    /// Creates a new MeasurementPoint without attributes.
+    /// 
+    /// Use [`with_attr`] or [`with_attr_vec`] to attach arbitrary attributes to the point.
     pub fn new<T: MeasurementType>(
         timestamp: SystemTime,
         metric: TypedMetricId<T>,
         resource: ResourceId,
         value: T::T,
     ) -> MeasurementPoint {
-        MeasurementPoint {
-            metric: UntypedMetricId(metric.0),
-            timestamp,
-            value: T::wrapped_value(value),
-            resource,
-            attributes: None,
-        }
+        Self::new_untyped(timestamp, UntypedMetricId(metric.0), resource, T::wrapped_value(value))
     }
 
+    /// Creates a new MeasurementPoint without attributes, using an untyped metric.
+    /// Prefer to use [`new`] with a typed metric instead.
+    /// 
+    /// Use [`with_attr`] or [`with_attr_vec`] to attach arbitrary attributes to the point.
     pub fn new_untyped(
         timestamp: SystemTime,
         metric: UntypedMetricId,
@@ -139,8 +150,48 @@ impl MeasurementPoint {
             timestamp,
             value,
             resource,
-            attributes: None,
+            attributes: HashMap::with_hasher(FxBuildHasher::default()),
         }
+    }
+    
+    /// Returns the number of attributes attached to this measurement point.
+    pub fn attributes_len(&self) -> usize {
+        self.attributes.len()
+    }
+
+    /// Iterates on the attributes attached to the measurement point.
+    pub fn attributes(&self) -> impl Iterator<Item = (&String, &AttributeValue)> {
+        self.attributes.iter()
+    }
+    
+    /// Iterates on the keys of the attributes that are attached to the point.
+    pub fn attributes_keys(&self) -> impl Iterator<Item = &String> {
+        self.attributes.keys()
+    }
+
+    /// Sets an attribute on this measurement point.
+    /// If an attribute with the same key already exists, its value is replaced.
+    pub fn with_attr(mut self, key: &str, value: AttributeValue) -> Self {
+        self.attributes.insert(key.to_owned(), value);
+        self
+    }
+
+    /// Attaches multiple attributes to this measurement point, from a [`Vec`].
+    /// Existing attributes with conflicting keys are replaced.
+    pub fn with_attr_vec(mut self, attributes: Vec<(String, AttributeValue)>) -> Self {
+        self.attributes.extend(attributes);
+        self
+    }
+
+    /// Attaches multiple attributes to this measurement point, from a [`HashMap`].
+    /// Existing attributes with conflicting keys are replaced.
+    pub fn with_attr_map(mut self, attributes: HashMap<String, AttributeValue, FxBuildHasher>) -> Self {
+        if self.attributes.is_empty() {
+            self.attributes = attributes;
+        } else {
+            self.attributes.extend(attributes);
+        }
+        self
     }
 }
 
@@ -200,12 +251,23 @@ impl WrappedMeasurementValue {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum AttributeValue {
-    Float(f64),
-    UInt(u64),
+    F64(f64),
+    U64(u64),
     Bool(bool),
     String(String),
+}
+
+impl Display for AttributeValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AttributeValue::F64(x) => write!(f, "{x}"),
+            AttributeValue::U64(x) => write!(f, "{x}"),
+            AttributeValue::Bool(x) => write!(f, "{x}"),
+            AttributeValue::String(str) => f.write_str(str),
+        }
+    }
 }
 
 /// A `MeasurementBuffer` stores measured data points.
@@ -293,10 +355,6 @@ pub enum ResourceId {
     ControlGroup { path: StrCow },
     /// A physical CPU package (which is not the same as a NUMA node).
     CpuPackage { id: u32 },
-    /// The "core" part of a CPU package.
-    CpuPackageCores { pkg_id: u32 },
-    /// The "uncore" part of a CPU package.
-    CpuPackageUncore { pkg_id: u32 },
     /// A CPU core.
     CpuCore { id: u32 },
     /// The RAM attached to a CPU package.
@@ -327,8 +385,6 @@ impl ResourceId {
             ResourceId::Process { .. } => "process",
             ResourceId::ControlGroup { .. } => "cgroup",
             ResourceId::CpuPackage { .. } => "cpu_package",
-            ResourceId::CpuPackageCores { .. } => "cpu_pkg_cores",
-            ResourceId::CpuPackageUncore { .. } => "cpu_pkg_uncore",
             ResourceId::CpuCore { .. } => "cpu_core",
             ResourceId::Dram { .. } => "dram",
             ResourceId::Gpu { .. } => "gpu",
@@ -342,8 +398,6 @@ impl ResourceId {
             ResourceId::Process { pid } => LazyDisplayable::U32(*pid),
             ResourceId::ControlGroup { path } => LazyDisplayable::Str(&path),
             ResourceId::CpuPackage { id } => LazyDisplayable::U32(*id),
-            ResourceId::CpuPackageCores { pkg_id } => LazyDisplayable::U32(*pkg_id),
-            ResourceId::CpuPackageUncore { pkg_id } => LazyDisplayable::U32(*pkg_id),
             ResourceId::CpuCore { id } => LazyDisplayable::U32(*id),
             ResourceId::Dram { pkg_id } => LazyDisplayable::U32(*pkg_id),
             ResourceId::Gpu { bus_id } => LazyDisplayable::Str(&bus_id),

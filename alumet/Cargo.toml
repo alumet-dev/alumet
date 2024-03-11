@@ -24,6 +24,7 @@ tokio-stream = "0.1.14"
 tokio-timerfd = "0.2.0"
 libloading = { version = "0.8.1", optional = true }
 anyhow = "1.0.79"
+fxhash = "0.2.1"
 
 [build-dependencies]
 cbindgen = { git = "https://github.com/TheElectronWill/cbindgen.git", branch = "symbols-files" }

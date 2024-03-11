@@ -1,5 +1,5 @@
 use crate::config::ConfigTable;
-use crate::metrics::{WrappedMeasurementType, MetricId, MeasurementType, TypedMetricId, UntypedMetricId};
+use crate::metrics::{WrappedMeasurementType, MeasurementType, TypedMetricId, UntypedMetricId};
 use crate::pipeline;
 use crate::pipeline::registry::{ElementRegistry, MetricCreationError, MetricRegistry};
 use crate::units::Unit;
