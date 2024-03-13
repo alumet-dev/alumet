@@ -43,7 +43,6 @@ impl alumet::pipeline::Output for CsvOutput {
     fn write(&mut self, measurements: &alumet::metrics::MeasurementBuffer) -> Result<(), alumet::pipeline::WriteError> {
         if self.attributes_in_header.is_none() && measurements.len() > 0{
             let attr_keys = collect_attribute_keys(measurements);
-            println!("attr_keys: {attr_keys:?}");
 
             // sort the keys to ensure a consistent order between calls to write(measurements)
             let mut attr_keys_sorted: Vec<&str> = attr_keys.iter().map(|s| s.as_str()).collect::<Vec<_>>();

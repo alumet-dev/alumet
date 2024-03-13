@@ -4,25 +4,21 @@ use std::{
     path::Path,
 };
 
-// use alumet_api::{
-//     AlumetStart,
-//     config::{self, ConfigTable},
-//     plugin::{ffi, Plugin, PluginError, PluginInfo},
-// };
 use crate::{config::ConfigTable, plugin::version::Version};
 use anyhow::Context;
 use libc::c_void;
 use libloading::{Library, Symbol};
 
-use super::{dyn_ffi, version, AlumetStart, Plugin, PluginInfo};
+use super::ffi_c;
+use super::super::{version, AlumetStart, Plugin, PluginInfo};
 
 /// A plugin initialized from a dynamic library (aka. shared library).
 struct DylibPlugin {
     name: String,
     version: String,
-    start_fn: dyn_ffi::StartFn,
-    stop_fn: dyn_ffi::StopFn,
-    drop_fn: dyn_ffi::DropFn,
+    start_fn: ffi_c::PluginStartFn,
+    stop_fn: ffi_c::PluginStopFn,
+    drop_fn: ffi_c::DropFn,
     // the library must stay loaded for the symbols to be valid
     _library: Library,
     instance: *mut c_void,
@@ -56,7 +52,7 @@ impl Drop for DylibPlugin {
         //
         // **Rule of thumb**: Rust allocations are deallocated by Rust code,
         // C allocations (malloc) are deallocated by C code (free).
-        (self.drop_fn)(self.instance);
+        unsafe { (self.drop_fn)(self.instance) };
     }
 }
 
@@ -65,7 +61,12 @@ pub enum LoadError {
     /// Unable to load something the shared library.
     LibraryLoad(libloading::Error),
     /// A symbol loaded from the library contains an invalid value.
-    InvalidSymbol(String, Box<dyn std::error::Error + Send + Sync>),
+    InvalidSymbol(&'static str, Box<dyn std::error::Error + Send + Sync>),
+    /// The plugin is not compatible with this version of ALUMET core.
+    IncompatiblePlugin {
+        plugin_alumet_version: Version,
+        current_alumet_version: Version,
+    },
     /// `plugin_init` failed.
     PluginInit,
 }
@@ -87,18 +88,18 @@ pub fn load_cdylib(file: &Path) -> Result<PluginInfo, LoadError> {
     let sym_name: Symbol<*const *const c_char> = unsafe { lib.get(b"PLUGIN_NAME\0")? };
     let sym_plugin_version: Symbol<*const *const c_char> = unsafe { lib.get(b"PLUGIN_VERSION\0")? };
     let sym_alumet_version: Symbol<*const *const c_char> = unsafe { lib.get(b"ALUMET_VERSION\0")? };
-    let sym_init: Symbol<dyn_ffi::InitFn> = unsafe { lib.get(b"plugin_init\0")? };
-    let sym_start: Symbol<dyn_ffi::StartFn> = unsafe { lib.get(b"plugin_start\0")? };
-    let sym_stop: Symbol<dyn_ffi::StopFn> = unsafe { lib.get(b"plugin_stop\0")? };
-    let sym_drop: Symbol<dyn_ffi::DropFn> = unsafe { lib.get(b"plugin_drop\0")? };
+    let sym_init: Symbol<ffi_c::PluginInitFn> = unsafe { lib.get(b"plugin_init\0")? };
+    let sym_start: Symbol<ffi_c::PluginStartFn> = unsafe { lib.get(b"plugin_start\0")? };
+    let sym_stop: Symbol<ffi_c::PluginStopFn> = unsafe { lib.get(b"plugin_stop\0")? };
+    let sym_drop: Symbol<ffi_c::DropFn> = unsafe { lib.get(b"plugin_drop\0")? };
 
     log::debug!("symbols loaded");
 
-    // convert the C strings to Rust strings
-    fn sym_to_string(sym: &Symbol<*const *const c_char>, name: &str) -> Result<String, LoadError> {
+    // convert the C strings to Rust strings, and wraps errors in LoadError::InvalidSymbol
+    fn sym_to_string(sym: &Symbol<*const *const c_char>, name: &'static str) -> Result<String, LoadError> {
         unsafe { CStr::from_ptr(***sym) }
             .to_str()
-            .map_err(|e| LoadError::InvalidSymbol(name.into(), e.into()))
+            .map_err(|e| LoadError::InvalidSymbol(name, e.into()))
             .map(|v| v.to_owned())
     }
 
@@ -107,10 +108,17 @@ pub fn load_cdylib(file: &Path) -> Result<PluginInfo, LoadError> {
     let alumet_version = sym_to_string(&sym_alumet_version, "ALUMET_VERSION")?;
     log::debug!("plugin found: {name} v{version}  (requires ALUMET v{alumet_version})");
 
-    // check the required ALUMET version
-    let required_alumet_version = Version::parse(&alumet_version)?;
-    if !Version::alumet().can_load(required_alumet_version) {
-        todo!("invalid ALUMET version requirement");
+    // get the ALUMET version required by the plugin
+    let plugin_alumet_version =
+        Version::parse(&alumet_version).map_err(|e| LoadError::InvalidSymbol("ALUMET_VERSION", e.into()))?;
+
+    // check that it matches the current ALUMET version
+    let current_alumet_version = Version::alumet();
+    if !current_alumet_version.can_load(&plugin_alumet_version) {
+        return Err(LoadError::IncompatiblePlugin {
+            plugin_alumet_version,
+            current_alumet_version,
+        });
     }
 
     // extract the function pointers from the Symbol, to get around lifetime constraints
@@ -156,6 +164,7 @@ pub fn initialize(plugin: PluginInfo, config: toml::Table) -> anyhow::Result<Box
     Ok(plugin_instance)
 }
 
+/// Extracts the config table of a specific plugin from the global config.
 pub fn plugin_subconfig(plugin: &PluginInfo, global_config: &mut toml::Table) -> anyhow::Result<toml::Table> {
     let name = &plugin.name;
     let sub_config = global_config.remove(name);
@@ -169,11 +178,6 @@ pub fn plugin_subconfig(plugin: &PluginInfo, global_config: &mut toml::Table) ->
     }
 }
 
-impl LoadError {
-    pub fn invalid_symbol(name: &str, source: Box<dyn std::error::Error + Send + Sync>) -> LoadError {
-        LoadError::InvalidSymbol(name.to_owned(), source)
-    }
-}
 impl std::error::Error for LoadError {}
 impl std::fmt::Display for LoadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -181,6 +185,7 @@ impl std::fmt::Display for LoadError {
             LoadError::LibraryLoad(err) => write!(f, "failed to load shared library: {err}"),
             LoadError::InvalidSymbol(name, err) => write!(f, "invalid value for symbol {name}: {err}"),
             LoadError::PluginInit => write!(f, "plugin_init returned NULL"),
+            LoadError::IncompatiblePlugin { plugin_alumet_version, current_alumet_version } => write!(f, "plugin requires ALUMET v{plugin_alumet_version}, which is incompatible with current ALUMET v{current_alumet_version}"),
         }
     }
 }
@@ -191,15 +196,17 @@ impl From<libloading::Error> for LoadError {
 }
 impl From<version::Error> for LoadError {
     fn from(value: version::Error) -> Self {
-        LoadError::InvalidSymbol("ALUMET_VERSION".to_owned(), Box::new(value))
+        LoadError::InvalidSymbol("ALUMET_VERSION", Box::new(value))
     }
 }
 
 impl PluginRegistry {
+    /// Adds a plugin to the registry.
     pub fn register(&mut self, plugin: Box<dyn Plugin>) {
         self.plugins.insert(plugin.name().into(), plugin);
     }
 
+    /// Finds a plugin by its name.
     pub fn get_mut(&mut self, name: &str) -> Option<&mut dyn Plugin> {
         self.plugins.get_mut(name).map(|b| &mut **b as _)
         // the cast is necessary here to coerce the lifetime

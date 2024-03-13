@@ -3,6 +3,9 @@ use std::num::ParseIntError;
 /// The current version of the alumet crate, for checking purposes.
 const ALUMET_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// A version number that follows semantic versioning.
+/// 
+/// See [`Version::parse`].
 pub struct Version {
     x: u8,
     y: u8,
@@ -16,10 +19,20 @@ pub enum Error {
 }
 
 impl Version {
+    /// Returns the current version of ALUMET, as specified in Cargo.toml.
     pub fn alumet() -> Version {
         Self::parse(ALUMET_VERSION).unwrap()
     }
 
+    /// Parses a version number of the form `"x.y.z"` where x,y,z are integers.
+    /// 
+    /// It is allowed to omit the last number, in which case `z` is inferred to zero.
+    /// For example, `"1.0"` is a valid version and is considered to be equal to `"1.0.0"`.
+    /// 
+    /// ## Example
+    /// ```
+    /// let version = Version::parse("1.0.2").expect("the version number should be valid");
+    /// ```
     pub fn parse(version_string: &str) -> Result<Version, Error> {
         let mut parts: Vec<&str> = version_string.split('.').collect();
         match parts.len() {
@@ -36,16 +49,30 @@ impl Version {
         })
     }
 
-    pub fn can_load(&self, required_version: Version) -> bool {
+    /// Checks if a plugin that requires version `required_version` can be loaded with version `self`.
+    /// 
+    /// The check is based on semantic versioning, see https://doc.rust-lang.org/cargo/reference/semver.html
+    pub fn can_load(&self, required_version: &Version) -> bool {
         // 0.0.z: a change of z is always a major change
         // 0.y.z: a change of y is a major change
         // x.y.z: usual major.minor.patch
-        // See https://doc.rust-lang.org/cargo/reference/semver.html
         match (self.x, self.y, self.z) {
             (0, 0, z) => required_version.x == 0 && required_version.y == 0 && required_version.z == z,
             (0, y, z) => required_version.x == 0 && required_version.y == y && required_version.z <= z,
             (x, y, _z) => required_version.x == x && required_version.y <= y,
         }
+    }
+}
+
+impl std::fmt::Debug for Version {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self, f)
+    }
+}
+
+impl std::fmt::Display for Version {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "v{}.{}.{}", self.x, self.y, self.z)
     }
 }
 
@@ -90,31 +117,31 @@ mod tests {
         // ------ with 1.x.y ------
         let base = Version::parse("1.0.7").unwrap();
         // compatible
-        assert!(base.can_load(Version::parse("1.0.0").unwrap()));
-        assert!(base.can_load(Version::parse("1.0.4").unwrap()));
-        assert!(base.can_load(Version::parse("1.0.7").unwrap()));
-        assert!(base.can_load(Version::parse("1.0.11").unwrap()));
+        assert!(base.can_load(&Version::parse("1.0.0").unwrap()));
+        assert!(base.can_load(&Version::parse("1.0.4").unwrap()));
+        assert!(base.can_load(&Version::parse("1.0.7").unwrap()));
+        assert!(base.can_load(&Version::parse("1.0.11").unwrap()));
 
         // not compatible
-        assert!(!base.can_load(Version::parse("1.1.0").unwrap()));
-        assert!(!base.can_load(Version::parse("2.0.0").unwrap()));
-        assert!(!base.can_load(Version::parse("2.3.0").unwrap()));
-        assert!(!base.can_load(Version::parse("2.3.4").unwrap()));
+        assert!(!base.can_load(&Version::parse("1.1.0").unwrap()));
+        assert!(!base.can_load(&Version::parse("2.0.0").unwrap()));
+        assert!(!base.can_load(&Version::parse("2.3.0").unwrap()));
+        assert!(!base.can_load(&Version::parse("2.3.4").unwrap()));
 
         // ------ with 0.x.y ------
         let base = Version::parse("0.1.7").unwrap();
         // compatible
-        assert!(base.can_load(Version::parse("0.1.7").unwrap()));
-        assert!(base.can_load(Version::parse("0.1.6").unwrap()));
-        assert!(base.can_load(Version::parse("0.1.0").unwrap()));
+        assert!(base.can_load(&Version::parse("0.1.7").unwrap()));
+        assert!(base.can_load(&Version::parse("0.1.6").unwrap()));
+        assert!(base.can_load(&Version::parse("0.1.0").unwrap()));
 
         // not compatible
-        assert!(!base.can_load(Version::parse("0.1.8").unwrap()));
-        assert!(!base.can_load(Version::parse("0.1.222").unwrap()));
-        assert!(!base.can_load(Version::parse("0.2.0").unwrap()));
-        assert!(!base.can_load(Version::parse("0.2.7").unwrap()));
-        assert!(!base.can_load(Version::parse("1.0.0").unwrap()));
-        assert!(!base.can_load(Version::parse("1.2.0").unwrap()));
-        assert!(!base.can_load(Version::parse("1.1.7").unwrap()));
+        assert!(!base.can_load(&Version::parse("0.1.8").unwrap()));
+        assert!(!base.can_load(&Version::parse("0.1.222").unwrap()));
+        assert!(!base.can_load(&Version::parse("0.2.0").unwrap()));
+        assert!(!base.can_load(&Version::parse("0.2.7").unwrap()));
+        assert!(!base.can_load(&Version::parse("1.0.0").unwrap()));
+        assert!(!base.can_load(&Version::parse("1.2.0").unwrap()));
+        assert!(!base.can_load(&Version::parse("1.1.7").unwrap()));
     }
 }

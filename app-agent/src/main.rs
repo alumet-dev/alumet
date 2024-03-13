@@ -14,10 +14,10 @@ mod default_plugin;
 mod socket_control;
 mod output_csv;
 
-const VERSION: &str = "0.1.0";
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn main() {
-    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+    //env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     log::info!("Starting ALUMET agent v{VERSION}");
 
     // create the plugins

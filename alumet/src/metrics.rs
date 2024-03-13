@@ -168,11 +168,15 @@ impl MeasurementPoint {
     pub fn attributes_keys(&self) -> impl Iterator<Item = &String> {
         self.attributes.keys()
     }
+    
+    pub(crate) fn add_attr(&mut self, key: &str, value: AttributeValue) {
+        self.attributes.insert(key.to_owned(), value);
+    }
 
     /// Sets an attribute on this measurement point.
     /// If an attribute with the same key already exists, its value is replaced.
     pub fn with_attr(mut self, key: &str, value: AttributeValue) -> Self {
-        self.attributes.insert(key.to_owned(), value);
+        self.add_attr(key, value);
         self
     }
 

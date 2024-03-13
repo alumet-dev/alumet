@@ -8,7 +8,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use alumet::{metrics::{MeasurementAccumulator, MeasurementPoint, MetricId, ResourceId, TypedMetricId, WrappedMeasurementValue}, util::{CounterDiff, CounterDiffUpdate}};
+use alumet::util::{CounterDiff, CounterDiffUpdate};
+use alumet::metrics::{MeasurementAccumulator, MeasurementPoint, ResourceId, TypedMetricId};
 use anyhow::{anyhow, Context};
 
 use super::domains::RaplDomainType;

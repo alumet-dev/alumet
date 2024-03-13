@@ -5,10 +5,9 @@ use crate::pipeline::registry::{ElementRegistry, MetricCreationError, MetricRegi
 use crate::units::Unit;
 
 #[cfg(feature = "dynamic")]
-mod dyn_ffi;
-#[cfg(feature = "dynamic")]
-pub mod dyn_load;
+pub mod dynlib;
 
+// Module to handle versioning.
 pub(crate) mod version;
 
 pub struct PluginInfo {

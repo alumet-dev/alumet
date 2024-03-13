@@ -1,5 +1,5 @@
 [package]
-name = "test-dynamic-plugin"
+name = "test-dynamic-plugin-rust"
 version = "0.1.0"
 edition = "2021"
 description = "Example of a dynamic ALUMET plugin."
