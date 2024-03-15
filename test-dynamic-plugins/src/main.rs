@@ -29,6 +29,7 @@ fn main() {
         expected_plugin_name,
         expected_plugin_version,
         &mut global_config,
+        Duration::from_secs(2),
     );
 }
 
@@ -37,6 +38,7 @@ fn run_with_plugin(
     expected_plugin_name: &str,
     expected_plugin_version: &str,
     global_config: &mut toml::Table,
+    duration: Duration,
 ) {
     println!("[app] Starting ALUMET");
 
@@ -64,12 +66,13 @@ fn run_with_plugin(
 
     // start the pipeline and wait for the tasks to finish
     println!("[app] Starting the pipeline...");
-    let mut pipeline = MeasurementPipeline::with_settings(elements, apply_source_settings).start(metrics);
+    let pipeline = MeasurementPipeline::with_settings(elements, apply_source_settings).start(metrics);
 
     println!("[app] pipeline started");
 
-    // keep the pipeline running until the app closes
-    pipeline.wait_for_all();
+    // keep the pipeline running for some time
+    std::thread::sleep(duration);
+    drop(pipeline);
 }
 
 fn apply_source_settings(source: Box<dyn Source>, plugin_name: String) -> ConfiguredSource {
