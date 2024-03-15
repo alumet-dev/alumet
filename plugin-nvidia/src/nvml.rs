@@ -1,11 +1,12 @@
 use std::{sync::Arc, time::SystemTime};
 
 use alumet::{
-    metrics::{MeasurementAccumulator, MeasurementPoint, WrappedMeasurementType, WrappedMeasurementValue, MetricId, ResourceId, TypedMetricId},
+    metrics::{MeasurementAccumulator, MeasurementPoint, TypedMetricId},
     pipeline::{registry::MetricCreationError, PollError},
     plugin::AlumetStart,
     units::Unit,
     util::{CounterDiff, CounterDiffUpdate},
+    resources::ResourceId,
 };
 use anyhow::Context;
 use nvml_wrapper::{error::NvmlError, Device, Nvml};

@@ -5,9 +5,9 @@ use std::time::{Duration, Instant};
 use alumet::pipeline::registry::{ElementRegistry, MetricRegistry};
 use alumet::pipeline::runtime::{ConfiguredSource, MeasurementPipeline, SourceType};
 use alumet::pipeline::trigger::TriggerProvider;
-use alumet::plugin::dynlib::loading::{initialize, load_cdylib, plugin_subconfig};
+use alumet::plugin::dynload::{initialize, load_cdylib, plugin_subconfig};
 use alumet::plugin::PluginStarter;
-use alumet::{config, pipeline};
+use alumet::pipeline::Source;
 
 fn main() {
     // read arguments
@@ -72,7 +72,7 @@ fn run_with_plugin(
     pipeline.wait_for_all();
 }
 
-fn apply_source_settings(source: Box<dyn pipeline::Source>, plugin_name: String) -> ConfiguredSource {
+fn apply_source_settings(source: Box<dyn Source>, plugin_name: String) -> ConfiguredSource {
     // normally this would be fetched from the config
     let source_type = SourceType::Normal;
     let trigger_provider = TriggerProvider::TimeInterval {

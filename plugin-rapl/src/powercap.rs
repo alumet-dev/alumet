@@ -9,7 +9,8 @@ use std::{
 };
 
 use alumet::util::{CounterDiff, CounterDiffUpdate};
-use alumet::metrics::{MeasurementAccumulator, MeasurementPoint, ResourceId, TypedMetricId};
+use alumet::metrics::{MeasurementAccumulator, MeasurementPoint, TypedMetricId};
+use alumet::resources::ResourceId;
 use anyhow::{anyhow, Context};
 
 use super::domains::RaplDomainType;

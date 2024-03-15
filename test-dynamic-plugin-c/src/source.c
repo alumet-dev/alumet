@@ -12,7 +12,7 @@ static off_t file_size(const char *filename);
 /// @brief Creates a new PowercapSource.
 /// @param metric_id id of the metric to push the measurements to - should be obtained in plugin_start()
 /// @return the new source
-PowercapSource *source_init(UntypedMetricId metric_id, const char *custom_attribute) {
+PowercapSource *source_init(UntypedMetricId metric_id, AString custom_attribute) {
     PowercapSource *source = malloc(sizeof(PowercapSource));
 
     // store the custom attribute (it's only there for testing purposes)
@@ -48,7 +48,7 @@ void source_drop(PowercapSource *source) {
     if (ok != 0) {
         fprintf(stderr, "Error in fclose(%s): %s\n", source->powercap_sysfs_file, strerror(errno));
     }
-    free(source->custom_attribute);
+    astring_free(source->custom_attribute);
     free(source);
 }
 
@@ -97,9 +97,9 @@ void source_poll(PowercapSource *source, MeasurementAccumulator *acc, Timestamp 
     double joules = consumed_energy_uj * 0.0000001;
 
     // create the measurement point
-    CResourceId resource = {.tag = CResourceId_CpuPackage, .cpu_package = {.id = 0}};
+    FfiResourceId resource = resource_new_cpu_package(0);
     MeasurementPoint *p = mpoint_new_f64(timestamp, source->metric_id, resource, joules);
-    mpoint_attr_u64(p, source->custom_attribute, 1234);
+    mpoint_attr_u64(p, astring_ref(source->custom_attribute), 1234);
 
     // push the measurement to alumet
     maccumulator_push(acc, p);

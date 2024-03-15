@@ -1,6 +1,7 @@
 use alumet::{
-    metrics::{AttributeValue, MeasurementPoint, ResourceId, TypedMetricId},
+    metrics::{AttributeValue, MeasurementPoint, TypedMetricId},
     util::CounterDiff,
+    resources::ResourceId,
 };
 use anyhow::{Context, Result};
 use log::debug;

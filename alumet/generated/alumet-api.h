@@ -40,11 +40,68 @@ typedef struct MeasurementBuffer MeasurementBuffer;
 typedef struct MeasurementPoint MeasurementPoint;
 
 /**
+ * FFI equivalent to [`Option<&str>`].
+ */
+typedef struct NullableAStr {
+  uintptr_t len;
+  const char *ptr;
+  const void *_marker;
+} NullableAStr;
+
+/**
+ * FFI equivalent to [`&str`].
+ */
+typedef struct AStr {
+  uintptr_t len;
+  char *ptr;
+  const void *_marker;
+} AStr;
+
+/**
  * A metric id, used for internal purposes such as storing the list of metrics.
  */
 typedef struct UntypedMetricId {
   uintptr_t _0;
 } UntypedMetricId;
+
+typedef struct Timestamp {
+  uint64_t secs;
+  uint32_t nanos;
+} Timestamp;
+
+typedef struct FfiResourceId {
+  uint8_t bytes[56];
+} FfiResourceId;
+
+/**
+ * FFI equivalent to [`String`].
+ *
+ * When modifying an AString, you must ensure that it remains valid UTF-8.
+ */
+typedef struct AString {
+  uintptr_t len;
+  uintptr_t capacity;
+  char *ptr;
+} AString;
+
+typedef enum FfiMeasurementValue_Tag {
+  FfiMeasurementValue_U64,
+  FfiMeasurementValue_F64,
+} FfiMeasurementValue_Tag;
+
+typedef struct FfiMeasurementValue {
+  FfiMeasurementValue_Tag tag;
+  union {
+    struct {
+      uint64_t u64;
+    };
+    struct {
+      double f64;
+    };
+  };
+} FfiMeasurementValue;
+
+typedef void (*ForeachPointFn)(void*, const struct MeasurementPoint*);
 
 typedef struct CustomUnitId {
   uint32_t _0;
@@ -106,11 +163,6 @@ typedef union Unit {
   };
 } Unit;
 
-typedef struct Timestamp {
-  uint64_t secs;
-  uint32_t nanos;
-} Timestamp;
-
 typedef void (*SourcePollFn)(void *instance,
                              struct MeasurementAccumulator *buffer,
                              struct Timestamp timestamp);
@@ -121,114 +173,114 @@ typedef void (*TransformApplyFn)(void *instance, struct MeasurementBuffer *buffe
 
 typedef void (*OutputWriteFn)(void *instance, const struct MeasurementBuffer *buffer);
 
-typedef enum CResourceId_Tag {
-  /**
-   * The whole local machine, for instance the whole physical server.
-   */
-  CResourceId_LocalMachine,
-  /**
-   * A process at the OS level.
-   */
-  CResourceId_Process,
-  /**
-   * A control group, often abbreviated cgroup.
-   */
-  CResourceId_ControlGroup,
-  /**
-   * A physical CPU package (which is not the same as a NUMA node).
-   */
-  CResourceId_CpuPackage,
-  /**
-   * A CPU core.
-   */
-  CResourceId_CpuCore,
-  /**
-   * The RAM attached to a CPU package.
-   */
-  CResourceId_Dram,
-  /**
-   * A dedicated GPU.
-   */
-  CResourceId_Gpu,
-  /**
-   * A custom resource
-   */
-  CResourceId_Custom,
-} CResourceId_Tag;
+struct NullableAStr config_string_in(const struct ConfigTable *table, struct AStr key);
 
-typedef struct CResourceId_Process_Body {
-  uint32_t pid;
-} CResourceId_Process_Body;
+const char *config_cstring_in(const struct ConfigTable *table, struct AStr key);
 
-typedef struct CResourceId_ControlGroup_Body {
-  const char *path;
-} CResourceId_ControlGroup_Body;
+const int64_t *config_int_in(const struct ConfigTable *table, struct AStr key);
 
-typedef struct CResourceId_CpuPackage_Body {
-  uint32_t id;
-} CResourceId_CpuPackage_Body;
+const bool *config_bool_in(const struct ConfigTable *table, struct AStr key);
 
-typedef struct CResourceId_CpuCore_Body {
-  uint32_t id;
-} CResourceId_CpuCore_Body;
+const double *config_float_in(const struct ConfigTable *table, struct AStr key);
 
-typedef struct CResourceId_Dram_Body {
-  uint32_t pkg_id;
-} CResourceId_Dram_Body;
+const struct ConfigArray *config_array_in(const struct ConfigTable *table, struct AStr key);
 
-typedef struct CResourceId_Gpu_Body {
-  const char *bus_id;
-} CResourceId_Gpu_Body;
+const struct ConfigTable *config_table_in(const struct ConfigTable *table, struct AStr key);
 
-typedef struct CResourceId_Custom_Body {
-  const char *kind;
-  const char *id;
-} CResourceId_Custom_Body;
+struct NullableAStr config_string_at(struct ConfigArray *array, uintptr_t index);
 
-typedef struct CResourceId {
-  CResourceId_Tag tag;
-  union {
-    CResourceId_Process_Body process;
-    CResourceId_ControlGroup_Body control_group;
-    CResourceId_CpuPackage_Body cpu_package;
-    CResourceId_CpuCore_Body cpu_core;
-    CResourceId_Dram_Body dram;
-    CResourceId_Gpu_Body gpu;
-    CResourceId_Custom_Body custom;
-  };
-} CResourceId;
+const char *config_cstring_at(const struct ConfigArray *array, uintptr_t index);
 
-typedef enum CMeasurementValue_Tag {
-  CMeasurementValue_U64,
-  CMeasurementValue_F64,
-} CMeasurementValue_Tag;
+const int64_t *config_int_at(const struct ConfigArray *array, uintptr_t index);
 
-typedef struct CMeasurementValue {
-  CMeasurementValue_Tag tag;
-  union {
-    struct {
-      uint64_t u64;
-    };
-    struct {
-      double f64;
-    };
-  };
-} CMeasurementValue;
+const bool *config_bool_at(const struct ConfigArray *array, uintptr_t index);
 
-typedef struct CMeasurementPoint {
-  struct UntypedMetricId metric;
-  struct Timestamp timestamp;
-  struct CMeasurementValue value;
-  const struct MeasurementPoint *_original;
-} CMeasurementPoint;
+const double *config_float_at(const struct ConfigArray *array, uintptr_t index);
 
-typedef void (*ForeachPointFn)(void*, struct CMeasurementPoint);
+const struct ConfigArray *config_array_at(const struct ConfigArray *array, uintptr_t index);
+
+const struct ConfigTable *config_table_at(const struct ConfigArray *array, uintptr_t index);
+
+struct AStr metric_name(struct UntypedMetricId metric);
+
+struct Timestamp *system_time_now(void);
+
+struct MeasurementPoint *mpoint_new_u64(struct Timestamp timestamp,
+                                        struct UntypedMetricId metric,
+                                        struct FfiResourceId resource,
+                                        uint64_t value);
+
+struct MeasurementPoint *mpoint_new_f64(struct Timestamp timestamp,
+                                        struct UntypedMetricId metric,
+                                        struct FfiResourceId resource,
+                                        double value);
+
+/**
+ * Free a MeasurementPoint.
+ * Do **not** call this function after pushing a point with [`mbuffer_push`] or [`maccumulator_push`].
+ */
+void mpoint_free(struct MeasurementPoint *point);
+
+void mpoint_attr_u64(struct MeasurementPoint *point, struct AStr key, uint64_t value);
+
+void mpoint_attr_f64(struct MeasurementPoint *point, struct AStr key, double value);
+
+void mpoint_attr_bool(struct MeasurementPoint *point, struct AStr key, bool value);
+
+void mpoint_attr_str(struct MeasurementPoint *point, struct AStr key, struct AStr value);
+
+void mpoint_attr_u64_s(struct MeasurementPoint *point, struct AString key, uint64_t value);
+
+void mpoint_attr_f64_s(struct MeasurementPoint *point, struct AString key, double value);
+
+void mpoint_attr_bool_s(struct MeasurementPoint *point, struct AString key, bool value);
+
+void mpoint_attr_str_s(struct MeasurementPoint *point, struct AString key, struct AStr value);
+
+struct UntypedMetricId mpoint_metric(const struct MeasurementPoint *point);
+
+struct FfiMeasurementValue mpoint_value(const struct MeasurementPoint *point);
+
+struct Timestamp mpoint_timestamp(const struct MeasurementPoint *point);
+
+struct FfiResourceId mpoint_resource(const struct MeasurementPoint *point);
+
+struct AString mpoint_resource_kind(const struct MeasurementPoint *point);
+
+struct AString mpoint_resource_id(const struct MeasurementPoint *point);
+
+uintptr_t mbuffer_len(const struct MeasurementBuffer *buf);
+
+void mbuffer_reserve(struct MeasurementBuffer *buf, uintptr_t additional);
+
+/**
+ * Iterates on a [`MeasurementBuffer`] by calling `f(data, point)` for each point of the buffer.
+ */
+void mbuffer_foreach(const struct MeasurementBuffer *buf, void *data, ForeachPointFn f);
+
+/**
+ * Adds a measurement to the buffer.
+ * The point is consumed in the operation, you must **not** use it afterwards.
+ */
+void mbuffer_push(struct MeasurementBuffer *buf, struct MeasurementPoint *point);
+
+/**
+ * Adds a measurement to the accumulator.
+ * The point is consumed in the operation, you must **not** use it afterwards.
+ */
+void maccumulator_push(struct MeasurementAccumulator *buf, struct MeasurementPoint *point);
 
 struct UntypedMetricId alumet_create_metric(struct AlumetStart *alumet,
-                                            const char *name,
+                                            struct AStr name,
                                             enum WrappedMeasurementType value_type,
                                             union Unit unit,
-                                            const char *description);
+                                            struct AStr description);
+
+struct UntypedMetricId alumet_create_metric_c(struct AlumetStart *alumet,
+                                              const char *name,
+                                              enum WrappedMeasurementType value_type,
+                                              union Unit unit,
+                                              const char *description);
 
 void alumet_add_source(struct AlumetStart *alumet,
                        void *source_data,
@@ -245,72 +297,29 @@ void alumet_add_output(struct AlumetStart *alumet,
                        OutputWriteFn output_write_fn,
                        NullableDropFn output_drop_fn);
 
-struct Timestamp *system_time_now(void);
+struct FfiResourceId resource_new_local_machine(void);
 
-struct MeasurementPoint *mpoint_new_u64(struct Timestamp timestamp,
-                                        struct UntypedMetricId metric,
-                                        struct CResourceId resource,
-                                        uint64_t value);
-
-struct MeasurementPoint *mpoint_new_f64(struct Timestamp timestamp,
-                                        struct UntypedMetricId metric,
-                                        struct CResourceId resource,
-                                        double value);
+struct FfiResourceId resource_new_cpu_package(uint32_t pkg_id);
 
 /**
- * Free a MeasurementPoint.
- * Do **not** call this function after pushing a point with [`mbuffer_push`] or [`maccumulator_push`].
+ * Creates a new `AString` from a C string `chars`, which must be null-terminated.
+ *
+ * The returned `AString` is a copy of the C string.
+ * To free the `AString`, use [`astring_free`].
  */
-void mpoint_free(struct MeasurementPoint *point);
+struct AString astring(const char *chars);
 
-void mpoint_attr_u64(struct MeasurementPoint *point, const char *key, uint64_t value);
+struct AString astr_copy(struct AStr astr);
 
-void mpoint_attr_f64(struct MeasurementPoint *point, const char *key, double value);
+struct AString astr_copy_nonnull(struct NullableAStr astr);
 
-void mpoint_attr_bool(struct MeasurementPoint *point, const char *key, bool value);
+struct AStr astr(const char *chars);
 
-void mpoint_attr_str(struct MeasurementPoint *point, const char *key, const char *value);
-
-uintptr_t mbuffer_len(const struct MeasurementBuffer *buf);
-
-void mbuffer_reserve(struct MeasurementBuffer *buf, uintptr_t additional);
-
-void mbuffer_foreach(const struct MeasurementBuffer *buf, void *data, ForeachPointFn f);
+struct AStr astring_ref(struct AString string);
 
 /**
- * Adds a measurement to the buffer.
- * The point is consumed in the operation, you must **not** use it afterwards.
+ * Frees a `AString`.
  */
-void mbuffer_push(struct MeasurementBuffer *buf, struct MeasurementPoint *point);
-
-/**
- * Adds a measurement to the accumulator.
- * The point is consumed in the operation, you must **not** use it afterwards.
- */
-void maccumulator_push(struct MeasurementAccumulator *buf, struct MeasurementPoint *point);
-
-const char *config_string_in(const struct ConfigTable *table, const char *key);
-
-const int64_t *config_int_in(const struct ConfigTable *table, const char *key);
-
-const bool *config_bool_in(const struct ConfigTable *table, const char *key);
-
-const double *config_float_in(const struct ConfigTable *table, const char *key);
-
-const struct ConfigArray *config_array_in(const struct ConfigTable *table, const char *key);
-
-const struct ConfigTable *config_table_in(const struct ConfigTable *table, const char *key);
-
-const char *config_string_at(const struct ConfigArray *array, uintptr_t index);
-
-const int64_t *config_int_at(const struct ConfigArray *array, uintptr_t index);
-
-const bool *config_bool_at(const struct ConfigArray *array, uintptr_t index);
-
-const double *config_float_at(const struct ConfigArray *array, uintptr_t index);
-
-const struct ConfigArray *config_array_at(const struct ConfigArray *array, uintptr_t index);
-
-const struct ConfigTable *config_table_at(const struct ConfigArray *array, uintptr_t index);
+void astring_free(struct AString string);
 
 #endif

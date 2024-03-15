@@ -1,7 +1,8 @@
-use alumet::metrics::{MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue, MetricId, ResourceId, TypedMetricId};
+use alumet::metrics::{MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue, MetricId, TypedMetricId};
 use alumet::pipeline::{Output, PollError, Source, Transform, TransformError, WriteError};
 use alumet::plugin::{AlumetStart, Plugin};
 use alumet::units::Unit;
+use alumet::resources::ResourceId;
 
 pub struct TestPlugin {
     name: String,

@@ -1,6 +1,6 @@
 use std::{fmt, str::FromStr};
 
-use alumet::metrics::ResourceId;
+use alumet::resources::ResourceId;
 
 /// A known RAPL domain.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

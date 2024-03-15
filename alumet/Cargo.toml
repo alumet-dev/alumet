@@ -27,4 +27,5 @@ anyhow = "1.0.79"
 fxhash = "0.2.1"
 
 [build-dependencies]
-cbindgen = { git = "https://github.com/TheElectronWill/cbindgen.git", branch = "symbols-files" }
+# cbindgen = { git = "https://github.com/TheElectronWill/cbindgen.git", branch = "symbols-files" }
+cbindgen = { path = "/home/guillaume/Documents/Contrib/cbindgen" }

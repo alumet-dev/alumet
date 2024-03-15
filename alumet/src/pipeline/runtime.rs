@@ -657,8 +657,8 @@ mod tests {
     };
 
     use crate::{
-        metrics::{MeasurementBuffer, MeasurementPoint, WrappedMeasurementType, WrappedMeasurementValue, MetricId, ResourceId, UntypedMetricId},
-        pipeline::{trigger::TriggerProvider, Transform},
+        metrics::{MeasurementBuffer, MeasurementPoint, UntypedMetricId, WrappedMeasurementType, WrappedMeasurementValue},
+        pipeline::{trigger::TriggerProvider, Transform}, resources::ResourceId,
     };
 
     use super::{run_output_from_broadcast, run_source, run_transforms, OutputCmd, SourceCmd};

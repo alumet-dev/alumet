@@ -5,7 +5,7 @@
 #include "../../alumet/generated/alumet-api.h"
 
 typedef struct {
-    const char *custom_attribute;
+    AString custom_attribute;
     UntypedMetricId metric_id; // id of the alumet metric
     const char *powercap_sysfs_file;
     FILE *powercap_sysfs_fd;
@@ -13,7 +13,7 @@ typedef struct {
     long long previous_counter; // -1 for None
 } PowercapSource;
 
-PowercapSource *source_init(UntypedMetricId metric_id, const char *custom_attribute);
+PowercapSource *source_init(UntypedMetricId metric_id, AString custom_attribute);
 void source_drop(PowercapSource *source);
 void source_poll(PowercapSource *source, MeasurementAccumulator *acc, Timestamp timestamp);
 

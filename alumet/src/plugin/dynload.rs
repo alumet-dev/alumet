@@ -9,16 +9,16 @@ use anyhow::Context;
 use libc::c_void;
 use libloading::{Library, Symbol};
 
-use super::ffi_c;
-use super::super::{version, AlumetStart, Plugin, PluginInfo};
+use crate::ffi;
+use super::{version, AlumetStart, Plugin, PluginInfo};
 
 /// A plugin initialized from a dynamic library (aka. shared library).
 struct DylibPlugin {
     name: String,
     version: String,
-    start_fn: ffi_c::PluginStartFn,
-    stop_fn: ffi_c::PluginStopFn,
-    drop_fn: ffi_c::DropFn,
+    start_fn: ffi::PluginStartFn,
+    stop_fn: ffi::PluginStopFn,
+    drop_fn: ffi::DropFn,
     // the library must stay loaded for the symbols to be valid
     _library: Library,
     instance: *mut c_void,
@@ -88,10 +88,10 @@ pub fn load_cdylib(file: &Path) -> Result<PluginInfo, LoadError> {
     let sym_name: Symbol<*const *const c_char> = unsafe { lib.get(b"PLUGIN_NAME\0")? };
     let sym_plugin_version: Symbol<*const *const c_char> = unsafe { lib.get(b"PLUGIN_VERSION\0")? };
     let sym_alumet_version: Symbol<*const *const c_char> = unsafe { lib.get(b"ALUMET_VERSION\0")? };
-    let sym_init: Symbol<ffi_c::PluginInitFn> = unsafe { lib.get(b"plugin_init\0")? };
-    let sym_start: Symbol<ffi_c::PluginStartFn> = unsafe { lib.get(b"plugin_start\0")? };
-    let sym_stop: Symbol<ffi_c::PluginStopFn> = unsafe { lib.get(b"plugin_stop\0")? };
-    let sym_drop: Symbol<ffi_c::DropFn> = unsafe { lib.get(b"plugin_drop\0")? };
+    let sym_init: Symbol<ffi::PluginInitFn> = unsafe { lib.get(b"plugin_init\0")? };
+    let sym_start: Symbol<ffi::PluginStartFn> = unsafe { lib.get(b"plugin_start\0")? };
+    let sym_stop: Symbol<ffi::PluginStopFn> = unsafe { lib.get(b"plugin_stop\0")? };
+    let sym_drop: Symbol<ffi::DropFn> = unsafe { lib.get(b"plugin_drop\0")? };
 
     log::debug!("symbols loaded");
 

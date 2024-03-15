@@ -21,17 +21,21 @@ fn main() {
 
     // Add a PLUGIN_API macro to only export the symbols of the plugin api
     cbindgen_config.after_includes = Some("#define PLUGIN_API __attribute__((visibility(\"default\")))".to_owned());
-    
+
     // Wrap all the declarations in #ifndef
     cbindgen_config.header = Some("#ifndef __ALUMET_API_H\n#define __ALUMET_API_H".to_owned());
     cbindgen_config.trailer = Some("#endif".to_owned());
+    cbindgen_config.parse.expand.crates.push(String::from("alumet"));
 
     // Generate the bindings
-    let bindings = cbindgen::Builder::new()
-        .with_crate(crate_dir)
-        .with_config(cbindgen_config)
-        .generate()
-        .expect("Unable to generate C bindings for the plugin API");
+    
+    let bindings = with_rustc_bootstrap(|| {
+        cbindgen::Builder::new()
+            .with_crate(crate_dir)
+            .with_config(cbindgen_config)
+            .generate()
+            .expect("Unable to generate C bindings for the plugin API")
+    });
 
     // Write the list of symbols for the linker (useful during the compilation of `app-agent`)
     bindings.generate_symfile(sym_file_path);
@@ -40,4 +44,23 @@ fn main() {
     bindings.write_to_file(out_file_path);
 
     println!("C-compatible API generated");
+}
+
+/// Enable flag RUSTC_BOOTSTRAP, which allows to use nightly API on the stable compiler.
+/// This is necessary to expand macros, see:
+/// - https://github.com/dtolnay/cargo-expand/pull/183/files
+/// - https://github.com/rust-lang/rust/issues/43364
+fn with_rustc_bootstrap<R>(f: impl FnOnce() -> R) -> R {
+    let previous_bootstrap = env::var("RUSTC_BOOTSTRAP").ok();
+    env::set_var("RUSTC_BOOTSTRAP", "1");
+    
+    let res = f();
+    
+    if let Some(prev) = previous_bootstrap {
+        env::set_var("RUSTC_BOOTSTRAP", prev);
+    } else {
+        env::remove_var("RUSTC_BOOTSTRAP");
+    }
+    
+    res
 }
