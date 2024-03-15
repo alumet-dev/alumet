@@ -73,31 +73,18 @@ fn mpoint_attr(point: *mut MeasurementPoint, key: AStr, value: AttributeValue) {
 
 /// Generates a C-compatible function around mpoint_attr, for a specific type of attribute.
 macro_rules! attr_adder {
-    ( $(( $name:tt, $name2:tt, $value_type:ty, $constructor:expr )),* ) => {
-        $(
-            #[no_mangle]
-            pub extern "C" fn $name(point: *mut MeasurementPoint, key: AStr, value: $value_type) {
-                mpoint_attr(point, key, $constructor(value.into()))
-            }
-        )*
-        
-        // Also accept AString as a key
-        $(
-            #[no_mangle]
-            pub extern "C" fn $name2(point: *mut MeasurementPoint, key: AString, value: $value_type) {
-                let key = ManuallyDrop::new(key);
-                mpoint_attr(point, (&*key).into(), $constructor(value.into()))
-            }
-        )*
+    ( $name:tt, $value_type:ty, $constructor:expr ) => {
+        #[no_mangle]
+        pub extern "C" fn $name(point: *mut MeasurementPoint, key: AStr, value: $value_type) {
+            mpoint_attr(point, key, $constructor(value.into()))
+        }
     };
 }
 
-attr_adder![
-    (mpoint_attr_u64, mpoint_attr_u64_s, u64, AttributeValue::U64),
-    (mpoint_attr_f64, mpoint_attr_f64_s, f64, AttributeValue::F64),
-    (mpoint_attr_bool, mpoint_attr_bool_s, bool, AttributeValue::Bool),
-    (mpoint_attr_str, mpoint_attr_str_s, AStr, AttributeValue::String)
-];
+attr_adder!(mpoint_attr_u64, u64, AttributeValue::U64);
+attr_adder!(mpoint_attr_f64, f64, AttributeValue::F64);
+attr_adder!(mpoint_attr_bool, bool, AttributeValue::Bool);
+attr_adder!(mpoint_attr_str, AStr, AttributeValue::String);
 
 // getters
 

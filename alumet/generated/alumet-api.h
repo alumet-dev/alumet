@@ -73,17 +73,6 @@ typedef struct FfiResourceId {
   uint8_t bytes[56];
 } FfiResourceId;
 
-/**
- * FFI equivalent to [`String`].
- *
- * When modifying an AString, you must ensure that it remains valid UTF-8.
- */
-typedef struct AString {
-  uintptr_t len;
-  uintptr_t capacity;
-  char *ptr;
-} AString;
-
 typedef enum FfiMeasurementValue_Tag {
   FfiMeasurementValue_U64,
   FfiMeasurementValue_F64,
@@ -100,6 +89,17 @@ typedef struct FfiMeasurementValue {
     };
   };
 } FfiMeasurementValue;
+
+/**
+ * FFI equivalent to [`String`].
+ *
+ * When modifying an AString, you must ensure that it remains valid UTF-8.
+ */
+typedef struct AString {
+  uintptr_t len;
+  uintptr_t capacity;
+  char *ptr;
+} AString;
 
 typedef void (*ForeachPointFn)(void*, const struct MeasurementPoint*);
 
@@ -228,14 +228,6 @@ void mpoint_attr_f64(struct MeasurementPoint *point, struct AStr key, double val
 void mpoint_attr_bool(struct MeasurementPoint *point, struct AStr key, bool value);
 
 void mpoint_attr_str(struct MeasurementPoint *point, struct AStr key, struct AStr value);
-
-void mpoint_attr_u64_s(struct MeasurementPoint *point, struct AString key, uint64_t value);
-
-void mpoint_attr_f64_s(struct MeasurementPoint *point, struct AString key, double value);
-
-void mpoint_attr_bool_s(struct MeasurementPoint *point, struct AString key, bool value);
-
-void mpoint_attr_str_s(struct MeasurementPoint *point, struct AString key, struct AStr value);
 
 struct UntypedMetricId mpoint_metric(const struct MeasurementPoint *point);
 
