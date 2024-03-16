@@ -1,4 +1,4 @@
-use alumet::{metrics::WrappedMeasurementType, units::Unit};
+use alumet::units::Unit;
 
 use crate::{consistency::check_domains_consistency, perf_event::PerfEventProbe};
 
