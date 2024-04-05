@@ -78,7 +78,7 @@ fn print_stats(metrics: &MetricRegistry, elems: &ElementRegistry, plugins: &[Box
     let n_metrics = metrics.len();
     let str_plugin = if n_plugins > 1 { "plugins" } else { "plugin" };
     let str_metric = if n_metrics > 1 { "metrics" } else { "metric" };
-    log::info!("Plugin startup complete.\n🧩 {n_plugins} {str_plugin} started:\n{plugins_list}.\n📏 {n_metrics} {str_metric} registered:\n{metrics_list}\n{pipeline_elements}");
+    log::info!("Plugin startup complete.\n🧩 {n_plugins} {str_plugin} started:\n{plugins_list}\n📏 {n_metrics} {str_metric} registered:\n{metrics_list}\n{pipeline_elements}");
 }
 
 fn apply_source_settings(source: Box<dyn pipeline::Source>, plugin_name: String) -> ConfiguredSource {
