@@ -18,6 +18,8 @@ plugin-rapl = { version = "0.2.0", path = "../plugin-rapl" }
 plugin-socket-control = { version = "0.1.0", path = "../plugin-socket-control" }
 serde = { version = "1.0.198", features = ["derive"] }
 toml = "0.8.12"
+time = { version = "0.3.34", features = ["formatting"] }
+plugin-k8s = { version = "0.0.1", path = "../plugin-k8s" }
 
 [profile.release]
 debug = 1
