@@ -5,7 +5,7 @@ use crate::measurement::{MeasurementType, WrappedMeasurementType};
 use crate::metrics::{Metric, MetricCreationError, MetricRegistry, RawMetricId, TypedMetricId};
 use crate::pipeline;
 use crate::pipeline::registry::ElementRegistry;
-use crate::units::Unit;
+use crate::units::{CustomUnit, CustomUnitId, CustomUnitRegistry, Unit, UnitCreationError};
 
 #[cfg(feature = "dynamic")]
 pub mod dynload;
@@ -45,27 +45,29 @@ pub trait Plugin {
     fn stop(&mut self) -> anyhow::Result<()>;
 }
 
-/// Provides [`AlumetStart`] to start plugins.
-pub struct PluginStarter<'a> {
-    start: AlumetStart<'a>,
+pub struct PluginStartup {
+    pub metrics: MetricRegistry,
+    pub units: CustomUnitRegistry,
+    pub pipeline_elements: ElementRegistry,
 }
 
-impl<'a> PluginStarter<'a> {
-    pub fn new(metrics: &'a mut MetricRegistry, pipeline_elements: &'a mut ElementRegistry) -> Self {
-        PluginStarter {
-            start: AlumetStart {
-                metrics,
-                pipeline_elements,
-                current_plugin_name: None,
-            },
+impl PluginStartup {
+    pub fn new() -> Self {
+        Self {
+            metrics: MetricRegistry::new(),
+            units: CustomUnitRegistry::new(),
+            pipeline_elements: ElementRegistry::new(),
         }
     }
 
     pub fn start(&mut self, plugin: &mut dyn Plugin) -> anyhow::Result<()> {
-        self.start.current_plugin_name = Some(plugin.name().to_owned());
-        plugin.start(&mut self.start)?;
-        self.start.current_plugin_name = None;
-        Ok(())
+        let mut start = AlumetStart {
+            metrics: &mut self.metrics,
+            units: &mut self.units,
+            pipeline_elements: &mut self.pipeline_elements,
+            current_plugin_name: plugin.name().to_owned(),
+        };
+        plugin.start(&mut start)
     }
 }
 
@@ -73,15 +75,14 @@ impl<'a> PluginStarter<'a> {
 /// such as registering new measurement sources.
 pub struct AlumetStart<'a> {
     metrics: &'a mut MetricRegistry,
+    units: &'a mut CustomUnitRegistry,
     pipeline_elements: &'a mut ElementRegistry,
-    current_plugin_name: Option<String>,
+    current_plugin_name: String,
 }
 
 impl AlumetStart<'_> {
-    fn get_current_plugin_name(&self) -> String {
-        self.current_plugin_name
-            .clone()
-            .expect("The current plugin must be set before passing the AlumetStart struct to a plugin")
+    fn current_plugin_name(&self) -> &str {
+        &self.current_plugin_name
     }
 
     /// Creates a new metric with a measurement type `T` (checked at compile time).
@@ -123,25 +124,33 @@ impl AlumetStart<'_> {
             value_type,
             unit,
         };
-        let id = self.metrics.register(m)?;
-        Ok(id.clone())
+        self.metrics.register(m)
+    }
+    
+    /// Creates a new unit of measurement.
+    /// Fails if a unit with the same name already exists.
+    /// 
+    /// To use the unit in measurement points, obtain its `CustomUnitId`
+    /// and wrap it in [`Unit::Custom`].
+    pub fn create_unit(&mut self, unit: CustomUnit) -> Result<CustomUnitId, UnitCreationError> {
+        self.units.register(unit)
     }
 
     /// Adds a measurement source to the Alumet pipeline.
     pub fn add_source(&mut self, source: Box<dyn pipeline::Source>) {
-        let plugin = self.get_current_plugin_name();
+        let plugin = self.current_plugin_name().to_owned();
         self.pipeline_elements.add_source(plugin, source)
     }
-    
+
     /// Adds a transform step to the Alumet pipeline.
     pub fn add_transform(&mut self, transform: Box<dyn pipeline::Transform>) {
-        let plugin = self.get_current_plugin_name();
+        let plugin = self.current_plugin_name().to_owned();
         self.pipeline_elements.add_transform(plugin, transform)
     }
 
     /// Adds an output to the Alumet pipeline.
     pub fn add_output(&mut self, output: Box<dyn pipeline::Output>) {
-        let plugin = self.get_current_plugin_name();
+        let plugin = self.current_plugin_name().to_owned();
         self.pipeline_elements.add_output(plugin, output)
     }
 }

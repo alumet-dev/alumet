@@ -2,12 +2,10 @@ use std::env;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use alumet::metrics::MetricRegistry;
-use alumet::pipeline::registry::ElementRegistry;
 use alumet::pipeline::runtime::{ConfiguredSource, MeasurementPipeline, SourceType};
 use alumet::pipeline::trigger::TriggerProvider;
 use alumet::plugin::dynload::{initialize, load_cdylib, plugin_subconfig};
-use alumet::plugin::PluginStarter;
+use alumet::plugin::PluginStartup;
 use alumet::pipeline::Source;
 
 fn main() {
@@ -60,14 +58,12 @@ fn run_with_plugin(
     assert_eq!(plugin.version(), expected_plugin_version);
 
     // Start the plugin
-    let mut metrics = MetricRegistry::new();
-    let mut elements = ElementRegistry::new();
-    let mut starter = PluginStarter::new(&mut metrics, &mut elements);
-    starter.start(plugin.as_mut()).expect("plugin should start fine");
+    let mut startup = PluginStartup::new();
+    startup.start(plugin.as_mut()).expect("plugin should start fine");
 
     // start the pipeline and wait for the tasks to finish
     println!("[app] Starting the pipeline...");
-    let pipeline = MeasurementPipeline::with_settings(elements, apply_source_settings).start(metrics);
+    let pipeline = MeasurementPipeline::with_settings(startup.pipeline_elements, apply_source_settings).start(startup.metrics);
 
     println!("[app] pipeline started");
 

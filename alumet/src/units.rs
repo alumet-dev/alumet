@@ -1,10 +1,6 @@
 use std::{
-    collections::HashMap,
-    fmt::{Debug, Display},
-    sync::OnceLock,
+    collections::HashMap, error::Error, fmt::{self, Debug, Display}, sync::OnceLock
 };
-
-pub(crate) static GLOBAL_CUSTOM_UNITS: OnceLock<CustomUnitRegistry> = OnceLock::new();
 
 #[derive(PartialEq, Eq)]
 #[repr(u8)]
@@ -44,6 +40,24 @@ pub enum Unit {
     // We store the unit's id and put its fields in a registry, because
     // Strings are not repr(C)-compatible.
 }
+
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+#[repr(C)]
+pub struct CustomUnitId(pub(crate) u32);
+
+#[derive(Debug)]
+pub struct CustomUnit {
+    pub unique_name: String,
+    pub display_name: String,
+    pub debug_name: String,
+}
+
+pub struct CustomUnitRegistry {
+    pub(crate) units_by_id: HashMap<CustomUnitId, CustomUnit>,
+    pub(crate) units_by_name: HashMap<String, CustomUnitId>,
+}
+
+pub(crate) static GLOBAL_CUSTOM_UNITS: OnceLock<CustomUnitRegistry> = OnceLock::new();
 
 impl Unit {
     pub fn unique_name(&self) -> &str {
@@ -121,57 +135,23 @@ impl Display for Unit {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
-#[repr(C)]
-pub struct CustomUnitId(pub(crate) u32);
-
-#[derive(Debug)]
-pub(crate) struct CustomUnit {
-    unique_name: String,
-    display_name: String,
-    debug_name: String,
-}
-
-impl CustomUnit {
-    fn new_simple(unique_name: &str, debug_name: &str) -> Self {
-        Self {
-            unique_name: unique_name.to_owned(),
-            display_name: unique_name.to_owned(),
-            debug_name: debug_name.to_owned(),
-        }
-    }
-
-    fn new(unique_name: &str, display_name: &str, debug_name: &str) -> Self {
-        Self {
-            unique_name: unique_name.to_owned(),
-            display_name: display_name.to_owned(),
-            debug_name: debug_name.to_owned(),
-        }
-    }
-}
-
-pub(crate) struct CustomUnitRegistry {
-    pub(crate) units_by_id: HashMap<CustomUnitId, CustomUnit>,
-    pub(crate) units_by_name: HashMap<String, CustomUnitId>,
-}
-
 impl CustomUnitRegistry {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             units_by_id: HashMap::new(),
             units_by_name: HashMap::new(),
         }
     }
 
-    pub fn global() -> &'static CustomUnitRegistry {
+    pub(crate) fn global() -> &'static CustomUnitRegistry {
         GLOBAL_CUSTOM_UNITS
             .get()
             .expect("The CustomUnitRegistry must be initialized before use")
     }
 
-    pub(crate) fn init_global() {
+    pub(crate) fn init_global(registry: CustomUnitRegistry) {
         GLOBAL_CUSTOM_UNITS
-            .set(CustomUnitRegistry::new())
+            .set(registry)
             .unwrap_or_else(|_| panic!("The CustomUnitRegistry can be initialized only once"));
     }
 
@@ -179,15 +159,32 @@ impl CustomUnitRegistry {
         self.units_by_id.len()
     }
 
-    pub fn create_unit(&mut self, unique_name: &str, display_name: &str, debug_name: &str) -> CustomUnitId {
+    pub(crate) fn register(&mut self, unit: CustomUnit) -> Result<CustomUnitId, UnitCreationError> {
         let id = CustomUnitId(u32::try_from(self.len()).unwrap());
-        let unit = CustomUnit {
-            unique_name: unique_name.to_owned(),
-            display_name: display_name.to_owned(),
-            debug_name: debug_name.to_owned(),
-        };
+        let name = unit.unique_name.clone();
         self.units_by_id.insert(id, unit);
-        self.units_by_name.insert(unique_name.to_owned(), id);
-        id
+        self.units_by_name.insert(name.to_owned(), id);
+        // TODO check for duplicates
+        Ok(id)
+    }
+}
+
+// ====== Errors ======
+#[derive(Debug)]
+pub struct UnitCreationError {
+    pub key: String,
+}
+
+impl UnitCreationError {
+    pub fn new(unit_name: String) -> UnitCreationError {
+        UnitCreationError { key: unit_name }
+    }
+}
+
+impl Error for UnitCreationError {}
+
+impl fmt::Display for UnitCreationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "This unit has already been registered: {}", self.key)
     }
 }

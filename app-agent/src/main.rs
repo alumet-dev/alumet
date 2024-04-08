@@ -1,18 +1,21 @@
 use std::time::{Duration, Instant};
 
-use alumet::pipeline;
-use alumet::pipeline::registry::{ElementRegistry, MetricRegistry};
-use alumet::pipeline::runtime::{ConfiguredSource, MeasurementPipeline, SourceType};
-use alumet::pipeline::trigger::TriggerProvider;
-use alumet::plugin::{Plugin, PluginStarter};
+use alumet::metrics::MetricRegistry;
+use alumet::pipeline::{
+    registry::ElementRegistry,
+    runtime::{ConfiguredSource, MeasurementPipeline, SourceType},
+    trigger::TriggerProvider,
+    Source,
+};
+use alumet::plugin::{Plugin, PluginStartup};
 
 use env_logger::Env;
 
 use crate::socket_control::SocketControl;
 
 mod default_plugin;
-mod socket_control;
 mod output_csv;
+mod socket_control;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -28,23 +31,22 @@ fn main() {
     ];
 
     // start the plugins
-    let mut metrics = MetricRegistry::new();
-    let mut elements = ElementRegistry::new();
-    let mut starter = PluginStarter::new(&mut metrics, &mut elements);
+    let mut startup = PluginStartup::new();
     for p in plugins.iter_mut() {
-        starter
+        startup
             .start(p.as_mut())
             .unwrap_or_else(|err| panic!("Plugin failed to start: {} v{} - {}", p.name(), p.version(), err));
     }
-    print_stats(&metrics, &elements, &plugins);
+    print_stats(&startup.metrics, &startup.pipeline_elements, &plugins);
 
     // start the pipeline and wait for the tasks to finish
     log::info!("Starting the pipeline...");
-    let mut pipeline = MeasurementPipeline::with_settings(elements, apply_source_settings).start(metrics);
-    
+    let mut pipeline =
+        MeasurementPipeline::with_settings(startup.pipeline_elements, apply_source_settings).start(startup.metrics);
+
     log::info!("Starting socket control...");
     let control = SocketControl::start_new(pipeline.control_handle()).expect("Control thread failed to start");
-    
+
     log::info!("🔥 ALUMET agent is ready");
 
     // keep the pipeline running until the app closes
@@ -81,7 +83,7 @@ fn print_stats(metrics: &MetricRegistry, elems: &ElementRegistry, plugins: &[Box
     log::info!("Plugin startup complete.\n🧩 {n_plugins} {str_plugin} started:\n{plugins_list}\n📏 {n_metrics} {str_metric} registered:\n{metrics_list}\n{pipeline_elements}");
 }
 
-fn apply_source_settings(source: Box<dyn pipeline::Source>, plugin_name: String) -> ConfiguredSource {
+fn apply_source_settings(source: Box<dyn Source>, plugin_name: String) -> ConfiguredSource {
     // normally this would be fetched from the config
     let source_type = SourceType::Normal;
     let trigger_provider = TriggerProvider::TimeInterval {

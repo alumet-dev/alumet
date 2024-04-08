@@ -173,7 +173,7 @@ impl std::fmt::Display for MetricTypeError {
 
 impl MetricRegistry {
     /// Creates a new registry, but does not make it "global" yet.
-    pub fn new() -> MetricRegistry {
+    pub(crate) fn new() -> MetricRegistry {
         MetricRegistry {
             metrics_by_id: HashMap::new(),
             metrics_by_name: HashMap::new(),

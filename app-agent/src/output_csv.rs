@@ -5,7 +5,8 @@ use std::{
     path::Path,
 };
 
-use alumet::metrics::{MetricId, WrappedMeasurementValue};
+use alumet::measurement::WrappedMeasurementValue;
+use alumet::{measurement::MeasurementBuffer, metrics::MetricId};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
@@ -31,7 +32,7 @@ impl CsvOutput {
     }
 }
 
-fn collect_attribute_keys(buf: &alumet::metrics::MeasurementBuffer) -> HashSet<String> {
+fn collect_attribute_keys(buf: &MeasurementBuffer) -> HashSet<String> {
     let mut res = HashSet::new();
     for m in buf.iter() {
         res.extend(m.attributes_keys().map(|k| k.clone()));
@@ -40,8 +41,8 @@ fn collect_attribute_keys(buf: &alumet::metrics::MeasurementBuffer) -> HashSet<S
 }
 
 impl alumet::pipeline::Output for CsvOutput {
-    fn write(&mut self, measurements: &alumet::metrics::MeasurementBuffer) -> Result<(), alumet::pipeline::WriteError> {
-        if self.attributes_in_header.is_none() && measurements.len() > 0{
+    fn write(&mut self, measurements: &MeasurementBuffer) -> Result<(), alumet::pipeline::WriteError> {
+        if self.attributes_in_header.is_none() && measurements.len() > 0 {
             let attr_keys = collect_attribute_keys(measurements);
 
             // sort the keys to ensure a consistent order between calls to write(measurements)
@@ -100,7 +101,7 @@ impl alumet::pipeline::Output for CsvOutput {
                 }
                 write!(self.writer, "{key}={value}")?;
             }
-            
+
             // end of the record
             write!(self.writer, "\n")?;
         }

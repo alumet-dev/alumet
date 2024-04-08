@@ -12,7 +12,7 @@ pub struct ElementRegistry {
 }
 
 impl ElementRegistry {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         ElementRegistry {
             sources: Vec::new(),
             transforms: Vec::new(),
