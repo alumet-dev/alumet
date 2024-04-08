@@ -1,5 +1,32 @@
-use std::{borrow::Cow, fmt};
+//! # Resources
+//! 
+//! In Alumet, a "resource" represent a piece of hardware or software for which metrics can be gathered.
+//! In other words, a resource gives the perimeter of a measurement.
+//! Are we measuring the energy consumption of a GPU, of the whole machine or of a process of our operating system?
+//! 
+//! To create a measurement point for a given resource, use
+//! the [`ResourceId`] enum to provide a unique resource identifier.
+//! Here is an example of a measurement point associated with the first CPU package (id "0").
+//! ```no_run
+//! use alumet::measurement::MeasurementPoint;
+//! use alumet::resources::ResourceId;
+//! # use alumet::metrics::TypedMetricId;
+//! # let timestamp = std::time::SystemTime::now();
+//! # let metric_id: TypedMetricId<u64> = todo!();
+//! # let measurement_value = 0;
+//! 
+//! let measure = MeasurementPoint::new(
+//!     timestamp,
+//!     metric_id,
+//!     ResourceId::CpuPackage { id: 0 },
+//!     measurement_value
+//! );
+//! ```
+//! 
+//! Unlike metrics and units, resources are not registered in a global registry,
+//! but created each time they are needed.
 
+use std::{borrow::Cow, fmt};
 
 /// Hardware or software entity for which metrics can be gathered.
 #[non_exhaustive]
@@ -12,7 +39,7 @@ pub enum ResourceId {
     Process { pid: u32 },
     /// A control group, often abbreviated cgroup.
     ControlGroup { path: StrCow },
-    /// A physical CPU package (which is not the same as a NUMA node).
+    /// A physical CPU package (which is not always the same as a NUMA node).
     CpuPackage { id: u32 },
     /// A CPU core.
     CpuCore { id: u32 },
@@ -24,7 +51,7 @@ pub enum ResourceId {
     Custom { kind: StrCow, id: StrCow },
 }
 
-/// Alias to a static cow. It helps avoiding allocations of Strings.
+/// Alias to a static cow. It helps to avoid the allocation of Strings.
 pub type StrCow = Cow<'static, str>;
 
 impl ResourceId {
