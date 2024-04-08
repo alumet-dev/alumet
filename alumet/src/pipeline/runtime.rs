@@ -661,7 +661,7 @@ mod tests {
 
     use crate::{
         measurement::{MeasurementBuffer, MeasurementPoint, WrappedMeasurementType, WrappedMeasurementValue},
-        metrics::UntypedMetricId,
+        metrics::RawMetricId,
         pipeline::{trigger::TriggerProvider, Transform},
         resources::ResourceId,
     };
@@ -951,7 +951,7 @@ mod tests {
             self.n_calls += 1;
             let point = MeasurementPoint::new_untyped(
                 time,
-                UntypedMetricId(1),
+                RawMetricId(1),
                 ResourceId::LocalMachine,
                 WrappedMeasurementValue::U64(self.n_calls as u64),
             );

@@ -6,7 +6,7 @@ use crate::{
     measurement::{
         AttributeValue, MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue,
     },
-    metrics::UntypedMetricId,
+    metrics::RawMetricId,
     resources::ResourceId,
 };
 
@@ -18,7 +18,7 @@ use super::{
 
 // ====== Metrics ffi ======
 #[no_mangle]
-pub extern "C" fn metric_name<'a>(metric: UntypedMetricId) -> AStr<'a> {
+pub extern "C" fn metric_name<'a>(metric: RawMetricId) -> AStr<'a> {
     let name: &'static str = &crate::metrics::get_metric(&metric).name;
     AStr::from(name)
 }
@@ -34,7 +34,7 @@ pub extern "C" fn system_time_now() -> *mut Timestamp {
 /// Internal: C binding to [`MeasurementPoint::new`].
 fn mpoint_new(
     timestamp: Timestamp,
-    metric: UntypedMetricId,
+    metric: RawMetricId,
     resource: FfiResourceId,
     value: WrappedMeasurementValue,
 ) -> *mut MeasurementPoint {
@@ -46,7 +46,7 @@ fn mpoint_new(
 #[no_mangle]
 pub extern "C" fn mpoint_new_u64(
     timestamp: Timestamp,
-    metric: UntypedMetricId,
+    metric: RawMetricId,
     resource: FfiResourceId,
     value: u64,
 ) -> *mut MeasurementPoint {
@@ -56,7 +56,7 @@ pub extern "C" fn mpoint_new_u64(
 #[no_mangle]
 pub extern "C" fn mpoint_new_f64(
     timestamp: Timestamp,
-    metric: UntypedMetricId,
+    metric: RawMetricId,
     resource: FfiResourceId,
     value: f64,
 ) -> *mut MeasurementPoint {
@@ -96,7 +96,7 @@ attr_adder!(mpoint_attr_str, AStr, AttributeValue::String);
 // getters
 
 #[no_mangle]
-pub extern "C" fn mpoint_metric(point: &MeasurementPoint) -> UntypedMetricId {
+pub extern "C" fn mpoint_metric(point: &MeasurementPoint) -> RawMetricId {
     point.metric
 }
 

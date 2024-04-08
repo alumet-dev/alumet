@@ -2,7 +2,8 @@ use std::env;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use alumet::pipeline::registry::{ElementRegistry, MetricRegistry};
+use alumet::metrics::MetricRegistry;
+use alumet::pipeline::registry::ElementRegistry;
 use alumet::pipeline::runtime::{ConfiguredSource, MeasurementPipeline, SourceType};
 use alumet::pipeline::trigger::TriggerProvider;
 use alumet::plugin::dynload::{initialize, load_cdylib, plugin_subconfig};

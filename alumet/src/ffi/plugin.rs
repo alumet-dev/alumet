@@ -3,7 +3,7 @@ use std::ffi::{c_char, CStr};
 use libc::c_void;
 
 use crate::measurement::WrappedMeasurementType;
-use crate::metrics::UntypedMetricId;
+use crate::metrics::RawMetricId;
 use crate::{plugin::AlumetStart, units::Unit};
 
 use super::pipeline::{FfiOutput, FfiTransform};
@@ -17,7 +17,7 @@ pub extern "C" fn alumet_create_metric(
     value_type: WrappedMeasurementType,
     unit: Unit,
     description: AStr,
-) -> UntypedMetricId {
+) -> RawMetricId {
     // todo handle errors (how to pass them to FFI properly?)
     let name = (&name).into();
     let description = (&description).into();
@@ -34,7 +34,7 @@ pub extern "C" fn alumet_create_metric_c(
     value_type: WrappedMeasurementType,
     unit: Unit,
     description: *const c_char,
-) -> UntypedMetricId {
+) -> RawMetricId {
     // todo handle errors (how to pass them to C properly?)
     let name = unsafe { CStr::from_ptr(name) }.to_str().unwrap();
     let description = unsafe { CStr::from_ptr(description) }.to_str().unwrap();

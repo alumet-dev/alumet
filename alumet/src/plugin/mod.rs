@@ -1,6 +1,8 @@
+use std::marker::PhantomData;
+
 use crate::config::ConfigTable;
 use crate::measurement::{MeasurementType, WrappedMeasurementType};
-use crate::metrics::{MetricCreationError, MetricRegistry, TypedMetricId, UntypedMetricId};
+use crate::metrics::{Metric, MetricCreationError, MetricRegistry, RawMetricId, TypedMetricId};
 use crate::pipeline;
 use crate::pipeline::registry::ElementRegistry;
 use crate::units::Unit;
@@ -80,35 +82,62 @@ impl AlumetStart<'_> {
             .expect("The current plugin must be set before passing the AlumetStart struct to a plugin")
     }
 
+    /// Creates a new metric with a measurement type `T` (checked at compile time).
+    /// Fails if a metric with the same name already exists.
     pub fn create_metric<T: MeasurementType>(
         &mut self,
         name: &str,
         unit: Unit,
         description: &str,
     ) -> Result<TypedMetricId<T>, MetricCreationError> {
-        let untyped = self.metrics.create_metric(name, T::wrapped_type(), unit, description)?;
-        Ok(TypedMetricId::try_from(untyped, &self.metrics).unwrap())
+        let m = Metric {
+            id: RawMetricId(usize::MAX),
+            name: name.to_owned(),
+            description: description.to_owned(),
+            value_type: T::wrapped_type(),
+            unit,
+        };
+        let untyped_id = self.metrics.register(m)?;
+        Ok(TypedMetricId(untyped_id, PhantomData))
     }
 
+    /// Creates a new metric with a measurement type `value_type` (checked at **run time**).
+    /// Fails if a metric with the same name already exists.
+    ///
+    /// Unlike [`TypedMetricId`], an [`RawMetricId`] does not allow to check that the
+    /// measured values are of the right type at compile time.
+    /// It is better to use [`create_metric`](Self::create_metric).
     pub fn create_metric_untyped(
         &mut self,
         name: &str,
         value_type: WrappedMeasurementType,
         unit: Unit,
         description: &str,
-    ) -> Result<UntypedMetricId, MetricCreationError> {
-        self.metrics.create_metric(name, value_type, unit, description)
+    ) -> Result<RawMetricId, MetricCreationError> {
+        let m = Metric {
+            id: RawMetricId(usize::MAX),
+            name: name.to_owned(),
+            description: description.to_owned(),
+            value_type,
+            unit,
+        };
+        let id = self.metrics.register(m)?;
+        Ok(id.clone())
     }
 
+    /// Adds a measurement source to the Alumet pipeline.
     pub fn add_source(&mut self, source: Box<dyn pipeline::Source>) {
         let plugin = self.get_current_plugin_name();
         self.pipeline_elements.add_source(plugin, source)
     }
+    
+    /// Adds a transform step to the Alumet pipeline.
     pub fn add_transform(&mut self, transform: Box<dyn pipeline::Transform>) {
         let plugin = self.get_current_plugin_name();
         self.pipeline_elements.add_transform(plugin, transform)
     }
 
+    /// Adds an output to the Alumet pipeline.
     pub fn add_output(&mut self, output: Box<dyn pipeline::Output>) {
         let plugin = self.get_current_plugin_name();
         self.pipeline_elements.add_output(plugin, output)

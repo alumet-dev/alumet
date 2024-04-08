@@ -58,11 +58,13 @@ typedef struct AStr {
 } AStr;
 
 /**
- * A metric id, used for internal purposes such as storing the list of metrics.
+ * A metric id without a generic type information.
+ *
+ * In general, it is preferred to use [`TypedMetricId`] instead.#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
  */
-typedef struct UntypedMetricId {
+typedef struct RawMetricId {
   uintptr_t _0;
-} UntypedMetricId;
+} RawMetricId;
 
 typedef struct Timestamp {
   uint64_t secs;
@@ -201,17 +203,17 @@ const struct ConfigArray *config_array_at(const struct ConfigArray *array, uintp
 
 const struct ConfigTable *config_table_at(const struct ConfigArray *array, uintptr_t index);
 
-struct AStr metric_name(struct UntypedMetricId metric);
+struct AStr metric_name(struct RawMetricId metric);
 
 struct Timestamp *system_time_now(void);
 
 struct MeasurementPoint *mpoint_new_u64(struct Timestamp timestamp,
-                                        struct UntypedMetricId metric,
+                                        struct RawMetricId metric,
                                         struct FfiResourceId resource,
                                         uint64_t value);
 
 struct MeasurementPoint *mpoint_new_f64(struct Timestamp timestamp,
-                                        struct UntypedMetricId metric,
+                                        struct RawMetricId metric,
                                         struct FfiResourceId resource,
                                         double value);
 
@@ -229,7 +231,7 @@ void mpoint_attr_bool(struct MeasurementPoint *point, struct AStr key, bool valu
 
 void mpoint_attr_str(struct MeasurementPoint *point, struct AStr key, struct AStr value);
 
-struct UntypedMetricId mpoint_metric(const struct MeasurementPoint *point);
+struct RawMetricId mpoint_metric(const struct MeasurementPoint *point);
 
 struct FfiMeasurementValue mpoint_value(const struct MeasurementPoint *point);
 
@@ -262,17 +264,17 @@ void mbuffer_push(struct MeasurementBuffer *buf, struct MeasurementPoint *point)
  */
 void maccumulator_push(struct MeasurementAccumulator *buf, struct MeasurementPoint *point);
 
-struct UntypedMetricId alumet_create_metric(struct AlumetStart *alumet,
-                                            struct AStr name,
-                                            enum WrappedMeasurementType value_type,
-                                            union Unit unit,
-                                            struct AStr description);
+struct RawMetricId alumet_create_metric(struct AlumetStart *alumet,
+                                        struct AStr name,
+                                        enum WrappedMeasurementType value_type,
+                                        union Unit unit,
+                                        struct AStr description);
 
-struct UntypedMetricId alumet_create_metric_c(struct AlumetStart *alumet,
-                                              const char *name,
-                                              enum WrappedMeasurementType value_type,
-                                              union Unit unit,
-                                              const char *description);
+struct RawMetricId alumet_create_metric_c(struct AlumetStart *alumet,
+                                          const char *name,
+                                          enum WrappedMeasurementType value_type,
+                                          union Unit unit,
+                                          const char *description);
 
 void alumet_add_source(struct AlumetStart *alumet,
                        void *source_data,

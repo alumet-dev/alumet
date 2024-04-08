@@ -2,14 +2,14 @@ use core::fmt;
 use fxhash::FxBuildHasher;
 use std::{collections::HashMap, fmt::Display, time::SystemTime};
 
-use super::metrics::{UntypedMetricId, TypedMetricId};
+use super::metrics::{RawMetricId, TypedMetricId};
 use super::resources::ResourceId;
 
 /// A data point about a metric that has been measured.
 #[derive(Clone)]
 pub struct MeasurementPoint {
     /// The metric that has been measured.
-    pub metric: UntypedMetricId,
+    pub metric: RawMetricId,
 
     /// The time of the measurement.
     pub timestamp: SystemTime,
@@ -35,7 +35,7 @@ impl MeasurementPoint {
         resource: ResourceId,
         value: T::T,
     ) -> MeasurementPoint {
-        Self::new_untyped(timestamp, UntypedMetricId(metric.0), resource, T::wrapped_value(value))
+        Self::new_untyped(timestamp, metric.0, resource, T::wrapped_value(value))
     }
 
     /// Creates a new MeasurementPoint without attributes, using an untyped metric.
@@ -44,7 +44,7 @@ impl MeasurementPoint {
     /// Use [`with_attr`] or [`with_attr_vec`] to attach arbitrary attributes to the point.
     pub fn new_untyped(
         timestamp: SystemTime,
-        metric: UntypedMetricId,
+        metric: RawMetricId,
         resource: ResourceId,
         value: WrappedMeasurementValue,
     ) -> MeasurementPoint {
