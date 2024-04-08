@@ -30,6 +30,7 @@ fn main() {
     // Create a link to the bindings for easy inspection
     let link_path = PathBuf::from("./generated/bindings.rs");
     std::fs::create_dir_all(link_path.parent().unwrap()).unwrap();
+    let _ = std::fs::remove_file(&link_path);
     #[allow(deprecated)]
-    std::fs::soft_link(&outfile_path, link_path).expect("Failed to create link to bindings.rs");
+    std::fs::soft_link(&outfile_path, &link_path).expect("Failed to create link to bindings.rs");
 }
