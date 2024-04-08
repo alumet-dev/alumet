@@ -14,10 +14,11 @@ use tokio_stream::StreamExt;
 
 use crate::{
     measurement::MeasurementBuffer,
+    metrics::MetricRegistry,
     pipeline::{Output, Source, Transform},
 };
 
-use super::registry::{ElementRegistry, MetricRegistry};
+use super::registry::ElementRegistry;
 use super::trigger::{ConfiguredTrigger, SourceTrigger, TriggerProvider};
 use super::{threading, PollError, TransformError, WriteError};
 
@@ -292,7 +293,8 @@ async fn run_source(
         if i % trigger.flush_rounds == 0 {
             // flush and create a new buffer
             let prev_length = buffer.len(); // hint for the new buffer size, great if the number of measurements per flush doesn't change much
-            tx.try_send(buffer).context("todo: handle failed send (source too fast)")?;
+            tx.try_send(buffer)
+                .context("todo: handle failed send (source too fast)")?;
             buffer = MeasurementBuffer::with_capacity(prev_length);
             log::debug!("source flushed {prev_length} measurements");
 
@@ -356,7 +358,8 @@ async fn run_transforms(
             }
 
             // Send the results to the outputs.
-            tx.send(measurements).context("could not send the measurements from transforms to the outputs")?;
+            tx.send(measurements)
+                .context("could not send the measurements from transforms to the outputs")?;
         } else {
             log::warn!("The channel connected to the transform step has been closed, the transforms will stop.");
             break;
@@ -657,9 +660,10 @@ mod tests {
     };
 
     use crate::{
-        metrics::UntypedMetricId,
         measurement::{MeasurementBuffer, MeasurementPoint, WrappedMeasurementType, WrappedMeasurementValue},
-        pipeline::{trigger::TriggerProvider, Transform}, resources::ResourceId,
+        metrics::UntypedMetricId,
+        pipeline::{trigger::TriggerProvider, Transform},
+        resources::ResourceId,
     };
 
     use super::{run_output_from_broadcast, run_source, run_transforms, OutputCmd, SourceCmd};
@@ -831,26 +835,26 @@ mod tests {
         // disable transform 3 only
         active_flags.store(1 | 2, Ordering::Relaxed);
         sleep(Duration::from_millis(20));
-        
+
         // disable transform 1 only
         active_flags.store(2 | 4, Ordering::Relaxed);
         sleep(Duration::from_millis(20));
-        
+
         // disable transform 2 only, the input type expected by transform 3 is no longer respected
         check_input_type_for_transform3.store(false, Ordering::Relaxed);
         active_flags.store(1 | 4, Ordering::Relaxed);
         sleep(Duration::from_millis(20));
-        
+
         // disable all transforms
         active_flags.store(0, Ordering::Relaxed);
         check_input_type_for_transform3.store(true, Ordering::Relaxed);
         sleep(Duration::from_millis(20));
-        
+
         // enable all transforms
         active_flags.store(1 | 2 | 4, Ordering::Relaxed);
         sleep(Duration::from_millis(20));
     }
-    
+
     #[test]
     fn output_task() {
         let rt = new_rt(3);
@@ -888,13 +892,13 @@ mod tests {
         sleep(Duration::from_millis(10));
         assert!(output_count.load(Ordering::Relaxed).abs_diff(count_at_pause) <= 2);
         sleep(Duration::from_millis(20));
-        
+
         // resume and check
         let count_before_resume = output_count.load(Ordering::Relaxed);
         out_cmd_tx.send(OutputCmd::Run).unwrap();
         sleep(Duration::from_millis(20));
         assert!(output_count.load(Ordering::Relaxed) > count_before_resume);
-        
+
         // stop and check
         src_cmd_tx.send(SourceCmd::Stop).unwrap();
         out_cmd_tx.send(OutputCmd::Stop).unwrap();
@@ -903,7 +907,7 @@ mod tests {
         sleep(Duration::from_millis(20));
         assert_eq!(count, output_count.load(Ordering::Relaxed));
     }
-    
+
     fn new_tp() -> TriggerProvider {
         TriggerProvider::TimeInterval {
             start_time: Instant::now(),
@@ -981,10 +985,10 @@ mod tests {
             Ok(())
         }
     }
-    
+
     struct TestOutput {
         expected_input_len: usize,
-        output_count: Arc<AtomicU32>
+        output_count: Arc<AtomicU32>,
     }
 
     impl crate::pipeline::Output for TestOutput {

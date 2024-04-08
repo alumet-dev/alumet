@@ -1,6 +1,7 @@
 mod common;
 
-use alumet::{pipeline::registry::{ElementRegistry, MetricRegistry}, plugin::{Plugin, PluginStarter}};
+use alumet::{pipeline::registry::ElementRegistry, plugin::{Plugin, PluginStarter}};
+use alumet::metrics::MetricRegistry;
 use common::test_plugin::TestPlugin;
 
 use crate::common::test_plugin::State;

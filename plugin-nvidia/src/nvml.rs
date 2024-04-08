@@ -3,12 +3,13 @@ use std::{sync::Arc, time::SystemTime};
 use alumet::{
     metrics::TypedMetricId,
     measurement::{MeasurementAccumulator, MeasurementPoint},
-    pipeline::{registry::MetricCreationError, PollError},
+    pipeline::PollError,
     plugin::AlumetStart,
     units::Unit,
     util::{CounterDiff, CounterDiffUpdate},
     resources::ResourceId,
 };
+use alumet::metrics::MetricCreationError;
 use anyhow::Context;
 use nvml_wrapper::{error::NvmlError, Device, Nvml};
 use nvml_wrapper_sys::bindings::nvmlDevice_t;

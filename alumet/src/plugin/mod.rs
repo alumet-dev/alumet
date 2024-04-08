@@ -1,8 +1,8 @@
 use crate::config::ConfigTable;
-use crate::measurement::{WrappedMeasurementType, MeasurementType};
-use crate::metrics::{TypedMetricId, UntypedMetricId};
+use crate::measurement::{MeasurementType, WrappedMeasurementType};
+use crate::metrics::{MetricCreationError, MetricRegistry, TypedMetricId, UntypedMetricId};
 use crate::pipeline;
-use crate::pipeline::registry::{ElementRegistry, MetricCreationError, MetricRegistry};
+use crate::pipeline::registry::ElementRegistry;
 use crate::units::Unit;
 
 #[cfg(feature = "dynamic")]
@@ -50,7 +50,6 @@ pub struct PluginStarter<'a> {
 
 impl<'a> PluginStarter<'a> {
     pub fn new(metrics: &'a mut MetricRegistry, pipeline_elements: &'a mut ElementRegistry) -> Self {
-        
         PluginStarter {
             start: AlumetStart {
                 metrics,
@@ -90,7 +89,7 @@ impl AlumetStart<'_> {
         let untyped = self.metrics.create_metric(name, T::wrapped_type(), unit, description)?;
         Ok(TypedMetricId::try_from(untyped, &self.metrics).unwrap())
     }
-    
+
     pub fn create_metric_untyped(
         &mut self,
         name: &str,
