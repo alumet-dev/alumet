@@ -1,9 +1,9 @@
-use std::{mem::ManuallyDrop, time::SystemTime};
+use std::time::SystemTime;
 
 use libc::c_void;
 
 use crate::{metrics::{
-    AttributeValue, MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, MetricId, UntypedMetricId, WrappedMeasurementValue
+    AttributeValue, MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, UntypedMetricId, WrappedMeasurementValue
 }, resources::ResourceId};
 
 use super::{resources::FfiResourceId, string::{AStr, AString}, Timestamp};

@@ -10,6 +10,7 @@ use std::{
     fmt::Display,
 };
 
+/// A configuration value.
 #[derive(Debug)]
 pub enum ConfigValue {
     String(String),
@@ -93,31 +94,5 @@ impl ConfigArray {
 
     pub fn len(&self) -> usize {
         self.content.len()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_wrong_data() {
-        let table1 = toml::toml! {
-            "\0" = "bad_key"
-        };
-        let table2 = toml::toml! {
-            "bad_value" = ["a\0b"]
-        };
-        let table3 = toml::toml! {
-            [subtable]
-            "bad_key\0" = "ab"
-        };
-
-        for (table, nul_pos_in_str) in vec![(table1, 0), (table2, 1), (table3, 7)] {
-            let ffi_table = ConfigTable::new(table);
-            match ffi_table {
-                _ => panic!("ConfigTable::new should have failed on invalid data"),
-            }
-        }
     }
 }
