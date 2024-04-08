@@ -13,7 +13,7 @@ use tokio::{runtime::Runtime, sync::watch};
 use tokio_stream::StreamExt;
 
 use crate::{
-    metrics::MeasurementBuffer,
+    measurement::MeasurementBuffer,
     pipeline::{Output, Source, Transform},
 };
 
@@ -657,7 +657,8 @@ mod tests {
     };
 
     use crate::{
-        metrics::{MeasurementBuffer, MeasurementPoint, UntypedMetricId, WrappedMeasurementType, WrappedMeasurementValue},
+        metrics::UntypedMetricId,
+        measurement::{MeasurementBuffer, MeasurementPoint, WrappedMeasurementType, WrappedMeasurementValue},
         pipeline::{trigger::TriggerProvider, Transform}, resources::ResourceId,
     };
 
@@ -940,7 +941,7 @@ mod tests {
     impl crate::pipeline::Source for TestSource {
         fn poll(
             &mut self,
-            into: &mut crate::metrics::MeasurementAccumulator,
+            into: &mut crate::measurement::MeasurementAccumulator,
             time: std::time::SystemTime,
         ) -> Result<(), crate::pipeline::PollError> {
             self.n_calls += 1;

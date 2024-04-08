@@ -20,7 +20,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use libc::c_void;
 
 use crate::config::ConfigTable;
-use crate::metrics::{MeasurementAccumulator, MeasurementBuffer};
+use crate::measurement::{MeasurementAccumulator, MeasurementBuffer};
 use crate::plugin::AlumetStart;
 
 // Submodules

@@ -2,12 +2,13 @@ use std::ffi::{c_char, CStr};
 
 use libc::c_void;
 
+use crate::measurement::WrappedMeasurementType;
+use crate::metrics::UntypedMetricId;
 use crate::{plugin::AlumetStart, units::Unit};
-use crate::metrics::{UntypedMetricId, WrappedMeasurementType};
 
 use super::pipeline::{FfiOutput, FfiTransform};
+use super::{pipeline::FfiSource, string::AStr, NullableDropFn, SourcePollFn};
 use super::{OutputWriteFn, TransformApplyFn};
-use super::{string::AStr, NullableDropFn, SourcePollFn, pipeline::FfiSource};
 
 #[no_mangle]
 pub extern "C" fn alumet_create_metric(

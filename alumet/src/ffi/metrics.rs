@@ -2,11 +2,19 @@ use std::time::SystemTime;
 
 use libc::c_void;
 
-use crate::{metrics::{
-    AttributeValue, MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, UntypedMetricId, WrappedMeasurementValue
-}, resources::ResourceId};
+use crate::{
+    measurement::{
+        AttributeValue, MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue,
+    },
+    metrics::UntypedMetricId,
+    resources::ResourceId,
+};
 
-use super::{resources::FfiResourceId, string::{AStr, AString}, Timestamp};
+use super::{
+    resources::FfiResourceId,
+    string::{AStr, AString},
+    Timestamp,
+};
 
 // ====== Metrics ffi ======
 #[no_mangle]
@@ -14,7 +22,6 @@ pub extern "C" fn metric_name<'a>(metric: UntypedMetricId) -> AStr<'a> {
     let name: &'static str = &crate::metrics::get_metric(&metric).name;
     AStr::from(name)
 }
-
 
 // ====== MeasurementPoint ffi ======
 

@@ -1,6 +1,6 @@
 use std::{fmt, time::SystemTime};
 
-use crate::metrics::{MeasurementAccumulator, MeasurementBuffer};
+use crate::measurement::{MeasurementAccumulator, MeasurementBuffer};
 
 pub mod registry;
 pub mod runtime;

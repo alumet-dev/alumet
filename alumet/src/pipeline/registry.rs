@@ -5,7 +5,8 @@ use std::{fmt, sync::OnceLock};
 use crate::units::Unit;
 
 use crate::{
-    metrics::{WrappedMeasurementType, Metric, MetricId, UntypedMetricId},
+    measurement::WrappedMeasurementType,
+    metrics::{Metric, MetricId, UntypedMetricId},
     pipeline,
 };
 use super::runtime::{ConfiguredOutput, ConfiguredTransform};
@@ -193,7 +194,7 @@ impl fmt::Display for MetricCreationError {
 
 #[cfg(test)]
 mod tests {
-    use crate::{metrics::WrappedMeasurementType, units::Unit};
+    use crate::{measurement::WrappedMeasurementType, units::Unit};
 
     use super::MetricRegistry;
 

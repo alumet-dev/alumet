@@ -1,7 +1,8 @@
 use std::{sync::Arc, time::SystemTime};
 
 use alumet::{
-    metrics::{MeasurementAccumulator, MeasurementPoint, TypedMetricId},
+    metrics::TypedMetricId,
+    measurement::{MeasurementAccumulator, MeasurementPoint},
     pipeline::{registry::MetricCreationError, PollError},
     plugin::AlumetStart,
     units::Unit,

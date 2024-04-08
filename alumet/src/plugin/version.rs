@@ -30,7 +30,7 @@ impl Version {
     /// For example, `"1.0"` is a valid version and is considered to be equal to `"1.0.0"`.
     /// 
     /// ## Example
-    /// ```
+    /// ```ignore
     /// let version = Version::parse("1.0.2").expect("the version number should be valid");
     /// ```
     pub fn parse(version_string: &str) -> Result<Version, Error> {

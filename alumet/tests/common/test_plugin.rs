@@ -1,4 +1,5 @@
-use alumet::metrics::{MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue, MetricId, TypedMetricId};
+use alumet::measurement::{MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue};
+use alumet::metrics::{MetricId, TypedMetricId};
 use alumet::pipeline::{Output, PollError, Source, Transform, TransformError, WriteError};
 use alumet::plugin::{AlumetStart, Plugin};
 use alumet::units::Unit;

@@ -9,7 +9,8 @@ use std::{
 };
 
 use alumet::util::{CounterDiff, CounterDiffUpdate};
-use alumet::metrics::{MeasurementAccumulator, MeasurementPoint, TypedMetricId};
+use alumet::metrics::TypedMetricId;
+use alumet::measurement::{MeasurementAccumulator, MeasurementPoint};
 use alumet::resources::ResourceId;
 use anyhow::{anyhow, Context};
 

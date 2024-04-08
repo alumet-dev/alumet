@@ -2,7 +2,7 @@ use libc::c_void;
 use std::time::SystemTime;
 
 use super::{DropFn, OutputWriteFn, SourcePollFn, TransformApplyFn};
-use crate::{metrics, pipeline};
+use crate::{measurement, pipeline};
 
 pub(crate) struct FfiSource {
     pub data: *mut c_void,
@@ -29,7 +29,7 @@ unsafe impl Send for FfiOutput {}
 impl pipeline::Source for FfiSource {
     fn poll(
         &mut self,
-        into: &mut metrics::MeasurementAccumulator,
+        into: &mut measurement::MeasurementAccumulator,
         time: SystemTime,
     ) -> Result<(), pipeline::PollError> {
         (self.poll_fn)(self.data, into, time.into());
@@ -37,13 +37,13 @@ impl pipeline::Source for FfiSource {
     }
 }
 impl pipeline::Transform for FfiTransform {
-    fn apply(&mut self, on: &mut metrics::MeasurementBuffer) -> Result<(), pipeline::TransformError> {
+    fn apply(&mut self, on: &mut measurement::MeasurementBuffer) -> Result<(), pipeline::TransformError> {
         (self.apply_fn)(self.data, on);
         Ok(())
     }
 }
 impl pipeline::Output for FfiOutput {
-    fn write(&mut self, measurements: &metrics::MeasurementBuffer) -> Result<(), pipeline::WriteError> {
+    fn write(&mut self, measurements: &measurement::MeasurementBuffer) -> Result<(), pipeline::WriteError> {
         (self.write_fn)(self.data, measurements);
         Ok(())
     }
