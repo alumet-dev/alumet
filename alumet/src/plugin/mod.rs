@@ -63,7 +63,9 @@ impl<'a> PluginStarter<'a> {
 
     pub fn start(&mut self, plugin: &mut dyn Plugin) -> anyhow::Result<()> {
         self.start.current_plugin_name = Some(plugin.name().to_owned());
-        plugin.start(&mut self.start)
+        plugin.start(&mut self.start)?;
+        self.start.current_plugin_name = None;
+        Ok(())
     }
 }
 
