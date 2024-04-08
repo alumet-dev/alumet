@@ -5,7 +5,7 @@ use std::{fmt, sync::OnceLock};
 use crate::units::Unit;
 
 use crate::{
-    metrics::{WrappedMeasurementType, Metric, InternalMetricId, UntypedMetricId},
+    metrics::{WrappedMeasurementType, Metric, MetricId, UntypedMetricId},
     pipeline,
 };
 use super::runtime::{ConfiguredOutput, ConfiguredTransform};
@@ -53,8 +53,8 @@ impl MetricRegistry {
     }
     
     /// Finds the metric that has the given id.
-    pub fn with_id<M: InternalMetricId>(&self, id: &M) -> Option<&Metric> {
-        self.metrics_by_id.get(&id.id())
+    pub fn with_id<M: MetricId>(&self, id: &M) -> Option<&Metric> {
+        self.metrics_by_id.get(&id.untyped_id())
     }
 
     /// Finds the metric that has the given name.

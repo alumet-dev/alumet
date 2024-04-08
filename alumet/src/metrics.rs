@@ -15,18 +15,17 @@ pub struct Metric {
 
 pub trait MetricId {
     fn name(&self) -> &str;
+    fn untyped_id(&self) -> UntypedMetricId;
 }
-pub(crate) trait InternalMetricId {
-    fn id(&self) -> UntypedMetricId;
-}
-
-pub(crate) fn get_metric<M: InternalMetricId>(metric: &M) -> &'static Metric {
-    MetricRegistry::global().with_id(&metric.id()).unwrap_or_else(|| {
-        panic!(
-            "Every metric should be in the global registry, but this one was not found: {}",
-            metric.id().0
-        )
-    })
+pub(crate) fn get_metric<M: MetricId>(metric: &M) -> &'static Metric {
+    MetricRegistry::global()
+        .with_id(&metric.untyped_id())
+        .unwrap_or_else(|| {
+            panic!(
+                "Every metric should be in the global registry, but this one was not found: {}",
+                metric.untyped_id().0
+            )
+        })
 }
 
 /// A metric id, used for internal purposes such as storing the list of metrics.
@@ -34,8 +33,13 @@ pub(crate) fn get_metric<M: InternalMetricId>(metric: &M) -> &'static Metric {
 #[repr(C)]
 pub struct UntypedMetricId(pub(crate) usize);
 
-impl InternalMetricId for UntypedMetricId {
-    fn id(&self) -> UntypedMetricId {
+impl MetricId for UntypedMetricId {
+    fn name(&self) -> &str {
+        let metric = get_metric(self);
+        &metric.name
+    }
+
+    fn untyped_id(&self) -> UntypedMetricId {
         self.clone()
     }
 }
@@ -44,10 +48,14 @@ impl InternalMetricId for UntypedMetricId {
 #[repr(C)]
 pub struct TypedMetricId<T: MeasurementType>(pub(crate) usize, PhantomData<T>);
 
-impl<T: MeasurementType> InternalMetricId for TypedMetricId<T> {
-    #[inline]
-    fn id(&self) -> UntypedMetricId {
+impl<T: MeasurementType> MetricId for TypedMetricId<T> {
+    fn untyped_id(&self) -> UntypedMetricId {
         UntypedMetricId(self.0)
+    }
+
+    fn name(&self) -> &str {
+        let metric = get_metric(self);
+        &metric.name
     }
 }
 // Manually implement Copy because Type is not copy, but we still want TypedMetricId to be Copy
@@ -94,14 +102,6 @@ impl std::fmt::Display for MetricTypeError {
     }
 }
 
-// All InternalMetricIds are MetricIds
-impl<M: InternalMetricId> MetricId for M {
-    fn name(&self) -> &str {
-        let metric = get_metric(self);
-        &metric.name
-    }
-}
-
 /// A data point about a metric that has been measured.
 #[derive(Clone)]
 pub struct MeasurementPoint {
@@ -124,7 +124,7 @@ pub struct MeasurementPoint {
 
 impl MeasurementPoint {
     /// Creates a new MeasurementPoint without attributes.
-    /// 
+    ///
     /// Use [`with_attr`] or [`with_attr_vec`] to attach arbitrary attributes to the point.
     pub fn new<T: MeasurementType>(
         timestamp: SystemTime,
@@ -137,7 +137,7 @@ impl MeasurementPoint {
 
     /// Creates a new MeasurementPoint without attributes, using an untyped metric.
     /// Prefer to use [`new`] with a typed metric instead.
-    /// 
+    ///
     /// Use [`with_attr`] or [`with_attr_vec`] to attach arbitrary attributes to the point.
     pub fn new_untyped(
         timestamp: SystemTime,
@@ -153,7 +153,7 @@ impl MeasurementPoint {
             attributes: HashMap::with_hasher(FxBuildHasher::default()),
         }
     }
-    
+
     /// Returns the number of attributes attached to this measurement point.
     pub fn attributes_len(&self) -> usize {
         self.attributes.len()
@@ -163,12 +163,12 @@ impl MeasurementPoint {
     pub fn attributes(&self) -> impl Iterator<Item = (&String, &AttributeValue)> {
         self.attributes.iter()
     }
-    
+
     /// Iterates on the keys of the attributes that are attached to the point.
     pub fn attributes_keys(&self) -> impl Iterator<Item = &String> {
         self.attributes.keys()
     }
-    
+
     pub(crate) fn add_attr(&mut self, key: &str, value: AttributeValue) {
         self.attributes.insert(key.to_owned(), value);
     }
