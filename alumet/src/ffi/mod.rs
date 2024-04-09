@@ -1,4 +1,5 @@
-//! Foreign-Function interface for dynamically-loaded plugins.
+//! Foreign Function Interface for dynamically-loaded plugins.
+//! 
 //! To be usable by plugins in a reliable way, every exposed
 //! function needs to be declared like this:
 //! ```ignore

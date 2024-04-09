@@ -1,3 +1,5 @@
+//! Loading of dynamic plugins from shared libraries.
+
 use std::{
     collections::HashMap,
     ffi::{c_char, CStr},

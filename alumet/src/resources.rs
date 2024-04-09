@@ -1,4 +1,4 @@
-//! # Resources
+//! Resources (measurement perimeter).
 //! 
 //! In Alumet, a "resource" represent a piece of hardware or software for which metrics can be gathered.
 //! In other words, a resource gives the perimeter of a measurement.

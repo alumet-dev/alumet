@@ -10,16 +10,16 @@
 //!
 //! ## Metric identifiers
 //! In addition to this definition, Alumet assigns a unique id to each metric,
-//! which is used to "refer to" a metric from anywhere in the program.
-//!
+//! which is used to refer to a metric from anywhere in the program.
 //! This id can exist in two forms:
 //! - A [`RawMetricId`], which is the most basic form of metric id, and does not offer any compile-time type safety.
 //! - A [`TypedMetricId`], which carries some information about the metric and allows
-//! to check the type of the measured values at compile time. It is a wrapper around a `RawMetricId`.
+//! to check the type of the measured values at compile time. It is a zero-cost wrapper around a `RawMetricId`.
 //!
 //! ## Registering new metrics
 //! Metrics can only be registered during the plugin startup phase.
-//! To register new metrics, use [`AlumetStart::create_metric`] or [`AlumetStart::create_metric_untyped`].
+//! To register new metrics, use [`AlumetStart::create_metric`](crate::plugin::AlumetStart::create_metric)
+//! or [`AlumetStart::create_metric_untyped`](crate::plugin::AlumetStart::create_metric).
 //! You can then pass the id around.
 //!
 //! ### Example
@@ -29,7 +29,7 @@
 //! use alumet::metrics::TypedMetricId;
 //! use alumet::units::Unit;
 //! # let alumet: AlumetStart = todo!();
-//! let my_metric = alumet.create_metric::<u64>(
+//! let my_metric: TypedMetric<u64> = alumet.create_metric::<u64>(
 //!     "cpu_voltage",
 //!     Unit::Volt,
 //!     "Voltage of the CPU socket, measured by the internal shunt."
@@ -47,13 +47,18 @@ use super::units::Unit;
 
 /// The complete definition of a metric.
 ///
-/// To register new metrics, use [`TypedMetricId::new`] or [`RawMetricId::new`].
+/// To register new metrics from your plugin, use
+/// [`AlumetStart::create_metric`](crate::plugin::AlumetStart::create_metric)
+/// or [`AlumetStart::create_metric_untyped`](crate::plugin::AlumetStart::create_metric).
+/// Metrics can only be registered during the plugin startup phase.
+/// 
 /// See the [module docs](self).
 pub struct Metric {
-    /// The metric's id in the registry.
+    /// The unique identifier of the metric in the metric registry.
     pub id: RawMetricId,
     /// The metric's unique name.
     pub name: String,
+    /// A verbose description of the metric.
     pub description: String,
     /// Type of measurement, wrapped in an enum.
     pub value_type: WrappedMeasurementType,
@@ -95,12 +100,13 @@ pub(crate) fn get_metric(id: &RawMetricId) -> &'static Metric {
 
 /// A metric id without a generic type information.
 ///
-/// In general, it is preferred to use [`TypedMetricId`] instead.#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+/// In general, it is preferred to use [`TypedMetricId`] instead.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(C)]
 pub struct RawMetricId(pub(crate) usize);
 
 /// A metric id with compile-time information about the type of the measured values.
+///
 /// It allows to check, at compile time, that the measurements of this metric
 /// have a value of type `T`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -128,12 +134,6 @@ impl<T: MeasurementType> MetricId for TypedMetricId<T> {
         &metric.name
     }
 }
-// Manually implement Copy because Type is not copy, but we still want TypedMetricId to be Copy
-// impl<T: MeasurementType> Clone for TypedMetricId<T> {
-//     fn clone(&self) -> Self {
-//         Self(self.0.clone(), PhantomData)
-//     }
-// }
 
 // Construction UntypedMetricId -> TypedMetricId
 impl<T: MeasurementType> TypedMetricId<T> {
@@ -155,6 +155,9 @@ impl<T: MeasurementType> TypedMetricId<T> {
     }
 }
 
+/// Error which can occur when converting a [`RawMetricId`] to a [`TypedMetricId`].
+///
+/// This error occurs if the expected type does not match the measurement type of the raw metric.
 #[derive(Debug)]
 pub struct MetricTypeError {
     expected: WrappedMeasurementType,
@@ -241,6 +244,7 @@ impl MetricRegistry {
     }
 }
 
+/// An iterator over the metrics of a [`MetricRegistry`].
 pub struct MetricIter<'a> {
     values: std::collections::hash_map::Values<'a, RawMetricId, Metric>,
 }
@@ -263,6 +267,11 @@ impl<'a> IntoIterator for &'a MetricRegistry {
 }
 
 // ====== Errors ======
+
+/// Error which can occur when creating a new metric.
+///
+/// This error is returned when the metric cannot be registered because of a conflict,
+/// that is, another metric with the same name has already been registered.
 #[derive(Debug)]
 pub struct MetricCreationError {
     pub key: String,

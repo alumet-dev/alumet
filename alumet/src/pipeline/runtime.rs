@@ -23,7 +23,7 @@ use super::trigger::{ConfiguredTrigger, SourceTrigger, TriggerProvider};
 use super::{threading, PollError, TransformError, WriteError};
 
 /// A measurement pipeline that has not been started yet.
-/// Use [`PendingPipeline::start`] to launch it.
+/// Use [`start`](Self::start) to launch it.
 pub struct MeasurementPipeline {
     elements: PipelineElements,
     params: PipelineParameters,
@@ -68,7 +68,7 @@ enum ControlMessage {
 /// A `PipelineController` allows to dynamically change the configuration of a running measurement pipeline.
 ///
 /// Dropping the controller aborts all the tasks of the pipeline (the internal Tokio [`Runtime`]s are dropped).
-/// To keep the pipeline running, use [`wait_for_all`].
+/// To keep the pipeline running, use [`wait_for_all`](RunningPipeline::wait_for_all).
 pub struct RunningPipeline {
     // Keep the tokio runtimes alive
     normal_runtime: Runtime,
@@ -105,7 +105,7 @@ impl MeasurementPipeline {
     /// Creates a new measurement pipeline with the elements in the registry and some additional settings applied to the sources
     /// by the function `f`.
     ///
-    /// The returned pipeline is not started, use [`PendingPipeline::start`] to start it.
+    /// The returned pipeline is not started, use [`start`](Self::start) to start it.
     pub fn with_settings<F>(elements: ElementRegistry, mut f: F) -> MeasurementPipeline
     where
         F: FnMut(Box<dyn Source>, String) -> ConfiguredSource,
@@ -491,7 +491,7 @@ impl RunningPipeline {
         });
     }
 
-    /// Returns a [`xxx`], which allows to change the configuration
+    /// Returns a [`ControlHandle`], which allows to change the configuration
     /// of the pipeline while it is running.
     pub fn control_handle(&mut self) -> ControlHandle {
         fn handle_message(controller: &mut PipelineController, msg: ControlMessage) {

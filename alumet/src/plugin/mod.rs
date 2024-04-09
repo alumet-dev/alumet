@@ -1,3 +1,15 @@
+//! Static and dynamic plugins.
+//!
+//! Plugins are an essential part of Alumet, as they provide the
+//! [`Source`](super::pipeline::Source)s, [`Transform`](super::pipeline::Transform)s and [`Output`](super::pipeline::Output)s.
+//! 
+//! ## Static plugins
+//! 
+//! 
+//! ## Dynamic plugins
+//! 
+//! WIP
+//! 
 use std::marker::PhantomData;
 
 use crate::config::ConfigTable;
@@ -126,10 +138,10 @@ impl AlumetStart<'_> {
         };
         self.metrics.register(m)
     }
-    
+
     /// Creates a new unit of measurement.
     /// Fails if a unit with the same name already exists.
-    /// 
+    ///
     /// To use the unit in measurement points, obtain its `CustomUnitId`
     /// and wrap it in [`Unit::Custom`].
     pub fn create_unit(&mut self, unit: CustomUnit) -> Result<CustomUnitId, UnitCreationError> {

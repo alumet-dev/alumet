@@ -9,7 +9,7 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// The output of a SourceTrigger.
 pub type SourceTriggerOutput = Result<(), PollError>;
 
-/// A trigger controls when the [`Source`] is polled for measurements.
+/// A trigger controls when the [`Source`](super::Source) is polled for measurements.
 pub enum SourceTrigger {
     /// A trigger based on a precise time interval. This is much more
     /// accurate than [`std::thread::sleep`] and [`tokio::time::sleep`],

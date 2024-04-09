@@ -1,3 +1,26 @@
+//! Measurement points and buffers.
+//! 
+//! Each step of the Alumet pipeline reads, produces or modifies timeseries data points,
+//! each represented as a [`MeasurementPoint`].
+//! This is usually done through a [`MeasurementBuffer`] (for transforms and outputs)
+//! or a [`MeasurementAccumulator`] (for sources).
+//! 
+//! ## Producing measurements
+//! 
+//! Assuming that you have a `buffer: &mut MeasurementBuffer` (or `MeasurementAccumulator`),
+//! you can produce new measurements like this:
+//! ```no_run
+//! use alumet::measurement::{MeasurementBuffer, MeasurementPoint};
+//! 
+//! # let buffer = MeasurementBuffer::new();
+//! buffer.push(MeasurementPoint::new(
+//!     timestamp, // timestamp, provided by Alumet as a parameter of [Source::poll]
+//!     my_metric, // a TypedMetricId that you obtained from [AlumetStart::create_metric]
+//!     ResourceId::CpuPackage { id: 0 }, // the object that you are measuring
+//!     value: 1234, // the measurement value
+//! ));
+//! ```
+
 use core::fmt;
 use fxhash::FxBuildHasher;
 use std::{collections::HashMap, fmt::Display, time::SystemTime};
@@ -5,7 +28,10 @@ use std::{collections::HashMap, fmt::Display, time::SystemTime};
 use super::metrics::{RawMetricId, TypedMetricId};
 use super::resources::ResourceId;
 
-/// A data point about a metric that has been measured.
+/// A value that has been measured at a given point in time.
+/// 
+/// Measurement points may also have attributes.
+/// Only certain types of values and attributes are allowed, see [`MeasurementType`] and [`AttributeValue`].
 #[derive(Clone)]
 pub struct MeasurementPoint {
     /// The metric that has been measured.
@@ -17,7 +43,7 @@ pub struct MeasurementPoint {
     /// The measured value.
     pub value: WrappedMeasurementValue,
 
-    /// The resource this measurement is about.
+    /// The resource this measurement is about: CPU socket, GPU, process, ...
     pub resource: ResourceId,
 
     /// Additional attributes on the measurement point.
@@ -26,9 +52,10 @@ pub struct MeasurementPoint {
 }
 
 impl MeasurementPoint {
-    /// Creates a new MeasurementPoint without attributes.
+    /// Creates a new `MeasurementPoint` without attributes.
     ///
-    /// Use [`with_attr`] or [`with_attr_vec`] to attach arbitrary attributes to the point.
+    /// Use [`with_attr`](Self::with_attr) or [`with_attr_vec`](Self::with_attr_vec)
+    /// to attach arbitrary attributes to the point.
     pub fn new<T: MeasurementType>(
         timestamp: SystemTime,
         metric: TypedMetricId<T>,
@@ -38,10 +65,11 @@ impl MeasurementPoint {
         Self::new_untyped(timestamp, metric.0, resource, T::wrapped_value(value))
     }
 
-    /// Creates a new MeasurementPoint without attributes, using an untyped metric.
-    /// Prefer to use [`new`] with a typed metric instead.
+    /// Creates a new `MeasurementPoint` without attributes, using an untyped metric.
+    /// Prefer to use [`MeasurementPoint::new`] with a typed metric instead.
     ///
-    /// Use [`with_attr`] or [`with_attr_vec`] to attach arbitrary attributes to the point.
+    /// Use [`with_attr`](Self::with_attr) or [`with_attr_vec`](Self::with_attr_vec)
+    /// to attach arbitrary attributes to the point.
     pub fn new_untyped(
         timestamp: SystemTime,
         metric: RawMetricId,
@@ -102,6 +130,7 @@ impl MeasurementPoint {
     }
 }
 
+/// Trait implemented by types that are accepted as measurement values.
 pub trait MeasurementType {
     type T;
 
@@ -131,6 +160,7 @@ impl MeasurementType for f64 {
     }
 }
 
+/// Enum of the possible measurement types.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub enum WrappedMeasurementType {
@@ -143,6 +173,7 @@ impl fmt::Display for WrappedMeasurementType {
     }
 }
 
+/// A measurement value of any supported measurement type.
 #[derive(Debug, Clone)]
 pub enum WrappedMeasurementValue {
     F64(f64),
@@ -158,6 +189,7 @@ impl WrappedMeasurementValue {
     }
 }
 
+/// An attribute value of any supported attribute type.
 #[derive(Debug, Clone)]
 pub enum AttributeValue {
     F64(f64),
@@ -239,7 +271,7 @@ impl std::fmt::Debug for MeasurementBuffer {
 }
 
 /// An accumulator stores measured data points.
-/// Unlike a [`MeasurementBuffer`], the accumulator only allows to [`push()`] new points, not to modify them.
+/// Unlike a [`MeasurementBuffer`], the accumulator only allows to [`push`](MeasurementAccumulator::push) new points, not to modify them.
 pub struct MeasurementAccumulator<'a>(&'a mut MeasurementBuffer);
 
 impl<'a> MeasurementAccumulator<'a> {

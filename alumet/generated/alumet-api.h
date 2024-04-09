@@ -7,6 +7,9 @@
 #include <stdlib.h>
 #define PLUGIN_API __attribute__((visibility("default")))
 
+/**
+ * Enum of the possible measurement types.
+ */
 typedef enum WrappedMeasurementType {
   WrappedMeasurementType_F64,
   WrappedMeasurementType_U64,
@@ -24,7 +27,7 @@ typedef struct ConfigTable ConfigTable;
 
 /**
  * An accumulator stores measured data points.
- * Unlike a [`MeasurementBuffer`], the accumulator only allows to [`push()`] new points, not to modify them.
+ * Unlike a [`MeasurementBuffer`], the accumulator only allows to [`push`](MeasurementAccumulator::push) new points, not to modify them.
  */
 typedef struct MeasurementAccumulator MeasurementAccumulator;
 
@@ -35,7 +38,10 @@ typedef struct MeasurementAccumulator MeasurementAccumulator;
 typedef struct MeasurementBuffer MeasurementBuffer;
 
 /**
- * A data point about a metric that has been measured.
+ * A value that has been measured at a given point in time.
+ *
+ * Measurement points may also have attributes.
+ * Only certain types of values and attributes are allowed, see [`MeasurementType`] and [`AttributeValue`].
  */
 typedef struct MeasurementPoint MeasurementPoint;
 
@@ -60,7 +66,7 @@ typedef struct AStr {
 /**
  * A metric id without a generic type information.
  *
- * In general, it is preferred to use [`TypedMetricId`] instead.#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+ * In general, it is preferred to use [`TypedMetricId`] instead.
  */
 typedef struct RawMetricId {
   uintptr_t _0;
@@ -109,6 +115,11 @@ typedef struct CustomUnitId {
   uint32_t _0;
 } CustomUnitId;
 
+/**
+ * A unit of measurement.
+ *
+ * Some common units of the SI are provided as plain enum variants, such as `Unit::Second`.
+ */
 enum Unit_Tag {
   /**
    * Indicates a dimensionless value. This is suitable for counters.

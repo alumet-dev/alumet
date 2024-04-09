@@ -1,7 +1,13 @@
+//! Definition of measurement units.
+//! 
+
 use std::{
     collections::HashMap, error::Error, fmt::{self, Debug, Display}, sync::OnceLock
 };
 
+/// A unit of measurement.
+/// 
+/// Some common units of the SI are provided as plain enum variants, such as `Unit::Second`.
 #[derive(PartialEq, Eq)]
 #[repr(u8)]
 pub enum Unit {
