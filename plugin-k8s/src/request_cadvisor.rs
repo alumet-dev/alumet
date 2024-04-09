@@ -1,13 +1,16 @@
 use std::fmt::Display;
 use std::string::String;
 use std::process::Command;
-use std::collections::HashMap;
 use reqwest::{ClientBuilder, Error};
 use std::time::Duration;
 use tokio;
 use serde_json::Value;
 use anyhow::{anyhow, Context};
 use std::fs::File;
+use regex::Regex;
+use std::{collections::HashMap, str::FromStr};
+
+use crate::parsing_prometheus::PrometheusMetric;
 
 
 // static apiServer: String = String::from("https://10.22.80.14:6443");
@@ -134,19 +137,45 @@ pub async fn get_all_kubernetes_nodes(token_k8s: &String, base_url: &String) -> 
 pub fn populate(token_k8s: String, base_url: String){
 }
 
+
+fn print_type_of<T>(_: &T) {
+    println!("Type:{}\n", std::any::type_name::<T>())
+}
+
 #[tokio::main]
 pub async fn gather_values(token_k8s: &String, base_url: &String, li_node: &mut Vec<String>) {
     let formated_header = format!("Bearer {}",token_k8s);
+
+    let timeout = Duration::new(5, 0);
+    let client = ClientBuilder::new().timeout(timeout).build().expect("Error when trying to create a client");
+
     for node in li_node{
         let request_url = format!("{}/api/v1/nodes/{}/proxy/metrics/cadvisor", base_url, node);
         println!("--{}", request_url);
+        // let response = client.get(&request_url)
+        //                         .header("Authorization", &formated_header)
+        //                         .send()
+        //                         .await
+        //                         .expect("failed to get response")
+        //                         .text()
+        //                         .await
+        //                         .expect("failed to get payload");
+
+        // Continuation of the main function
+        let response = std::fs::read_to_string("/home/cyprien/code/alumet/plugin-k8s/cadvisor_raw_return.txt").expect("file should open read only");
+
+        let response_as_lines = response.lines(); 
+        print_type_of(&response_as_lines);
+        for (i, line) in response_as_lines.enumerate() {
+            if !line.starts_with("#"){
+                println!("Line:{}\n", line);
+                print_type_of(&line);
+                PrometheusMetric::from_str(&line)
+                    .expect(&format!("Prometheus test line #{i} failed to parse"));
+                
         
-        // let timeout = Duration::new(5, 0);
-        // let client = ClientBuilder::new().timeout(timeout).build()?;
-        // // let response = client.head(&request_url).send().await?;
-        // let response_to_send = client
-        // .get(request_url)
-        // .header("Authorization", formated_header).send().await;
+            }
+        }
     
     }
 

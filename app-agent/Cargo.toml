@@ -20,6 +20,7 @@ serde = { version = "1.0.198", features = ["derive"] }
 toml = "0.8.12"
 time = { version = "0.3.34", features = ["formatting"] }
 plugin-k8s = { version = "0.0.1", path = "../plugin-k8s" }
+fancy-regex = "0.13.0"
 
 [profile.release]
 debug = 1

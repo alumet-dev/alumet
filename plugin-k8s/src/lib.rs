@@ -3,6 +3,7 @@ use anyhow::{Error, anyhow};
 pub struct K8sPlugin;
 
 mod request_cadvisor;
+mod parsing_prometheus;
 
 impl alumet::plugin::Plugin for K8sPlugin{
     fn name(&self) -> &str {
