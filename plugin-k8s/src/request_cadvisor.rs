@@ -1,11 +1,13 @@
 use std::fmt::Display;
-use std::string;
+use std::string::String;
 use std::process::Command;
 use std::collections::HashMap;
-use reqwest::Result;
+use reqwest::{ClientBuilder, Error};
 use std::time::Duration;
-use reqwest::ClientBuilder;
 use tokio;
+use serde_json::Value;
+use anyhow::{anyhow, Context};
+use std::fs::File;
 
 
 // static apiServer: String = String::from("https://10.22.80.14:6443");
@@ -65,7 +67,7 @@ pub fn retrieve_token() -> String {
 }
 
 #[tokio::main]
-pub async fn get_all_kubernetes_nodes(token_k8s: String, base_url: String) -> Result<()>  {
+pub async fn get_all_kubernetes_nodes(token_k8s: &String, base_url: &String) -> Result<Vec<String>, reqwest::Error>  {
     let request_url = format!("{}/api/v1/nodes", base_url);
     println!("{}", request_url);
     let formated_header = format!("Bearer {}",token_k8s);
@@ -73,16 +75,83 @@ pub async fn get_all_kubernetes_nodes(token_k8s: String, base_url: String) -> Re
     let timeout = Duration::new(5, 0);
     let client = ClientBuilder::new().timeout(timeout).build()?;
     // let response = client.head(&request_url).send().await?;
-    let response = client
+    let response_to_send = client
         .get(request_url)
-        .header("Authorization", formated_header)
-        .send()
-        .await?;
+        .header("Authorization", formated_header).send().await;
 
-    if response.status().is_success() {
-        println!("{:?} is a success!", response);
-    } else {
-        println!("{:?} is not a success!", response);
+    match response_to_send {
+        Ok(response) => {
+            // let jsonTransformed: Result<_> = response.json().await?;
+            let jsonTransformed: serde_json::Value = response.json().await?;
+            let mut list_node: Vec<String> = Vec::new();
+            if let Some(liItem) = jsonTransformed["items"].as_array(){
+                for item in liItem {
+                    if let Some(name) = item["metadata"]["name"].as_str() {
+                        // Append the node name to the list
+                        list_node.push(name.to_string());
+                    } else {
+                        println!("Node name is not a valid string.");
+                    }
+                }
+                
+            }
+            return Ok(list_node);
+        }
+        Err(err) => {
+
+            
+            ///////////////////////
+            /// 
+            /// 
+            let file = File::open("/home/cyprien/code/alumet/plugin-k8s/list_node.json").expect("file should open read only");
+            let json_transformed: serde_json::Value = serde_json::from_reader(file).expect("file should be proper JSON");
+         
+            let mut list_node: Vec<String> = Vec::new();
+            // println!("{:?}", json_transformed);
+            // println!("---------------------------");
+            // println!("{:?}", json_transformed["items"]);
+            // println!("---------------------------");
+            if let Some(li_item) = json_transformed["items"].as_array(){
+                for item in li_item {
+                    if let Some(name) = item["metadata"]["name"].as_str() {
+                        // Append the node name to the list
+                        list_node.push(name.to_string());
+                    } else {
+                        println!("Node name is not a valid string.");
+                    }
+                }
+                
+            }
+            return Ok(list_node);
+            /// 
+            /// 
+            ////////////////////////
+            return Err(err);
+        }
     }
-    Ok(())
+}
+
+pub fn populate(token_k8s: String, base_url: String){
+}
+
+#[tokio::main]
+pub async fn gather_values(token_k8s: &String, base_url: &String, li_node: &mut Vec<String>) {
+    let formated_header = format!("Bearer {}",token_k8s);
+    for node in li_node{
+        let request_url = format!("{}/api/v1/nodes/{}/proxy/metrics/cadvisor", base_url, node);
+        println!("--{}", request_url);
+        
+        // let timeout = Duration::new(5, 0);
+        // let client = ClientBuilder::new().timeout(timeout).build()?;
+        // // let response = client.head(&request_url).send().await?;
+        // let response_to_send = client
+        // .get(request_url)
+        // .header("Authorization", formated_header).send().await;
+    
+    }
+
+    
+
+
+
 }
