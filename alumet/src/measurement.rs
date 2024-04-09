@@ -11,13 +11,16 @@
 //! you can produce new measurements like this:
 //! ```no_run
 //! use alumet::measurement::{MeasurementBuffer, MeasurementPoint};
+//! use alumet::resources::ResourceId;
 //! 
 //! # let buffer = MeasurementBuffer::new();
+//! # let my_metric: alumet::metrics::TypedMetricId<u64> = todo!();
+//! # let timestamp = todo!();
 //! buffer.push(MeasurementPoint::new(
 //!     timestamp, // timestamp, provided by Alumet as a parameter of [Source::poll]
 //!     my_metric, // a TypedMetricId that you obtained from [AlumetStart::create_metric]
 //!     ResourceId::CpuPackage { id: 0 }, // the object that you are measuring
-//!     value: 1234, // the measurement value
+//!     1234, // the measurement value
 //! ));
 //! ```
 

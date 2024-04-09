@@ -2,14 +2,82 @@
 //!
 //! Plugins are an essential part of Alumet, as they provide the
 //! [`Source`](super::pipeline::Source)s, [`Transform`](super::pipeline::Transform)s and [`Output`](super::pipeline::Output)s.
-//! 
+//!
+//! ## Plugin lifecycle
+//! Every plugin follow these steps:
+//!
+//! 1. **Metadata loading**: the Alumet application loads basic information about the plugin.
+//! For static plugins, this is done at compile time (cargo takes care of the dependencies).
+//!
+//! 2. **Initialization**: the plugin is initialized, a value that implements the [`Plugin`] trait is created.
+//! During the initialization phase, the plugin can read its configuration.
+//!
+//! 3. **Start-up**: the plugin is started via its [`start`](Plugin::start) method.
+//! During the start-up phase, the plugin can create metrics, register new pipeline elements
+//! (sources, transforms, outputs), and more.
+//!
+//! 4. **Operation**: the measurement pipeline has started, and the elements registered by the plugin
+//! are in use. Alumet takes care of the lifetimes and of the triggering of those elements.
+//!
+//! 5. **Stop**: the elements registered by the plugin are stopped and dropped.
+//! Then, [`stop`](Plugin::stop) is called.
+//!
+//! 6. **Drop**: like any Rust value, the plugin is dropped when it goes out of scope.
+//! To customize the destructor of your static plugin, implement the [`Drop`] trait on your plugin structure.
+//! For a dynamic plugin, modify the `plugin_drop` function.
+//!
 //! ## Static plugins
+//!
+//! A static plugin is a plugin that is included in the Alumet measurement application
+//! at compile-time. The measurement tool and the static plugin are compiled together,
+//! in a single executable binary.
+//!
+//! To create a static plugin in Rust, make a new library crate that depends on:
+//! - the core of Alumet (the `alumet` crate).
+//! - the `anyhow` crate
+//!
+//! To do this, here is an example (bash commands):
+//! ```sh
+//! cargo init --lib my-plugin
+//! cd my-plugin
+//! cargo add alumet anyhow
+//! ```
 //! 
+//! In your library, define a structure for your plugin, and implement the [`Plugin`] trait for it.
+//! ```no_run
+//! use alumet::plugin::{Plugin, AlumetStart};
+//!
+//! struct MyPlugin {}
+//!
+//! impl Plugin for MyPlugin {
+//!     fn name(&self) -> &str {
+//!         "my-plugin"
+//!     }
+//!
+//!     fn version(&self) -> &str {
+//!         "0.1.0"
+//!     }
+//!
+//!     fn start(&mut self, alumet: &mut AlumetStart) -> anyhow::Result<()> {
+//!         println!("My first plugin is starting!");
+//!         Ok(())
+//!     }
+//!
+//!     fn stop(&mut self) -> anyhow::Result<()> {
+//!         println!("My first plugin is stopping!");
+//!         Ok(())
+//!     }
+//! }
+//! ```
+//!
+//! Finally, modify the measurement application in the following ways:
+//! 1. Add a dependency to your plugin crate (for example with `cargo add my-plugin --path=path/to/my-plugin`).
+//! 2. Modify your `main` to initialize and load the plugin.
 //! 
 //! ## Dynamic plugins
-//! 
+//!
 //! WIP
-//! 
+//!
 use std::marker::PhantomData;
 
 use crate::config::ConfigTable;
@@ -22,9 +90,9 @@ use crate::units::{CustomUnit, CustomUnitId, CustomUnitRegistry, Unit, UnitCreat
 #[cfg(feature = "dynamic")]
 pub mod dynload;
 
-// Module to handle versioning.
 pub(crate) mod version;
 
+/// Plugin metadata, and a function that allows to initialize the plugin.
 pub struct PluginInfo {
     pub name: String,
     pub version: String,
@@ -35,7 +103,7 @@ pub struct PluginInfo {
 /// The ALUMET plugin trait.
 ///
 /// Plugins are a central part of ALUMET, because they produce, transform and export the measurements.
-/// Please refer to the module documentation.
+/// Please refer to the [module documentation](self).
 pub trait Plugin {
     /// The name of the plugin. It must be unique: two plugins cannot have the same name.
     fn name(&self) -> &str;
@@ -57,9 +125,16 @@ pub trait Plugin {
     fn stop(&mut self) -> anyhow::Result<()>;
 }
 
+/// Helper for the plugin start-up phase.
+///
+/// This structure contains everything that is needed to start a
+/// list of plugins.
 pub struct PluginStartup {
+    /// Metrics registered by the plugins.
     pub metrics: MetricRegistry,
+    /// Units registered by the plugins.
     pub units: CustomUnitRegistry,
+    /// Pipeline elements registered by the plugins.
     pub pipeline_elements: ElementRegistry,
 }
 
@@ -72,6 +147,7 @@ impl PluginStartup {
         }
     }
 
+    /// Starts a plugin by calling its [`start`](Plugin::start) method.
     pub fn start(&mut self, plugin: &mut dyn Plugin) -> anyhow::Result<()> {
         let mut start = AlumetStart {
             metrics: &mut self.metrics,
@@ -83,8 +159,12 @@ impl PluginStartup {
     }
 }
 
-/// `AlumetStart` allows the plugins to perform some actions before starting the measurment pipeline,
+/// Structure passed to plugins for the start-up phase.
+///
+/// It allows the plugins to perform some actions before starting the measurment pipeline,
 /// such as registering new measurement sources.
+///
+/// Note for applications: an `AlumetStart` should not be directly created, use [`PluginStartup`] instead.
 pub struct AlumetStart<'a> {
     metrics: &'a mut MetricRegistry,
     units: &'a mut CustomUnitRegistry,
@@ -93,6 +173,7 @@ pub struct AlumetStart<'a> {
 }
 
 impl AlumetStart<'_> {
+    /// Returns the name of the plugin that is being started.
     fn current_plugin_name(&self) -> &str {
         &self.current_plugin_name
     }

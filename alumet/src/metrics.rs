@@ -28,12 +28,15 @@
 //! use alumet::plugin::AlumetStart;
 //! use alumet::metrics::TypedMetricId;
 //! use alumet::units::Unit;
-//! # let alumet: AlumetStart = todo!();
-//! let my_metric: TypedMetric<u64> = alumet.create_metric::<u64>(
+//!
+//! # fn start(alumet: &mut AlumetStart) -> anyhow::Result<()> {
+//! let my_metric: TypedMetricId<u64> = alumet.create_metric::<u64>(
 //!     "cpu_voltage",
 //!     Unit::Volt,
 //!     "Voltage of the CPU socket, measured by the internal shunt."
-//! );
+//! )?;
+//! # Ok(())
+//! # }
 //! ```
 
 use core::fmt;

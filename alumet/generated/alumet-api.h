@@ -16,8 +16,12 @@ typedef enum WrappedMeasurementType {
 } WrappedMeasurementType;
 
 /**
- * `AlumetStart` allows the plugins to perform some actions before starting the measurment pipeline,
+ * Structure passed to plugins for the start-up phase.
+ *
+ * It allows the plugins to perform some actions before starting the measurment pipeline,
  * such as registering new measurement sources.
+ *
+ * Note for applications: an `AlumetStart` should not be directly created, use [`PluginStartup`] instead.
  */
 typedef struct AlumetStart AlumetStart;
 

@@ -1,3 +1,5 @@
+//! Compare and parse version numbers.
+
 use std::num::ParseIntError;
 
 /// The current version of the alumet crate, for checking purposes.
