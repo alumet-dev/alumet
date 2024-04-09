@@ -36,31 +36,53 @@ struct PipelineElements {
     transforms: Vec<ConfiguredTransform>,
     outputs: Vec<ConfiguredOutput>,
 }
+/// Parameters of the measurement pipeline.
 struct PipelineParameters {
     normal_worker_threads: Option<usize>,
     priority_worker_threads: Option<usize>,
 }
+
+/// The type of a [`Source`].
+/// 
+/// It affects how Alumet schedules the polling of the source.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SourceType {
+    /// Nothing special. This is the right choice for most of the sources.
     Normal,
     // Blocking, // todo: how to provide this type properly?
+
+    /// Signals that the pipeline should run the source on a thread with a
+    /// high scheduling priority.
     RealtimePriority,
 }
+
+/// A source that is ready to run.
 pub struct ConfiguredSource {
+    /// The source.
     pub source: Box<dyn Source>,
+    /// Name of the plugin that registered the source.
     pub plugin_name: String,
+    /// Type of the source, for scheduling.
     pub source_type: SourceType,
+    /// How to trigger this source.
     pub trigger_provider: TriggerProvider,
 }
+/// A transform that is ready to run.
 pub struct ConfiguredTransform {
+    /// The transform.
     pub transform: Box<dyn Transform>,
+    /// Name of the plugin that registered the source.
     pub plugin_name: String,
 }
+/// An output that is ready to run.
 pub struct ConfiguredOutput {
+    /// The output.
     pub output: Box<dyn Output>,
+    /// Name of the plugin that registered the source.
     pub plugin_name: String,
 }
 
+/// A message for an element of the pipeline.
 enum ControlMessage {
     Source(Option<String>, SourceCmd),
     Output(Option<String>, OutputCmd),
