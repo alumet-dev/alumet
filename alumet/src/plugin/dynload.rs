@@ -58,6 +58,7 @@ impl Drop for DylibPlugin {
     }
 }
 
+/// Error during the loading of a dynamic plugin.
 #[derive(Debug)]
 pub enum LoadError {
     /// Unable to load something the shared library.
@@ -73,6 +74,7 @@ pub enum LoadError {
     PluginInit,
 }
 
+/// Registry of plugins, to initialize dynamic plugins one by one.
 pub struct PluginRegistry {
     plugins: HashMap<String, Box<dyn Plugin>>,
 }

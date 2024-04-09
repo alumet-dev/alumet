@@ -1,3 +1,5 @@
+//! Asynchronous and modular measurement pipeline.
+
 use std::{fmt, time::SystemTime};
 
 use crate::measurement::{MeasurementAccumulator, MeasurementBuffer};
@@ -9,21 +11,25 @@ pub mod trigger;
 
 /// Produces measurements related to some metrics.
 pub trait Source: Send {
+    /// Polls the source for new measurements.
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: SystemTime) -> Result<(), PollError>;
 }
 
-/// Transforms the measurements.
+/// Transforms measurements.
 pub trait Transform: Send {
+    /// Applies the transform on the measurements.
     fn apply(&mut self, measurements: &mut MeasurementBuffer) -> Result<(), TransformError>;
 }
 
 /// Exports measurements to an external entity, like a file or a database.
 pub trait Output: Send {
+    /// Writes the measurements to the output.
     fn write(&mut self, measurements: &MeasurementBuffer) -> Result<(), WriteError>;
 }
 
 // ====== Errors ======
 
+/// Error which can occur during [`Source::poll`].
 #[derive(Debug)]
 pub enum PollError {
     /// Polling failed and the source cannot recover from this failure, it should be stopped.
@@ -36,6 +42,7 @@ pub enum PollError {
     CanRetry(anyhow::Error),
 }
 
+/// Error which can occur during [`Transform::apply`].
 #[derive(Debug)]
 pub enum TransformError {
     /// The transformation failed and cannot recover from this failure, it should not be used anymore.
@@ -44,6 +51,7 @@ pub enum TransformError {
     UnexpectedInput(anyhow::Error),
 }
 
+/// Error which can occur during [`Output::write`].
 #[derive(Debug)]
 pub enum WriteError {
     /// The measurements could not be written properly, and the output cannot be used anymore.
@@ -104,7 +112,7 @@ impl<T: Into<anyhow::Error>> From<T> for WriteError {
     }
 }
 
-// Add convenient method `error.can_retry()`
+/// Adds the convenient method `error.retry_poll()`.
 pub trait PollRetry<T> {
     fn retry_poll(self) -> Result<T, PollError>;
 }
@@ -113,6 +121,8 @@ impl<T, E: Into<anyhow::Error>> PollRetry<T> for Result<T, E> {
         self.map_err(|e| PollError::CanRetry(e.into()))
     }
 }
+
+/// Adds the convenient method `error.retry_write()`.
 pub trait WriteRetry<T> {
     fn retry_write(self) -> Result<T, WriteError>;
 }

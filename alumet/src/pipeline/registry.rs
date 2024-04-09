@@ -1,10 +1,12 @@
+//! Registry of pipeline elements.
+
 use crate::pipeline;
 use super::runtime::{ConfiguredOutput, ConfiguredTransform};
 
 /// A registry of pipeline elements: [`pipeline::Source`], [`pipeline::Transform`] and [`pipeline::Output`].
 /// 
 /// New elements are registered by the plugins during their initialization.
-/// To do so, they use the methods provided by [`crate::plugin::AlumetStart`], not `ElementRegistry`.
+/// To do so, they use the methods provided by [`alumet::plugin::AlumetStart`](crate::plugin::AlumetStart).
 pub struct ElementRegistry {
     pub(crate) sources: Vec<(Box<dyn pipeline::Source>, String)>,
     pub(crate) transforms: Vec<pipeline::runtime::ConfiguredTransform>,

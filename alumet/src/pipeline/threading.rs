@@ -1,3 +1,5 @@
+//! Utilities for working with OS threads.
+
 /// Increases the priority of the current thread.
 pub fn increase_thread_priority() -> std::io::Result<()> {
     #[cfg(target_os = "linux")]

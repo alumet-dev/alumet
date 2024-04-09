@@ -1,3 +1,5 @@
+//! Implementation of the measurement pipeline.
+
 use std::collections::HashMap;
 use std::io;
 use std::ops::BitOrAssign;
