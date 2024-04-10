@@ -38,7 +38,12 @@ pub struct InaRailMetric {
 }
 
 pub struct JetsonInaSource {
-    all_sensor_channels: Vec<OpenedInaChannel>,
+    opened_sensors: Vec<OpenedInaSensor>,
+}
+
+pub struct OpenedInaSensor {
+    i2c_id: String,
+    channels: Vec<OpenedInaChannel>,
 }
 
 pub struct OpenedInaChannel {
@@ -59,8 +64,9 @@ pub struct OpenedInaMetric {
 
 impl JetsonInaSource {
     pub fn open_sensors(sensors: Vec<InaSensor>, alumet: &mut AlumetStart) -> anyhow::Result<JetsonInaSource> {
-        let mut all_sensor_channels = Vec::with_capacity(4);
+        let mut opened_sensors = Vec::with_capacity(4);
         for sensor in sensors {
+            let mut sensor_opened_channels = Vec::with_capacity(sensor.channels.len());
             for channel in sensor.channels {
                 let metrics: anyhow::Result<Vec<OpenedInaMetric>> = channel
                     .metrics
@@ -89,10 +95,14 @@ impl JetsonInaSource {
                     description: channel.description.unwrap_or(String::from("")),
                     metrics: metrics?,
                 };
-                all_sensor_channels.push(opened_chan);
+                sensor_opened_channels.push(opened_chan);
             }
+            opened_sensors.push(OpenedInaSensor {
+                i2c_id: sensor.i2c_id,
+                channels: sensor_opened_channels,
+            })
         }
-        Ok(JetsonInaSource { all_sensor_channels })
+        Ok(JetsonInaSource { opened_sensors })
     }
 }
 
@@ -100,29 +110,32 @@ impl alumet::pipeline::Source for JetsonInaSource {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: SystemTime) -> Result<(), PollError> {
         let mut reading_buf = Vec::with_capacity(8);
 
-        for chan in &mut self.all_sensor_channels {
-            for m in &mut chan.metrics {
-                // read the file from the beginning
-                m.file.rewind()?;
-                m.file.read_to_end(&mut reading_buf)?;
+        for sensor in &mut self.opened_sensors {
+          for chan in &mut sensor.channels {
+                for m in &mut chan.metrics {
+                    // read the file from the beginning
+                    m.file.rewind()?;
+                    m.file.read_to_end(&mut reading_buf)?;
 
-                // parse the content of the file
-                let content = std::str::from_utf8(&reading_buf)?;
-                let value: u64 = content
-                    .trim_end()
-                    .parse()
-                    .with_context(|| format!("failed to parse {:?}: '{content}", m.file))?;
+                    // parse the content of the file
+                    let content = std::str::from_utf8(&reading_buf)?;
+                    let value: u64 = content
+                        .trim_end()
+                        .parse()
+                        .with_context(|| format!("failed to parse {:?}: '{content}", m.file))?;
 
-                // store the value and clear the buffer
-                measurements.push(
-                    MeasurementPoint::new(timestamp, m.metric_id, m.resource_id.clone(), value)
-                        .with_attr("jetson_ina_channel_label", AttributeValue::String(chan.label.clone()))
-                        .with_attr(
-                            "jetson_ina_channel_description",
-                            AttributeValue::String(chan.description.clone()),
-                        ),
-                );
-                reading_buf.clear();
+                    // store the value and clear the buffer
+                    measurements.push(
+                        MeasurementPoint::new(timestamp, m.metric_id, m.resource_id.clone(), value)
+                            .with_attr("jetson_ina_sensor", AttributeValue::String(sensor.i2c_id.clone()))
+                            .with_attr("jetson_ina_channel_label", AttributeValue::String(chan.label.clone()))
+                            .with_attr(
+                                "jetson_ina_channel_description",
+                                AttributeValue::String(chan.description.clone()),
+                            ),
+                    );
+                    reading_buf.clear();
+                }
             }
         }
         Ok(())
