@@ -85,7 +85,7 @@ use crate::measurement::{MeasurementType, WrappedMeasurementType};
 use crate::metrics::{Metric, MetricCreationError, MetricRegistry, RawMetricId, TypedMetricId};
 use crate::pipeline;
 use crate::pipeline::registry::ElementRegistry;
-use crate::units::{CustomUnit, CustomUnitId, CustomUnitRegistry, Unit, UnitCreationError};
+use crate::units::{CustomUnit, CustomUnitId, CustomUnitRegistry, PrefixedUnit, UnitCreationError};
 
 #[cfg(feature = "dynamic")]
 pub mod dynload;
@@ -183,7 +183,7 @@ impl AlumetStart<'_> {
     pub fn create_metric<T: MeasurementType>(
         &mut self,
         name: impl Into<String>,
-        unit: Unit,
+        unit: impl Into<PrefixedUnit>,
         description: impl Into<String>,
     ) -> Result<TypedMetricId<T>, MetricCreationError> {
         let m = Metric {
@@ -191,7 +191,7 @@ impl AlumetStart<'_> {
             name: name.into(),
             description: description.into(),
             value_type: T::wrapped_type(),
-            unit,
+            unit: unit.into(),
         };
         let untyped_id = self.metrics.register(m)?;
         Ok(TypedMetricId(untyped_id, PhantomData))
@@ -207,7 +207,7 @@ impl AlumetStart<'_> {
         &mut self,
         name: &str,
         value_type: WrappedMeasurementType,
-        unit: Unit,
+        unit: impl Into<PrefixedUnit>,
         description: &str,
     ) -> Result<RawMetricId, MetricCreationError> {
         let m = Metric {
@@ -215,7 +215,7 @@ impl AlumetStart<'_> {
             name: name.to_owned(),
             description: description.to_owned(),
             value_type,
-            unit,
+            unit: unit.into(),
         };
         self.metrics.register(m)
     }

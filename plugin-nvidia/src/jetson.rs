@@ -12,7 +12,7 @@ use alumet::{
     pipeline::PollError,
     plugin::AlumetStart,
     resources::ResourceId,
-    units::{ScaledUnit, Unit},
+    units::{PrefixedUnit, Unit},
 };
 use anyhow::{anyhow, Context};
 use regex::{Match, Regex};
@@ -33,7 +33,7 @@ pub struct InaChannel {
 
 pub struct InaRailMetric {
     path: PathBuf,
-    unit: ScaledUnit,
+    unit: PrefixedUnit,
     name: String,
 }
 
@@ -72,7 +72,7 @@ impl JetsonInaSource {
                         };
                         let metric_id = alumet.create_metric(
                             format!("{}::{}", channel.label, m.name),
-                            m.unit.base_unit,
+                            m.unit,
                             metric_description,
                         )?;
                         let file = File::open(&m.path)
@@ -159,14 +159,14 @@ fn detect_hierarchy_modern<P: AsRef<Path>>(sys_ina: P) -> anyhow::Result<Vec<Ina
         Err(anyhow!("not found"))
     }
 
-    fn guess_channel_unit(prefix: &Option<Match>) -> Option<ScaledUnit> {
+    fn guess_channel_unit(prefix: &Option<Match>) -> Option<PrefixedUnit> {
         let prefix = prefix.unwrap().as_str();
         match prefix {
-            "curr" => Some(ScaledUnit::milli(Unit::Ampere)),
-            "in" => Some(ScaledUnit::milli(Unit::Volt)),
-            "crit" => Some(ScaledUnit::milli(Unit::Ampere)),
-            _ if prefix.contains("volt") => Some(ScaledUnit::milli(Unit::Volt)),
-            _ if prefix.contains("current") => Some(ScaledUnit::milli(Unit::Ampere)),
+            "curr" => Some(PrefixedUnit::milli(Unit::Ampere)),
+            "in" => Some(PrefixedUnit::milli(Unit::Volt)),
+            "crit" => Some(PrefixedUnit::milli(Unit::Ampere)),
+            _ if prefix.contains("volt") => Some(PrefixedUnit::milli(Unit::Volt)),
+            _ if prefix.contains("current") => Some(PrefixedUnit::milli(Unit::Ampere)),
             _ => None,
         }
     }
@@ -198,14 +198,14 @@ fn detect_hierarchy_modern<P: AsRef<Path>>(sys_ina: P) -> anyhow::Result<Vec<Ina
 ///
 /// The standard `sys_ina` looks like `/sys/bus/i2c/drivers/ina3221x/7-0040/iio:device0`
 fn detect_hierarchy_old_v4<P: AsRef<Path>>(sys_ina: P) -> anyhow::Result<Vec<InaSensor>> {
-    fn guess_channel_unit(prefix: &Option<Match>) -> Option<ScaledUnit> {
+    fn guess_channel_unit(prefix: &Option<Match>) -> Option<PrefixedUnit> {
         let prefix = prefix.unwrap().as_str();
         if prefix.contains("current") {
-            Some(ScaledUnit::milli(Unit::Ampere))
+            Some(PrefixedUnit::milli(Unit::Ampere))
         } else if prefix.contains("voltage") {
-            Some(ScaledUnit::milli(Unit::Volt))
+            Some(PrefixedUnit::milli(Unit::Volt))
         } else if prefix.contains("power") {
-            Some(ScaledUnit::milli(Unit::Watt))
+            Some(PrefixedUnit::milli(Unit::Watt))
         } else {
             None
         }
@@ -252,7 +252,7 @@ fn detect_hierarchy<P: AsRef<Path>>(
     sys_ina: P,
     metric_filename_pattern: Regex,
     sensor_channels_dir: fn(sensor_path: &Path) -> anyhow::Result<PathBuf>,
-    guess_channel_unit: fn(prefix: &Option<Match>) -> Option<ScaledUnit>,
+    guess_channel_unit: fn(prefix: &Option<Match>) -> Option<PrefixedUnit>,
     is_label_file: fn(prefix: &Option<Match>, suffix: &Option<Match>) -> anyhow::Result<bool>,
     format_metric_name: fn(prefix: &Option<Match>, suffix: &Option<Match>) -> String,
 ) -> anyhow::Result<Vec<InaSensor>> {

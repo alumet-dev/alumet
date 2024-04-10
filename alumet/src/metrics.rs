@@ -46,7 +46,7 @@ use std::marker::PhantomData;
 use std::sync::OnceLock;
 
 use super::measurement::{MeasurementType, WrappedMeasurementType};
-use super::units::Unit;
+use super::units::PrefixedUnit;
 
 /// The complete definition of a metric.
 ///
@@ -66,7 +66,7 @@ pub struct Metric {
     /// Type of measurement, wrapped in an enum.
     pub value_type: WrappedMeasurementType,
     /// Unit that applies to all the measurements of this metric.
-    pub unit: Unit,
+    pub unit: PrefixedUnit,
 }
 
 /// Trait for both typed and untyped metric ids.
@@ -314,7 +314,7 @@ mod tests {
                 name: "metric".to_owned(),
                 description: "...".to_owned(),
                 value_type: WrappedMeasurementType::U64,
-                unit: Unit::Watt,
+                unit: Unit::Watt.into(),
             })
             .unwrap();
         metrics
@@ -323,7 +323,7 @@ mod tests {
                 name: "metric".to_owned(),
                 description: "abcd".to_owned(),
                 value_type: WrappedMeasurementType::F64,
-                unit: Unit::Volt,
+                unit: Unit::Volt.into(),
             })
             .unwrap_err();
         assert_eq!(metrics.len(), 1);
@@ -339,7 +339,7 @@ mod tests {
                 name: "metric".to_owned(),
                 description: "".to_owned(),
                 value_type: WrappedMeasurementType::U64,
-                unit: Unit::Watt,
+                unit: Unit::Watt.into(),
             })
             .unwrap();
         let metric_id2 = metrics
@@ -348,7 +348,7 @@ mod tests {
                 name: "metric2".to_owned(),
                 description: "".to_owned(),
                 value_type: WrappedMeasurementType::F64,
-                unit: Unit::Watt,
+                unit: Unit::Watt.into(),
             })
             .unwrap();
         assert_eq!(metrics.len(), 2);
@@ -376,14 +376,14 @@ mod tests {
             name: "metric".to_owned(),
             description: "time...".to_owned(),
             value_type: WrappedMeasurementType::U64,
-            unit: Unit::Second,
+            unit: Unit::Second.into(),
         };
         let id: RawMetricId = metrics.register(m).unwrap();
         MetricRegistry::init_global(metrics);
         let metric = MetricRegistry::global().with_id(&id).unwrap();
         assert_eq!("metric", &metric.name);
         assert_eq!(WrappedMeasurementType::U64, metric.value_type);
-        assert_eq!(Unit::Second, metric.unit);
+        assert_eq!(Unit::Second, metric.unit.base_unit);
         assert_eq!("time...", metric.description);
     }
 }

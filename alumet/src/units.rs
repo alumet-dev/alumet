@@ -57,9 +57,21 @@ pub enum Unit {
 /// let milliA = ScaledUnit::milli(Unit::Ampere);
 /// let nanoSec = ScaledUnit::nano(Unit::Second);
 /// ```
-pub struct ScaledUnit {
+#[derive(Debug)]
+pub struct PrefixedUnit {
     pub base_unit: Unit,
-    pub scale: f64,
+    pub prefix: UnitPrefix,
+}
+
+#[derive(Debug)]
+pub enum UnitPrefix {
+    Nano,
+    Micro,
+    Milli,
+    Plain,
+    Kilo,
+    Mega,
+    Giga,
 }
 
 /// Id of a custom unit.
@@ -129,8 +141,8 @@ impl Unit {
         }
     }
 
-    fn scaled(self, scale: f64) -> ScaledUnit {
-        ScaledUnit { base_unit: self, scale }
+    fn with_prefix(self, scale: UnitPrefix) -> PrefixedUnit {
+        PrefixedUnit { base_unit: self, prefix: scale }
     }
 }
 
@@ -164,33 +176,72 @@ impl Display for Unit {
     }
 }
 
-impl ScaledUnit {
+impl PrefixedUnit {
     // scale down
 
-    pub fn milli(unit: Unit) -> ScaledUnit {
-        unit.scaled(1e-3)
+    pub fn milli(unit: Unit) -> PrefixedUnit {
+        unit.with_prefix(UnitPrefix::Milli)
     }
 
-    pub fn micro(unit: Unit) -> ScaledUnit {
-        unit.scaled(1e-6)
+    pub fn micro(unit: Unit) -> PrefixedUnit {
+        unit.with_prefix(UnitPrefix::Micro)
     }
 
-    pub fn nano(unit: Unit) -> ScaledUnit {
-        unit.scaled(1e-9)
+    pub fn nano(unit: Unit) -> PrefixedUnit {
+        unit.with_prefix(UnitPrefix::Nano)
     }
 
     // scale up
 
-    pub fn kilo(unit: Unit) -> ScaledUnit {
-        unit.scaled(1e+3)
+    pub fn kilo(unit: Unit) -> PrefixedUnit {
+        unit.with_prefix(UnitPrefix::Kilo)
     }
 
-    pub fn mega(unit: Unit) -> ScaledUnit {
-        unit.scaled(1e+6)
+    pub fn mega(unit: Unit) -> PrefixedUnit {
+        unit.with_prefix(UnitPrefix::Mega)
     }
 
-    pub fn giga(unit: Unit) -> ScaledUnit {
-        unit.scaled(1e+9)
+    pub fn giga(unit: Unit) -> PrefixedUnit {
+        unit.with_prefix(UnitPrefix::Giga)
+    }
+
+    // methods
+    pub fn unique_name(&self) -> String {
+        let prefix = match self.prefix {
+            UnitPrefix::Nano => "nano",
+            UnitPrefix::Micro => "micro",
+            UnitPrefix::Milli => "milli",
+            UnitPrefix::Plain => "",
+            UnitPrefix::Kilo => "kilo",
+            UnitPrefix::Mega => "mega",
+            UnitPrefix::Giga => "giga",
+        };
+        format!("{prefix}{}", self.base_unit.unique_name())
+    }
+
+    pub fn display_name(&self) -> String {
+        format!("{self}")
+    }
+}
+
+impl From<Unit> for PrefixedUnit {
+    fn from(value: Unit) -> Self {
+        value.with_prefix(UnitPrefix::Plain)
+    }
+}
+
+impl Display for PrefixedUnit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let prefix = match self.prefix {
+            UnitPrefix::Nano => "n",
+            UnitPrefix::Micro => "μ",
+            UnitPrefix::Milli => "m",
+            UnitPrefix::Plain => "",
+            UnitPrefix::Kilo => "k",
+            UnitPrefix::Mega => "M",
+            UnitPrefix::Giga => "G",
+        };
+        write!(f, "{prefix}{}", self.base_unit)
     }
 }
 
