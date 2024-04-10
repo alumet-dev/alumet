@@ -1,6 +1,6 @@
-use alumet::units::Unit;
+use alumet::{pipeline::Source, units::Unit};
 
-use crate::{consistency::check_domains_consistency, perf_event::PerfEventProbe};
+use crate::{consistency::check_domains_consistency, perf_event::PerfEventProbe, powercap::PowercapProbe};
 
 mod consistency;
 mod cpus;
@@ -43,8 +43,17 @@ impl alumet::plugin::Plugin for RaplPlugin {
             }
         }
         log::debug!("Events to read: {events_on_cpus:?}");
-        let probe = PerfEventProbe::new(metric, &events_on_cpus)?;
-        alumet.add_source(Box::new(probe));
+        let source: Box<dyn Source> = match PerfEventProbe::new(metric, &events_on_cpus) {
+            Ok(perf_event_probe) => Box::new(perf_event_probe),
+            Err(_) => {
+                // perf_events failed, log an error and try powercap instead
+                log::error!("I could not use perf_events to read RAPL energy counters.");
+                // TODO print some hints about permissions, setcap, sysctl -w perf_event_paranoid
+                // TODO print how to configure alumet to disable this error.
+                Box::new(PowercapProbe::new(metric, &available_domains.power_zones)?)
+            },
+        };
+        alumet.add_source(source);
         Ok(())
     }
 

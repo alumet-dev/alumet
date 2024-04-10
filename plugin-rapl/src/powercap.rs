@@ -164,7 +164,7 @@ struct OpenedZone {
 }
 
 impl PowercapProbe {
-    pub fn new(metric: TypedMetricId<f64>, zones: &[&PowerZone]) -> anyhow::Result<PowercapProbe> {
+    pub fn new(metric: TypedMetricId<f64>, zones: &[PowerZone]) -> anyhow::Result<PowercapProbe> {
         if zones.is_empty() {
             return Err(anyhow!("At least one power zone is required for PowercapProbe"))?;
         }
