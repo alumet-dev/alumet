@@ -31,7 +31,10 @@ impl alumet::plugin::Plugin for NvidiaPlugin {
     }
 }
 
-/// Set up the NVML collection.
+/// Set up the collection of measurements with NVML.
+/// 
+/// This works on a device that has a desktop-class or server-class NVIDIA GPU.
+/// For Jetson edge devices, use [`start_jetson`] instead.
 #[cfg(feature = "nvml")]
 fn start_nvml(alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
     let nvml = nvml::NvmlDevices::detect(true)?;
@@ -57,6 +60,9 @@ fn start_nvml(alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Set up the collection of measurements on a Jetson edge device.
+/// 
+/// This works by querying the embedded INA sensor(s).
 #[cfg(feature = "jetson")]
 fn start_jetson(alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
     let sensors = jetson::detect_ina_sensors()?;

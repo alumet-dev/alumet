@@ -14,6 +14,7 @@ use anyhow::Context;
 use nvml_wrapper::{error::NvmlError, Device, Nvml};
 use nvml_wrapper_sys::bindings::nvmlDevice_t;
 
+/// Detected NVML devices.
 pub struct NvmlDevices {
     pub devices: Vec<Option<ManagedDevice>>,
 }
@@ -29,12 +30,14 @@ pub struct ManagedDevice {
     pub features: OptionalFeatures,
 }
 
+/// Statistics about the device detection.
 pub struct DetectionStats {
     pub found_devices: usize,
     pub failed_devices: usize,
     pub working_devices: usize,
 }
 
+/// Measurement source that queries NVML devices.
 pub struct NvmlSource {
     /// Internal state to compute the difference between two increments of the counter.
     energy_counter: CounterDiff,
@@ -121,6 +124,7 @@ impl alumet::pipeline::Source for NvmlSource {
     }
 }
 
+/// Contains the ids of the measured metrics.
 #[derive(Clone)]
 pub struct Metrics {
     total_energy_consumption: TypedMetricId<f64>,
@@ -168,6 +172,7 @@ impl Metrics {
     }
 }
 
+/// Indicates which features are available on a given NVML device.
 pub struct OptionalFeatures {
     total_energy_consumption: bool,
     instant_power: bool,
@@ -178,6 +183,7 @@ pub struct OptionalFeatures {
     running_graphics_processes: AvailableVersion,
 }
 
+/// Indicates which version of a NVML function is available on a given device.
 #[derive(PartialEq, Eq)]
 pub enum AvailableVersion {
     Latest,

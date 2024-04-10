@@ -17,12 +17,18 @@ use alumet::{
 use anyhow::{anyhow, Context};
 use regex::{Match, Regex};
 
+/// Detected INA sensor.
 pub struct InaSensor {
+    /// Path to the sysfs directory of the sensor.
     path: PathBuf,
+    /// I2C id of the sensor.
     i2c_id: String,
+    /// Channels available on this sensor.
+    /// Each INA3221 has at least one channel.
     channels: Vec<InaChannel>,
 }
 
+/// Detected INA channel.
 pub struct InaChannel {
     id: u32,
     label: String,
@@ -31,27 +37,32 @@ pub struct InaChannel {
     description: Option<String>,
 }
 
+/// Detected metric available in a channel.
 pub struct InaRailMetric {
     path: PathBuf,
     unit: PrefixedUnit,
     name: String,
 }
 
+/// Measurement source that queries the embedded INA3221 sensor of a Jetson device.
 pub struct JetsonInaSource {
     opened_sensors: Vec<OpenedInaSensor>,
 }
 
+/// A sensor that has been "opened" for reading.
 pub struct OpenedInaSensor {
     i2c_id: String,
     channels: Vec<OpenedInaChannel>,
 }
 
+/// A channel that has been "opened" for reading.
 pub struct OpenedInaChannel {
     label: String,
     description: String,
     metrics: Vec<OpenedInaMetric>,
 }
 
+/// A channel metric that has been "opened" for reading.
 pub struct OpenedInaMetric {
     /// Id of the metric registered in Alumet.
     /// The INA sensors provides integer values.
@@ -142,6 +153,9 @@ impl alumet::pipeline::Source for JetsonInaSource {
     }
 }
 
+/// Returns a list of all the INA sensors available on the machine.
+/// 
+/// This function supports multiple version of the NVIDIA Jetpack SDK.
 pub fn detect_ina_sensors() -> anyhow::Result<Vec<InaSensor>> {
     let mut res = detect_hierarchy_modern(SYSFS_INA)?;
     if res.is_empty() {
@@ -261,6 +275,7 @@ fn detect_hierarchy_old_v4<P: AsRef<Path>>(sys_ina: P) -> anyhow::Result<Vec<Ina
     )
 }
 
+/// Detection function, common to all Jetpack versions.
 fn detect_hierarchy<P: AsRef<Path>>(
     sys_ina: P,
     metric_filename_pattern: Regex,
