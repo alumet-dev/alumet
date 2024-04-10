@@ -1,10 +1,16 @@
 use std::{
-    collections::HashMap, fs::File, io::ErrorKind, path::{Path, PathBuf}
+    collections::HashMap,
+    fs::File,
+    io::ErrorKind,
+    path::{Path, PathBuf},
 };
 
-use alumet::{metrics::TypedMetricId, units::{ScaledUnit, Unit}};
+use alumet::{
+    metrics::TypedMetricId,
+    units::{ScaledUnit, Unit},
+};
 use anyhow::{anyhow, Context};
-use regex::Regex;
+use regex::{Match, Regex};
 
 pub struct InaSensor {
     path: PathBuf,
@@ -25,10 +31,10 @@ pub struct InaRailMetric {
     description: Option<String>,
 }
 
-// pub struct OpenedInaMetric {
-//     file: File,
-//     id: TypedMetricId<u64>,
-// }
+pub struct OpenedInaMetric {
+    id: TypedMetricId<u64>,
+    file: File,
+}
 
 pub fn detect_ina_sensors() -> anyhow::Result<Vec<InaSensor>> {
     let mut res = detect_hierarchy_modern(SYSFS_INA)?;
@@ -41,6 +47,9 @@ pub fn detect_ina_sensors() -> anyhow::Result<Vec<InaSensor>> {
 const SYSFS_INA_OLD: &str = "/sys/bus/i2c/drivers/ina3221x";
 const SYSFS_INA: &str = "/sys/bus/i2c/drivers/ina3221";
 
+/// Detect the available INA sensors, assuming that Nvidia Jetpack version >= 5.0 is installed.
+///
+/// The standard `sys_ina` looks like `/sys/bus/i2c/drivers/ina3221x/7-0040/iio:device0`.
 fn detect_hierarchy_modern<P: AsRef<Path>>(sys_ina: P) -> anyhow::Result<Vec<InaSensor>> {
     /// Look for a path of the form <sensor_path>/hwmon/hwmon<id>
     fn sensor_channels_dir(sensor_path: &Path) -> anyhow::Result<PathBuf> {
@@ -57,23 +66,106 @@ fn detect_hierarchy_modern<P: AsRef<Path>>(sys_ina: P) -> anyhow::Result<Vec<Ina
         Err(anyhow!("not found"))
     }
 
-    /// Look for channels and metrics.
-    ///
-    /// ## Arguments
-    /// - `channels_dir`: path of the form <sensor_path>/hwmon/hwmon<id>
-    fn sensor_channels(channels_dir: &Path) -> anyhow::Result<Vec<InaChannel>> {
-        fn guess_channel_unit(prefix: &str, _suffix: &str) -> Option<ScaledUnit> {
-            match prefix {
-                "curr" => Some(ScaledUnit::milli(Unit::Ampere)),
-                "in" => Some(ScaledUnit::milli(Unit::Volt)),
-                "crit" => Some(ScaledUnit::milli(Unit::Ampere)),
-                _ if prefix.contains("volt") => Some(ScaledUnit::milli(Unit::Volt)),
-                _ if prefix.contains("current") => Some(ScaledUnit::milli(Unit::Ampere)),
-                _ => None,
+    fn guess_channel_unit(prefix: &Option<Match>) -> Option<ScaledUnit> {
+        let prefix = prefix.unwrap().as_str();
+        match prefix {
+            "curr" => Some(ScaledUnit::milli(Unit::Ampere)),
+            "in" => Some(ScaledUnit::milli(Unit::Volt)),
+            "crit" => Some(ScaledUnit::milli(Unit::Ampere)),
+            _ if prefix.contains("volt") => Some(ScaledUnit::milli(Unit::Volt)),
+            _ if prefix.contains("current") => Some(ScaledUnit::milli(Unit::Ampere)),
+            _ => None,
+        }
+    }
+
+    fn is_label_file(prefix: &Option<Match>, suffix: &Option<Match>) -> anyhow::Result<bool> {
+        let prefix = prefix.context("parsing failed: missing prefix")?.as_str();
+        let suffix = suffix.context("parsing failed: missing suffix")?.as_str();
+        Ok(prefix == "in" && suffix == "label")
+    }
+
+    fn format_metric_name(prefix: &Option<Match>, suffix: &Option<Match>) -> String {
+        format!("{}_{}", prefix.unwrap().as_str(), suffix.unwrap().as_str())
+    }
+
+    let metric_filename_pattern = Regex::new(r"(?<prefix>[a-zA-Z]+)(?<id>\d+)_(?<suffix>[a-zA-Z]+)")?;
+
+    detect_hierarchy(
+        sys_ina,
+        metric_filename_pattern,
+        sensor_channels_dir,
+        guess_channel_unit,
+        is_label_file,
+        format_metric_name,
+    )
+}
+
+/// Detect the available INA sensors, assuming that Nvidia Jetpack version 4.x is installed.
+/// The hierarchy is subtly different in that case, and the metric and label files have different names than in v5+.
+///
+/// The standard `sys_ina` looks like `/sys/bus/i2c/drivers/ina3221x/7-0040/iio:device0`
+fn detect_hierarchy_old_v4<P: AsRef<Path>>(sys_ina: P) -> anyhow::Result<Vec<InaSensor>> {
+    fn guess_channel_unit(prefix: &Option<Match>) -> Option<ScaledUnit> {
+        let prefix = prefix.unwrap().as_str();
+        if prefix.contains("current") {
+            Some(ScaledUnit::milli(Unit::Ampere))
+        } else if prefix.contains("voltage") {
+            Some(ScaledUnit::milli(Unit::Volt))
+        } else if prefix.contains("power") {
+            Some(ScaledUnit::milli(Unit::Watt))
+        } else {
+            None
+        }
+    }
+
+    /// Look for a path of the form <sensor_path>/iio:device<id>
+    fn sensor_channels_dir(sensor_path: &Path) -> anyhow::Result<PathBuf> {
+        for child in std::fs::read_dir(sensor_path)? {
+            let child = child?;
+            let path = child.path();
+            if path.file_name().unwrap().to_string_lossy().starts_with("iio:device") {
+                return Ok(path);
             }
         }
+        Err(anyhow!("not found"))
+    }
 
-        let metric_filename_pattern = Regex::new(r"([a-zA-Z]+)(\d+)_([a-zA-Z]+)")?;
+    fn is_label_file(prefix: &Option<Match>, suffix: &Option<Match>) -> anyhow::Result<bool> {
+        let prefix = prefix.context("parsing failed: missing prefix")?.as_str();
+        Ok(prefix == "rail_name" && suffix.is_none())
+    }
+
+    fn format_metric_name(prefix: &Option<Match>, suffix: &Option<Match>) -> String {
+        let prefix = prefix.unwrap().as_str();
+        match suffix {
+            Some(suffix_match) => format!("{prefix}{}", suffix_match.as_str()),
+            None => prefix.to_string(),
+        }
+    }
+
+    let metric_filename_pattern = Regex::new(r"(?<prefix>[a-zA-Z_]+?)_?(?<id>\d+)(?<suffix>_([a-zA-Z]+))?")?;
+
+    detect_hierarchy(
+        sys_ina,
+        metric_filename_pattern,
+        sensor_channels_dir,
+        guess_channel_unit,
+        is_label_file,
+        format_metric_name,
+    )
+}
+
+fn detect_hierarchy<P: AsRef<Path>>(
+    sys_ina: P,
+    metric_filename_pattern: Regex,
+    sensor_channels_dir: fn(sensor_path: &Path) -> anyhow::Result<PathBuf>,
+    guess_channel_unit: fn(prefix: &Option<Match>) -> Option<ScaledUnit>,
+    is_label_file: fn(prefix: &Option<Match>, suffix: &Option<Match>) -> anyhow::Result<bool>,
+    format_metric_name: fn(prefix: &Option<Match>, suffix: &Option<Match>) -> String,
+) -> anyhow::Result<Vec<InaSensor>> {
+    // Look for channels and metrics.
+    // - `channels_dir`: path of the form <sensor_path>/hwmon/hwmon<id>
+    let sensor_channels = |channels_dir: &Path| -> anyhow::Result<Vec<InaChannel>> {
         let mut channel_metrics = HashMap::with_capacity(2);
         let mut channel_labels = HashMap::with_capacity(2);
         for entry in std::fs::read_dir(channels_dir)? {
@@ -81,17 +173,23 @@ fn detect_hierarchy_modern<P: AsRef<Path>>(sys_ina: P) -> anyhow::Result<Vec<Ina
             let path = entry.path();
             let filename = path.file_name().unwrap().to_string_lossy().to_string();
             if let Some(groups) = metric_filename_pattern.captures(&filename) {
-                let (prefix, suffix) = (&groups[1], &groups[3]);
-                let channel_id: u32 = groups[2]
+                // Extract the prefix, suffix and channel id.
+                let (prefix, suffix) = (&groups.name("prefix"), &groups.name("suffix"));
+                let channel_id: u32 = groups["id"]
                     .parse()
-                    .with_context(|| format!("Invalid channel id: {}", &groups[2]))?;
-                if prefix == "in" && suffix == "label" {
+                    .with_context(|| format!("Invalid channel id: {}", &groups["id"]))?;
+
+                // Determine whether the file contains the label of the channel, or a metric.
+                let is_label = is_label_file(prefix, suffix)
+                    .with_context(|| format!("Failed to parse filename of INA metric: {}", filename))?;
+
+                if is_label {
                     // This file contains the label of the channel.
                     let label = std::fs::read_to_string(path)?;
                     channel_labels.insert(channel_id, label);
                 } else {
                     // This file contains the (automatically updated) value of a metric.
-                    let unit = guess_channel_unit(prefix, suffix).with_context(|| {
+                    let unit = guess_channel_unit(prefix).with_context(|| {
                         format!(
                             "Could not guess the unit of this unknown INA3221 metric: {}",
                             path.display()
@@ -99,11 +197,11 @@ fn detect_hierarchy_modern<P: AsRef<Path>>(sys_ina: P) -> anyhow::Result<Vec<Ina
                     })?;
                     channel_metrics
                         .entry(channel_id)
-                        .or_insert_with(|| Vec::with_capacity(4))
+                        .or_insert_with(|| Vec::with_capacity(5))
                         .push(InaRailMetric {
                             path,
                             unit,
-                            name: format!("{prefix}_{suffix}"),
+                            name: format_metric_name(prefix, suffix),
                             description: None,
                         })
                 }
@@ -117,7 +215,7 @@ fn detect_hierarchy_modern<P: AsRef<Path>>(sys_ina: P) -> anyhow::Result<Vec<Ina
             })
             .collect();
         Ok(res)
-    }
+    };
 
     let dir_path: &Path = sys_ina.as_ref();
     let mut sensors = Vec::new();
@@ -150,106 +248,6 @@ fn detect_hierarchy_modern<P: AsRef<Path>>(sys_ina: P) -> anyhow::Result<Vec<Ina
     Ok(sensors)
 }
 
-fn detect_hierarchy_old_v4<P: AsRef<Path>>(old_sys_ina: P) -> anyhow::Result<Vec<InaSensor>> {
-    fn guess_channel_unit(prefix: &str, _suffix: &Option<regex::Match>) -> Option<ScaledUnit> {
-        if prefix.contains("current") {
-            Some(ScaledUnit::milli(Unit::Ampere))
-        } else if prefix.contains("voltage") {
-            Some(ScaledUnit::milli(Unit::Volt))
-        } else if prefix.contains("power") {
-            Some(ScaledUnit::milli(Unit::Watt))
-        } else {
-            None
-        }
-    }
-
-    /// Look for a path of the form <sensor_path>/iio:device<id>
-    fn sensor_channels_dir(sensor_path: &Path) -> anyhow::Result<PathBuf> {
-        for child in std::fs::read_dir(sensor_path)? {
-            let child = child?;
-            let path = child.path();
-            if path.file_name().unwrap().to_string_lossy().starts_with("iio:device") {
-                return Ok(path);
-            }
-        }
-        Err(anyhow!("not found"))
-    }
-
-    /// Look for channels and metrics.
-    ///
-    /// ## Arguments
-    /// - `channels_dir`: path of the form <sensor_path>/iio:device<id>
-    fn sensor_channels(channels_dir: &Path) -> anyhow::Result<Vec<InaChannel>> {
-        let metric_filename_pattern = Regex::new(r"(?<prefix>[a-zA-Z_]+?)_?(?<id>\d+)(?<suffix>_([a-zA-Z]+))?")?;
-        let mut channel_metrics = HashMap::with_capacity(2);
-        let mut channel_labels = HashMap::with_capacity(2);
-        for entry in std::fs::read_dir(channels_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            let filename = path.file_name().unwrap().to_string_lossy();
-            if let Some(groups) = metric_filename_pattern.captures(&filename) {
-                let (prefix, suffix) = (&groups["prefix"], groups.name("suffix"));
-                let channel_id: u32 = groups["id"]
-                    .parse()
-                    .with_context(|| format!("Invalid channel id: {}", &groups["id"]))?;
-                if prefix == "rail_name" && suffix == None {
-                    // This file contains the label of the channel.
-                    let label = std::fs::read_to_string(path)?;
-                    channel_labels.insert(channel_id, label);
-                } else {
-                    // This file contains the (automatically updated) value of a metric.
-                    let unit = guess_channel_unit(prefix, &suffix).with_context(|| {
-                        format!(
-                            "Could not guess the unit of this unknown INA3221 metric: {}",
-                            path.display()
-                        )
-                    })?;
-                    let name = match suffix {
-                        Some(suffix_match) => format!("{prefix}{}", suffix_match.as_str()),
-                        None => prefix.to_string(),
-                    };
-                    channel_metrics
-                        .entry(channel_id)
-                        .or_insert_with(|| Vec::with_capacity(5))
-                        .push(InaRailMetric {
-                            path,
-                            unit,
-                            name,
-                            description: None,
-                        })
-                }
-            }
-        }
-        let res = channel_metrics
-            .into_iter()
-            .map(|(id, metrics)| InaChannel {
-                label: channel_labels.get(&id).map_or_else(|| "?", |v| v).to_owned(),
-                metrics,
-            })
-            .collect();
-        Ok(res)
-    }
-
-    let mut sensors = Vec::new();
-    for entry in std::fs::read_dir(old_sys_ina)? {
-        let entry = entry?;
-        if entry.metadata()?.is_dir() {
-            // Each subdirectory corresponds to one INA 3221 sensor.
-            let path = entry.path();
-            // The name of the directory corresponds to the i2c id.
-            let i2c_id = path.file_name().unwrap().to_str().unwrap().to_owned();
-            // Discover all the sensor channels (with their metrics).
-            let channels = sensor_channels(&sensor_channels_dir(&path)?)?;
-            sensors.push(InaSensor { path, channels, i2c_id });
-        }
-    }
-    Ok(sensors)
-}
-
-// - `/sys/bus/i2c/drivers/ina3221x/7-0040/iio:device0`
-// - `/sys/bus/i2c/drivers/ina3221x/1-0041/iio:device1`
-// - `/sys/bus/i2c/drivers/ina3221/1-0040/hwmon/hwmon<x>`
-// - `/sys/bus/i2c/drivers/ina3221/1-0041/hwmon/hwmon<y>
 #[cfg(test)]
 mod tests {
     use crate::jetson::detect_hierarchy_old_v4;
