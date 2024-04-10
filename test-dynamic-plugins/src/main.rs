@@ -63,7 +63,7 @@ fn run_with_plugin(
 
     // start the pipeline and wait for the tasks to finish
     println!("[app] Starting the pipeline...");
-    let pipeline = MeasurementPipeline::with_settings(startup.pipeline_elements, apply_source_settings).start(startup.metrics);
+    let pipeline = MeasurementPipeline::with_settings(startup.pipeline_elements, apply_source_settings).start(startup.metrics, startup.units);
 
     println!("[app] pipeline started");
 

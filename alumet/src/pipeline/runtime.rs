@@ -14,6 +14,7 @@ use tokio::task::JoinHandle;
 use tokio::{runtime::Runtime, sync::watch};
 use tokio_stream::StreamExt;
 
+use crate::units::CustomUnitRegistry;
 use crate::{
     measurement::MeasurementBuffer,
     metrics::MetricRegistry,
@@ -159,9 +160,10 @@ impl MeasurementPipeline {
     }
 
     /// Starts the measurement pipeline and returns a controller for it.
-    pub fn start(self, metrics: MetricRegistry) -> RunningPipeline {
-        // set the global metric registry, which can be accessed by the pipeline's elements (sources, transforms, outputs)
+    pub fn start(self, metrics: MetricRegistry, units: CustomUnitRegistry) -> RunningPipeline {
+        // Set the global registries, which can be accessed by the pipeline's elements (sources, transforms, outputs).
         MetricRegistry::init_global(metrics);
+        CustomUnitRegistry::init_global(units);
 
         // Create the runtimes
         let normal_runtime: Runtime = self.params.build_normal_runtime().unwrap();

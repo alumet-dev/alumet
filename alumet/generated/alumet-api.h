@@ -115,6 +115,11 @@ typedef struct AString {
 
 typedef void (*ForeachPointFn)(void*, const struct MeasurementPoint*);
 
+/**
+ * Id of a custom unit.
+ *
+ * Custom units can be registered by plugins using [`AlumetStart::create_unit`](crate::plugin::AlumetStart::create_unit).
+ */
 typedef struct CustomUnitId {
   uint32_t _0;
 } CustomUnitId;

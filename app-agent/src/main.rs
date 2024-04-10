@@ -42,7 +42,7 @@ fn main() {
     // start the pipeline and wait for the tasks to finish
     log::info!("Starting the pipeline...");
     let mut pipeline =
-        MeasurementPipeline::with_settings(startup.pipeline_elements, apply_source_settings).start(startup.metrics);
+        MeasurementPipeline::with_settings(startup.pipeline_elements, apply_source_settings).start(startup.metrics, startup.units);
 
     log::info!("Starting socket control...");
     let control = SocketControl::start_new(pipeline.control_handle()).expect("Control thread failed to start");
