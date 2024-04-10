@@ -182,14 +182,14 @@ impl AlumetStart<'_> {
     /// Fails if a metric with the same name already exists.
     pub fn create_metric<T: MeasurementType>(
         &mut self,
-        name: &str,
+        name: impl Into<String>,
         unit: Unit,
-        description: &str,
+        description: impl Into<String>,
     ) -> Result<TypedMetricId<T>, MetricCreationError> {
         let m = Metric {
             id: RawMetricId(usize::MAX),
-            name: name.to_owned(),
-            description: description.to_owned(),
+            name: name.into(),
+            description: description.into(),
             value_type: T::wrapped_type(),
             unit,
         };

@@ -1,12 +1,17 @@
 use std::{
     collections::HashMap,
     fs::File,
-    io::ErrorKind,
+    io::{ErrorKind, Read, Seek},
     path::{Path, PathBuf},
+    time::SystemTime,
 };
 
 use alumet::{
+    measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint},
     metrics::TypedMetricId,
+    pipeline::PollError,
+    plugin::AlumetStart,
+    resources::ResourceId,
     units::{ScaledUnit, Unit},
 };
 use anyhow::{anyhow, Context};
@@ -19,21 +24,109 @@ pub struct InaSensor {
 }
 
 pub struct InaChannel {
+    id: u32,
     label: String,
     metrics: Vec<InaRailMetric>,
+    // Added in a second pass based on the Jetson documentation. (TODO: fill it)
+    description: Option<String>,
 }
 
 pub struct InaRailMetric {
     path: PathBuf,
     unit: ScaledUnit,
     name: String,
-    // Added in a second pass based on the Jetson documentation.
-    description: Option<String>,
+}
+
+pub struct JetsonInaSource {
+    all_sensor_channels: Vec<OpenedInaChannel>,
+}
+
+pub struct OpenedInaChannel {
+    label: String,
+    description: String,
+    metrics: Vec<OpenedInaMetric>,
 }
 
 pub struct OpenedInaMetric {
-    id: TypedMetricId<u64>,
+    /// Id of the metric registered in Alumet.
+    /// The INA sensors provides integer values.
+    metric_id: TypedMetricId<u64>,
+    /// Id of the "resource" corresponding to the INA sensor.
+    resource_id: ResourceId,
+    /// The virtual file in the sysfs, opened for reading.
     file: File,
+}
+
+impl JetsonInaSource {
+    pub fn open_sensors(sensors: Vec<InaSensor>, alumet: &mut AlumetStart) -> anyhow::Result<JetsonInaSource> {
+        let mut all_sensor_channels = Vec::with_capacity(4);
+        for sensor in sensors {
+            for channel in sensor.channels {
+                let metrics: anyhow::Result<Vec<OpenedInaMetric>> = channel
+                    .metrics
+                    .into_iter()
+                    .map(|m| {
+                        let metric_description = match &channel.description {
+                            Some(desc) => format!("channel {} ({}); {}", channel.id, desc, m.name),
+                            None => format!("channel {}; {}", channel.id, m.name),
+                        };
+                        let metric_id = alumet.create_metric(
+                            format!("{}::{}", channel.label, m.name),
+                            m.unit.base_unit,
+                            metric_description,
+                        )?;
+                        let file = File::open(&m.path)
+                            .with_context(|| format!("Could not open virtual file {}", m.path.display()))?;
+                        Ok(OpenedInaMetric {
+                            metric_id,
+                            resource_id: ResourceId::LocalMachine,
+                            file,
+                        })
+                    })
+                    .collect();
+                let opened_chan = OpenedInaChannel {
+                    label: channel.label,
+                    description: channel.description.unwrap_or(String::from("")),
+                    metrics: metrics?,
+                };
+                all_sensor_channels.push(opened_chan);
+            }
+        }
+        Ok(JetsonInaSource { all_sensor_channels })
+    }
+}
+
+impl alumet::pipeline::Source for JetsonInaSource {
+    fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: SystemTime) -> Result<(), PollError> {
+        let mut reading_buf = Vec::with_capacity(8);
+
+        for chan in &mut self.all_sensor_channels {
+            for m in &mut chan.metrics {
+                // read the file from the beginning
+                m.file.rewind()?;
+                m.file.read_to_end(&mut reading_buf)?;
+
+                // parse the content of the file
+                let content = std::str::from_utf8(&reading_buf)?;
+                let value: u64 = content
+                    .trim_end()
+                    .parse()
+                    .with_context(|| format!("failed to parse {:?}: '{content}", m.file))?;
+
+                // store the value and clear the buffer
+                measurements.push(
+                    MeasurementPoint::new(timestamp, m.metric_id, m.resource_id.clone(), value)
+                        .with_attr("jetson_ina_channel_label", AttributeValue::String(chan.label.clone()))
+                        .with_attr(
+                            "jetson_ina_channel_description",
+                            AttributeValue::String(chan.description.clone()),
+                        ),
+                );
+                reading_buf.clear();
+            }
+        }
+        Ok(())
+    }
 }
 
 pub fn detect_ina_sensors() -> anyhow::Result<Vec<InaSensor>> {
@@ -202,7 +295,6 @@ fn detect_hierarchy<P: AsRef<Path>>(
                             path,
                             unit,
                             name: format_metric_name(prefix, suffix),
-                            description: None,
                         })
                 }
             }
@@ -210,8 +302,10 @@ fn detect_hierarchy<P: AsRef<Path>>(
         let res = channel_metrics
             .into_iter()
             .map(|(id, metrics)| InaChannel {
+                id,
                 label: channel_labels.get(&id).map_or_else(|| "?", |v| v).to_owned(),
                 metrics,
+                description: None, // added later
             })
             .collect();
         Ok(res)

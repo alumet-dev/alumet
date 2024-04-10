@@ -59,6 +59,8 @@ fn start_nvml(alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
 
 #[cfg(feature = "jetson")]
 fn start_jetson(alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
-    todo!();
+    let sensors = jetson::detect_ina_sensors()?;
+    let source = jetson::JetsonInaSource::open_sensors(sensors, alumet)?;
+    alumet.add_source(Box::new(source));
     Ok(())
 }
