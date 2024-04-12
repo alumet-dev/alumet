@@ -1,4 +1,4 @@
-use alumet::{pipeline::Source, units::Unit};
+use alumet::{pipeline::Source, plugin::rust::AlumetPlugin, units::Unit};
 
 use crate::{consistency::check_domains_consistency, perf_event::PerfEventProbe, powercap::PowercapProbe};
 
@@ -10,13 +10,17 @@ mod powercap;
 
 pub struct RaplPlugin;
 
-impl alumet::plugin::Plugin for RaplPlugin {
-    fn name(&self) -> &str {
+impl AlumetPlugin for RaplPlugin {
+    fn name() -> &'static str {
         "rapl"
     }
 
-    fn version(&self) -> &str {
+    fn version() -> &'static str {
         "0.1.0"
+    }
+    
+    fn init(config: &mut alumet::config::ConfigTable) -> anyhow::Result<Box<Self>> {
+        Ok(Box::new(RaplPlugin))
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {

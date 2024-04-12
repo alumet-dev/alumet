@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use alumet::pipeline::runtime::{ConfiguredSource, MeasurementPipeline, SourceType};
 use alumet::pipeline::trigger::TriggerProvider;
 use alumet::plugin::dynload::{initialize, load_cdylib, plugin_subconfig};
-use alumet::plugin::PluginStartup;
+use alumet::plugin::manage::PluginStartup;
 use alumet::pipeline::Source;
 
 fn main() {

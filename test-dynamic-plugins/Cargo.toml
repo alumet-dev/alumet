@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-alumet = { version = "0.1.0", path = "../alumet", features = ["dynamic"] }
+alumet = { version = "0.2.0", path = "../alumet", features = ["dynamic"] }
 pretty_assertions = "1.4.0"
 regex = "1.10.3"
 toml = "0.8.11"

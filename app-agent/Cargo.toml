@@ -11,5 +11,6 @@ alumet = { path = "../alumet" }
 anyhow = "1.0.79"
 env_logger = "0.11.2"
 log = "0.4.20"
-plugin-rapl = { version = "0.1.0", path = "../plugin-rapl" }
+plugin-rapl = { version = "0.2.0", path = "../plugin-rapl" }
 time = { version = "0.3.34", features = ["formatting"] }
+toml = "0.8.12"

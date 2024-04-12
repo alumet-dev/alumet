@@ -42,7 +42,7 @@
 //! cd my-plugin
 //! cargo add alumet anyhow
 //! ```
-//! 
+//!
 //! In your library, define a structure for your plugin, and implement the [`Plugin`] trait for it.
 //! ```no_run
 //! use alumet::plugin::{Plugin, AlumetStart};
@@ -73,7 +73,7 @@
 //! Finally, modify the measurement application in the following ways:
 //! 1. Add a dependency to your plugin crate (for example with `cargo add my-plugin --path=path/to/my-plugin`).
 //! 2. Modify your `main` to initialize and load the plugin.
-//! 
+//!
 //! ## Dynamic plugins
 //!
 //! WIP
@@ -87,23 +87,40 @@ use crate::pipeline;
 use crate::pipeline::registry::ElementRegistry;
 use crate::units::{CustomUnit, CustomUnitId, CustomUnitRegistry, PrefixedUnit, UnitCreationError};
 
+use self::rust::AlumetPlugin;
+
 #[cfg(feature = "dynamic")]
 pub mod dynload;
 
+pub mod manage;
+pub mod rust;
 pub(crate) mod version;
 
 /// Plugin metadata, and a function that allows to initialize the plugin.
-pub struct PluginInfo {
+pub struct PluginMetadata {
     pub name: String,
     pub version: String,
-    // todo try to avoid boxing here?
     pub init: Box<dyn FnOnce(&mut ConfigTable) -> anyhow::Result<Box<dyn Plugin>>>,
 }
 
-/// The ALUMET plugin trait.
+impl PluginMetadata {
+    pub fn from_static<P: AlumetPlugin + 'static>() -> Self {
+        Self {
+            name: P::name().to_owned(),
+            version: P::version().to_owned(),
+            init: Box::new(|conf| P::init(conf).map(|p| p as _)),
+        }
+    }
+}
+
+/// Trait for plugins.
 ///
-/// Plugins are a central part of ALUMET, because they produce, transform and export the measurements.
-/// Please refer to the [module documentation](self).
+/// ## Note for plugin authors
+///
+/// You should _not_ implement this trait manually.
+///
+/// If you are writing a plugin in Rust, implement [`AlumetPlugin`] instead.
+/// If you are writing a plugin in C, you need to define the right symbols in your shared library.
 pub trait Plugin {
     /// The name of the plugin. It must be unique: two plugins cannot have the same name.
     fn name(&self) -> &str;
@@ -123,40 +140,6 @@ pub trait Plugin {
     /// This method is called _after_ all the metrics, sources and outputs previously registered
     /// by [`Plugin::start`] have been stopped and unregistered.
     fn stop(&mut self) -> anyhow::Result<()>;
-}
-
-/// Helper for the plugin start-up phase.
-///
-/// This structure contains everything that is needed to start a
-/// list of plugins.
-pub struct PluginStartup {
-    /// Metrics registered by the plugins.
-    pub metrics: MetricRegistry,
-    /// Units registered by the plugins.
-    pub units: CustomUnitRegistry,
-    /// Pipeline elements registered by the plugins.
-    pub pipeline_elements: ElementRegistry,
-}
-
-impl PluginStartup {
-    pub fn new() -> Self {
-        Self {
-            metrics: MetricRegistry::new(),
-            units: CustomUnitRegistry::new(),
-            pipeline_elements: ElementRegistry::new(),
-        }
-    }
-
-    /// Starts a plugin by calling its [`start`](Plugin::start) method.
-    pub fn start(&mut self, plugin: &mut dyn Plugin) -> anyhow::Result<()> {
-        let mut start = AlumetStart {
-            metrics: &mut self.metrics,
-            units: &mut self.units,
-            pipeline_elements: &mut self.pipeline_elements,
-            current_plugin_name: plugin.name().to_owned(),
-        };
-        plugin.start(&mut start)
-    }
 }
 
 /// Structure passed to plugins for the start-up phase.

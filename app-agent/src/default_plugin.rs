@@ -1,14 +1,20 @@
+use alumet::plugin::rust::AlumetPlugin;
+
 use super::output_csv::CsvOutput;
 
 pub struct DefaultPlugin;
 
-impl alumet::plugin::Plugin for DefaultPlugin {
-    fn name(&self) -> &str {
+impl AlumetPlugin for DefaultPlugin {
+    fn name() -> &'static str {
         "default-plugin"
     }
 
-    fn version(&self) -> &str {
+    fn version() -> &'static str {
         "0.1.0"
+    }
+    
+    fn init(config: &mut alumet::config::ConfigTable) -> anyhow::Result<Box<Self>> {
+        Ok(Box::new(DefaultPlugin))
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {

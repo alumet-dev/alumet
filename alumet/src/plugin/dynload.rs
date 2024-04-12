@@ -12,7 +12,8 @@ use libc::c_void;
 use libloading::{Library, Symbol};
 
 use crate::ffi;
-use super::{version, AlumetStart, Plugin, PluginInfo};
+use super::{version, AlumetStart, Plugin};
+use crate::plugin::PluginMetadata;
 
 /// A plugin initialized from a dynamic library (aka. shared library).
 struct DylibPlugin {
@@ -143,7 +144,7 @@ pub struct PluginRegistry {
 /// ```
 /// and to prefix the symbols to export with the `PLUGIN_API` macro provided by the ALUMET header file,
 /// as shown above.
-pub fn load_cdylib(file: &Path) -> Result<PluginInfo, LoadError> {
+pub fn load_cdylib(file: &Path) -> Result<PluginMetadata, LoadError> {
     log::debug!("loading dynamic library {}", file.display());
 
     // load the library and the symbols we need to initialize the plugin
@@ -195,7 +196,7 @@ pub fn load_cdylib(file: &Path) -> Result<PluginInfo, LoadError> {
     let drop_fn = *sym_drop;
 
     // wrap the plugin info in a Rust struct, to allow the plugin to be initialized later
-    let initializable_info = PluginInfo {
+    let initializable_info = PluginMetadata {
         name: name.clone(),
         version: version.clone(),
         init: Box::new(move |config| {
@@ -225,14 +226,14 @@ pub fn load_cdylib(file: &Path) -> Result<PluginInfo, LoadError> {
 }
 
 /// Initializes a plugin, using its [`PluginInfo`] and config table (not the global configuration).
-pub fn initialize(plugin: PluginInfo, config: toml::Table) -> anyhow::Result<Box<dyn Plugin>> {
+pub fn initialize(plugin: PluginMetadata, config: toml::Table) -> anyhow::Result<Box<dyn Plugin>> {
     let mut ffi_config = ConfigTable::new(config).context("conversion to ffi-safe configuration failed")?;
     let plugin_instance = (plugin.init)(&mut ffi_config)?;
     Ok(plugin_instance)
 }
 
 /// Extracts the config table of a specific plugin from the global config.
-pub fn plugin_subconfig(plugin: &PluginInfo, global_config: &mut toml::Table) -> anyhow::Result<toml::Table> {
+pub fn plugin_subconfig(plugin: &PluginMetadata, global_config: &mut toml::Table) -> anyhow::Result<toml::Table> {
     let name = &plugin.name;
     let sub_config = global_config.remove(name);
     match sub_config {

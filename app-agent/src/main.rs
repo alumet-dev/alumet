@@ -1,13 +1,4 @@
-use std::time::{Duration, Instant};
-
-use alumet::metrics::MetricRegistry;
-use alumet::pipeline::{
-    registry::ElementRegistry,
-    runtime::{ConfiguredSource, MeasurementPipeline, SourceType},
-    trigger::TriggerProvider,
-    Source,
-};
-use alumet::plugin::{Plugin, PluginStartup};
+use alumet::agent::{static_plugins, AgentBuilder};
 
 use env_logger::Env;
 
@@ -23,78 +14,26 @@ fn main() {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     log::info!("Starting ALUMET agent v{VERSION}");
 
-    // create the plugins
-    log::info!("Starting plugins...");
-    let mut plugins: Vec<Box<dyn Plugin>> = vec![
-        Box::new(default_plugin::DefaultPlugin),
-        Box::new(plugin_rapl::RaplPlugin),
-    ];
+    // Specifies the plugins that we want to load.
+    let plugins = static_plugins![default_plugin::DefaultPlugin, plugin_rapl::RaplPlugin];
 
-    // start the plugins
-    let mut startup = PluginStartup::new();
-    for p in plugins.iter_mut() {
-        startup
-            .start(p.as_mut())
-            .unwrap_or_else(|err| panic!("Plugin failed to start: {} v{} - {}", p.name(), p.version(), err));
-    }
-    print_stats(&startup.metrics, &startup.pipeline_elements, &plugins);
+    // Read the config file.
+    let config_path = std::path::Path::new("alumet-config.toml");
+    let file_content = std::fs::read_to_string(config_path).unwrap_or("".to_owned());//.expect("failed to read file");
+    let config: toml::Table = file_content.parse().unwrap();
 
-    // start the pipeline and wait for the tasks to finish
-    log::info!("Starting the pipeline...");
-    let mut pipeline =
-        MeasurementPipeline::with_settings(startup.pipeline_elements, apply_source_settings).start(startup.metrics, startup.units);
+    // Start the measurement agent.
+    let agent = AgentBuilder::new(plugins, config).build();
+    let mut pipeline = agent.start();
 
+    // Enable remote control via Unix socket.
     log::info!("Starting socket control...");
     let control = SocketControl::start_new(pipeline.control_handle()).expect("Control thread failed to start");
 
-    log::info!("🔥 ALUMET agent is ready");
+    log::info!("ALUMET agent is ready.");
 
-    // keep the pipeline running until the app closes
+    // Keep the pipeline running until the app closes.
     pipeline.wait_for_all();
     control.stop();
     control.join();
-}
-
-fn print_stats(metrics: &MetricRegistry, elems: &ElementRegistry, plugins: &[Box<dyn Plugin>]) {
-    // plugins
-    let plugins_list = plugins
-        .iter()
-        .map(|p| format!("    - {} v{}", p.name(), p.version()))
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    let metrics_list = metrics
-        .iter()
-        .map(|m| format!("    - {}: {} ({})", m.name, m.value_type, m.unit))
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    let pipeline_elements = format!(
-        "📥 {} sources, 🔀 {} transforms and 📝 {} outputs registered.",
-        elems.source_count(),
-        elems.transform_count(),
-        elems.output_count()
-    );
-
-    let n_plugins = plugins.len();
-    let n_metrics = metrics.len();
-    let str_plugin = if n_plugins > 1 { "plugins" } else { "plugin" };
-    let str_metric = if n_metrics > 1 { "metrics" } else { "metric" };
-    log::info!("Plugin startup complete.\n🧩 {n_plugins} {str_plugin} started:\n{plugins_list}\n📏 {n_metrics} {str_metric} registered:\n{metrics_list}\n{pipeline_elements}");
-}
-
-fn apply_source_settings(source: Box<dyn Source>, plugin_name: String) -> ConfiguredSource {
-    // normally this would be fetched from the config
-    let source_type = SourceType::Normal;
-    let trigger_provider = TriggerProvider::TimeInterval {
-        start_time: Instant::now(),
-        poll_interval: Duration::from_secs(1),
-        flush_interval: Duration::from_secs(1),
-    };
-    ConfiguredSource {
-        source,
-        plugin_name,
-        source_type,
-        trigger_provider,
-    }
 }

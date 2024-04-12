@@ -50,7 +50,7 @@ impl Display for ConfigError {
 
 impl ConfigTable {
     /// Consumes a toml `Table` to create a C-compatible `ConfigTable`.
-    /// Every `String` is replaced by a `CString` with a 0 byte at the end.
+    /// The datetimes values are not supported.
     pub fn new(table: toml::Table) -> Result<ConfigTable, ConfigError> {
         /// Converts a table recursively.
         fn convert_table(t: toml::Table) -> Result<ConfigTable, ConfigError> {

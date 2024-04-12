@@ -1,3 +1,4 @@
+use alumet::plugin::rust::AlumetPlugin;
 use anyhow::anyhow;
 
 #[cfg(feature = "jetson")]
@@ -7,13 +8,17 @@ mod nvml;
 
 struct NvidiaPlugin;
 
-impl alumet::plugin::Plugin for NvidiaPlugin {
-    fn name(&self) -> &str {
+impl AlumetPlugin for NvidiaPlugin {
+    fn name() -> &'static str {
         "nvidia"
     }
 
-    fn version(&self) -> &str {
+    fn version() -> &'static str {
         "0.1.0"
+    }
+    
+    fn init(config: &mut alumet::config::ConfigTable) -> anyhow::Result<Box<Self>> {
+        Ok(Box::new(NvidiaPlugin))
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {

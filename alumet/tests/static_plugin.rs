@@ -1,6 +1,7 @@
 mod common;
 
-use alumet::plugin::{Plugin, PluginStartup};
+use alumet::plugin::Plugin;
+use alumet::plugin::manage::PluginStartup;
 use common::test_plugin::TestPlugin;
 
 use crate::common::test_plugin::State;

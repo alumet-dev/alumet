@@ -54,8 +54,10 @@ pub enum Unit {
 ///
 /// # Example
 /// ```
-/// let milliA = ScaledUnit::milli(Unit::Ampere);
-/// let nanoSec = ScaledUnit::nano(Unit::Second);
+/// use alumet::units::{Unit, PrefixedUnit};
+/// 
+/// let milliA = PrefixedUnit::milli(Unit::Ampere);
+/// let nanoSec = PrefixedUnit::nano(Unit::Second);
 /// ```
 #[derive(Debug)]
 pub struct PrefixedUnit {
