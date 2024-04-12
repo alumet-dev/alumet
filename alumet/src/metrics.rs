@@ -108,6 +108,12 @@ pub(crate) fn get_metric(id: &RawMetricId) -> &'static Metric {
 #[repr(C)]
 pub struct RawMetricId(pub(crate) usize);
 
+impl RawMetricId {
+    pub fn as_u64(&self) -> u64 {
+        self.0 as u64
+    }
+}
+
 /// A metric id with compile-time information about the type of the measured values.
 ///
 /// It allows to check, at compile time, that the measurements of this metric
