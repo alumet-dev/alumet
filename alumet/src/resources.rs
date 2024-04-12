@@ -83,8 +83,15 @@ impl ResourceId {
             ResourceId::Custom { kind, id: _ } => &kind,
         }
     }
+    
+    pub fn id_string(&self) -> Option<String> {
+        match self {
+            ResourceId::LocalMachine => None,
+            r => Some(r.id_display().to_string())
+        }
+    }
 
-    pub fn id_str(&self) -> impl fmt::Display + '_ {
+    pub fn id_display(&self) -> impl fmt::Display + '_ {
         match self {
             ResourceId::LocalMachine => LazyDisplayable::Str(""),
             ResourceId::Process { pid } => LazyDisplayable::U32(*pid),

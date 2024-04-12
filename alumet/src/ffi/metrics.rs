@@ -122,7 +122,7 @@ pub extern "C" fn mpoint_resource_kind(point: &MeasurementPoint) -> AString {
 
 #[no_mangle]
 pub extern "C" fn mpoint_resource_id(point: &MeasurementPoint) -> AString {
-    point.resource.id_str().to_string().into()
+    point.resource.id_display().to_string().into()
 }
 
 #[repr(C)]

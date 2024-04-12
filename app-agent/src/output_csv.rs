@@ -68,7 +68,7 @@ impl alumet::pipeline::Output for CsvOutput {
                 WrappedMeasurementValue::U64(x) => x.to_string(),
             };
             let resource_kind = m.resource.kind();
-            let resource_id = m.resource.id_str();
+            let resource_id = m.resource.id_display();
             write!(
                 self.writer,
                 "{metric_name};{datetime};{value};{resource_kind};{resource_id}"

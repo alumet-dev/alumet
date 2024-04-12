@@ -55,7 +55,7 @@ pub enum Unit {
 /// # Example
 /// ```
 /// use alumet::units::{Unit, PrefixedUnit};
-/// 
+///
 /// let milliA = PrefixedUnit::milli(Unit::Ampere);
 /// let nanoSec = PrefixedUnit::nano(Unit::Second);
 /// ```
@@ -99,6 +99,9 @@ pub struct CustomUnitRegistry {
 pub(crate) static GLOBAL_CUSTOM_UNITS: OnceLock<CustomUnitRegistry> = OnceLock::new();
 
 impl Unit {
+    /// Returns the unique name of the unit, as specified by the Unified Code for Units of Measure (UCUM).
+    ///
+    /// See https://ucum.org/ucum#section-Base-Units and https://ucum.org/ucum#si
     pub fn unique_name(&self) -> &str {
         match self {
             Unit::Custom(id) => {
@@ -121,6 +124,9 @@ impl Unit {
         }
     }
 
+    /// Returns the name to use when displaying (aka printing) the unit, as specified by the Unified Code for Units of Measure (UCUM).
+    ///
+    /// See https://ucum.org/ucum#section-Base-Units and https://ucum.org/ucum#si
     fn display_name(&self) -> &str {
         match self {
             Unit::Custom(id) => {
@@ -144,7 +150,10 @@ impl Unit {
     }
 
     fn with_prefix(self, scale: UnitPrefix) -> PrefixedUnit {
-        PrefixedUnit { base_unit: self, prefix: scale }
+        PrefixedUnit {
+            base_unit: self,
+            prefix: scale,
+        }
     }
 }
 
@@ -234,7 +243,31 @@ impl From<Unit> for PrefixedUnit {
 
 impl Display for PrefixedUnit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let prefix = match self.prefix {
+        write!(f, "{}{}", self.prefix, self.base_unit)
+    }
+}
+
+impl UnitPrefix {
+    /// Returns the unique name of the unit, as specified by the Unified Code for Units of Measure (UCUM).
+    ///
+    /// See https://ucum.org/ucum#section-Prefixes
+    pub fn unique_name(&self) -> &str {
+        match self {
+            UnitPrefix::Nano => "nano",
+            UnitPrefix::Micro => "micro",
+            UnitPrefix::Milli => "milli",
+            UnitPrefix::Plain => "",
+            UnitPrefix::Kilo => "kilo",
+            UnitPrefix::Mega => "mega",
+            UnitPrefix::Giga => "giga",
+        }
+    }
+
+    /// Returns the name to use when displaying (aka printing) the prefix, as specified by the Unified Code for Units of Measure (UCUM).
+    ///
+    /// See https://ucum.org/ucum#section-Prefixes
+    pub fn display_name(&self) -> &str {
+        match self {
             UnitPrefix::Nano => "n",
             UnitPrefix::Micro => "μ",
             UnitPrefix::Milli => "m",
@@ -242,8 +275,13 @@ impl Display for PrefixedUnit {
             UnitPrefix::Kilo => "k",
             UnitPrefix::Mega => "M",
             UnitPrefix::Giga => "G",
-        };
-        write!(f, "{prefix}{}", self.base_unit)
+        }
+    }
+}
+
+impl Display for UnitPrefix {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.display_name())
     }
 }
 

@@ -105,7 +105,7 @@ impl Output for TestOutput {
         for m in measurements.iter() {
             let ts = &m.timestamp;
             let res_kind = m.resource.kind();
-            let res_id = m.resource.id_str();
+            let res_id = m.resource.id_display();
             let name = m.metric.name();
             let value = &m.value;
             println!(">> {ts:?} on {res_kind} {res_id} :{name} = {value:?}");
