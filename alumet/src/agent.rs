@@ -15,12 +15,12 @@ use crate::{
 /// the core of Alumet, aka an "agent".
 ///
 /// Use the [`AgentBuilder`] to build a new agent.
-/// 
+///
 /// ## Example
 /// ```no_run
 /// use alumet::agent::{static_plugins, AgentBuilder, Agent};
 /// use alumet::plugin::rust::AlumetPlugin;
-/// 
+///
 /// # struct PluginA;
 /// # impl AlumetPlugin for PluginA {
 /// #     fn name() -> &'static str {
@@ -114,6 +114,11 @@ impl Agent {
             })
         }
         print_stats(&startup, &initialized_plugins);
+        for (plugin_name, plugin_callback) in &startup.callbacks_after_phase {
+            log::debug!("Running callback registered by plugin {plugin_name}");
+            plugin_callback(&startup);
+        }
+        log::debug!("Running f_after_plugin_start");
         (self.settings.f_after_plugin_start)(&mut startup);
 
         // Operation phase.
@@ -232,7 +237,7 @@ impl AgentBuilder {
 /// ## Example
 /// ```ignore
 /// use alumet::plugin::PluginMetadata;
-/// 
+///
 /// let plugins: Vec<PluginMetadata> = static_plugins![PluginA, PluginB];
 /// ```
 #[macro_export]

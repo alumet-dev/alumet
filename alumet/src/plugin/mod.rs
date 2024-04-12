@@ -92,6 +92,7 @@ use crate::pipeline;
 use crate::pipeline::registry::ElementRegistry;
 use crate::units::{CustomUnit, CustomUnitId, CustomUnitRegistry, PrefixedUnit, UnitCreationError};
 
+use self::manage::PluginStartup;
 use self::rust::AlumetPlugin;
 
 #[cfg(feature = "dynamic")]
@@ -161,6 +162,7 @@ pub struct AlumetStart<'a> {
     units: &'a mut CustomUnitRegistry,
     pipeline_elements: &'a mut ElementRegistry,
     current_plugin_name: String,
+    callbacks_after_phase: &'a mut Vec<(String, fn(&PluginStartup))>,
 }
 
 impl AlumetStart<'_> {
@@ -236,5 +238,10 @@ impl AlumetStart<'_> {
     pub fn add_output(&mut self, output: Box<dyn pipeline::Output>) {
         let plugin = self.current_plugin_name().to_owned();
         self.pipeline_elements.add_output(plugin, output)
+    }
+    
+    /// Registers a function that will be called after the plugin start-up phase.
+    pub fn callback_after_startup(&mut self, f: fn(&PluginStartup)) {
+        self.callbacks_after_phase.push((self.current_plugin_name.clone(), f));
     }
 }

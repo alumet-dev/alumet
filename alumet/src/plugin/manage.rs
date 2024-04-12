@@ -48,6 +48,8 @@ pub struct PluginStartup {
     pub units: CustomUnitRegistry,
     /// Pipeline elements registered by the plugins.
     pub pipeline_elements: ElementRegistry,
+    /// Functions to call at the end of the start-up phase.
+    pub callbacks_after_phase: Vec<(String, fn(&Self))>,
 }
 
 impl PluginStartup {
@@ -56,6 +58,7 @@ impl PluginStartup {
             metrics: MetricRegistry::new(),
             units: CustomUnitRegistry::new(),
             pipeline_elements: ElementRegistry::new(),
+            callbacks_after_phase: Vec::new(),
         }
     }
 
@@ -66,6 +69,7 @@ impl PluginStartup {
             units: &mut self.units,
             pipeline_elements: &mut self.pipeline_elements,
             current_plugin_name: plugin.name().to_owned(),
+            callbacks_after_phase: &mut self.callbacks_after_phase,
         };
         plugin.start(&mut start)
     }
