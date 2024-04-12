@@ -1,7 +1,7 @@
 use alumet::{
     measurement::{AttributeValue, MeasurementPoint},
     metrics::TypedMetricId,
-    util::CounterDiff,
+    plugin::util::{CounterDiff, CounterDiffUpdate},
     resources::ResourceId,
 };
 use anyhow::{Context, Result};
@@ -216,9 +216,9 @@ impl alumet::pipeline::Source for PerfEventProbe {
 
             // correct any overflows
             let diff = match counter.update(counter_value) {
-                alumet::util::CounterDiffUpdate::FirstTime => None,
-                alumet::util::CounterDiffUpdate::Difference(diff) => Some(diff),
-                alumet::util::CounterDiffUpdate::CorrectedDifference(diff) => {
+                CounterDiffUpdate::FirstTime => None,
+                CounterDiffUpdate::Difference(diff) => Some(diff),
+                CounterDiffUpdate::CorrectedDifference(diff) => {
                     log::debug!("Overflow on perf_event counter for RAPL domain {}", evt.domain);
                     Some(diff)
                 }
@@ -226,12 +226,10 @@ impl alumet::pipeline::Source for PerfEventProbe {
             if let Some(value) = diff {
                 // convert to joules and push
                 let joules = (value as f64) * evt.scale;
-                measurements.push(MeasurementPoint::new(
-                    timestamp,
-                    self.metric,
-                    evt.resource.clone(),
-                    joules,
-                ).with_attr("domain", AttributeValue::String(evt.domain.to_string())));
+                measurements.push(
+                    MeasurementPoint::new(timestamp, self.metric, evt.resource.clone(), joules)
+                        .with_attr("domain", AttributeValue::String(evt.domain.to_string())),
+                );
             }
             // NOTE: the energy can be a floating-point number in Joules,
             // without any loss of precision. Why? Because multiplying any number

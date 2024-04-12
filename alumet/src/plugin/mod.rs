@@ -99,6 +99,7 @@ pub mod dynload;
 
 pub mod manage;
 pub mod rust;
+pub mod util;
 pub(crate) mod version;
 
 /// Plugin metadata, and a function that allows to initialize the plugin.

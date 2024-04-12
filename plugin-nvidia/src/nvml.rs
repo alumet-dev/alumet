@@ -1,15 +1,15 @@
 use std::{sync::Arc, time::SystemTime};
 
-use alumet::{
-    metrics::TypedMetricId,
-    measurement::{MeasurementAccumulator, MeasurementPoint},
-    pipeline::PollError,
-    plugin::AlumetStart,
-    units::Unit,
-    util::{CounterDiff, CounterDiffUpdate},
-    resources::ResourceId,
-};
 use alumet::metrics::MetricCreationError;
+use alumet::{
+    measurement::{MeasurementAccumulator, MeasurementPoint},
+    metrics::TypedMetricId,
+    pipeline::PollError,
+    plugin::util::{CounterDiff, CounterDiffUpdate},
+    plugin::AlumetStart,
+    resources::ResourceId,
+    units::Unit,
+};
 use anyhow::Context;
 use nvml_wrapper::{error::NvmlError, Device, Nvml};
 use nvml_wrapper_sys::bindings::nvmlDevice_t;
@@ -151,23 +151,11 @@ impl Metrics {
                 "instantaneous power of the GPU at the time of the measurement",
             )?,
             major_utilization_gpu: alumet.create_metric("gpu_utilization", Unit::Unity, "")?,
-            major_utilization_memory: alumet.create_metric(
-                "memory_utilization",
-                Unit::Unity,
-                "",
-            )?,
+            major_utilization_memory: alumet.create_metric("memory_utilization", Unit::Unity, "")?,
             decoder_utilization: alumet.create_metric("decoder_utilization", Unit::Unity, "")?,
             encoder_utilization: alumet.create_metric("encoder_utilization", Unit::Unity, "")?,
-            running_compute_processes: alumet.create_metric(
-                "n_compute_processes",
-                Unit::Unity,
-                "",
-            )?,
-            running_graphics_processes: alumet.create_metric(
-                "n_graphic_processes",
-                Unit::Unity,
-                "",
-            )?,
+            running_compute_processes: alumet.create_metric("n_compute_processes", Unit::Unity, "")?,
+            running_graphics_processes: alumet.create_metric("n_graphic_processes", Unit::Unity, "")?,
         })
     }
 }

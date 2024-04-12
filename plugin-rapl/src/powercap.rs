@@ -8,9 +8,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use alumet::util::{CounterDiff, CounterDiffUpdate};
-use alumet::metrics::TypedMetricId;
 use alumet::measurement::{MeasurementAccumulator, MeasurementPoint};
+use alumet::metrics::TypedMetricId;
+use alumet::plugin::util::{CounterDiff, CounterDiffUpdate};
 use alumet::resources::ResourceId;
 use anyhow::{anyhow, Context};
 
@@ -101,7 +101,11 @@ pub fn all_power_zones() -> anyhow::Result<PowerZoneHierarchy> {
     }
 
     /// Recursively explore a power zone
-    fn explore_rec(dir: &Path, parent_socket: Option<u32>, flat: &mut Vec<PowerZone>) -> anyhow::Result<Vec<PowerZone>> {
+    fn explore_rec(
+        dir: &Path,
+        parent_socket: Option<u32>,
+        flat: &mut Vec<PowerZone>,
+    ) -> anyhow::Result<Vec<PowerZone>> {
         let mut zones = Vec::new();
         for e in fs::read_dir(dir)? {
             let entry = e?;
@@ -140,8 +144,8 @@ pub fn all_power_zones() -> anyhow::Result<PowerZoneHierarchy> {
         Ok(zones)
     }
     let mut flat = Vec::new();
-    let top = explore_rec(Path::new(POWERCAP_RAPL_PATH), None, &mut flat).
-        with_context(|| format!("Could not explore {POWERCAP_RAPL_PATH}. {PERMISSION_ADVICE}"))?;
+    let top = explore_rec(Path::new(POWERCAP_RAPL_PATH), None, &mut flat)
+        .with_context(|| format!("Could not explore {POWERCAP_RAPL_PATH}. {PERMISSION_ADVICE}"))?;
     Ok(PowerZoneHierarchy { flat, top })
 }
 
@@ -171,11 +175,19 @@ impl PowercapProbe {
 
         let mut opened = Vec::with_capacity(zones.len());
         for zone in zones {
-            let file = File::open(zone.energy_path())
-                .with_context(|| format!("Could not open {}. {PERMISSION_ADVICE}", zone.energy_path().to_string_lossy()))?;
+            let file = File::open(zone.energy_path()).with_context(|| {
+                format!(
+                    "Could not open {}. {PERMISSION_ADVICE}",
+                    zone.energy_path().to_string_lossy()
+                )
+            })?;
 
-            let str_max_energy_uj = fs::read_to_string(zone.max_energy_path())
-                .with_context(|| format!("Could not read {}. {PERMISSION_ADVICE}", zone.max_energy_path().to_string_lossy()))?;
+            let str_max_energy_uj = fs::read_to_string(zone.max_energy_path()).with_context(|| {
+                format!(
+                    "Could not read {}. {PERMISSION_ADVICE}",
+                    zone.max_energy_path().to_string_lossy()
+                )
+            })?;
 
             let max_energy_uj = str_max_energy_uj
                 .trim_end()
@@ -195,15 +207,16 @@ impl PowercapProbe {
             opened.push((opened_zone, counter));
         }
 
-        Ok(PowercapProbe {
-            metric,
-            zones: opened,
-        })
+        Ok(PowercapProbe { metric, zones: opened })
     }
 }
 
 impl alumet::pipeline::Source for PowercapProbe {
-    fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: std::time::SystemTime) -> Result<(), alumet::pipeline::PollError> {
+    fn poll(
+        &mut self,
+        measurements: &mut MeasurementAccumulator,
+        timestamp: std::time::SystemTime,
+    ) -> Result<(), alumet::pipeline::PollError> {
         // reuse the same buffer for all the zones
         // the size of the content of the file `energy_uj` should never exceed those of `max_energy_uj`,
         // which is 16 bytes on all our test machines
@@ -216,7 +229,10 @@ impl alumet::pipeline::Source for PowercapProbe {
 
             // parse the content of the file
             let content = std::str::from_utf8(&zone_reading_buf)?;
-            let counter_value: u64 = content.trim_end().parse().with_context(|| format!("failed to parse {:?}: '{content}'", zone.file))?;
+            let counter_value: u64 = content
+                .trim_end()
+                .parse()
+                .with_context(|| format!("failed to parse {:?}: '{content}'", zone.file))?;
 
             // store the value, handle the overflow if there is one
             let diff = match counter.update(counter_value) {
@@ -226,7 +242,12 @@ impl alumet::pipeline::Source for PowercapProbe {
             };
             if let Some(value) = diff {
                 let joules = (value as f64) * POWERCAP_ENERGY_UNIT;
-                measurements.push(MeasurementPoint::new(timestamp, self.metric, zone.resource.clone(), joules))
+                measurements.push(MeasurementPoint::new(
+                    timestamp,
+                    self.metric,
+                    zone.resource.clone(),
+                    joules,
+                ))
             };
 
             // clear the buffer, so that we can fill it again
