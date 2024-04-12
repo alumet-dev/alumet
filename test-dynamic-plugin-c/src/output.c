@@ -22,7 +22,7 @@ void write_point(void *data, const MeasurementPoint *point) {
 
     AString resource_kind = mpoint_resource_kind(point);
     AString resource_id = mpoint_resource_id(point);
-    UntypedMetricId metric_id = mpoint_metric(point);
+    RawMetricId metric_id = mpoint_metric(point);
 
     switch (value.tag) {
         case FfiMeasurementValue_U64: {

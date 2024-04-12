@@ -12,7 +12,7 @@ static off_t file_size(const char *filename);
 /// @brief Creates a new PowercapSource.
 /// @param metric_id id of the metric to push the measurements to - should be obtained in plugin_start()
 /// @return the new source
-PowercapSource *source_init(UntypedMetricId metric_id, AString custom_attribute) {
+PowercapSource *source_init(RawMetricId metric_id, AString custom_attribute) {
     PowercapSource *source = malloc(sizeof(PowercapSource));
 
     // store the custom attribute (it's only there for testing purposes)
