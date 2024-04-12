@@ -28,6 +28,8 @@ pub struct ManagedDevice {
     pub handle: nvmlDevice_t,
     /// Status of the optional features: which feature is available on this device?
     pub features: OptionalFeatures,
+    /// PCI bus ID of the device.
+    pub bus_id: String,
 }
 
 /// Statistics about the device detection.
@@ -55,7 +57,7 @@ unsafe impl Send for NvmlSource {}
 
 impl NvmlSource {
     pub fn new(device: ManagedDevice, metrics: Metrics) -> Result<NvmlSource, NvmlError> {
-        let bus_id = device.as_wrapper().pci_info()?.bus_id.into();
+        let bus_id = std::borrow::Cow::Owned(device.bus_id.clone());
         Ok(NvmlSource {
             energy_counter: CounterDiff::with_max_value(u64::MAX),
             device,
@@ -161,6 +163,7 @@ impl Metrics {
 }
 
 /// Indicates which features are available on a given NVML device.
+#[derive(Debug)]
 pub struct OptionalFeatures {
     total_energy_consumption: bool,
     instant_power: bool,
@@ -172,7 +175,7 @@ pub struct OptionalFeatures {
 }
 
 /// Indicates which version of a NVML function is available on a given device.
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum AvailableVersion {
     Latest,
     V2,
@@ -264,14 +267,16 @@ impl NvmlDevices {
                 .and_then(OptionalFeatures::with_detected_features)
             {
                 Ok((gpu, features)) => {
+                    let pci_info = gpu.pci_info();
                     if features.has_any() {
                         // Extract the device pointer because we will manage the lifetimes ourselves.
                         let handle = unsafe { gpu.handle() };
                         let lib = nvml.clone();
-                        let d = ManagedDevice { lib, handle, features };
+                        let bus_id = pci_info?.bus_id;
+                        let d = ManagedDevice { lib, handle, features, bus_id };
                         Some(d)
                     } else {
-                        let bus_id = match gpu.pci_info() {
+                        let bus_id = match pci_info {
                             Ok(pci) => format!("PCI bus {}", pci.bus_id),
                             Err(e) => format!("failed to get bus ID: {e}"),
                         };

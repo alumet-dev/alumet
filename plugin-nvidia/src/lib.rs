@@ -16,7 +16,7 @@ impl AlumetPlugin for NvidiaPlugin {
     fn version() -> &'static str {
         "0.1.0"
     }
-    
+
     fn init(_config: &mut alumet::config::ConfigTable) -> anyhow::Result<Box<Self>> {
         Ok(Box::new(NvidiaPlugin))
     }
@@ -37,7 +37,7 @@ impl AlumetPlugin for NvidiaPlugin {
 }
 
 /// Set up the collection of measurements with NVML.
-/// 
+///
 /// This works on a device that has a desktop-class or server-class NVIDIA GPU.
 /// For Jetson edge devices, use [`start_jetson`] instead.
 #[cfg(feature = "nvml")]
@@ -54,6 +54,16 @@ fn start_nvml(alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
         ));
     }
 
+    for device in &nvml.devices {
+        if let Some(device) = device {
+            log::debug!(
+                "Found NVML device {} with features {:?}",
+                device.bus_id,
+                device.features
+            );
+        }
+    }
+
     let metrics = nvml::Metrics::new(alumet)?;
 
     for maybe_device in nvml.devices {
@@ -66,11 +76,18 @@ fn start_nvml(alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
 }
 
 /// Set up the collection of measurements on a Jetson edge device.
-/// 
+///
 /// This works by querying the embedded INA sensor(s).
 #[cfg(feature = "jetson")]
 fn start_jetson(alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
     let sensors = jetson::detect_ina_sensors()?;
+    for sensor in &sensors {
+        log::debug!("INA sensor found: {} at {}", sensor.i2c_id, sensor.path.display());
+        for chan in &sensor.channels {
+            let description = chan.description.as_deref().unwrap_or("?");
+            log::debug!("\t- channel {} \"{}\": {}", chan.id, chan.label, description);
+        }
+    }
     let source = jetson::JetsonInaSource::open_sensors(sensors, alumet)?;
     alumet.add_source(Box::new(source));
     Ok(())

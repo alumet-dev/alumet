@@ -20,21 +20,21 @@ use regex::{Match, Regex};
 /// Detected INA sensor.
 pub struct InaSensor {
     /// Path to the sysfs directory of the sensor.
-    path: PathBuf,
+    pub path: PathBuf,
     /// I2C id of the sensor.
-    i2c_id: String,
+    pub i2c_id: String,
     /// Channels available on this sensor.
     /// Each INA3221 has at least one channel.
-    channels: Vec<InaChannel>,
+    pub channels: Vec<InaChannel>,
 }
 
 /// Detected INA channel.
 pub struct InaChannel {
-    id: u32,
-    label: String,
-    metrics: Vec<InaRailMetric>,
+    pub id: u32,
+    pub label: String,
+    pub metrics: Vec<InaRailMetric>,
     // Added in a second pass based on the Jetson documentation. (TODO: fill it)
-    description: Option<String>,
+    pub description: Option<String>,
 }
 
 /// Detected metric available in a channel.
@@ -498,5 +498,13 @@ mod tests {
                 assert_eq!(metrics, expected_metrics);
             }
         }
+    }
+
+    #[test]
+    fn no_ina() {
+        let tmp = std::env::temp_dir();
+        let root = tmp.join("test-alumet-plugin-nvidia/.i-do-not-exist");
+        assert!(detect_hierarchy_modern(&root).unwrap().is_empty());
+        assert!(detect_hierarchy_old_v4(&root).unwrap().is_empty());
     }
 }
