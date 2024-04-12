@@ -36,4 +36,5 @@ fn main() {
     pipeline.wait_for_all();
     control.stop();
     control.join();
+    log::info!("ALUMET agent has stopped.");
 }
