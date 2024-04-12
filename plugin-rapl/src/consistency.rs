@@ -12,6 +12,33 @@ pub struct SafeSubset {
     pub is_whole: bool,
 }
 
+impl SafeSubset {
+    pub fn from_perf_only(perf_events: Vec<PowerEvent>) -> Self {
+        let mut domains: Vec<RaplDomainType> = perf_events.iter().map(|e| e.domain).collect();
+        domains.sort_by_key(|k| k.to_string());
+        domains.dedup_by_key(|k| k.to_string());
+        Self {
+            domains,
+            perf_events,
+            power_zones: Vec::new(),
+            is_whole: true,
+        }
+    }
+
+    pub fn from_powercap_only(power_zones: PowerZoneHierarchy) -> Self {
+        let power_zones = power_zones.flat;
+        let mut domains: Vec<RaplDomainType> = power_zones.iter().map(|z| z.domain).collect();
+        domains.sort_by_key(|k| k.to_string());
+        domains.dedup_by_key(|k| k.to_string());
+        Self {
+            domains,
+            perf_events: Vec::new(),
+            power_zones,
+            is_whole: true,
+        }
+    }
+}
+
 /// Checks the consistency of the RAPL domains reported by the different interfaces of the Linux kernel,
 /// and returns the list of domains that are available everywhere ("safe subset").
 pub fn check_domains_consistency(perf_events: Vec<PowerEvent>, power_zones: PowerZoneHierarchy) -> SafeSubset {
@@ -62,8 +89,15 @@ pub fn check_domains_consistency(perf_events: Vec<PowerEvent>, power_zones: Powe
                 domains_subset.push(d);
             }
         }
-        let perf_events_subset = perf_events.into_iter().filter(|e| domains_subset.contains(&e.domain)).collect();
-        let power_zones_subset = power_zones.flat.into_iter().filter(|z| domains_subset.contains(&z.domain)).collect();
+        let perf_events_subset = perf_events
+            .into_iter()
+            .filter(|e| domains_subset.contains(&e.domain))
+            .collect();
+        let power_zones_subset = power_zones
+            .flat
+            .into_iter()
+            .filter(|z| domains_subset.contains(&z.domain))
+            .collect();
         SafeSubset {
             domains: domains_subset,
             perf_events: perf_events_subset,

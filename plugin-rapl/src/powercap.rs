@@ -20,7 +20,7 @@ const POWERCAP_RAPL_PATH: &str = "/sys/devices/virtual/powercap/intel-rapl";
 const POWER_ZONE_PREFIX: &str = "intel-rapl";
 const POWERCAP_ENERGY_UNIT: f64 = 0.000_001; // 1 microJoules
 
-const PERMISSION_ADVICE: &str = "Try to set kernel.perf_event_paranoid to 0 or -1, and/or to adjust file permissions.";
+const PERMISSION_ADVICE: &str = "Try to adjust file permissions.";
 
 /// Hierarchy of power zones
 pub struct PowerZoneHierarchy {

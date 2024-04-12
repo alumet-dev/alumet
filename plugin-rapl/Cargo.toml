@@ -11,6 +11,7 @@ edition = "2021"
 [dependencies]
 alumet = { version = "0.2.0", path = "../alumet" }
 anyhow = "1.0.79"
+indoc = "2.0.5"
 log = "0.4.20"
 perf-event-open-sys = "4.0.0"
 regex = "1.10.3"
