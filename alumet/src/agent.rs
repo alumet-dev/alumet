@@ -15,12 +15,7 @@ use crate::{
 /// the core of Alumet, aka an "agent".
 ///
 /// Use the [`AgentBuilder`] to build a new agent.
-pub struct Agent {
-    settings: AgentBuilder,
-}
-
-/// A builder for [`Agent`].
-///
+/// 
 /// ## Example
 /// ```no_run
 /// use alumet::agent::{static_plugins, AgentBuilder, Agent};
@@ -59,6 +54,11 @@ pub struct Agent {
 /// // Build the agent.
 /// let agent: Agent = AgentBuilder::new(plugins, config).build();
 /// ```
+pub struct Agent {
+    settings: AgentBuilder,
+}
+
+/// A builder for [`Agent`].
 pub struct AgentBuilder {
     plugins: Vec<PluginMetadata>,
     config: toml::Table,
@@ -185,8 +185,9 @@ impl AgentBuilder {
     /// Creates a new builder with some non-initialized plugins,
     /// and the global configuration of the agent.
     ///
-    /// The global configuration must contain the configuration of each
-    /// plugin, as TOML subtables.
+    /// The global configuration contains the configuration of each
+    /// plugin, as TOML subtables. If a subtable is missing, the plugin
+    /// will receive an empty table for its initialization.
     pub fn new(plugins: Vec<PluginMetadata>, config: toml::Table) -> Self {
         Self {
             plugins,
@@ -197,7 +198,7 @@ impl AgentBuilder {
         }
     }
 
-    /// Creates an agent with the given settings.
+    /// Creates an agent with these settings.
     pub fn build(self) -> Agent {
         Agent { settings: self }
     }
@@ -216,7 +217,7 @@ impl AgentBuilder {
         self.f_after_plugin_start = f;
     }
 
-    /// Defines a function to run before the measurement pipeline starts.
+    /// Defines a function to run just after the measurement pipeline has started.
     ///
     /// If a function has already been defined, it is replaced.
     pub fn after_operation_begin(&mut self, f: fn(&mut RunningPipeline)) {

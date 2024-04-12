@@ -43,19 +43,24 @@
 //! cargo add alumet anyhow
 //! ```
 //!
-//! In your library, define a structure for your plugin, and implement the [`Plugin`] trait for it.
+//! In your library, define a structure for your plugin, and implement the [`rust::AlumetPlugin`] trait for it.
 //! ```no_run
-//! use alumet::plugin::{Plugin, AlumetStart};
+//! use alumet::plugin::{rust::AlumetPlugin, AlumetStart};
 //!
 //! struct MyPlugin {}
 //!
-//! impl Plugin for MyPlugin {
-//!     fn name(&self) -> &str {
+//! impl AlumetPlugin for MyPlugin {
+//!     fn name() -> &'static str {
 //!         "my-plugin"
 //!     }
 //!
-//!     fn version(&self) -> &str {
+//!     fn version() -> &'static str {
 //!         "0.1.0"
+//!     }
+//!
+//!     fn init(config: &mut ConfigTable) -> anyhow::Result<Box<Self>> {
+//!         // You can read the config and store some settings in your structure.
+//!         Ok(Box::new(MyPlugin {}))
 //!     }
 //!
 //!     fn start(&mut self, alumet: &mut AlumetStart) -> anyhow::Result<()> {
@@ -72,7 +77,7 @@
 //!
 //! Finally, modify the measurement application in the following ways:
 //! 1. Add a dependency to your plugin crate (for example with `cargo add my-plugin --path=path/to/my-plugin`).
-//! 2. Modify your `main` to initialize and load the plugin.
+//! 2. Modify your `main` to initialize and load the plugin. See [`Agent`](crate::agent::Agent).
 //!
 //! ## Dynamic plugins
 //!
@@ -147,7 +152,9 @@ pub trait Plugin {
 /// It allows the plugins to perform some actions before starting the measurment pipeline,
 /// such as registering new measurement sources.
 ///
-/// Note for applications: an `AlumetStart` should not be directly created, use [`PluginStartup`] instead.
+/// ## Note for applications
+/// You should not create `AlumetStart` manually, use [`PluginStartup`](manage::PluginStartup) instead.
+/// Even better, use [`Agent`](crate::agent::Agent).
 pub struct AlumetStart<'a> {
     metrics: &'a mut MetricRegistry,
     units: &'a mut CustomUnitRegistry,
@@ -207,7 +214,7 @@ impl AlumetStart<'_> {
     /// Fails if a unit with the same name already exists.
     ///
     /// To use the unit in measurement points, obtain its `CustomUnitId`
-    /// and wrap it in [`Unit::Custom`].
+    /// and wrap it in [`Unit::Custom`](crate::units::Unit::Custom).
     pub fn create_unit(&mut self, unit: CustomUnit) -> Result<CustomUnitId, UnitCreationError> {
         self.units.register(unit)
     }

@@ -21,7 +21,9 @@ typedef enum WrappedMeasurementType {
  * It allows the plugins to perform some actions before starting the measurment pipeline,
  * such as registering new measurement sources.
  *
- * Note for applications: an `AlumetStart` should not be directly created, use [`PluginStartup`] instead.
+ * ## Note for applications
+ * You should not create `AlumetStart` manually, use [`PluginStartup`](manage::PluginStartup) instead.
+ * Even better, use [`Agent`](crate::agent::Agent).
  */
 typedef struct AlumetStart AlumetStart;
 

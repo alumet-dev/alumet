@@ -80,7 +80,7 @@ pub struct PluginRegistry {
     plugins: HashMap<String, Box<dyn Plugin>>,
 }
 
-/// Loads a dynamic plugin from a shared library file, and returns a [`PluginInfo`] that allows to initialize the plugin.
+/// Loads a dynamic plugin from a shared library file, and returns a [`PluginMetadata`] that allows to initialize the plugin.
 /// 
 /// ## Required symbols
 /// To be valid, a dynamic plugin must declare the following shared symbols:
@@ -225,7 +225,7 @@ pub fn load_cdylib(file: &Path) -> Result<PluginMetadata, LoadError> {
     Ok(initializable_info)
 }
 
-/// Initializes a plugin, using its [`PluginInfo`] and config table (not the global configuration).
+/// Initializes a plugin, using its [`PluginMetadata`] and config table (not the global configuration).
 pub fn initialize(plugin: PluginMetadata, config: toml::Table) -> anyhow::Result<Box<dyn Plugin>> {
     let mut ffi_config = ConfigTable::new(config).context("conversion to ffi-safe configuration failed")?;
     let plugin_instance = (plugin.init)(&mut ffi_config)?;
