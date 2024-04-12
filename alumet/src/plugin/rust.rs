@@ -1,3 +1,7 @@
+//! Definition of Rust plugins.
+//! 
+//! See the [documentation of the plugin module](super#static-plugins).
+
 use crate::{
     config::ConfigTable,
     plugin::{AlumetStart, Plugin},
