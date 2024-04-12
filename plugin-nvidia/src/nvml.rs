@@ -240,7 +240,7 @@ fn if_supported<T>(res: Result<T, NvmlError>) -> Result<Option<T>, NvmlError> {
 
 fn is_supported<T>(res: Result<T, NvmlError>) -> Result<bool, NvmlError> {
     match res {
-        Ok(t) => Ok(true),
+        Ok(_) => Ok(true),
         Err(NvmlError::NotSupported) => Ok(false),
         Err(e) => Err(e),
     }

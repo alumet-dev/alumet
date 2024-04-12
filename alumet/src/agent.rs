@@ -290,11 +290,11 @@ mod tests {
             "version"
         }
 
-        fn init(config: &mut crate::config::ConfigTable) -> anyhow::Result<Box<Self>> {
+        fn init(_config: &mut crate::config::ConfigTable) -> anyhow::Result<Box<Self>> {
             todo!()
         }
 
-        fn start(&mut self, alumet: &mut crate::plugin::AlumetStart) -> anyhow::Result<()> {
+        fn start(&mut self, _alumet: &mut crate::plugin::AlumetStart) -> anyhow::Result<()> {
             todo!()
         }
 

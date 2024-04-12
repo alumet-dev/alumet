@@ -13,7 +13,7 @@ impl AlumetPlugin for DefaultPlugin {
         "0.1.0"
     }
     
-    fn init(config: &mut alumet::config::ConfigTable) -> anyhow::Result<Box<Self>> {
+    fn init(_config: &mut alumet::config::ConfigTable) -> anyhow::Result<Box<Self>> {
         Ok(Box::new(DefaultPlugin))
     }
 
