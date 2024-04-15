@@ -113,12 +113,18 @@ impl Agent {
                 )
             })
         }
+
+        // Post start-up reactions.
         print_stats(&startup, &initialized_plugins);
-        for (plugin_name, plugin_callback) in &startup.callbacks_after_phase {
-            log::debug!("Running callback registered by plugin {plugin_name}");
-            plugin_callback(&startup);
+        for plugin in initialized_plugins.iter_mut() {
+            plugin.post_startup(&startup).unwrap_or_else(|err| {
+                panic!(
+                    "Plugin post-startup action failed: {} v{} - {err}",
+                    plugin.name(),
+                    plugin.version()
+                )
+            });
         }
-        log::debug!("Running f_after_plugin_start");
         (self.settings.f_after_plugin_start)(&mut startup);
 
         // Operation phase.

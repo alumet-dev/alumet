@@ -45,6 +45,11 @@ impl Plugin for DylibPlugin {
         (self.stop_fn)(self.instance); // TODO error handling for ffi
         Ok(())
     }
+    
+    fn post_startup(&mut self, startup: &super::manage::PluginStartup) -> anyhow::Result<()> {
+        // TODO post-startup in ffi
+        Ok(())
+    }
 }
 
 impl Drop for DylibPlugin {

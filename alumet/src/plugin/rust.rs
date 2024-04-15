@@ -7,6 +7,8 @@ use crate::{
     plugin::{AlumetStart, Plugin},
 };
 
+use super::manage::PluginStartup;
+
 /// Trait for Alumet plugins written in Rust.
 ///
 /// Implement this trait to define your plugin.
@@ -37,6 +39,13 @@ pub trait AlumetPlugin {
     /// This method is called _after_ all the metrics, sources and outputs previously registered
     /// by [`AlumetPlugin::start`] have been stopped and unregistered.
     fn stop(&mut self) -> anyhow::Result<()>;
+    
+    /// Function called after the plugin startup phase, i.e. after every plugin has started.
+    ///
+    /// It can be used, for instance, to examine the metrics that have been registered.
+    fn post_startup(&mut self, startup: &PluginStartup) -> anyhow::Result<()> {
+        Ok(())
+    }
 }
 
 // Every AlumetPlugin is a Plugin :)
@@ -55,5 +64,9 @@ impl<P: AlumetPlugin> Plugin for P {
 
     fn stop(&mut self) -> anyhow::Result<()> {
         AlumetPlugin::stop(self)
+    }
+    
+    fn post_startup(&mut self, startup: &PluginStartup) -> anyhow::Result<()> {
+        AlumetPlugin::post_startup(self, startup)
     }
 }
