@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::{Error, anyhow};
 
 pub struct K8sPlugin;
@@ -23,7 +25,8 @@ impl alumet::plugin::Plugin for K8sPlugin{
                 for element in &mut vecteur_node {
                     println!("Borrowed: {}", element);
                 }
-                request_cadvisor::gather_values(&token_k8s, &api_server, &mut vecteur_node);
+                let mut allMeasure: HashMap<String, Vec<String>> = HashMap::new();
+                request_cadvisor::gather_values(&token_k8s, &api_server, &mut vecteur_node, &mut allMeasure);
             },
             Err(err) => {
                 println!("Error with return of get_all_kubernetes_nodes");

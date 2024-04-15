@@ -143,7 +143,7 @@ fn print_type_of<T>(_: &T) {
 }
 
 #[tokio::main]
-pub async fn gather_values(token_k8s: &String, base_url: &String, li_node: &mut Vec<String>) {
+pub async fn gather_values(token_k8s: &String, base_url: &String, li_node: &mut Vec<String>, all_measures: &mut HashMap<String, Vec<String>>) {
     let formated_header = format!("Bearer {}",token_k8s);
 
     let timeout = Duration::new(5, 0);
@@ -168,10 +168,14 @@ pub async fn gather_values(token_k8s: &String, base_url: &String, li_node: &mut 
         print_type_of(&response_as_lines);
         for (i, line) in response_as_lines.enumerate() {
             if !line.starts_with("#"){
-                println!("Line:{}\n", line);
+                // println!("Line:{}\n", line);
                 print_type_of(&line);
-                PrometheusMetric::from_str(&line)
-                    .expect(&format!("Prometheus test line #{i} failed to parse"));
+                let prom: PrometheusMetric = PrometheusMetric::from_str(&line).expect(&format!("Prometheus test line #{i} failed to parse"));
+                println!("Prometheus metric: {:?}", prom);
+                if prom.name.eq("container_cpu_usage_seconds_total"){
+                    todo!("Ajouter à la hashmap global")
+                    // println!("{}", hash_map.contains_key("1"));
+                }
                 
         
             }

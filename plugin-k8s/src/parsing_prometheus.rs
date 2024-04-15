@@ -16,10 +16,32 @@ use std::string::String;
 
 #[derive(Debug, PartialEq)]
 pub struct PrometheusMetric {
-    name: String,
-    labels: HashMap<String, String>,
-    value: f64,
-    timestamp: Option<u64>,
+    pub name: String,
+    pub labels: HashMap<String, String>,
+    pub value: f64,
+    pub timestamp: Option<u64>,
+}
+
+impl PrometheusMetric{
+    fn define_name(self) -> String {
+        if self.labels.contains_key("name") && self.labels["name"] != ""{
+            return self.labels["name"].clone()
+        }
+        return String::from("aaaaaaaaaaaaaaaa");
+    
+    }
+
+}
+
+impl std::fmt::Debug for PrometheusMetric {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "PrometheusMetric {{\n")?;
+        write!(f, "    name: {:?},\n", self.name)?;
+        write!(f, "    labels: {:?},\n", self.labels)?;
+        write!(f, "    value: {:?},\n", self.value)?;
+        write!(f, "    timestamp: {:?},\n", self.timestamp)?;
+        write!(f, "}}")
+    }
 }
 
 impl FromStr for PrometheusMetric {
@@ -33,7 +55,7 @@ impl FromStr for PrometheusMetric {
         /// but the backslash (\), double-quote ("), and line feed (\n) characters have to be escaped as \\, \", and \n, respectively.
         /// Return a tuple (A,B)
         /// Where A is the value of the label and B the chars remaining to parse 
-        fn parse_label_value(remaining: &str) -> anyhow::Result<(String, &str)> {
+        fn parse_label_value(remaining: &str) -> Result<(String, &str), anyhow::Error> {
             let mut res = String::new();
             let mut escape = false;
             let mut first = true;
@@ -59,7 +81,7 @@ impl FromStr for PrometheusMetric {
                             }
                         }
                     }
-                    _ if first => panic!("invalid first character in value, expected quote"),
+                    _ if first => return Err(anyhow!("invalid first character in value, expected quote")),
                     _ => {
                         res.push(c);
                     }
