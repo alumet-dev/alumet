@@ -51,6 +51,8 @@ typedef struct MeasurementBuffer MeasurementBuffer;
  */
 typedef struct MeasurementPoint MeasurementPoint;
 
+typedef struct OutputContext OutputContext;
+
 /**
  * FFI equivalent to [`Option<&str>`].
  */
@@ -77,6 +79,10 @@ typedef struct AStr {
 typedef struct RawMetricId {
   uintptr_t _0;
 } RawMetricId;
+
+typedef struct FfiOutputContext {
+  const struct OutputContext *inner;
+} FfiOutputContext;
 
 typedef struct Timestamp {
   uint64_t secs;
@@ -195,7 +201,9 @@ typedef void (*NullableDropFn)(void *instance);
 
 typedef void (*TransformApplyFn)(void *instance, struct MeasurementBuffer *buffer);
 
-typedef void (*OutputWriteFn)(void *instance, const struct MeasurementBuffer *buffer);
+typedef void (*OutputWriteFn)(void *instance,
+                              const struct MeasurementBuffer *buffer,
+                              const struct FfiOutputContext *ctx);
 
 struct NullableAStr config_string_in(const struct ConfigTable *table, struct AStr key);
 
@@ -225,7 +233,7 @@ const struct ConfigArray *config_array_at(const struct ConfigArray *array, uintp
 
 const struct ConfigTable *config_table_at(const struct ConfigArray *array, uintptr_t index);
 
-struct AStr metric_name(struct RawMetricId metric);
+struct AStr metric_name(struct RawMetricId metric, const struct FfiOutputContext *ctx);
 
 struct Timestamp *system_time_now(void);
 

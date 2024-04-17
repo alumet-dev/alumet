@@ -14,6 +14,8 @@ use tokio::task::JoinHandle;
 use tokio::{runtime::Runtime, sync::watch};
 use tokio_stream::StreamExt;
 
+use crate::metrics::{Metric, RawMetricId};
+use crate::pipeline::scoped;
 use crate::units::CustomUnitRegistry;
 use crate::{
     measurement::MeasurementBuffer,
@@ -23,7 +25,7 @@ use crate::{
 
 use super::registry::ElementRegistry;
 use super::trigger::{ConfiguredTrigger, SourceTrigger, TriggerProvider};
-use super::{threading, PollError, TransformError, WriteError};
+use super::{threading, OutputContext, PollError, TransformError, WriteError};
 
 /// A measurement pipeline that has not been started yet.
 /// Use [`start`](Self::start) to launch it.
@@ -36,6 +38,10 @@ struct PipelineElements {
     sources: Vec<ConfiguredSource>,
     transforms: Vec<ConfiguredTransform>,
     outputs: Vec<ConfiguredOutput>,
+
+    // Channel: outputs -> listeners of late metric registration
+    late_reg_res_tx: mpsc::Sender<Vec<RawMetricId>>,
+    late_reg_res_rx: mpsc::Receiver<Vec<RawMetricId>>,
 }
 /// Parameters of the measurement pipeline.
 struct PipelineParameters {
@@ -141,6 +147,8 @@ impl MeasurementPipeline {
                 sources,
                 transforms: elements.transforms,
                 outputs: elements.outputs,
+                late_reg_res_tx: elements.late_reg_res_tx,
+                late_reg_res_rx: elements.late_reg_res_rx,
             },
             params: PipelineParameters {
                 normal_worker_threads: None,
@@ -162,7 +170,6 @@ impl MeasurementPipeline {
     /// Starts the measurement pipeline and returns a controller for it.
     pub fn start(self, metrics: MetricRegistry, units: CustomUnitRegistry) -> RunningPipeline {
         // Set the global registries, which can be accessed by the pipeline's elements (sources, transforms, outputs).
-        MetricRegistry::init_global(metrics);
         CustomUnitRegistry::init_global(units);
 
         // Create the runtimes
@@ -179,15 +186,15 @@ impl MeasurementPipeline {
             res
         };
 
-        // Channel sources -> transforms
+        // Channel: sources -> transforms
         let (in_tx, in_rx) = mpsc::channel::<MeasurementBuffer>(256);
 
         // if self.elements.transforms.is_empty() && self.elements.outputs.len() == 1 {
         // TODO: If no transforms and one output, the pipeline can be reduced
         // }
 
-        // Broadcast queue transforms -> outputs
-        let out_tx = broadcast::Sender::<MeasurementBuffer>::new(256);
+        // Broadcast queue: transforms -> outputs
+        let out_tx = broadcast::Sender::<OutputMsg>::new(256);
 
         // Store the task handles in order to wait for them to complete before stopping,
         // and the command senders in order to keep the receivers alive and to be able to send commands after the launch.
@@ -200,9 +207,16 @@ impl MeasurementPipeline {
         // Start the tasks, starting at the end of the pipeline (to avoid filling the buffers too quickly).
         // 1. Outputs
         for out in self.elements.outputs {
-            let data_rx = out_tx.subscribe();
+            let msg_rx = out_tx.subscribe();
             let (command_tx, command_rx) = watch::channel(OutputCmd::Run);
-            let handle = normal_runtime.spawn(run_output_from_broadcast(out.output, data_rx, command_rx));
+            let ctx = OutputContext {
+                // Each output task owns its OutputContext, which contains a copy of the MetricRegistry.
+                // This allows fast, uncontended access to the registry, and avoids a global state (no Arc<Mutex<...>>).
+                // The cost is a duplication of the registry (increased memory use) in the case where multiple outputs exist.
+                metrics: metrics.clone(),
+            };
+            // Spawn the task and store the handle.
+            let handle = normal_runtime.spawn(run_output_from_broadcast(out.output, msg_rx, command_rx, ctx));
             output_handles.push(handle);
             output_command_senders_by_plugin
                 .entry(out.plugin_name)
@@ -367,7 +381,7 @@ pub enum TransformCmd {
 async fn run_transforms(
     mut transforms: Vec<Box<dyn Transform>>,
     mut rx: mpsc::Receiver<MeasurementBuffer>,
-    tx: broadcast::Sender<MeasurementBuffer>,
+    tx: broadcast::Sender<OutputMsg>,
     active_flags: Arc<AtomicU64>,
 ) -> Result<(), TransformError> {
     loop {
@@ -384,7 +398,7 @@ async fn run_transforms(
             }
 
             // Send the results to the outputs.
-            tx.send(measurements)
+            tx.send(OutputMsg::WriteMeasurements(measurements))
                 .context("could not send the measurements from transforms to the outputs")?;
         } else {
             log::warn!("The channel connected to the transform step has been closed, the transforms will stop.");
@@ -402,10 +416,21 @@ pub enum OutputCmd {
     Stop,
 }
 
+#[derive(Debug, Clone)]
+pub enum OutputMsg {
+    WriteMeasurements(MeasurementBuffer),
+    RegisterMetrics {
+        metrics: Vec<Metric>,
+        source_name: String,
+        reply_to: tokio::sync::mpsc::Sender<Vec<RawMetricId>>,
+    },
+}
+
 async fn run_output_from_broadcast(
     mut output: Box<dyn Output>,
-    mut rx: broadcast::Receiver<MeasurementBuffer>,
+    mut rx: broadcast::Receiver<OutputMsg>,
     mut commands: watch::Receiver<OutputCmd>,
+    mut ctx: OutputContext,
 ) -> Result<(), WriteError> {
     // Two possible designs:
     // A) Use one mpsc channel + one shared variable that contains the current command,
@@ -413,10 +438,44 @@ async fn run_output_from_broadcast(
     // - to change the command, update the variable and send a special message through the channel
     // In this alternative design, each Output would have one mpsc channel, and the Transform step would call send() or try_send() on each of them.
     //
-    // B) use a broadcast + watch, where the broadcast discards old values when a receiver (output) lags behind,
-    // instead of either (with option A):
+    // B) use a broadcast + watch, where the broadcast discards old values when a receiver (output) lags behind, instead of either (with option A):
     // - preventing the transform from running (mpsc channel's send() blocks when the queue is full).
-    // - losing the most recent messages in transform, for one output. Other outputs that are not lagging behind will receive all messages fine, since try_send() does not block, the problem is: what to do with messages that could not be sent, when try_send() fails?)
+    // - losing the most recent messages in transform, for one output. Other outputs that are not lagging behind will receive all messages fine, since try_send() does not block.
+    //     The problem is: what to do with messages that could not be sent, when try_send() fails?
+
+    async fn handle_message(received_msg: OutputMsg, output: &mut dyn Output, ctx: &mut OutputContext) -> Result<(), WriteError> {
+        match received_msg {
+            OutputMsg::WriteMeasurements(measurements) => {
+                // output.write() is blocking, do it in a dedicated thread.
+
+                // Output is not Sync, we could move the value to the future and back (idem for ctx),
+                // but that would likely introduce a needless copy, and would be cumbersome to work with.
+                // Instead, we use the `scoped` module.
+                let res = scoped::spawn_blocking_with_output(output, ctx, move |out, ctx| out.write(&measurements, &ctx)).await;
+                match res {
+                    Ok(write_res) => {
+                        if let Err(e) = write_res {
+                            log::error!("Output failed: {:?}", e); // todo give a name to the output
+                        }
+                        Ok(())
+                    },
+                    Err(await_err) => {
+                        if await_err.is_panic() {
+                            return Err(anyhow!("A blocking writing task panicked, there is a bug somewhere! Details: {}", await_err).into());
+                        } else {
+                            todo!("unhandled error");
+                        }
+                    },
+                }
+            },
+            OutputMsg::RegisterMetrics { metrics, source_name, reply_to } => {
+                let metric_ids = ctx.metrics.extend_infallible(metrics, &source_name);
+                reply_to.send(metric_ids).await?;
+                Ok(())
+            },
+        }
+    }
+
     loop {
         tokio::select! {
             received_cmd = commands.changed() => {
@@ -432,7 +491,7 @@ async fn run_output_from_broadcast(
                                 OutputCmd::Pause => unreachable!(),
                             },
                             Err(_) => todo!("watch channel closed"),
-                        }
+                        };
                     },
                     Ok(OutputCmd::Stop) => break, // stop the loop
                     Err(_) => todo!("watch channel closed")
@@ -440,27 +499,8 @@ async fn run_output_from_broadcast(
             },
             received_msg = rx.recv() => {
                 match received_msg {
-                    Ok(measurements) => {
-                        // output.write() is blocking, do it in a dedicated thread
-                        // Output is not Sync, move the value to the future and back
-                        let res = tokio::task::spawn_blocking(move || {
-                            (output.write(&measurements), output)
-                        }).await;
-                        match res {
-                            Ok((write_res, out)) => {
-                                output = out;
-                                if let Err(e) = write_res {
-                                    log::error!("Output failed: {:?}", e); // todo give a name to the output
-                                }
-                            },
-                            Err(await_err) => {
-                                if await_err.is_panic() {
-                                    return Err(anyhow!("A blocking writing task panicked, there is a bug somewhere! Details: {}", await_err).into());
-                                } else {
-                                    todo!("unhandled error");
-                                }
-                            },
-                        }
+                    Ok(msg) => {
+                        handle_message(msg, output.as_mut(), &mut ctx).await?;
                     },
                     Err(broadcast::error::RecvError::Lagged(n)) => {
                         log::warn!("Output is too slow, it lost the oldest {n} messages.");
@@ -687,12 +727,12 @@ mod tests {
 
     use crate::{
         measurement::{MeasurementBuffer, MeasurementPoint, WrappedMeasurementType, WrappedMeasurementValue},
-        metrics::RawMetricId,
-        pipeline::{trigger::TriggerProvider, Transform},
+        metrics::{MetricRegistry, RawMetricId},
+        pipeline::{trigger::TriggerProvider, OutputContext, Transform},
         resources::ResourceId,
     };
 
-    use super::{run_output_from_broadcast, run_source, run_transforms, OutputCmd, SourceCmd};
+    use super::{run_output_from_broadcast, run_source, run_transforms, OutputCmd, OutputMsg, SourceCmd};
 
     #[test]
     fn source_triggered_by_time() {
@@ -814,14 +854,14 @@ mod tests {
         let (_src_cmd_tx, src_cmd_rx) = watch::channel(SourceCmd::SetTrigger(Some(tp)));
 
         // create transform channels and control flags
-        let (trans_tx, mut out_rx) = broadcast::channel::<MeasurementBuffer>(64);
+        let (trans_tx, mut out_rx) = broadcast::channel::<OutputMsg>(64);
         let active_flags = Arc::new(AtomicU64::new(u64::MAX));
         let active_flags2 = active_flags.clone();
         let active_flags3 = active_flags.clone();
 
         rt.spawn(async move {
             loop {
-                if let Ok(measurements) = out_rx.recv().await {
+                if let Ok(OutputMsg::WriteMeasurements(measurements)) = out_rx.recv().await {
                     let current_flags = active_flags2.load(Ordering::Relaxed);
                     let transform1_enabled = current_flags & 1 != 0;
                     let transform2_enabled = current_flags & 2 != 0;
@@ -892,7 +932,7 @@ mod tests {
 
         // no transforms but a transform task to send the values to the output
         let transforms = vec![];
-        let (trans_tx, out_rx) = broadcast::channel::<MeasurementBuffer>(64);
+        let (trans_tx, out_rx) = broadcast::channel::<OutputMsg>(64);
         let active_flags = Arc::new(AtomicU64::new(u64::MAX));
 
         // create output
@@ -902,9 +942,12 @@ mod tests {
             output_count: output_count.clone(),
         });
         let (out_cmd_tx, out_cmd_rx) = watch::channel(OutputCmd::Run);
+        let out_ctx = OutputContext {
+            metrics: MetricRegistry::new(),
+        };
 
         // start tasks
-        rt.spawn(run_output_from_broadcast(output, out_rx, out_cmd_rx));
+        rt.spawn(run_output_from_broadcast(output, out_rx, out_cmd_rx, out_ctx));
         rt.spawn(run_transforms(transforms, trans_rx, trans_tx, active_flags));
         rt.spawn(run_source(source, src_tx, src_cmd_rx));
 
@@ -1018,7 +1061,7 @@ mod tests {
     }
 
     impl crate::pipeline::Output for TestOutput {
-        fn write(&mut self, measurements: &MeasurementBuffer) -> Result<(), crate::pipeline::WriteError> {
+        fn write(&mut self, measurements: &MeasurementBuffer, ctx: &OutputContext) -> Result<(), crate::pipeline::WriteError> {
             assert_eq!(measurements.len(), self.expected_input_len);
             self.output_count.fetch_add(measurements.len() as _, Ordering::Relaxed);
             Ok(())

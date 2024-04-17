@@ -5,7 +5,7 @@ use std::{
     path::Path,
 };
 
-use alumet::measurement::WrappedMeasurementValue;
+use alumet::{measurement::WrappedMeasurementValue, pipeline::OutputContext};
 use alumet::{measurement::MeasurementBuffer, metrics::MetricId};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -41,7 +41,7 @@ fn collect_attribute_keys(buf: &MeasurementBuffer) -> HashSet<String> {
 }
 
 impl alumet::pipeline::Output for CsvOutput {
-    fn write(&mut self, measurements: &MeasurementBuffer) -> Result<(), alumet::pipeline::WriteError> {
+    fn write(&mut self, measurements: &MeasurementBuffer, ctx: &OutputContext) -> Result<(), alumet::pipeline::WriteError> {
         if self.attributes_in_header.is_none() && measurements.len() > 0 {
             let attr_keys = collect_attribute_keys(measurements);
 
@@ -60,7 +60,7 @@ impl alumet::pipeline::Output for CsvOutput {
         }
 
         for m in measurements.iter() {
-            let metric_name = m.metric.name();
+            let metric_name = m.metric.name(ctx);
             let datetime: OffsetDateTime = m.timestamp.into();
             let datetime: String = datetime.format(&Rfc3339)?;
             let value = match m.value {

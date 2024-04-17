@@ -11,14 +11,15 @@ void output_drop(StdOutput *output) {
     free(output);
 }
 
-void output_write(StdOutput *output, const MeasurementBuffer *buffer) {
-    mbuffer_foreach(buffer, NULL, write_point);
+void output_write(StdOutput *output, const MeasurementBuffer *buffer, const FfiOutputContext *ctx) {
+    mbuffer_foreach(buffer, ctx, write_point);
 }
 
 void write_point(void *data, const MeasurementPoint *point) {
+    const FfiOutputContext *ctx = data;
     FfiMeasurementValue value = mpoint_value(point);
     Timestamp t = mpoint_timestamp(point);
-    AStr metric = metric_name(mpoint_metric(point));
+    AStr metric = metric_name(mpoint_metric(point), ctx);
 
     AString resource_kind = mpoint_resource_kind(point);
     AString resource_id = mpoint_resource_id(point);

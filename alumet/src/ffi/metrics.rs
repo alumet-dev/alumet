@@ -13,13 +13,14 @@ use crate::{
 use super::{
     resources::FfiResourceId,
     string::{AStr, AString},
-    Timestamp,
+    FfiOutputContext, Timestamp,
 };
 
 // ====== Metrics ffi ======
 #[no_mangle]
-pub extern "C" fn metric_name<'a>(metric: RawMetricId) -> AStr<'a> {
-    let name: &'static str = &crate::metrics::get_metric(&metric).name;
+pub extern "C" fn metric_name<'a>(metric: RawMetricId, ctx: &'a FfiOutputContext) -> AStr<'a> {
+    let metrics: &crate::metrics::MetricRegistry = &unsafe { &*ctx.inner }.metrics;
+    let name: &str = &metrics.with_id(&metric).unwrap().name;
     AStr::from(name)
 }
 

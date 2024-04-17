@@ -46,6 +46,7 @@
 //! In your library, define a structure for your plugin, and implement the [`rust::AlumetPlugin`] trait for it.
 //! ```no_run
 //! use alumet::plugin::{rust::AlumetPlugin, AlumetStart};
+//! use alumet::config::ConfigTable;
 //!
 //! struct MyPlugin {}
 //!
@@ -243,4 +244,14 @@ impl AlumetStart<'_> {
         let plugin = self.current_plugin_name().to_owned();
         self.pipeline_elements.add_output(plugin, output)
     }
+
+    /// Returns a handle that allows to register metrics during the operation phase.
+    pub fn late_registration_handle(&self) -> LateRegistrationHandle {
+        todo!()
+    }
+}
+
+pub struct LateRegistrationHandle {
+    rx: tokio::sync::mpsc::Receiver<Vec<RawMetricId>>,
+    tx: tokio::sync::mpsc::Sender<pipeline::runtime::OutputMsg>,
 }

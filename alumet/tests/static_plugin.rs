@@ -34,6 +34,12 @@ fn test_plugin_lifecycle() {
 
     let expected_metrics = vec!["plugin1:energy-a", "plugin1:counter-b", "plugin2:energy-a", "plugin2:counter-b"];
     assert_eq!(sorted(expected_metrics), sorted(startup.metrics.iter().map(|m| &m.name).collect()));
+    
+    // Execute post-startup actions.
+    for p in plugins.iter_mut() {
+        p.post_startup(&startup).unwrap_or_else(|err| panic!("Plugin post-startup action failed: {} v {} - {}", p.name(), p.version(), err));
+    }
+    assert!(plugins.iter().all(|p| p.state == State::PostStartup));
 
     // Stop the plugins
     for p in plugins.iter_mut() {

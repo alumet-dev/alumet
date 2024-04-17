@@ -1,6 +1,6 @@
 use alumet::measurement::{MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue};
 use alumet::metrics::{MetricId, TypedMetricId};
-use alumet::pipeline::{Output, PollError, Source, Transform, TransformError, WriteError};
+use alumet::pipeline::{Output, OutputContext, PollError, Source, Transform, TransformError, WriteError};
 use alumet::plugin::{AlumetStart, Plugin};
 use alumet::units::Unit;
 use alumet::resources::ResourceId;
@@ -23,6 +23,7 @@ pub enum State {
     Initialized,
     Started,
     Stopped,
+    PostStartup,
 }
 
 impl TestPlugin {
@@ -56,6 +57,11 @@ impl Plugin for TestPlugin {
         
         // Update state (for testing purposes)
         self.state = State::Started;
+        Ok(())
+    }
+    
+    fn post_startup(&mut self, startup: &alumet::plugin::manage::PluginStartup) -> anyhow::Result<()> {
+        self.state = State::PostStartup;
         Ok(())
     }
 
@@ -101,12 +107,12 @@ impl Transform for TestTransform {
 }
 
 impl Output for TestOutput {
-    fn write(&mut self, measurements: &MeasurementBuffer) -> Result<(), WriteError> {
+    fn write(&mut self, measurements: &MeasurementBuffer, ctx: &OutputContext) -> Result<(), WriteError> {
         for m in measurements.iter() {
             let ts = &m.timestamp;
             let res_kind = m.resource.kind();
             let res_id = m.resource.id_display();
-            let name = m.metric.name();
+            let name = m.metric.name(ctx);
             let value = &m.value;
             println!(">> {ts:?} on {res_kind} {res_id} :{name} = {value:?}");
         }

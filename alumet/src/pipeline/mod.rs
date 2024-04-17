@@ -2,11 +2,12 @@
 
 use std::{fmt, time::SystemTime};
 
-use crate::measurement::{MeasurementAccumulator, MeasurementBuffer};
+use crate::{measurement::{MeasurementAccumulator, MeasurementBuffer}, metrics::{MetricRegistry, RawMetricId}};
 
 pub mod registry;
 pub mod runtime;
 mod threading;
+mod scoped;
 pub mod trigger;
 
 /// Produces measurements related to some metrics.
@@ -24,7 +25,11 @@ pub trait Transform: Send {
 /// Exports measurements to an external entity, like a file or a database.
 pub trait Output: Send {
     /// Writes the measurements to the output.
-    fn write(&mut self, measurements: &MeasurementBuffer) -> Result<(), WriteError>;
+    fn write(&mut self, measurements: &MeasurementBuffer, ctx: &OutputContext) -> Result<(), WriteError>;
+}
+
+pub struct OutputContext {
+    pub metrics: MetricRegistry,
 }
 
 // ====== Errors ======

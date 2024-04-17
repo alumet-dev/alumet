@@ -22,6 +22,7 @@ use libc::c_void;
 
 use crate::config::ConfigTable;
 use crate::measurement::{MeasurementAccumulator, MeasurementBuffer};
+use crate::pipeline::OutputContext;
 use crate::plugin::AlumetStart;
 
 // Submodules
@@ -41,9 +42,7 @@ pub type NullableDropFn = Option<unsafe extern "C" fn(instance: *mut c_void)>;
 
 pub type SourcePollFn = extern "C" fn(instance: *mut c_void, buffer: *mut MeasurementAccumulator, timestamp: Timestamp);
 pub type TransformApplyFn = extern "C" fn(instance: *mut c_void, buffer: *mut MeasurementBuffer);
-pub type OutputWriteFn = extern "C" fn(instance: *mut c_void, buffer: *const MeasurementBuffer);
-
-// ====== String with length ======
+pub type OutputWriteFn = extern "C" fn(instance: *mut c_void, buffer: *const MeasurementBuffer, ctx: *const FfiOutputContext);
 
 // ====== Timestamp ======
 #[repr(C)]
@@ -68,4 +67,11 @@ impl From<Timestamp> for SystemTime {
     fn from(value: Timestamp) -> Self {
         UNIX_EPOCH + Duration::new(value.secs, value.nanos)
     }
+}
+
+// ====== OutputContext ======
+
+#[repr(C)]
+pub struct FfiOutputContext {
+    inner: *const OutputContext
 }

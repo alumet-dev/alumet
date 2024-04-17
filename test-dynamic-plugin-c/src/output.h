@@ -8,6 +8,6 @@ typedef struct {} StdOutput;
 
 StdOutput *output_init();
 void output_drop(StdOutput *output);
-void output_write(StdOutput *output, const MeasurementBuffer *buffer);
+void output_write(StdOutput *output, const MeasurementBuffer *buffer, const FfiOutputContext *ctx);
 
 #endif

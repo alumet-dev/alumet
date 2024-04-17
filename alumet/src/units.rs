@@ -11,7 +11,7 @@ use std::{
 /// A unit of measurement.
 ///
 /// Some common units of the SI are provided as plain enum variants, such as `Unit::Second`.
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone)]
 #[repr(u8)]
 pub enum Unit {
     /// Indicates a dimensionless value. This is suitable for counters.
@@ -59,13 +59,13 @@ pub enum Unit {
 /// let milliA = PrefixedUnit::milli(Unit::Ampere);
 /// let nanoSec = PrefixedUnit::nano(Unit::Second);
 /// ```
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PrefixedUnit {
     pub base_unit: Unit,
     pub prefix: UnitPrefix,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UnitPrefix {
     Nano,
     Micro,

@@ -43,7 +43,8 @@ use core::fmt;
 use std::collections::HashMap;
 use std::error::Error;
 use std::marker::PhantomData;
-use std::sync::OnceLock;
+
+use crate::pipeline::OutputContext;
 
 use super::measurement::{MeasurementType, WrappedMeasurementType};
 use super::units::PrefixedUnit;
@@ -54,8 +55,9 @@ use super::units::PrefixedUnit;
 /// [`AlumetStart::create_metric`](crate::plugin::AlumetStart::create_metric)
 /// or [`AlumetStart::create_metric_untyped`](crate::plugin::AlumetStart::create_metric).
 /// Metrics can only be registered during the plugin startup phase.
-/// 
+///
 /// See the [module docs](self).
+#[derive(Debug, Clone)]
 pub struct Metric {
     /// The unique identifier of the metric in the metric registry.
     pub id: RawMetricId,
@@ -71,34 +73,21 @@ pub struct Metric {
 
 /// Trait for both typed and untyped metric ids.
 pub trait MetricId {
-    /// Returns the unique name of the metric.
-    fn name(&self) -> &str;
     /// Returns the id of the metric in the registry.
     fn untyped_id(&self) -> RawMetricId;
+
+    fn name<'a>(&self, ctx: &'a OutputContext) -> &'a str {
+        &ctx.metrics.with_id(&self.untyped_id()).unwrap().name
+    }
 }
 
 /// A registry of metrics.
 ///
 /// New metrics are created by the plugins during their initialization.
+#[derive(Clone)]
 pub struct MetricRegistry {
     pub(crate) metrics_by_id: HashMap<RawMetricId, Metric>,
     pub(crate) metrics_by_name: HashMap<String, RawMetricId>,
-}
-
-/// Global registry of metrics, to be used from the pipeline, in any thread.
-///
-/// The registry is NOT mutable because it is not thread-safe.
-/// Metrics must be registered before the measurement pipeline starts.
-pub(crate) static GLOBAL_METRICS: OnceLock<MetricRegistry> = OnceLock::new();
-
-/// Gets a metric from the global registry.
-pub(crate) fn get_metric(id: &RawMetricId) -> &'static Metric {
-    MetricRegistry::global().with_id(id).unwrap_or_else(|| {
-        panic!(
-            "Every metric should be in the global registry, but this one was not found: {}",
-            id.0
-        )
-    })
 }
 
 /// A metric id without a generic type information.
@@ -123,11 +112,6 @@ impl RawMetricId {
 pub struct TypedMetricId<T: MeasurementType>(pub(crate) RawMetricId, pub(crate) PhantomData<T>);
 
 impl MetricId for RawMetricId {
-    fn name(&self) -> &str {
-        let metric = get_metric(self);
-        &metric.name
-    }
-
     fn untyped_id(&self) -> RawMetricId {
         self.clone()
     }
@@ -136,11 +120,6 @@ impl MetricId for RawMetricId {
 impl<T: MeasurementType> MetricId for TypedMetricId<T> {
     fn untyped_id(&self) -> RawMetricId {
         self.0.clone()
-    }
-
-    fn name(&self) -> &str {
-        let metric = get_metric(&self.untyped_id());
-        &metric.name
     }
 }
 
@@ -192,27 +171,6 @@ impl MetricRegistry {
         }
     }
 
-    /// Returns the global metric registry.
-    ///
-    /// This function panics the registry has not been initialized with [`MetricRegistry::init_global()`].
-    pub(crate) fn global() -> &'static MetricRegistry {
-        // `get` is just one atomic read, this is much cheaper than a Mutex or RwLock
-        GLOBAL_METRICS
-            .get()
-            .expect("The MetricRegistry must be initialized before use.")
-    }
-
-    /// Sets the global metric registry.
-    ///
-    /// This function can only be called once.
-    /// The global metric registry must be set before using a `Source`, `Transform` or `Output`, because
-    /// they may call functions such as [`MetricId::name`] that use the global registry.
-    pub(crate) fn init_global(registry: MetricRegistry) {
-        GLOBAL_METRICS
-            .set(registry)
-            .unwrap_or_else(|_| panic!("The MetricRegistry can be initialized only once."));
-    }
-
     /// Finds the metric that has the given id.
     pub fn with_id<M: MetricId>(&self, id: &M) -> Option<&Metric> {
         self.metrics_by_id.get(&id.untyped_id())
@@ -237,7 +195,9 @@ impl MetricRegistry {
     }
 
     /// Registers a new metric in this registry.
+    ///
     /// The `id` of `m` is ignored and replaced by a newly generated id.
+    /// This new id is returned.
     pub(crate) fn register(&mut self, mut m: Metric) -> Result<RawMetricId, MetricCreationError> {
         let name = &m.name;
         if let Some(_name_conflict) = self.metrics_by_name.get(name) {
@@ -245,11 +205,47 @@ impl MetricRegistry {
                 "A metric with this name already exist: {name}"
             )));
         }
-        let id = RawMetricId(self.metrics_by_id.len());
+        let id = RawMetricId(self.metrics_by_name.len());
         m.id = id;
         self.metrics_by_name.insert(name.clone(), id);
         self.metrics_by_id.insert(id, m);
         Ok(id)
+    }
+
+    fn deduplicated_name(&self, requested_name: &str, resolution_suffix: &str) -> String {
+        if let Some(_conflict) = self.metrics_by_name.get(requested_name) {
+            let mut name = format!("{requested_name}_{resolution_suffix}");
+            let mut dedup = 0;
+            while self.metrics_by_name.get(&name).is_some() {
+                dedup += 1;
+                name = format!("{requested_name}_{resolution_suffix}__{dedup}");
+            }
+            name
+        } else {
+            requested_name.to_owned()
+        }
+    }
+
+    pub(crate) fn register_infallible(&mut self, mut m: Metric, dedup_suffix: &str) -> RawMetricId {
+        m.name = self.deduplicated_name(&m.name, dedup_suffix);
+        self.register(m).unwrap()
+    }
+
+    pub(crate) fn extend_infallible(&mut self, metrics: Vec<Metric>, dedup_suffix: &str) -> Vec<RawMetricId> {
+        self.metrics_by_name.reserve(metrics.len());
+        self.metrics_by_id.reserve(metrics.len());
+        let base_id = self.len();
+        metrics
+            .into_iter()
+            .enumerate()
+            .map(|(i, mut metric)| {
+                metric.name = self.deduplicated_name(&metric.name, dedup_suffix);
+                let id = RawMetricId(base_id + i);
+                self.metrics_by_name.insert(metric.name.clone(), id);
+                self.metrics_by_id.insert(id, metric);
+                id
+            })
+            .collect()
     }
 }
 
@@ -372,24 +368,5 @@ mod tests {
         let mut names: Vec<&str> = metrics.iter().map(|m| &*m.name).collect();
         names.sort();
         assert_eq!(vec!["metric", "metric2"], names);
-    }
-
-    #[test]
-    fn metric_global() {
-        let mut metrics = MetricRegistry::new();
-        let m = Metric {
-            id: RawMetricId(usize::MAX),
-            name: "metric".to_owned(),
-            description: "time...".to_owned(),
-            value_type: WrappedMeasurementType::U64,
-            unit: Unit::Second.into(),
-        };
-        let id: RawMetricId = metrics.register(m).unwrap();
-        MetricRegistry::init_global(metrics);
-        let metric = MetricRegistry::global().with_id(&id).unwrap();
-        assert_eq!("metric", &metric.name);
-        assert_eq!(WrappedMeasurementType::U64, metric.value_type);
-        assert_eq!(Unit::Second, metric.unit.base_unit);
-        assert_eq!("time...", metric.description);
     }
 }
