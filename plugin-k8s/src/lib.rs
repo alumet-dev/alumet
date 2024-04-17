@@ -4,8 +4,7 @@ use anyhow::{Error, anyhow};
 
 pub struct K8sPlugin;
 
-mod request_cadvisor;
-mod parsing_prometheus;
+mod cgroup_v2;
 
 impl alumet::plugin::Plugin for K8sPlugin{
     fn name(&self) -> &str {
@@ -17,24 +16,14 @@ impl alumet::plugin::Plugin for K8sPlugin{
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
-        let token_k8s = request_cadvisor::retrieve_token();
-        let api_server: String = String::from("https://10.22.80.14:6443");
-        let mut li_node = request_cadvisor::get_all_kubernetes_nodes(&token_k8s, &api_server);
-        match li_node {
-            Ok(mut vecteur_node) => {
-                for element in &mut vecteur_node {
-                    println!("Borrowed: {}", element);
-                }
-                let mut allMeasure: HashMap<String, Vec<String>> = HashMap::new();
-                request_cadvisor::gather_values(&token_k8s, &api_server, &mut vecteur_node, &mut allMeasure);
-            },
-            Err(err) => {
-                println!("Error with return of get_all_kubernetes_nodes");
-                return Err(anyhow!(err));
-            }
-        
+        let v2_used: bool = cgroup_v2::is_cgroups_v2();
+        println!("The result is: {:?}", v2_used);
+        if v2_used == true{
+            println!("Cgroups v2 are being used.");
+            cgroup_v2::list_all_K8S_pods();
+        }else{
+            panic!("Cgroups v2 are not being used!");
         }
-
         Ok(())
     }
 
