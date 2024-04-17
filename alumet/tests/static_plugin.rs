@@ -33,7 +33,7 @@ fn test_plugin_lifecycle() {
     assert_eq!(2, startup.pipeline_builder.output_count());
 
     let expected_metrics = vec!["plugin1:energy-a", "plugin1:counter-b", "plugin2:energy-a", "plugin2:counter-b"];
-    assert_eq!(sorted(expected_metrics), sorted(startup.pipeline_builder.metrics.iter().map(|m| &m.name).collect()));
+    assert_eq!(sorted(expected_metrics), sorted(startup.pipeline_builder.metrics.iter().map(|(_id, m)| &m.name).collect()));
     
     // Execute post-startup actions.
     for p in plugins.iter_mut() {

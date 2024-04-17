@@ -278,6 +278,12 @@ impl std::fmt::Debug for MeasurementBuffer {
     }
 }
 
+impl From<Vec<MeasurementPoint>> for MeasurementBuffer {
+    fn from(value: Vec<MeasurementPoint>) -> Self {
+        MeasurementBuffer { points: value }
+    }
+}
+
 /// An accumulator stores measured data points.
 /// Unlike a [`MeasurementBuffer`], the accumulator only allows to [`push`](MeasurementAccumulator::push) new points, not to modify them.
 pub struct MeasurementAccumulator<'a>(&'a mut MeasurementBuffer);

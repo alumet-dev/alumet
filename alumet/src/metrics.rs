@@ -59,8 +59,6 @@ use super::units::PrefixedUnit;
 /// See the [module docs](self).
 #[derive(Debug, Clone)]
 pub struct Metric {
-    /// The unique identifier of the metric in the metric registry.
-    pub id: RawMetricId,
     /// The metric's unique name.
     pub name: String,
     /// A verbose description of the metric.
@@ -100,6 +98,10 @@ pub struct RawMetricId(pub(crate) usize);
 impl RawMetricId {
     pub fn as_u64(&self) -> u64 {
         self.0 as u64
+    }
+    
+    pub fn from_u64(id: u64) -> RawMetricId {
+        RawMetricId(id as _)
     }
 }
 
@@ -190,14 +192,13 @@ impl MetricRegistry {
     pub fn iter(&self) -> MetricIter<'_> {
         // return new iterator
         MetricIter {
-            values: self.metrics_by_id.values(),
+            entries: self.metrics_by_id.iter(),
         }
     }
 
     /// Registers a new metric in this registry.
     ///
-    /// The `id` of `m` is ignored and replaced by a newly generated id.
-    /// This new id is returned.
+    /// A new id is generated and returned.
     pub(crate) fn register(&mut self, mut m: Metric) -> Result<RawMetricId, MetricCreationError> {
         let name = &m.name;
         if let Some(_name_conflict) = self.metrics_by_name.get(name) {
@@ -206,7 +207,6 @@ impl MetricRegistry {
             )));
         }
         let id = RawMetricId(self.metrics_by_name.len());
-        m.id = id;
         self.metrics_by_name.insert(name.clone(), id);
         self.metrics_by_id.insert(id, m);
         Ok(id)
@@ -251,18 +251,18 @@ impl MetricRegistry {
 
 /// An iterator over the metrics of a [`MetricRegistry`].
 pub struct MetricIter<'a> {
-    values: std::collections::hash_map::Values<'a, RawMetricId, Metric>,
+    entries: std::collections::hash_map::Iter<'a, RawMetricId, Metric>,
 }
 impl<'a> Iterator for MetricIter<'a> {
-    type Item = &'a Metric;
+    type Item = (&'a RawMetricId, &'a Metric);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.values.next()
+        self.entries.next()
     }
 }
 
 impl<'a> IntoIterator for &'a MetricRegistry {
-    type Item = &'a Metric;
+    type Item = (&'a RawMetricId, &'a Metric);
 
     type IntoIter = MetricIter<'a>;
 
@@ -312,7 +312,6 @@ mod tests {
         assert_eq!(metrics.len(), 0);
         metrics
             .register(Metric {
-                id: RawMetricId(0),
                 name: "metric".to_owned(),
                 description: "...".to_owned(),
                 value_type: WrappedMeasurementType::U64,
@@ -321,7 +320,6 @@ mod tests {
             .unwrap();
         metrics
             .register(Metric {
-                id: RawMetricId(123),
                 name: "metric".to_owned(),
                 description: "abcd".to_owned(),
                 value_type: WrappedMeasurementType::F64,
@@ -337,7 +335,6 @@ mod tests {
         assert_eq!(metrics.len(), 0);
         let metric_id = metrics
             .register(Metric {
-                id: RawMetricId(0),
                 name: "metric".to_owned(),
                 description: "".to_owned(),
                 value_type: WrappedMeasurementType::U64,
@@ -346,7 +343,6 @@ mod tests {
             .unwrap();
         let metric_id2 = metrics
             .register(Metric {
-                id: RawMetricId(0),
                 name: "metric2".to_owned(),
                 description: "".to_owned(),
                 value_type: WrappedMeasurementType::F64,
@@ -365,7 +361,7 @@ mod tests {
         assert_eq!("metric", metric.name);
         assert_eq!("metric2", metric2.name);
 
-        let mut names: Vec<&str> = metrics.iter().map(|m| &*m.name).collect();
+        let mut names: Vec<&str> = metrics.iter().map(|m| &*m.1.name).collect();
         names.sort();
         assert_eq!(vec!["metric", "metric2"], names);
     }

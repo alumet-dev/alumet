@@ -149,7 +149,7 @@ fn print_stats(startup: &PluginStartup, plugins: &[Box<dyn Plugin>]) {
         .pipeline_builder
         .metrics
         .iter()
-        .map(|m| format!("    - {}: {} ({})", m.name, m.value_type, m.unit))
+        .map(|(_id, m)| format!("    - {}: {} ({})", m.name, m.value_type, m.unit))
         .collect::<Vec<_>>()
         .join("\n");
 

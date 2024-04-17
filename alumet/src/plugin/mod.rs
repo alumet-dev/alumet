@@ -185,7 +185,6 @@ impl AlumetStart<'_> {
         description: impl Into<String>,
     ) -> Result<TypedMetricId<T>, MetricCreationError> {
         let m = Metric {
-            id: RawMetricId(usize::MAX),
             name: name.into(),
             description: description.into(),
             value_type: T::wrapped_type(),
@@ -209,7 +208,6 @@ impl AlumetStart<'_> {
         description: &str,
     ) -> Result<RawMetricId, MetricCreationError> {
         let m = Metric {
-            id: RawMetricId(usize::MAX),
             name: name.to_owned(),
             description: description.to_owned(),
             value_type,
