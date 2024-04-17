@@ -7,6 +7,7 @@ use crate::metrics::RawMetricId;
 use crate::{plugin::AlumetStart, units::Unit};
 
 use super::pipeline::{FfiOutput, FfiTransform};
+use super::units::FfiUnit;
 use super::{pipeline::FfiSource, string::AStr, NullableDropFn, SourcePollFn};
 use super::{OutputWriteFn, TransformApplyFn};
 
@@ -15,12 +16,13 @@ pub extern "C" fn alumet_create_metric(
     alumet: &mut AlumetStart,
     name: AStr,
     value_type: WrappedMeasurementType,
-    unit: Unit,
+    unit: FfiUnit,
     description: AStr,
 ) -> RawMetricId {
     // todo handle errors (how to pass them to FFI properly?)
     let name = (&name).into();
     let description = (&description).into();
+    let unit = Unit::from(unit);
     let metric_id = alumet
         .create_metric_untyped(name, value_type, unit, description)
         .unwrap();
@@ -32,12 +34,13 @@ pub extern "C" fn alumet_create_metric_c(
     alumet: &mut AlumetStart,
     name: *const c_char,
     value_type: WrappedMeasurementType,
-    unit: Unit,
+    unit: FfiUnit,
     description: *const c_char,
 ) -> RawMetricId {
     // todo handle errors (how to pass them to C properly?)
     let name = unsafe { CStr::from_ptr(name) }.to_str().unwrap();
     let description = unsafe { CStr::from_ptr(description) }.to_str().unwrap();
+    let unit = Unit::from(unit);
     let metric_id = alumet
         .create_metric_untyped(name, value_type, unit, description)
         .unwrap();

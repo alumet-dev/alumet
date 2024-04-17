@@ -12,7 +12,7 @@ void output_drop(StdOutput *output) {
 }
 
 void output_write(StdOutput *output, const MeasurementBuffer *buffer, const FfiOutputContext *ctx) {
-    mbuffer_foreach(buffer, ctx, write_point);
+    mbuffer_foreach(buffer, (void*)ctx, write_point);
 }
 
 void write_point(void *data, const MeasurementPoint *point) {

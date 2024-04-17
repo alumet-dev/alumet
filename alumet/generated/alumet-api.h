@@ -123,75 +123,70 @@ typedef struct AString {
 
 typedef void (*ForeachPointFn)(void*, const struct MeasurementPoint*);
 
-/**
- * Id of a custom unit.
- *
- * Custom units can be registered by plugins using [`AlumetStart::create_unit`](crate::plugin::AlumetStart::create_unit).
- */
-typedef struct CustomUnitId {
-  uint32_t _0;
-} CustomUnitId;
-
-/**
- * A unit of measurement.
- *
- * Some common units of the SI are provided as plain enum variants, such as `Unit::Second`.
- */
-enum Unit_Tag {
+enum FfiUnit_Tag {
   /**
    * Indicates a dimensionless value. This is suitable for counters.
    */
-  Unit_Unity,
+  FfiUnit_Unity,
   /**
    * Standard unit of **time**.
    */
-  Unit_Second,
+  FfiUnit_Second,
   /**
    * Standard unit of **power**.
    */
-  Unit_Watt,
+  FfiUnit_Watt,
   /**
    * Standard unit of **energy**.
    */
-  Unit_Joule,
+  FfiUnit_Joule,
   /**
    * Electric tension (aka voltage)
    */
-  Unit_Volt,
+  FfiUnit_Volt,
   /**
    * Intensity of an electric current
    */
-  Unit_Ampere,
+  FfiUnit_Ampere,
   /**
    * Frequency (1 Hz = 1/second)
    */
-  Unit_Hertz,
+  FfiUnit_Hertz,
   /**
    * Temperature in °C
    */
-  Unit_DegreeCelsius,
+  FfiUnit_DegreeCelsius,
   /**
    * Temperature in °F
    */
-  Unit_DegreeFahrenheit,
+  FfiUnit_DegreeFahrenheit,
   /**
    * Energy in Watt-hour (1 W⋅h = 3.6 kiloJoule = 3.6 × 10^3 Joules)
    */
-  Unit_WattHour,
+  FfiUnit_WattHour,
   /**
    * A custom unit
    */
-  Unit_Custom,
+  FfiUnit_Custom,
 };
-typedef uint8_t Unit_Tag;
+typedef uint8_t FfiUnit_Tag;
 
-typedef union Unit {
-  Unit_Tag tag;
-  struct {
-    Unit_Tag custom_tag;
-    struct CustomUnitId custom;
-  };
-} Unit;
+typedef struct FfiUnit_Custom_Body {
+  FfiUnit_Tag tag;
+  /**
+   * The unique name of the unit, as specified by the UCUM.
+   */
+  struct AString unique_name;
+  /**
+   * The display (print) name of the unit, as specified by the UCUM.
+   */
+  struct AString display_name;
+} FfiUnit_Custom_Body;
+
+typedef union FfiUnit {
+  FfiUnit_Tag tag;
+  FfiUnit_Custom_Body custom;
+} FfiUnit;
 
 typedef void (*SourcePollFn)(void *instance,
                              struct MeasurementAccumulator *buffer,
@@ -297,13 +292,13 @@ void maccumulator_push(struct MeasurementAccumulator *buf, struct MeasurementPoi
 struct RawMetricId alumet_create_metric(struct AlumetStart *alumet,
                                         struct AStr name,
                                         enum WrappedMeasurementType value_type,
-                                        union Unit unit,
+                                        union FfiUnit unit,
                                         struct AStr description);
 
 struct RawMetricId alumet_create_metric_c(struct AlumetStart *alumet,
                                           const char *name,
                                           enum WrappedMeasurementType value_type,
-                                          union Unit unit,
+                                          union FfiUnit unit,
                                           const char *description);
 
 void alumet_add_source(struct AlumetStart *alumet,

@@ -88,11 +88,11 @@ use std::marker::PhantomData;
 
 use crate::config::ConfigTable;
 use crate::measurement::{MeasurementType, WrappedMeasurementType};
-use crate::metrics::{Metric, MetricCreationError, MetricRegistry, RawMetricId, TypedMetricId};
+use crate::metrics::{Metric, MetricCreationError, RawMetricId, TypedMetricId};
 use crate::pipeline;
 use crate::pipeline::runtime::{PendingPipeline, PipelineBuilder, SourceType};
 use crate::pipeline::trigger::TriggerProvider;
-use crate::units::{CustomUnit, CustomUnitId, CustomUnitRegistry, PrefixedUnit, UnitCreationError};
+use crate::units::PrefixedUnit;
 
 use self::manage::PluginStartup;
 use self::rust::AlumetPlugin;
@@ -165,7 +165,6 @@ pub trait Plugin {
 /// You should not create `AlumetStart` manually, use [`PluginStartup`](manage::PluginStartup) instead.
 /// Even better, use [`Agent`](crate::agent::Agent).
 pub struct AlumetStart<'a> {
-    units: &'a mut CustomUnitRegistry,
     pipeline_builder: &'a mut PipelineBuilder,
     current_plugin_name: String,
 }
@@ -216,15 +215,6 @@ impl AlumetStart<'_> {
             unit: unit.into(),
         };
         self.pipeline_builder.metrics.register(m)
-    }
-
-    /// Creates a new unit of measurement.
-    /// Fails if a unit with the same name already exists.
-    ///
-    /// To use the unit in measurement points, obtain its `CustomUnitId`
-    /// and wrap it in [`Unit::Custom`](crate::units::Unit::Custom).
-    pub fn create_unit(&mut self, unit: CustomUnit) -> Result<CustomUnitId, UnitCreationError> {
-        self.units.register(unit)
     }
 
     /// Adds a measurement source to the Alumet pipeline.

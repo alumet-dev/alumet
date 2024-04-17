@@ -28,7 +28,7 @@ PLUGIN_API void plugin_start(PluginStruct *plugin, AlumetStart *alumet) {
     printf("plugin_start begins with plugin = %p, custom_attribute = %.*s\n", plugin, (int)plugin->custom_attribute.len, plugin->custom_attribute.ptr);
 
     // create the source
-    Unit u = {.tag = Unit_Joule};
+    FfiUnit u = {.tag = FfiUnit_Joule};
     RawMetricId rapl_pkg_metric = alumet_create_metric_c(alumet, "rapl_pkg_consumption", WrappedMeasurementType_F64, u, "Energy consumption of the RAPL domain `package`, since the previous measurement.");
     PowercapSource *source = source_init(rapl_pkg_metric, plugin->custom_attribute);
 

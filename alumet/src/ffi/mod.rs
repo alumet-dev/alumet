@@ -31,6 +31,7 @@ pub mod metrics;
 pub mod pipeline;
 pub mod plugin;
 pub mod resources;
+pub mod units;
 pub mod string;
 
 // ====== Function types ======

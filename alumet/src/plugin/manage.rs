@@ -1,10 +1,7 @@
 //! Helpers for managing the lifecycle of plugins.
 
-use crate::{
-    config::ConfigTable, metrics::MetricRegistry, pipeline::runtime::PipelineBuilder, units::CustomUnitRegistry
-};
-
 use super::{AlumetStart, Plugin, PluginMetadata};
+use crate::{config::ConfigTable, pipeline::runtime::PipelineBuilder};
 
 /// Helper for the plugin initialization phase.
 pub struct PluginInitialization {
@@ -42,8 +39,6 @@ impl PluginInitialization {
 /// This structure contains everything that is needed to start a
 /// list of plugins.
 pub struct PluginStartup {
-    /// Units registered by the plugins.
-    pub units: CustomUnitRegistry,
     /// Builder for the measurement pipeline.
     pub pipeline_builder: PipelineBuilder,
 }
@@ -51,7 +46,6 @@ pub struct PluginStartup {
 impl PluginStartup {
     pub fn new() -> Self {
         Self {
-            units: CustomUnitRegistry::new(),
             pipeline_builder: PipelineBuilder::new(),
         }
     }
@@ -59,7 +53,6 @@ impl PluginStartup {
     /// Starts a plugin by calling its [`start`](Plugin::start) method.
     pub fn start(&mut self, plugin: &mut dyn Plugin) -> anyhow::Result<()> {
         let mut start = AlumetStart {
-            units: &mut self.units,
             pipeline_builder: &mut self.pipeline_builder,
             current_plugin_name: plugin.name().to_owned(),
         };
