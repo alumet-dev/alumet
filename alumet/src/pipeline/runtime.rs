@@ -14,7 +14,6 @@ use anyhow::{anyhow, Context};
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tokio::{runtime::Runtime, sync::watch};
-use tokio_stream::StreamExt;
 
 use crate::metrics::{Metric, RawMetricId};
 use crate::pipeline::scoped;
@@ -24,7 +23,7 @@ use crate::{
     pipeline::{Output, Source, Transform},
 };
 
-use super::trigger::{ConfiguredTrigger, SourceTrigger, TriggerProvider};
+use super::trigger::{SourceTrigger, TriggerProvider};
 use super::{threading, OutputContext, PollError, TransformError, WriteError};
 
 /// A builder of measurement pipeline.
@@ -463,7 +462,7 @@ async fn run_source(
     tx: mpsc::Sender<MeasurementBuffer>,
     mut commands: watch::Receiver<SourceCmd>,
 ) -> Result<(), PollError> {
-    fn init_trigger(provider: &mut Option<TriggerProvider>) -> anyhow::Result<ConfiguredTrigger> {
+    fn init_trigger(provider: &mut Option<TriggerProvider>) -> anyhow::Result<SourceTrigger> {
         provider
             .take()
             .expect("invalid empty trigger in message Init(trigger)")
@@ -493,14 +492,7 @@ async fn run_source(
     let mut i = 1usize;
     'run: loop {
         // wait for trigger
-        match trigger.trigger {
-            SourceTrigger::TimeInterval(ref mut interval) => {
-                interval.next().await.unwrap().unwrap();
-            }
-            SourceTrigger::Future(f) => {
-                f().await?;
-            }
-        };
+        trigger.next().await?;
 
         // poll the source
         let timestamp = SystemTime::now();

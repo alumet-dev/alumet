@@ -11,30 +11,6 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// The output of a SourceTrigger.
 pub type SourceTriggerOutput = Result<(), PollError>;
 
-/// Controls when the [`Source`](super::Source) is polled for measurements.
-pub enum SourceTrigger {
-    /// A trigger based on a precise time interval. This is much more
-    /// accurate than [`std::thread::sleep`] and [`tokio::time::sleep`],
-    /// but is only available on Linux.
-    ///
-    /// The source is polled each time `interval.next().await` returns.
-    TimeInterval(tokio_timerfd::Interval),
-
-    /// A trigger based on an arbitrary [`Future`] that is returned on demand
-    /// by a function `f`.
-    ///
-    /// The source is polled each time `f().await` returns.
-    Future(fn() -> BoxFuture<'static, SourceTriggerOutput>),
-}
-
-/// A trigger + some settings.
-pub(crate) struct ConfiguredTrigger {
-    /// The trigger that controls when to poll the source.
-    pub trigger: SourceTrigger,
-    /// Numbers of polling operations to do before flushing the measurements.
-    pub flush_rounds: usize,
-}
-
 /// Provides a `SourceTrigger` on demand, for `Source`s.
 #[derive(Clone, Debug)]
 pub enum TriggerProvider {
@@ -58,9 +34,59 @@ pub enum TriggerProvider {
         flush_rounds: usize,
     },
 }
+
+/// Controls when the [`Source`](super::Source) is polled for measurements.
+pub(crate) struct SourceTrigger {
+    /// The trigger that controls when to poll the source.
+    trigger: TriggerMechanism,
+    /// Numbers of polling operations to do before flushing the measurements.
+    pub flush_rounds: usize,
+}
+
+/// The possible trigger mechanisms.
+enum TriggerMechanism {
+    /// A trigger based on a precise time interval. This is much more
+    /// accurate than [`std::thread::sleep`] and [`tokio::time::sleep`],
+    /// but is only available on Linux.
+    ///
+    /// The source is polled each time `interval.next().await` returns.
+    #[cfg(target_os = "linux")]
+    Timerfd(tokio_timerfd::Interval),
+
+    /// A trigger based on [`tokio::time::sleep`].
+    TokioSleep(tokio::time::Instant, tokio::time::Duration),
+
+    /// A trigger based on an arbitrary [`Future`] that is returned on demand
+    /// by a function `f`.
+    ///
+    /// The source is polled each time `f().await` returns.
+    Future(fn() -> BoxFuture<'static, SourceTriggerOutput>),
+}
+
+impl SourceTrigger {
+    pub async fn next(&mut self) -> Result<(), PollError> {
+        use tokio_stream::StreamExt;
+
+        match self.trigger {
+            #[cfg(target_os = "linux")]
+            TriggerMechanism::Timerfd(ref mut interval) => {
+                interval.next().await.unwrap()?;
+                Ok(())
+            }
+            TriggerMechanism::TokioSleep(start, period) => {
+                let now = tokio::time::Instant::now();
+                let deadline = if start > now { start } else { now + period };
+                tokio::time::sleep_until(deadline).await;
+                Ok(())
+            }
+            TriggerMechanism::Future(f) => f().await,
+        }
+    }
+}
+
 impl TriggerProvider {
     /// Returns a new `SourceTrigger` along with some automatic settings.
-    pub(crate) fn auto_configured(self) -> io::Result<ConfiguredTrigger> {
+    pub(crate) fn auto_configured(self) -> io::Result<SourceTrigger> {
         match self {
             TriggerProvider::TimeInterval {
                 start_time,
@@ -75,21 +101,29 @@ impl TriggerProvider {
                 }
                 // flush_rounds must be non-zero, or the remainder operation will panic (`i % flush_rounds` in the polling loop)
                 let flush_rounds = (flush_interval.as_micros() / poll_interval.as_micros()) as usize;
-                let trigger = SourceTrigger::TimeInterval(tokio_timerfd::Interval::new(start_time, poll_interval)?);
-                Ok(ConfiguredTrigger { trigger, flush_rounds })
+
+                // Use timerfd if possible, fallback to `tokio::time::sleep`.
+                #[cfg(target_os = "linux")]
+                let trigger = TriggerMechanism::Timerfd(tokio_timerfd::Interval::new(start_time, poll_interval)?);
+                #[cfg(not(target_os = "linux"))]
+                let trigger = TriggerMechanism::TokioSleep(tokio::time::Instant::from_std(start_time), poll_interval);
+
+                Ok(SourceTrigger { trigger, flush_rounds })
             }
             TriggerProvider::Future { f, flush_rounds } => {
-                let trigger = SourceTrigger::Future(f);
-                Ok(ConfiguredTrigger { trigger, flush_rounds })
+                let trigger = TriggerMechanism::Future(f);
+                Ok(SourceTrigger { trigger, flush_rounds })
             }
         }
     }
 }
 
-impl fmt::Debug for SourceTrigger {
+impl fmt::Debug for TriggerMechanism {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::TimeInterval(_) => f.write_str("TimeInterval"),
+            #[cfg(target_os = "linux")]
+            Self::Timerfd(_) => f.write_str("TimerfdInterval"),
+            Self::TokioSleep(_, _) => f.write_str("TokioSleep"),
             Self::Future(_) => f.write_str("Future"),
         }
     }
@@ -103,7 +137,10 @@ mod tests {
 
     #[test]
     fn trigger_auto_config() {
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         let intervals_and_rounds = vec![
             (
                 /*poll interval*/ 1,
