@@ -90,7 +90,8 @@ use crate::config::ConfigTable;
 use crate::measurement::{MeasurementType, WrappedMeasurementType};
 use crate::metrics::{Metric, MetricCreationError, MetricRegistry, RawMetricId, TypedMetricId};
 use crate::pipeline;
-use crate::pipeline::registry::ElementRegistry;
+use crate::pipeline::runtime::{PendingPipeline, PipelineBuilder, SourceType};
+use crate::pipeline::trigger::TriggerProvider;
 use crate::units::{CustomUnit, CustomUnitId, CustomUnitRegistry, PrefixedUnit, UnitCreationError};
 
 use self::manage::PluginStartup;
@@ -164,9 +165,8 @@ pub trait Plugin {
 /// You should not create `AlumetStart` manually, use [`PluginStartup`](manage::PluginStartup) instead.
 /// Even better, use [`Agent`](crate::agent::Agent).
 pub struct AlumetStart<'a> {
-    metrics: &'a mut MetricRegistry,
     units: &'a mut CustomUnitRegistry,
-    pipeline_elements: &'a mut ElementRegistry,
+    pipeline_builder: &'a mut PipelineBuilder,
     current_plugin_name: String,
 }
 
@@ -191,7 +191,7 @@ impl AlumetStart<'_> {
             value_type: T::wrapped_type(),
             unit: unit.into(),
         };
-        let untyped_id = self.metrics.register(m)?;
+        let untyped_id = self.pipeline_builder.metrics.register(m)?;
         Ok(TypedMetricId(untyped_id, PhantomData))
     }
 
@@ -215,7 +215,7 @@ impl AlumetStart<'_> {
             value_type,
             unit: unit.into(),
         };
-        self.metrics.register(m)
+        self.pipeline_builder.metrics.register(m)
     }
 
     /// Creates a new unit of measurement.
@@ -230,28 +230,55 @@ impl AlumetStart<'_> {
     /// Adds a measurement source to the Alumet pipeline.
     pub fn add_source(&mut self, source: Box<dyn pipeline::Source>) {
         let plugin = self.current_plugin_name().to_owned();
-        self.pipeline_elements.add_source(plugin, source)
+        // TODO read settings from config
+        let trigger = TriggerProvider::TimeInterval {
+            start_time: std::time::Instant::now(),
+            poll_interval: std::time::Duration::from_secs(1),
+            flush_interval: std::time::Duration::from_secs(1),
+        };
+
+        self.pipeline_builder.sources.push(pipeline::runtime::SourceBuilder {
+            source_type: SourceType::Normal,
+            plugin,
+            build: Box::new(|_| (source, trigger)),
+        })
+    }
+
+    /// Adds a "late" measurement source to the Alumet pipeline.
+    ///
+    /// Unlike [`add_source`], the source is not created immediately but during the construction
+    /// of the measurement pipeline. This allows to use some information about the pipeline while
+    /// creating the source. A good use case is to access the late registration of metrics.
+    ///
+    /// The downside is a more complicated code. In general, you should prefer to use [`add_source`].
+    pub fn add_late_source<F: FnOnce(&PendingPipeline) -> (Box<dyn pipeline::Source>, TriggerProvider) + 'static>(
+        &mut self,
+        source_builder: F,
+    ) {
+        self.pipeline_builder.sources.push(pipeline::runtime::SourceBuilder {
+            source_type: SourceType::Normal,
+            plugin: self.current_plugin_name().to_owned(),
+            build: Box::new(source_builder),
+        });
     }
 
     /// Adds a transform step to the Alumet pipeline.
     pub fn add_transform(&mut self, transform: Box<dyn pipeline::Transform>) {
         let plugin = self.current_plugin_name().to_owned();
-        self.pipeline_elements.add_transform(plugin, transform)
+        self.pipeline_builder
+            .transforms
+            .push(pipeline::runtime::TransformBuilder {
+                plugin,
+                build: Box::new(|_| transform),
+            });
     }
 
     /// Adds an output to the Alumet pipeline.
     pub fn add_output(&mut self, output: Box<dyn pipeline::Output>) {
         let plugin = self.current_plugin_name().to_owned();
-        self.pipeline_elements.add_output(plugin, output)
+        self.pipeline_builder.outputs.push(pipeline::runtime::OutputBuilder {
+            plugin,
+            build: Box::new(|_| output),
+        })
     }
-
-    /// Returns a handle that allows to register metrics during the operation phase.
-    pub fn late_registration_handle(&self) -> LateRegistrationHandle {
-        todo!()
-    }
-}
-
-pub struct LateRegistrationHandle {
-    rx: tokio::sync::mpsc::Receiver<Vec<RawMetricId>>,
-    tx: tokio::sync::mpsc::Sender<pipeline::runtime::OutputMsg>,
 }

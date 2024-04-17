@@ -2,9 +2,8 @@
 
 use std::{fmt, time::SystemTime};
 
-use crate::{measurement::{MeasurementAccumulator, MeasurementBuffer}, metrics::{MetricRegistry, RawMetricId}};
+use crate::{measurement::{MeasurementAccumulator, MeasurementBuffer}, metrics::MetricRegistry};
 
-pub mod registry;
 pub mod runtime;
 mod threading;
 mod scoped;

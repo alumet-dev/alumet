@@ -27,13 +27,13 @@ fn test_plugin_lifecycle() {
     assert!(plugins.iter().all(|p| p.state == State::Started));
 
     // Check the registration of metrics and pipeline elements
-    assert_eq!(4, startup.metrics.len());
-    assert_eq!(2, startup.pipeline_elements.source_count());
-    assert_eq!(2, startup.pipeline_elements.transform_count());
-    assert_eq!(2, startup.pipeline_elements.output_count());
+    assert_eq!(4, startup.pipeline_builder.metric_count());
+    assert_eq!(2, startup.pipeline_builder.source_count());
+    assert_eq!(2, startup.pipeline_builder.transform_count());
+    assert_eq!(2, startup.pipeline_builder.output_count());
 
     let expected_metrics = vec!["plugin1:energy-a", "plugin1:counter-b", "plugin2:energy-a", "plugin2:counter-b"];
-    assert_eq!(sorted(expected_metrics), sorted(startup.metrics.iter().map(|m| &m.name).collect()));
+    assert_eq!(sorted(expected_metrics), sorted(startup.pipeline_builder.metrics.iter().map(|m| &m.name).collect()));
     
     // Execute post-startup actions.
     for p in plugins.iter_mut() {

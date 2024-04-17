@@ -16,48 +16,235 @@ use tokio_stream::StreamExt;
 
 use crate::metrics::{Metric, RawMetricId};
 use crate::pipeline::scoped;
-use crate::units::CustomUnitRegistry;
 use crate::{
     measurement::MeasurementBuffer,
     metrics::MetricRegistry,
     pipeline::{Output, Source, Transform},
 };
 
-use super::registry::ElementRegistry;
 use super::trigger::{ConfiguredTrigger, SourceTrigger, TriggerProvider};
 use super::{threading, OutputContext, PollError, TransformError, WriteError};
 
-/// A measurement pipeline that has not been started yet.
-/// Use [`start`](Self::start) to launch it.
-pub struct MeasurementPipeline {
-    elements: PipelineElements,
-    params: PipelineParameters,
+/// A builder of measurement pipeline.
+pub struct PipelineBuilder {
+    pub(crate) sources: Vec<SourceBuilder>,
+    pub(crate) transforms: Vec<TransformBuilder>,
+    pub(crate) outputs: Vec<OutputBuilder>,
+
+    pub metrics: MetricRegistry,
+
+    pub(crate) normal_worker_threads: Option<usize>,
+    pub(crate) priority_worker_threads: Option<usize>,
 }
-/// The elements of a measurement pipeline, with all required information (e.g. source triggers).
-struct PipelineElements {
+
+pub struct SourceBuilder {
+    pub source_type: SourceType,
+    pub plugin: String,
+    pub build: Box<dyn FnOnce(&PendingPipeline) -> (Box<dyn Source>, TriggerProvider)>,
+}
+
+pub struct TransformBuilder {
+    pub plugin: String,
+    pub build: Box<dyn FnOnce(&PendingPipeline) -> Box<dyn Transform>>,
+}
+
+pub struct OutputBuilder {
+    pub plugin: String,
+    pub build: Box<dyn FnOnce(&PendingPipeline) -> Box<dyn Output>>,
+}
+
+pub struct PendingPipeline<'a> {
+    to_output: &'a broadcast::Sender<OutputMsg>,
+}
+
+impl<'a> PendingPipeline<'a> {
+    pub fn late_registration_handle(&self) -> LateRegistrationHandle {
+        let (reply_tx, reply_rx) = mpsc::channel::<Vec<RawMetricId>>(256);
+        LateRegistrationHandle {
+            to_outputs: self.to_output.clone(),
+            reply_tx,
+            reply_rx,
+        }
+    }
+}
+
+pub struct LateRegistrationHandle {
+    to_outputs: broadcast::Sender<OutputMsg>,
+    reply_tx: mpsc::Sender<Vec<RawMetricId>>,
+    reply_rx: mpsc::Receiver<Vec<RawMetricId>>,
+}
+
+impl LateRegistrationHandle {
+    pub async fn create_metrics_infallible(
+        &mut self,
+        metrics: Vec<Metric>,
+        source_name: String,
+    ) -> anyhow::Result<Vec<RawMetricId>> {
+        self.to_outputs.send(OutputMsg::RegisterMetrics {
+            metrics,
+            source_name,
+            reply_to: self.reply_tx.clone(),
+        })?;
+        match self.reply_rx.recv().await {
+            Some(metric_ids) => Ok(metric_ids),
+            None => {
+                todo!("reply channel closed")
+            }
+        }
+    }
+}
+
+impl PipelineBuilder {
+    pub fn new() -> Self {
+        Self {
+            sources: Vec::new(),
+            transforms: Vec::new(),
+            outputs: Vec::new(),
+            metrics: MetricRegistry::new(),
+            normal_worker_threads: None,
+            priority_worker_threads: None,
+        }
+    }
+    
+    pub fn source_count(&self) -> usize {
+        self.sources.len()
+    }
+    
+    pub fn transform_count(&self) -> usize {
+        self.transforms.len()
+    }
+    
+    pub fn output_count(&self) -> usize {
+        self.outputs.len()
+    }
+    
+    pub fn metric_count(&self) -> usize {
+        self.metrics.len()
+    }
+
+    pub fn build(self) -> anyhow::Result<MeasurementPipeline> {
+        // Create the runtimes.
+        let rt_normal: Runtime = self.build_normal_runtime()?;
+        let rt_priority: Option<Runtime> = self.build_priority_runtime()?;
+
+        // Channel: source -> transforms.
+        let (in_tx, in_rx) = mpsc::channel::<MeasurementBuffer>(256);
+
+        // Broadcast queue, used for two things:
+        // - transforms -> outputs
+        // - late metric registration -> outputs
+        let out_tx = broadcast::Sender::<OutputMsg>::new(256);
+
+        // Create the pipeline elements.
+        let pending = PendingPipeline { to_output: &out_tx };
+        let sources: Vec<ConfiguredSource> = self
+            .sources
+            .into_iter()
+            .map(|builder| {
+                let (source, trigger) = (builder.build)(&pending);
+                ConfiguredSource {
+                    source,
+                    plugin_name: builder.plugin,
+                    source_type: builder.source_type,
+                    trigger_provider: trigger,
+                }
+            })
+            .collect();
+        let transforms: Vec<ConfiguredTransform> = self
+            .transforms
+            .into_iter()
+            .map(|builder| {
+                let transform = (builder.build)(&pending);
+                ConfiguredTransform {
+                    transform,
+                    plugin_name: builder.plugin,
+                }
+            })
+            .collect();
+        let outputs: Vec<ConfiguredOutput> = self
+            .outputs
+            .into_iter()
+            .map(|builder| {
+                let output = (builder.build)(&pending);
+                ConfiguredOutput {
+                    output,
+                    plugin_name: builder.plugin,
+                }
+            })
+            .collect();
+
+        Ok(MeasurementPipeline {
+            sources,
+            transforms,
+            outputs,
+            metrics: self.metrics,
+            from_sources: (in_tx, in_rx),
+            to_outputs: out_tx,
+            rt_normal,
+            rt_priority,
+        })
+    }
+
+    fn build_normal_runtime(&self) -> io::Result<Runtime> {
+        let mut builder = tokio::runtime::Builder::new_multi_thread();
+        builder.enable_all().thread_name("normal-worker");
+        if let Some(n) = self.normal_worker_threads {
+            builder.worker_threads(n);
+        }
+        builder.build()
+    }
+
+    fn build_priority_runtime(&self) -> io::Result<Option<Runtime>> {
+        if self
+            .sources
+            .iter()
+            .any(|s| s.source_type == SourceType::RealtimePriority)
+        {
+            let mut builder = tokio::runtime::Builder::new_multi_thread();
+            builder
+                .enable_all()
+                .on_thread_start(|| {
+                    threading::increase_thread_priority().expect("failed to create high-priority thread for worker")
+                })
+                .thread_name("priority-worker");
+            if let Some(n) = self.priority_worker_threads {
+                builder.worker_threads(n);
+            }
+            Ok(Some(builder.build()?))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+pub struct MeasurementPipeline {
+    // Elements of the pipeline
     sources: Vec<ConfiguredSource>,
     transforms: Vec<ConfiguredTransform>,
     outputs: Vec<ConfiguredOutput>,
 
-    // Channel: outputs -> listeners of late metric registration
-    late_reg_res_tx: mpsc::Sender<Vec<RawMetricId>>,
-    late_reg_res_rx: mpsc::Receiver<Vec<RawMetricId>>,
-}
-/// Parameters of the measurement pipeline.
-struct PipelineParameters {
-    normal_worker_threads: Option<usize>,
-    priority_worker_threads: Option<usize>,
+    // tokio Runtimes that execute the tasks
+    rt_normal: Runtime,
+    rt_priority: Option<Runtime>,
+
+    // registries
+    metrics: MetricRegistry,
+
+    /// Channel: source -> transforms
+    from_sources: (mpsc::Sender<MeasurementBuffer>, mpsc::Receiver<MeasurementBuffer>),
+
+    /// Broadcast queue to outputs
+    to_outputs: broadcast::Sender<OutputMsg>,
 }
 
 /// The type of a [`Source`].
-/// 
+///
 /// It affects how Alumet schedules the polling of the source.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SourceType {
     /// Nothing special. This is the right choice for most of the sources.
     Normal,
     // Blocking, // todo: how to provide this type properly?
-
     /// Signals that the pipeline should run the source on a thread with a
     /// high scheduling priority.
     RealtimePriority,
@@ -95,28 +282,42 @@ enum ControlMessage {
     Output(Option<String>, OutputCmd),
     Transform(Option<String>, TransformCmd),
 }
-
-/// A `PipelineController` allows to dynamically change the configuration of a running measurement pipeline.
-///
-/// Dropping the controller aborts all the tasks of the pipeline (the internal Tokio [`Runtime`]s are dropped).
-/// To keep the pipeline running, use [`wait_for_all`](RunningPipeline::wait_for_all).
 pub struct RunningPipeline {
     // Keep the tokio runtimes alive
-    normal_runtime: Runtime,
-    _priority_runtime: Option<Runtime>,
+    rt_normal: Runtime,
+    rt_priority: Option<Runtime>,
 
     // Handles to wait for pipeline elements to finish.
     source_handles: Vec<JoinHandle<Result<(), PollError>>>,
     output_handles: Vec<JoinHandle<Result<(), WriteError>>>,
     transform_handle: JoinHandle<Result<(), TransformError>>,
 
-    // Controller, initially Some, taken (replaced by None) by the control task started by the first control handle.
-    controller: Option<PipelineController>,
-
-    // Control handle, initially None, set by the first call to `control_handle`.
-    control_handle: Option<ControlHandle>,
+    /// Controls the pipeline.
+    controller: PipelineController,
 }
-struct PipelineController {
+
+enum PipelineController {
+    /// A controller that has not been started yet.
+    ///
+    /// The control task is lazily started, i.e. it does not exist if no one asks for a [`ControlHandle`].
+    Waiting(PipelineControllerState),
+
+    /// Temporary state.
+    Temporary,
+
+    /// A controller that has been started.
+    ///
+    /// The state has been moved to the control task, and we can communicate with it through the [`ControlHandle`].
+    Started(ControlHandle),
+}
+
+impl Default for PipelineController {
+    fn default() -> Self {
+        Self::Temporary
+    }
+}
+
+struct PipelineControllerState {
     // Senders to keep the receivers alive and to send commands.
     source_command_senders_by_plugin: HashMap<String, Vec<watch::Sender<SourceCmd>>>,
     output_command_senders_by_plugin: HashMap<String, Vec<watch::Sender<OutputCmd>>>,
@@ -127,96 +328,40 @@ struct PipelineController {
     active_transforms: Arc<AtomicU64>,
     transforms_mask_by_plugin: HashMap<String, u64>,
 }
+
 #[derive(Clone)]
 pub struct ControlHandle {
     tx: mpsc::Sender<ControlMessage>,
 }
 
 impl MeasurementPipeline {
-    /// Creates a new measurement pipeline with the elements in the registry and some additional settings applied to the sources
-    /// by the function `f`.
-    ///
-    /// The returned pipeline is not started, use [`start`](Self::start) to start it.
-    pub fn with_settings<F>(elements: ElementRegistry, mut f: F) -> MeasurementPipeline
-    where
-        F: FnMut(Box<dyn Source>, String) -> ConfiguredSource,
-    {
-        let sources: Vec<_> = elements.sources.into_iter().map(|(s, p)| f(s, p)).collect();
-        MeasurementPipeline {
-            elements: PipelineElements {
-                sources,
-                transforms: elements.transforms,
-                outputs: elements.outputs,
-                late_reg_res_tx: elements.late_reg_res_tx,
-                late_reg_res_rx: elements.late_reg_res_rx,
-            },
-            params: PipelineParameters {
-                normal_worker_threads: None,
-                priority_worker_threads: None,
-            },
-        }
-    }
-
-    /// Sets the number of threads in the "normal" tokio [`Runtime`].
-    /// No more than `n` sources of type [`SourceType::Normal`] can be polled at the same time.
-    pub fn normal_worker_threads(&mut self, n: usize) {
-        self.params.normal_worker_threads = Some(n);
-    }
-    /// Sets the number of threads in the "priority" tokio [`Runtime`], which runs the sources of type [`SourceType::RealtimePriority`].
-    pub fn priority_worker_threads(&mut self, n: usize) {
-        self.params.priority_worker_threads = Some(n);
-    }
-
-    /// Starts the measurement pipeline and returns a controller for it.
-    pub fn start(self, metrics: MetricRegistry, units: CustomUnitRegistry) -> RunningPipeline {
-        // Set the global registries, which can be accessed by the pipeline's elements (sources, transforms, outputs).
-        CustomUnitRegistry::init_global(units);
-
-        // Create the runtimes
-        let normal_runtime: Runtime = self.params.build_normal_runtime().unwrap();
-
-        let priority_runtime: Option<Runtime> = {
-            let mut res = None;
-            for src in &self.elements.sources {
-                if src.source_type == SourceType::RealtimePriority {
-                    res = Some(self.params.build_priority_runtime().unwrap());
-                    break;
-                }
-            }
-            res
-        };
-
-        // Channel: sources -> transforms
-        let (in_tx, in_rx) = mpsc::channel::<MeasurementBuffer>(256);
-
-        // if self.elements.transforms.is_empty() && self.elements.outputs.len() == 1 {
-        // TODO: If no transforms and one output, the pipeline can be reduced
-        // }
-
-        // Broadcast queue: transforms -> outputs
-        let out_tx = broadcast::Sender::<OutputMsg>::new(256);
-
+    /// Starts the measurement pipeline.
+    pub fn start(self) -> RunningPipeline {
         // Store the task handles in order to wait for them to complete before stopping,
         // and the command senders in order to keep the receivers alive and to be able to send commands after the launch.
-        let mut source_handles = Vec::with_capacity(self.elements.sources.len());
-        let mut output_handles = Vec::with_capacity(self.elements.outputs.len());
+        let mut source_handles = Vec::with_capacity(self.sources.len());
+        let mut output_handles = Vec::with_capacity(self.outputs.len());
         let mut source_command_senders_by_plugin: HashMap<_, Vec<_>> = HashMap::new();
         let mut output_command_senders_by_plugin: HashMap<_, Vec<_>> = HashMap::new();
         let mut transforms_mask_by_plugin: HashMap<_, u64> = HashMap::new();
 
         // Start the tasks, starting at the end of the pipeline (to avoid filling the buffers too quickly).
+        let (in_tx, in_rx) = self.from_sources;
+
         // 1. Outputs
-        for out in self.elements.outputs {
-            let msg_rx = out_tx.subscribe();
+        for out in self.outputs {
+            let msg_rx = self.to_outputs.subscribe();
             let (command_tx, command_rx) = watch::channel(OutputCmd::Run);
             let ctx = OutputContext {
                 // Each output task owns its OutputContext, which contains a copy of the MetricRegistry.
                 // This allows fast, uncontended access to the registry, and avoids a global state (no Arc<Mutex<...>>).
                 // The cost is a duplication of the registry (increased memory use) in the case where multiple outputs exist.
-                metrics: metrics.clone(),
+                metrics: self.metrics.clone(),
             };
             // Spawn the task and store the handle.
-            let handle = normal_runtime.spawn(run_output_from_broadcast(out.output, msg_rx, command_rx, ctx));
+            let handle = self
+                .rt_normal
+                .spawn(run_output_from_broadcast(out.output, msg_rx, command_rx, ctx));
             output_handles.push(handle);
             output_command_senders_by_plugin
                 .entry(out.plugin_name)
@@ -226,8 +371,8 @@ impl MeasurementPipeline {
 
         // 2. Transforms
         let active_transforms = Arc::new(AtomicU64::new(u64::MAX)); // all active by default
-        let mut transforms = Vec::with_capacity(self.elements.transforms.len());
-        for (i, t) in self.elements.transforms.into_iter().enumerate() {
+        let mut transforms = Vec::with_capacity(self.transforms.len());
+        for (i, t) in self.transforms.into_iter().enumerate() {
             transforms.push(t.transform);
             let mask: u64 = 1 << i;
             transforms_mask_by_plugin
@@ -235,16 +380,20 @@ impl MeasurementPipeline {
                 .or_default()
                 .bitor_assign(mask);
         }
-        let transform_handle =
-            normal_runtime.spawn(run_transforms(transforms, in_rx, out_tx, active_transforms.clone()));
+        let transform_handle = self.rt_normal.spawn(run_transforms(
+            transforms,
+            in_rx,
+            self.to_outputs,
+            active_transforms.clone(),
+        ));
 
         // 3. Sources
-        for src in self.elements.sources {
+        for src in self.sources {
             let data_tx = in_tx.clone();
             let (command_tx, command_rx) = watch::channel(SourceCmd::SetTrigger(Some(src.trigger_provider)));
             let runtime = match src.source_type {
-                SourceType::Normal => &normal_runtime,
-                SourceType::RealtimePriority => priority_runtime.as_ref().unwrap(),
+                SourceType::Normal => &self.rt_normal,
+                SourceType::RealtimePriority => self.rt_priority.as_ref().unwrap(),
             };
             let handle = runtime.spawn(run_source(src.source, data_tx, command_rx));
             source_handles.push(handle);
@@ -255,19 +404,19 @@ impl MeasurementPipeline {
         }
 
         RunningPipeline {
-            normal_runtime,
-            _priority_runtime: priority_runtime,
+            rt_normal: self.rt_normal,
+            rt_priority: self.rt_priority,
             source_handles,
             output_handles,
             transform_handle,
 
-            controller: Some(PipelineController {
+            // Don't start the control task yet, but be prepared to do it.
+            controller: PipelineController::Waiting(PipelineControllerState {
                 source_command_senders_by_plugin,
                 output_command_senders_by_plugin,
                 active_transforms,
                 transforms_mask_by_plugin,
             }),
-            control_handle: None,
         }
     }
 }
@@ -443,7 +592,11 @@ async fn run_output_from_broadcast(
     // - losing the most recent messages in transform, for one output. Other outputs that are not lagging behind will receive all messages fine, since try_send() does not block.
     //     The problem is: what to do with messages that could not be sent, when try_send() fails?
 
-    async fn handle_message(received_msg: OutputMsg, output: &mut dyn Output, ctx: &mut OutputContext) -> Result<(), WriteError> {
+    async fn handle_message(
+        received_msg: OutputMsg,
+        output: &mut dyn Output,
+        ctx: &mut OutputContext,
+    ) -> Result<(), WriteError> {
         match received_msg {
             OutputMsg::WriteMeasurements(measurements) => {
                 // output.write() is blocking, do it in a dedicated thread.
@@ -451,28 +604,38 @@ async fn run_output_from_broadcast(
                 // Output is not Sync, we could move the value to the future and back (idem for ctx),
                 // but that would likely introduce a needless copy, and would be cumbersome to work with.
                 // Instead, we use the `scoped` module.
-                let res = scoped::spawn_blocking_with_output(output, ctx, move |out, ctx| out.write(&measurements, &ctx)).await;
+                let res =
+                    scoped::spawn_blocking_with_output(output, ctx, move |out, ctx| out.write(&measurements, &ctx))
+                        .await;
                 match res {
                     Ok(write_res) => {
                         if let Err(e) = write_res {
                             log::error!("Output failed: {:?}", e); // todo give a name to the output
                         }
                         Ok(())
-                    },
+                    }
                     Err(await_err) => {
                         if await_err.is_panic() {
-                            return Err(anyhow!("A blocking writing task panicked, there is a bug somewhere! Details: {}", await_err).into());
+                            return Err(anyhow!(
+                                "A blocking writing task panicked, there is a bug somewhere! Details: {}",
+                                await_err
+                            )
+                            .into());
                         } else {
                             todo!("unhandled error");
                         }
-                    },
+                    }
                 }
-            },
-            OutputMsg::RegisterMetrics { metrics, source_name, reply_to } => {
+            }
+            OutputMsg::RegisterMetrics {
+                metrics,
+                source_name,
+                reply_to,
+            } => {
                 let metric_ids = ctx.metrics.extend_infallible(metrics, &source_name);
                 reply_to.send(metric_ids).await?;
                 Ok(())
-            },
+            }
         }
     }
 
@@ -516,35 +679,10 @@ async fn run_output_from_broadcast(
     Ok(())
 }
 
-impl PipelineParameters {
-    fn build_normal_runtime(&self) -> io::Result<tokio::runtime::Runtime> {
-        let mut builder = tokio::runtime::Builder::new_multi_thread();
-        builder.enable_all().thread_name("normal-worker");
-        if let Some(n) = self.normal_worker_threads {
-            builder.worker_threads(n);
-        }
-        builder.build()
-    }
-
-    fn build_priority_runtime(&self) -> io::Result<tokio::runtime::Runtime> {
-        let mut builder = tokio::runtime::Builder::new_multi_thread();
-        builder
-            .enable_all()
-            .on_thread_start(|| {
-                threading::increase_thread_priority().expect("failed to create high-priority thread for worker")
-            })
-            .thread_name("priority-worker");
-        if let Some(n) = self.priority_worker_threads {
-            builder.worker_threads(n);
-        }
-        builder.build()
-    }
-}
-
 impl RunningPipeline {
     /// Blocks the current thread until all tasks in the pipeline finish.
     pub fn wait_for_all(&mut self) {
-        self.normal_runtime.block_on(async {
+        self.rt_normal.block_on(async {
             for handle in &mut self.source_handles {
                 handle.await.unwrap().unwrap(); // todo: handle errors
             }
@@ -560,15 +698,15 @@ impl RunningPipeline {
     /// Returns a [`ControlHandle`], which allows to change the configuration
     /// of the pipeline while it is running.
     pub fn control_handle(&mut self) -> ControlHandle {
-        fn handle_message(controller: &mut PipelineController, msg: ControlMessage) {
+        fn handle_message(state: &mut PipelineControllerState, msg: ControlMessage) {
             match msg {
                 ControlMessage::Source(plugin_name, cmd) => {
                     if let Some(plugin) = plugin_name {
-                        for s in controller.source_command_senders_by_plugin.get(&plugin).unwrap() {
+                        for s in state.source_command_senders_by_plugin.get(&plugin).unwrap() {
                             s.send(cmd.clone()).unwrap();
                         }
                     } else {
-                        for senders in controller.source_command_senders_by_plugin.values() {
+                        for senders in state.source_command_senders_by_plugin.values() {
                             for s in senders {
                                 s.send(cmd.clone()).unwrap();
                             }
@@ -577,11 +715,11 @@ impl RunningPipeline {
                 }
                 ControlMessage::Output(plugin_name, cmd) => {
                     if let Some(plugin) = plugin_name {
-                        for s in controller.output_command_senders_by_plugin.get(&plugin).unwrap() {
+                        for s in state.output_command_senders_by_plugin.get(&plugin).unwrap() {
                             s.send(cmd.clone()).unwrap();
                         }
                     } else {
-                        for senders in controller.output_command_senders_by_plugin.values() {
+                        for senders in state.output_command_senders_by_plugin.values() {
                             for s in senders {
                                 s.send(cmd.clone()).unwrap();
                             }
@@ -590,40 +728,42 @@ impl RunningPipeline {
                 }
                 ControlMessage::Transform(plugin_name, cmd) => {
                     let mask: u64 = if let Some(plugin) = plugin_name {
-                        *controller.transforms_mask_by_plugin.get(&plugin).unwrap()
+                        *state.transforms_mask_by_plugin.get(&plugin).unwrap()
                     } else {
                         u64::MAX
                     };
                     match cmd {
-                        TransformCmd::Enable => controller.active_transforms.fetch_or(mask, Ordering::Relaxed),
-                        TransformCmd::Disable => controller.active_transforms.fetch_nand(mask, Ordering::Relaxed),
+                        TransformCmd::Enable => state.active_transforms.fetch_or(mask, Ordering::Relaxed),
+                        TransformCmd::Disable => state.active_transforms.fetch_nand(mask, Ordering::Relaxed),
                     };
                 }
             }
         }
 
-        match self.controller.take() {
-            Some(mut controller) => {
-                // This is the first handle, starts the control task.
+        let handle = match std::mem::take(&mut self.controller) {
+            PipelineController::Waiting(mut state) => {
+                // This is the first handle, start the control task and move the state to it.
                 let (tx, mut rx) = mpsc::channel::<ControlMessage>(256);
-                self.normal_runtime.spawn(async move {
+                self.rt_normal.spawn(async move {
                     loop {
                         if let Some(msg) = rx.recv().await {
-                            handle_message(&mut controller, msg);
+                            handle_message(&mut state, msg);
                         } else {
                             break; // channel closed
                         }
                     }
                 });
-                let handle = ControlHandle { tx };
-                self.control_handle = Some(handle.clone());
+                ControlHandle { tx }
+            }
+            PipelineController::Temporary => unreachable!(),
+            PipelineController::Started(handle) => {
+                // This is NOT the first handle, return a clone of the existing handle.
                 handle
             }
-            None => {
-                // This is NOT the first handle, get the existing handle and clone it.
-                self.control_handle.as_ref().unwrap().clone()
-            }
-        }
+        };
+        let cloned = handle.clone();
+        self.controller = PipelineController::Started(handle);
+        cloned
     }
 }
 
@@ -1061,7 +1201,11 @@ mod tests {
     }
 
     impl crate::pipeline::Output for TestOutput {
-        fn write(&mut self, measurements: &MeasurementBuffer, ctx: &OutputContext) -> Result<(), crate::pipeline::WriteError> {
+        fn write(
+            &mut self,
+            measurements: &MeasurementBuffer,
+            ctx: &OutputContext,
+        ) -> Result<(), crate::pipeline::WriteError> {
             assert_eq!(measurements.len(), self.expected_input_len);
             self.output_count.fetch_add(measurements.len() as _, Ordering::Relaxed);
             Ok(())

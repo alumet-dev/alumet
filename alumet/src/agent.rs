@@ -129,8 +129,8 @@ impl Agent {
 
         // Operation phase.
         log::info!("Starting the measurement pipeline...");
-        let mut pipeline = MeasurementPipeline::with_settings(startup.pipeline_elements, apply_source_settings)
-            .start(startup.metrics, startup.units);
+        let pipeline = startup.pipeline_builder.build().expect("Pipeline failed to build");
+        let mut pipeline = pipeline.start();
 
         log::info!("🔥 ALUMET measurement pipeline has started.");
         (self.settings.f_after_operation_begin)(&mut pipeline);
@@ -149,15 +149,16 @@ fn print_stats(startup: &PluginStartup, plugins: &[Box<dyn Plugin>]) {
         .join("\n");
 
     let metrics_list = startup
+        .pipeline_builder
         .metrics
         .iter()
         .map(|m| format!("    - {}: {} ({})", m.name, m.value_type, m.unit))
         .collect::<Vec<_>>()
         .join("\n");
 
-    let n_sources = startup.pipeline_elements.source_count();
-    let n_transforms = startup.pipeline_elements.transform_count();
-    let n_output = startup.pipeline_elements.output_count();
+    let n_sources = startup.pipeline_builder.sources.len();
+    let n_transforms = startup.pipeline_builder.transforms.len();
+    let n_output = startup.pipeline_builder.outputs.len();
     let str_source = if n_sources > 1 { "sources" } else { "source" };
     let str_transform = if n_sources > 1 { "transforms" } else { "transform" };
     let str_output = if n_sources > 1 { "outputs" } else { "output" };
@@ -167,7 +168,7 @@ fn print_stats(startup: &PluginStartup, plugins: &[Box<dyn Plugin>]) {
     );
 
     let n_plugins = plugins.len();
-    let n_metrics = startup.metrics.len();
+    let n_metrics = startup.pipeline_builder.metric_count();
     let str_plugin = if n_plugins > 1 { "plugins" } else { "plugin" };
     let str_metric = if n_metrics > 1 { "metrics" } else { "metric" };
     log::info!("Plugin startup complete.\n🧩 {n_plugins} {str_plugin} started:\n{plugins_list}\n📏 {n_metrics} {str_metric} registered:\n{metrics_list}\n{pipeline_elements}");

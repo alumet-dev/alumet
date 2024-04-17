@@ -63,27 +63,11 @@ fn run_with_plugin(
 
     // start the pipeline and wait for the tasks to finish
     println!("[app] Starting the pipeline...");
-    let pipeline = MeasurementPipeline::with_settings(startup.pipeline_elements, apply_source_settings).start(startup.metrics, startup.units);
+    let pipeline = startup.pipeline_builder.build().expect("pipeline should build").start();
 
     println!("[app] pipeline started");
 
     // keep the pipeline running for some time
     std::thread::sleep(duration);
     drop(pipeline);
-}
-
-fn apply_source_settings(source: Box<dyn Source>, plugin_name: String) -> ConfiguredSource {
-    // normally this would be fetched from the config
-    let source_type = SourceType::Normal;
-    let trigger_provider = TriggerProvider::TimeInterval {
-        start_time: Instant::now(),
-        poll_interval: Duration::from_secs(1),
-        flush_interval: Duration::from_secs(1),
-    };
-    ConfiguredSource {
-        source,
-        plugin_name,
-        source_type,
-        trigger_provider,
-    }
 }
