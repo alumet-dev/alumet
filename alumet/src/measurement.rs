@@ -248,6 +248,11 @@ impl MeasurementBuffer {
     pub fn push(&mut self, point: MeasurementPoint) {
         self.points.push(point);
     }
+    
+    /// Clears the buffer, removing all the measurements.
+    pub fn clear(&mut self) {
+        self.points.clear();
+    }
 
     /// Creates an iterator on the buffer's content.
     pub fn iter(&self) -> impl Iterator<Item = &MeasurementPoint> {

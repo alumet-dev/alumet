@@ -44,6 +44,7 @@ pub trait AlumetPlugin {
     ///
     /// It can be used, for instance, to examine the metrics that have been registered.
     fn post_startup(&mut self, startup: &PluginStartup) -> anyhow::Result<()> {
+        let _ = startup;
         Ok(())
     }
 }

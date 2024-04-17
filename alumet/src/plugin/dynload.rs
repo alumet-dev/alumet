@@ -46,7 +46,7 @@ impl Plugin for DylibPlugin {
         Ok(())
     }
     
-    fn post_startup(&mut self, startup: &super::manage::PluginStartup) -> anyhow::Result<()> {
+    fn post_startup(&mut self, _startup: &super::manage::PluginStartup) -> anyhow::Result<()> {
         // TODO post-startup in ffi
         Ok(())
     }

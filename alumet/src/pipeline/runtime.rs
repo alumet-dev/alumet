@@ -1,8 +1,10 @@
 //! Implementation of the measurement pipeline.
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::io;
 use std::ops::BitOrAssign;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -30,7 +32,9 @@ pub struct PipelineBuilder {
     pub(crate) sources: Vec<SourceBuilder>,
     pub(crate) transforms: Vec<TransformBuilder>,
     pub(crate) outputs: Vec<OutputBuilder>,
+    pub(crate) autonomous_sources: Vec<AutonomousSourceBuilder>,
 
+    // TODO restrict visibility
     pub metrics: MetricRegistry,
 
     pub(crate) normal_worker_threads: Option<usize>,
@@ -42,6 +46,15 @@ pub struct SourceBuilder {
     pub plugin: String,
     pub build: Box<dyn FnOnce(&PendingPipeline) -> (Box<dyn Source>, TriggerProvider)>,
 }
+
+pub struct AutonomousSourceBuilder {
+    pub plugin: String,
+    pub build: Box<
+        dyn FnOnce(&PendingPipeline, &mpsc::Sender<MeasurementBuffer>)
+        -> Pin<Box<dyn Future<Output=anyhow::Result<()>> + Send>>
+    >,
+}
+
 
 pub struct TransformBuilder {
     pub plugin: String,
@@ -100,6 +113,7 @@ impl PipelineBuilder {
             sources: Vec::new(),
             transforms: Vec::new(),
             outputs: Vec::new(),
+            autonomous_sources: Vec::new(),
             metrics: MetricRegistry::new(),
             normal_worker_threads: None,
             priority_worker_threads: None,
@@ -172,11 +186,20 @@ impl PipelineBuilder {
                 }
             })
             .collect();
+        
+        // Create the autonomous sources
+        let autonomous_sources: Vec<_> = self.autonomous_sources
+            .into_iter().map(|builder| {
+                let data_tx = in_tx.clone();
+                let source = (builder.build)(&pending, &data_tx);
+                source
+            }).collect();
 
         Ok(MeasurementPipeline {
             sources,
             transforms,
             outputs,
+            autonomous_sources,
             metrics: self.metrics,
             from_sources: (in_tx, in_rx),
             to_outputs: out_tx,
@@ -222,6 +245,7 @@ pub struct MeasurementPipeline {
     sources: Vec<ConfiguredSource>,
     transforms: Vec<ConfiguredTransform>,
     outputs: Vec<ConfiguredOutput>,
+    autonomous_sources: Vec<Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>>,
 
     // tokio Runtimes that execute the tasks
     rt_normal: Runtime,
@@ -284,8 +308,8 @@ enum ControlMessage {
 }
 pub struct RunningPipeline {
     // Keep the tokio runtimes alive
-    rt_normal: Runtime,
-    rt_priority: Option<Runtime>,
+    _rt_normal: Runtime,
+    _rt_priority: Option<Runtime>,
 
     // Handles to wait for pipeline elements to finish.
     source_handles: Vec<JoinHandle<Result<(), PollError>>>,
@@ -339,7 +363,7 @@ impl MeasurementPipeline {
     pub fn start(self) -> RunningPipeline {
         // Store the task handles in order to wait for them to complete before stopping,
         // and the command senders in order to keep the receivers alive and to be able to send commands after the launch.
-        let mut source_handles = Vec::with_capacity(self.sources.len());
+        let mut source_handles = Vec::with_capacity(self.sources.len() + self.autonomous_sources.len());
         let mut output_handles = Vec::with_capacity(self.outputs.len());
         let mut source_command_senders_by_plugin: HashMap<_, Vec<_>> = HashMap::new();
         let mut output_command_senders_by_plugin: HashMap<_, Vec<_>> = HashMap::new();
@@ -387,7 +411,7 @@ impl MeasurementPipeline {
             active_transforms.clone(),
         ));
 
-        // 3. Sources
+        // 3. Managed sources
         for src in self.sources {
             let data_tx = in_tx.clone();
             let (command_tx, command_rx) = watch::channel(SourceCmd::SetTrigger(Some(src.trigger_provider)));
@@ -402,10 +426,15 @@ impl MeasurementPipeline {
                 .or_default()
                 .push(command_tx);
         }
+        
+        // 4. Autonomous sources
+        for src in self.autonomous_sources {
+            self.rt_normal.spawn(src);
+        }
 
         RunningPipeline {
-            rt_normal: self.rt_normal,
-            rt_priority: self.rt_priority,
+            _rt_normal: self.rt_normal,
+            _rt_priority: self.rt_priority,
             source_handles,
             output_handles,
             transform_handle,
@@ -682,7 +711,7 @@ async fn run_output_from_broadcast(
 impl RunningPipeline {
     /// Blocks the current thread until all tasks in the pipeline finish.
     pub fn wait_for_all(&mut self) {
-        self.rt_normal.block_on(async {
+        self._rt_normal.block_on(async {
             for handle in &mut self.source_handles {
                 handle.await.unwrap().unwrap(); // todo: handle errors
             }
@@ -744,7 +773,7 @@ impl RunningPipeline {
             PipelineController::Waiting(mut state) => {
                 // This is the first handle, start the control task and move the state to it.
                 let (tx, mut rx) = mpsc::channel::<ControlMessage>(256);
-                self.rt_normal.spawn(async move {
+                self._rt_normal.spawn(async move {
                     loop {
                         if let Some(msg) = rx.recv().await {
                             handle_message(&mut state, msg);

@@ -1,10 +1,7 @@
 //! Helpers for creating a measurement agent.
 
 use crate::{
-    pipeline::{
-        self,
-        runtime::{MeasurementPipeline, RunningPipeline},
-    },
+    pipeline::runtime::RunningPipeline,
     plugin::{
         manage::{PluginInitialization, PluginStartup},
         Plugin, PluginMetadata,
@@ -172,25 +169,6 @@ fn print_stats(startup: &PluginStartup, plugins: &[Box<dyn Plugin>]) {
     let str_plugin = if n_plugins > 1 { "plugins" } else { "plugin" };
     let str_metric = if n_metrics > 1 { "metrics" } else { "metric" };
     log::info!("Plugin startup complete.\n🧩 {n_plugins} {str_plugin} started:\n{plugins_list}\n📏 {n_metrics} {str_metric} registered:\n{metrics_list}\n{pipeline_elements}");
-}
-
-fn apply_source_settings(
-    source: Box<dyn pipeline::Source>,
-    plugin_name: String,
-) -> pipeline::runtime::ConfiguredSource {
-    // TODO this should be fetched from the config
-    let source_type = pipeline::runtime::SourceType::Normal;
-    let trigger_provider = pipeline::trigger::TriggerProvider::TimeInterval {
-        start_time: std::time::Instant::now(),
-        poll_interval: std::time::Duration::from_secs(1),
-        flush_interval: std::time::Duration::from_secs(1),
-    };
-    pipeline::runtime::ConfiguredSource {
-        source,
-        plugin_name,
-        source_type,
-        trigger_provider,
-    }
 }
 
 impl AgentBuilder {

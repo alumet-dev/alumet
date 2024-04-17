@@ -141,7 +141,7 @@ impl Debug for Unit {
             Self::WattHour => write!(f, "WattHour"),
             Self::Custom {
                 unique_name,
-                display_name,
+                display_name: _,
             } => write!(f, "Custom({})", unique_name),
         }
     }

@@ -84,10 +84,11 @@
 //!
 //! WIP
 //!
+use std::future::Future;
 use std::marker::PhantomData;
 
 use crate::config::ConfigTable;
-use crate::measurement::{MeasurementType, WrappedMeasurementType};
+use crate::measurement::{MeasurementBuffer, MeasurementType, WrappedMeasurementType};
 use crate::metrics::{Metric, MetricCreationError, RawMetricId, TypedMetricId};
 use crate::pipeline;
 use crate::pipeline::runtime::{PendingPipeline, PipelineBuilder, SourceType};
@@ -250,6 +251,59 @@ impl AlumetStart<'_> {
             plugin: self.current_plugin_name().to_owned(),
             build: Box::new(source_builder),
         });
+    }
+
+    /// Adds an autonomous source to the Alumet pipeline.
+    /// 
+    /// An autonomous source is not triggered by Alumet, but runs independently.
+    /// It is given a [`Sender`](tokio::sync::mpsc::Sender) to send its measurements
+    /// to the rest of the Alumet pipeline (transforms and outputs).
+    /// 
+    /// ## Example
+    /// ```no_run
+    /// use std::time::SystemTime;
+    /// use alumet::measurement::MeasurementBuffer;
+    /// use alumet::measurement::MeasurementPoint;
+    /// use alumet::units::Unit;
+    /// # use alumet::plugin::AlumetStart;
+    /// 
+    /// # let alumet: &AlumetStart = todo!();
+    /// let metric = alumet.create_metric::<u64>("my_metric", Unit::Second, "...").unwrap();
+    /// alumet.add_autonomous_source(move |_, tx| {
+    ///     let out_tx = tx.clone();
+    ///     async move {
+    ///         let mut buf = MeasurementBuffer::new();
+    ///         loop {
+    ///             let timestamp = SystemTime::now();
+    ///             let resource = todo!();
+    ///             let value = todo!();
+    ///             let measurement = MeasurementPoint::new(
+    ///                 timestamp,
+    ///                 metric,
+    ///                 resource,
+    ///                 value
+    ///             );
+    ///             buf.push(measurement);
+    ///             out_tx.send(buf.clone());
+    ///             buf.clear();
+    ///         }
+    ///         Ok(())
+    ///     }
+    /// })
+    /// ```
+    pub fn add_autonomous_source<F, S>(&mut self, source_builder: F)
+    where
+        F: FnOnce(&PendingPipeline, &tokio::sync::mpsc::Sender<MeasurementBuffer>) -> S + 'static,
+        S: Future<Output = anyhow::Result<()>> + Send + 'static,
+    {
+        self.pipeline_builder
+            .autonomous_sources
+            .push(pipeline::runtime::AutonomousSourceBuilder {
+                plugin: self.current_plugin_name().to_owned(),
+                build: Box::new(|p: &_, tx: &_| {
+                    Box::pin(source_builder(p, tx))
+                }),
+            })
     }
 
     /// Adds a transform step to the Alumet pipeline.
