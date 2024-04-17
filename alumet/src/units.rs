@@ -1,7 +1,10 @@
 //! Definition of measurement units.
-//!
 
-use std::fmt::{self, Debug, Display};
+use std::{
+    fmt::{self, Debug, Display},
+    str::FromStr,
+};
+use anyhow::anyhow;
 
 /// A unit of measurement.
 ///
@@ -152,6 +155,28 @@ impl Display for Unit {
     }
 }
 
+impl FromStr for Unit {
+    // TODO more precise error type
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let res = match s {
+            "1" => Unit::Unity,
+            "s" => Unit::Second,
+            "W" => Unit::Watt,
+            "J" => Unit::Joule,
+            "V" => Unit::Volt,
+            "A" => Unit::Ampere,
+            "Hz" => Unit::Hertz,
+            "Cel" => Unit::DegreeCelsius,
+            "[degF]" => Unit::DegreeFahrenheit,
+            "W.h" => Unit::WattHour,
+            _ => return Err(anyhow!("Unknown or non standard Unit")),
+        };
+        Ok(res)
+    }
+}
+
 impl PrefixedUnit {
     // scale down
 
@@ -247,5 +272,24 @@ impl UnitPrefix {
 impl Display for UnitPrefix {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.display_name())
+    }
+}
+
+impl FromStr for UnitPrefix {
+    // TODO more precise error type
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let res = match s {
+            "n" => UnitPrefix::Nano,
+            "μ" => UnitPrefix::Micro,
+            "m" => UnitPrefix::Milli,
+            "" => UnitPrefix::Plain,
+            "k" => UnitPrefix::Kilo,
+            "M" => UnitPrefix::Mega,
+            "G" => UnitPrefix::Giga,
+            _ => return Err(anyhow!("Unknown prefix")),
+        };
+        Ok(res)
     }
 }
