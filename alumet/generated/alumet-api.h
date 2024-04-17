@@ -188,6 +188,10 @@ typedef union FfiUnit {
   FfiUnit_Custom_Body custom;
 } FfiUnit;
 
+typedef struct TimeDuration {
+  struct Timestamp t;
+} TimeDuration;
+
 typedef void (*SourcePollFn)(void *instance,
                              struct MeasurementAccumulator *buffer,
                              struct Timestamp timestamp);
@@ -303,6 +307,8 @@ struct RawMetricId alumet_create_metric_c(struct AlumetStart *alumet,
 
 void alumet_add_source(struct AlumetStart *alumet,
                        void *source_data,
+                       struct TimeDuration poll_interval,
+                       struct TimeDuration flush_interval,
                        SourcePollFn source_poll_fn,
                        NullableDropFn source_drop_fn);
 

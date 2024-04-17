@@ -23,7 +23,7 @@ use crate::{
     pipeline::{Output, Source, Transform},
 };
 
-use super::trigger::{SourceTrigger, TriggerProvider};
+use super::trigger::{ConfiguredSourceTrigger, Trigger};
 use super::{threading, OutputContext, PollError, TransformError, WriteError};
 
 /// A builder of measurement pipeline.
@@ -43,7 +43,7 @@ pub struct PipelineBuilder {
 pub struct SourceBuilder {
     pub source_type: SourceType,
     pub plugin: String,
-    pub build: Box<dyn FnOnce(&PendingPipeline) -> (Box<dyn Source>, TriggerProvider)>,
+    pub build: Box<dyn FnOnce(&PendingPipeline) -> (Box<dyn Source>, Trigger)>,
 }
 
 pub struct AutonomousSourceBuilder {
@@ -282,7 +282,7 @@ pub struct ConfiguredSource {
     /// Type of the source, for scheduling.
     pub source_type: SourceType,
     /// How to trigger this source.
-    pub trigger_provider: TriggerProvider,
+    pub trigger_provider: Trigger,
 }
 /// A transform that is ready to run.
 pub struct ConfiguredTransform {
@@ -454,7 +454,7 @@ pub enum SourceCmd {
     Run,
     Pause,
     Stop,
-    SetTrigger(Option<TriggerProvider>),
+    SetTrigger(Option<Trigger>),
 }
 
 async fn run_source(
@@ -462,7 +462,7 @@ async fn run_source(
     tx: mpsc::Sender<MeasurementBuffer>,
     mut commands: watch::Receiver<SourceCmd>,
 ) -> Result<(), PollError> {
-    fn init_trigger(provider: &mut Option<TriggerProvider>) -> anyhow::Result<SourceTrigger> {
+    fn init_trigger(provider: &mut Option<Trigger>) -> anyhow::Result<ConfiguredSourceTrigger> {
         provider
             .take()
             .expect("invalid empty trigger in message Init(trigger)")
@@ -889,7 +889,7 @@ mod tests {
     use crate::{
         measurement::{MeasurementBuffer, MeasurementPoint, WrappedMeasurementType, WrappedMeasurementValue},
         metrics::{MetricRegistry, RawMetricId},
-        pipeline::{trigger::TriggerProvider, OutputContext, Transform},
+        pipeline::{trigger::Trigger, OutputContext, Transform},
         resources::ResourceId,
     };
 
@@ -1138,8 +1138,8 @@ mod tests {
         assert_eq!(count, output_count.load(Ordering::Relaxed));
     }
 
-    fn new_tp() -> TriggerProvider {
-        TriggerProvider::TimeInterval {
+    fn new_tp() -> Trigger {
+        Trigger::TimeInterval {
             start_time: Instant::now(),
             poll_interval: Duration::from_millis(5),
             flush_interval: Duration::from_millis(10),

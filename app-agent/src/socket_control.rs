@@ -11,7 +11,7 @@ use std::{
 
 use alumet::pipeline::{
     runtime::{BlockingControlHandle, ControlHandle, OutputCmd, SourceCmd, TransformCmd},
-    trigger::TriggerProvider,
+    trigger::Trigger,
 };
 use anyhow::{anyhow, Context};
 
@@ -91,7 +91,7 @@ fn run_command(command: String, handle: &ControlHandle) -> anyhow::Result<()> {
             ["trigger", "every", interval_str] => {
                 let poll_interval = parse_duration(&interval_str)?;
                 let flush_interval = poll_interval;
-                Ok(SourceCmd::SetTrigger(Some(TriggerProvider::TimeInterval {
+                Ok(SourceCmd::SetTrigger(Some(Trigger::TimeInterval {
                     start_time: Instant::now(),
                     poll_interval,
                     flush_interval,

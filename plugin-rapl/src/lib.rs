@@ -1,4 +1,6 @@
-use alumet::{pipeline::Source, plugin::rust::AlumetPlugin, units::Unit};
+use std::time::Duration;
+
+use alumet::{pipeline::{trigger::Trigger, Source}, plugin::rust::AlumetPlugin, units::Unit};
 use indoc::indoc;
 
 use crate::{
@@ -13,7 +15,9 @@ mod domains;
 mod perf_event;
 mod powercap;
 
-pub struct RaplPlugin;
+pub struct RaplPlugin {
+    poll_interval: Duration,
+}
 
 impl AlumetPlugin for RaplPlugin {
     fn name() -> &'static str {
@@ -25,7 +29,9 @@ impl AlumetPlugin for RaplPlugin {
     }
 
     fn init(_config: &mut alumet::config::ConfigTable) -> anyhow::Result<Box<Self>> {
-        Ok(Box::new(RaplPlugin))
+        // TODO read from config
+        let poll_interval = Duration::from_secs(1);
+        Ok(Box::new(RaplPlugin { poll_interval }))
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
@@ -107,7 +113,7 @@ impl AlumetPlugin for RaplPlugin {
                 }
             }
         };
-        alumet.add_source(source?);
+        alumet.add_source(source?, Trigger::at_interval(self.poll_interval));
         Ok(())
     }
 

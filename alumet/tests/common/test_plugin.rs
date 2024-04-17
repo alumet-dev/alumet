@@ -1,5 +1,8 @@
+use std::time::Duration;
+
 use alumet::measurement::{MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue};
 use alumet::metrics::{MetricId, TypedMetricId};
+use alumet::pipeline::trigger::Trigger;
 use alumet::pipeline::{Output, OutputContext, PollError, Source, Transform, TransformError, WriteError};
 use alumet::plugin::{AlumetStart, Plugin};
 use alumet::units::Unit;
@@ -42,7 +45,7 @@ impl Plugin for TestPlugin {
         "0.0.1"
     }
 
-    #[rustfmt::skip] 
+    #[rustfmt::skip]
     fn start(&mut self, alumet: &mut AlumetStart) -> anyhow::Result<()> {
         // Register the metrics (for a normal plugin, you would simply give the name directly as a &str)
         let metric_name_a = self.name.clone() + ":energy-a";
@@ -51,15 +54,17 @@ impl Plugin for TestPlugin {
         let metric_b = alumet.create_metric::<u64>(&metric_name_b, Unit::Unity, "Test metric B, counter without unit.")?;
 
         // Add steps to the pipeline
-        alumet.add_source(Box::new(TestSource{metric_a,metric_b,a_base: self.base_value_a,b_counter:0}));
+        let source = Box::new(TestSource{metric_a,metric_b,a_base: self.base_value_a,b_counter:0});
+        let trigger = Trigger::at_interval(Duration::from_secs(1));
+        alumet.add_source(source, trigger);
         alumet.add_transform(Box::new(TestTransform));
         alumet.add_output(Box::new(TestOutput));
-        
+
         // Update state (for testing purposes)
         self.state = State::Started;
         Ok(())
     }
-    
+
     fn post_startup(&mut self, startup: &alumet::plugin::manage::PluginStartup) -> anyhow::Result<()> {
         self.state = State::PostStartup;
         Ok(())
@@ -76,7 +81,7 @@ impl Source for TestSource {
         // generate some values for testing purposes, that evolve over time
         self.b_counter += 1;
         let value_a = self.a_base + 4*(self.b_counter % 2);
-        
+
         // create a "resource id" to tag the data with an information about what the measurement is about
         let resource = ResourceId::custom("test", "imaginary-thing");
 

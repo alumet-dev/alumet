@@ -1,4 +1,5 @@
 use std::ffi::{c_char, CStr};
+use std::time::Instant;
 
 use libc::c_void;
 
@@ -7,6 +8,7 @@ use crate::metrics::RawMetricId;
 use crate::{plugin::AlumetStart, units::Unit};
 
 use super::pipeline::{FfiOutput, FfiTransform};
+use super::time::TimeDuration;
 use super::units::FfiUnit;
 use super::{pipeline::FfiSource, string::AStr, NullableDropFn, SourcePollFn};
 use super::{OutputWriteFn, TransformApplyFn};
@@ -51,6 +53,8 @@ pub extern "C" fn alumet_create_metric_c(
 pub extern "C" fn alumet_add_source(
     alumet: &mut AlumetStart,
     source_data: *mut c_void,
+    poll_interval: TimeDuration,
+    flush_interval: TimeDuration,
     source_poll_fn: SourcePollFn,
     source_drop_fn: NullableDropFn,
 ) {
@@ -59,7 +63,14 @@ pub extern "C" fn alumet_add_source(
         poll_fn: source_poll_fn,
         drop_fn: source_drop_fn,
     });
-    alumet.add_source(source);
+    alumet.add_source(
+        source,
+        crate::pipeline::trigger::Trigger::TimeInterval {
+            start_time: Instant::now(),
+            poll_interval: poll_interval.into(),
+            flush_interval: flush_interval.into(),
+        },
+    );
 }
 #[no_mangle]
 pub extern "C" fn alumet_add_transform(

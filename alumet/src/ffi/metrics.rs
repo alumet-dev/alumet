@@ -13,7 +13,8 @@ use crate::{
 use super::{
     resources::FfiResourceId,
     string::{AStr, AString},
-    FfiOutputContext, Timestamp,
+    time::Timestamp,
+    FfiOutputContext,
 };
 
 // ====== Metrics ffi ======

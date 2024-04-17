@@ -11,12 +11,41 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// The output of a SourceTrigger.
 pub type SourceTriggerOutput = Result<(), PollError>;
 
-/// Provides a `SourceTrigger` on demand, for `Source`s.
+/// Defines a trigger for measurement sources.
+///
+/// The trigger controls when the [`Source`](super::Source) is polled for measurements.
+///
+/// ## Example
+/// ```
+/// use alumet::pipeline::trigger::Trigger;
+/// use std::time::Duration;
+/// 
+/// // Wait 30 seconds between each polling operation, and flush every time.
+/// let trigger = Trigger::at_interval(Duration::from_secs(30));
+/// ```
+/// 
+/// ## Advanced Example
+/// ```
+/// use alumet::pipeline::trigger::Trigger;
+/// use std::time::{Duration, Instant};
+///
+/// let trigger = Trigger::TimeInterval {
+///     // Start polling as soon as possible.
+///     start_time: Instant::now(),
+///     // Wait 30 seconds between each polling operation.
+///     poll_interval: Duration::from_secs(30),
+///     // Flush the measurements each 60 seconds (so, every 2 polls).
+///     flush_interval: Duration::from_secs(60),
+/// };
+/// ```
 #[derive(Clone, Debug)]
-pub enum TriggerProvider {
-    /// A trigger provider based on a precise time interval.  This is much more
-    /// accurate than [`std::thread::sleep`] and [`tokio::time::sleep`],
-    /// but is only available on Linux.
+pub enum Trigger {
+    /// A trigger based on a precise time interval.
+    ///
+    /// The accuracy of the timing depends on the operating system and on the scheduling
+    /// policy of the thread that executes the trigger.
+    /// For small intervals of 1ms or less, it is recommended to run Alumet on Linux
+    /// and to use [`SourceType::RealtimePriority`](super::runtime::SourceType::RealtimePriority).
     TimeInterval {
         /// Time of the first polling.
         start_time: Instant,
@@ -35,8 +64,18 @@ pub enum TriggerProvider {
     },
 }
 
+impl Trigger {
+    pub fn at_interval(poll_interval: Duration) -> Trigger {
+        Trigger::TimeInterval {
+            start_time: Instant::now(),
+            poll_interval,
+            flush_interval: poll_interval,
+        }
+    }
+}
+
 /// Controls when the [`Source`](super::Source) is polled for measurements.
-pub(crate) struct SourceTrigger {
+pub(crate) struct ConfiguredSourceTrigger {
     /// The trigger that controls when to poll the source.
     trigger: TriggerMechanism,
     /// Numbers of polling operations to do before flushing the measurements.
@@ -63,7 +102,7 @@ enum TriggerMechanism {
     Future(fn() -> BoxFuture<'static, SourceTriggerOutput>),
 }
 
-impl SourceTrigger {
+impl ConfiguredSourceTrigger {
     pub async fn next(&mut self) -> Result<(), PollError> {
         use tokio_stream::StreamExt;
 
@@ -84,11 +123,11 @@ impl SourceTrigger {
     }
 }
 
-impl TriggerProvider {
+impl Trigger {
     /// Returns a new `SourceTrigger` along with some automatic settings.
-    pub(crate) fn auto_configured(self) -> io::Result<SourceTrigger> {
+    pub(crate) fn auto_configured(self) -> io::Result<ConfiguredSourceTrigger> {
         match self {
-            TriggerProvider::TimeInterval {
+            Trigger::TimeInterval {
                 start_time,
                 poll_interval,
                 flush_interval,
@@ -108,11 +147,11 @@ impl TriggerProvider {
                 #[cfg(not(target_os = "linux"))]
                 let trigger = TriggerMechanism::TokioSleep(tokio::time::Instant::from_std(start_time), poll_interval);
 
-                Ok(SourceTrigger { trigger, flush_rounds })
+                Ok(ConfiguredSourceTrigger { trigger, flush_rounds })
             }
-            TriggerProvider::Future { f, flush_rounds } => {
+            Trigger::Future { f, flush_rounds } => {
                 let trigger = TriggerMechanism::Future(f);
-                Ok(SourceTrigger { trigger, flush_rounds })
+                Ok(ConfiguredSourceTrigger { trigger, flush_rounds })
             }
         }
     }
@@ -133,7 +172,7 @@ impl fmt::Debug for TriggerMechanism {
 mod tests {
     use std::time::{Duration, Instant};
 
-    use super::TriggerProvider;
+    use super::Trigger;
 
     #[test]
     fn trigger_auto_config() {
@@ -158,7 +197,7 @@ mod tests {
             (0, 0, None), // invalid interval
         ];
         for (poll_int, flush_int, expected_flush_rounds) in intervals_and_rounds {
-            let tp = TriggerProvider::TimeInterval {
+            let tp = Trigger::TimeInterval {
                 start_time: Instant::now(),
                 poll_interval: Duration::from_secs(poll_int),
                 flush_interval: Duration::from_secs(flush_int),

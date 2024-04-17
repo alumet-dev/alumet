@@ -33,8 +33,10 @@ PLUGIN_API void plugin_start(PluginStruct *plugin, AlumetStart *alumet) {
     PowercapSource *source = source_init(rapl_pkg_metric, plugin->custom_attribute);
 
     // register the source
-    alumet_add_source(alumet, source, (SourcePollFn)source_poll, (NullableDropFn)source_drop);
-    
+    TimeDuration poll_interval = {.t = {.secs = 1, .nanos = 0}};
+    TimeDuration flush_interval = poll_interval;
+    alumet_add_source(alumet, source, poll_interval, flush_interval, (SourcePollFn)source_poll, (NullableDropFn)source_drop);
+
     // create and register the output
     StdOutput *output = output_init();
     alumet_add_output(alumet, output, (OutputWriteFn)output_write, (NullableDropFn)output_drop);

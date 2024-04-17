@@ -92,7 +92,7 @@ use crate::measurement::{MeasurementBuffer, MeasurementType, WrappedMeasurementT
 use crate::metrics::{Metric, MetricCreationError, RawMetricId, TypedMetricId};
 use crate::pipeline;
 use crate::pipeline::runtime::{PendingPipeline, PipelineBuilder, SourceType};
-use crate::pipeline::trigger::TriggerProvider;
+use crate::pipeline::trigger::Trigger;
 use crate::units::PrefixedUnit;
 
 use self::manage::PluginStartup;
@@ -219,15 +219,8 @@ impl AlumetStart<'_> {
     }
 
     /// Adds a measurement source to the Alumet pipeline.
-    pub fn add_source(&mut self, source: Box<dyn pipeline::Source>) {
+    pub fn add_source(&mut self, source: Box<dyn pipeline::Source>, trigger: Trigger) {
         let plugin = self.current_plugin_name().to_owned();
-        // TODO read settings from config
-        let trigger = TriggerProvider::TimeInterval {
-            start_time: std::time::Instant::now(),
-            poll_interval: std::time::Duration::from_secs(1),
-            flush_interval: std::time::Duration::from_secs(1),
-        };
-
         self.pipeline_builder.sources.push(pipeline::runtime::SourceBuilder {
             source_type: SourceType::Normal,
             plugin,
@@ -242,7 +235,7 @@ impl AlumetStart<'_> {
     /// creating the source. A good use case is to access the late registration of metrics.
     ///
     /// The downside is a more complicated code. In general, you should prefer to use [`add_source`].
-    pub fn add_late_source<F: FnOnce(&PendingPipeline) -> (Box<dyn pipeline::Source>, TriggerProvider) + 'static>(
+    pub fn add_late_source<F: FnOnce(&PendingPipeline) -> (Box<dyn pipeline::Source>, Trigger) + 'static>(
         &mut self,
         source_builder: F,
     ) {
