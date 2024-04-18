@@ -5,6 +5,7 @@ use alumet::{
     pipeline::runtime::RunningPipeline,
     plugin::{rust::AlumetPlugin, AlumetStart},
 };
+use anyhow::Context;
 use socket::SocketControl;
 
 pub struct SocketControlPlugin {
@@ -31,7 +32,7 @@ impl AlumetPlugin for SocketControlPlugin {
 
     fn post_pipeline_start(&mut self, pipeline: &mut RunningPipeline) -> anyhow::Result<()> {
         // Enable remote control via Unix socket.
-        let control = SocketControl::start_new(pipeline.control_handle()).expect("Control thread failed to start");
+        let control = SocketControl::start_new(pipeline.control_handle()).context("Control thread failed to start")?;
         self.control = Some(control);
         log::info!("SocketControl enabled.");
         Ok(())
