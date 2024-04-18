@@ -1,5 +1,7 @@
 //! Helpers for creating a measurement agent.
 
+use std::fmt::Display;
+
 use crate::{
     config::ConfigTable,
     pipeline::{
@@ -88,8 +90,9 @@ impl Agent {
             .map(|plugin| {
                 let name = plugin.name.clone();
                 let version = plugin.version.clone();
-                initialize_with_config(&mut global_config, plugin)
-                    .unwrap_or_else(|err| panic!("Plugin failed to initialize: {} v{} - {err}", name, version))
+                initialize_with_config(&mut global_config, plugin).unwrap_or_else(|err| {
+                    log_and_panic(err, format!("Plugin failed to initialize: {} v{}", name, version))
+                })
             })
             .collect();
 
@@ -110,10 +113,9 @@ impl Agent {
                 current_plugin_name: plugin.name().to_owned(),
             };
             plugin.start(&mut start_struct).unwrap_or_else(|err| {
-                panic!(
-                    "Plugin failed to start: {} v{} - {err}",
-                    plugin.name(),
-                    plugin.version()
+                log_and_panic(
+                    err,
+                    format!("Plugin failed to start: {} v{}", plugin.name(), plugin.version()),
                 )
             })
         }
@@ -128,10 +130,13 @@ impl Agent {
         });
         for plugin in initialized_plugins.iter_mut() {
             plugin.pre_pipeline_start(&pipeline).unwrap_or_else(|err| {
-                panic!(
-                    "Plugin pre_pipeline_start failed: {} v{} - {err}",
-                    plugin.name(),
-                    plugin.version()
+                log_and_panic(
+                    err,
+                    format!(
+                        "Plugin pre_pipeline_start failed: {} v{}",
+                        plugin.name(),
+                        plugin.version()
+                    ),
                 )
             });
         }
@@ -143,10 +148,13 @@ impl Agent {
         // Operation: the pipeline is running.
         for plugin in initialized_plugins.iter_mut() {
             plugin.post_pipeline_start(&mut pipeline).unwrap_or_else(|err| {
-                panic!(
-                    "Plugin post_pipeline_start failed: {} v{} - {err}",
-                    plugin.name(),
-                    plugin.version()
+                log_and_panic(
+                    err,
+                    format!(
+                        "Plugin post_pipeline_start failed: {} v{}",
+                        plugin.name(),
+                        plugin.version()
+                    ),
                 )
             })
         }
@@ -158,11 +166,15 @@ impl Agent {
     }
 }
 
+fn log_and_panic<M: Display>(error: anyhow::Error, message: M) -> ! {
+    // Use the debug format to display all the causes of the error,
+    // see https://docs.rs/anyhow/1.0.82/anyhow/struct.Error.html#display-representations.
+    log::error!("{message} - {error:?}");
+    panic!("{message} - {error}");
+}
+
 /// Finds the configuration of a plugin in the global config, and initialize the plugin.
-pub fn initialize_with_config(
-    global_config: &mut toml::Table,
-    plugin: PluginMetadata,
-) -> anyhow::Result<Box<dyn Plugin>> {
+fn initialize_with_config(global_config: &mut toml::Table, plugin: PluginMetadata) -> anyhow::Result<Box<dyn Plugin>> {
     let name = &plugin.name;
     let version = &plugin.version;
     let sub_config = global_config.remove(name);
