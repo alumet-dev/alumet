@@ -3,13 +3,12 @@
 use std::fmt::Display;
 
 use crate::{
-    config::ConfigTable,
     pipeline::{
         self,
         builder::PipelineBuilder,
         runtime::{IdlePipeline, RunningPipeline},
     },
-    plugin::{AlumetStart, Plugin, PluginMetadata},
+    plugin::{AlumetStart, ConfigTable, Plugin, PluginMetadata},
 };
 
 /// Easy-to-use skeleton for building a measurement application based on
@@ -20,6 +19,7 @@ use crate::{
 /// ## Example
 /// ```no_run
 /// use alumet::agent::{static_plugins, AgentBuilder, Agent};
+/// use alumet::plugin::{AlumetStart, ConfigTable};
 /// use alumet::plugin::rust::AlumetPlugin;
 ///
 /// # struct PluginA;
@@ -32,11 +32,11 @@ use crate::{
 /// #         "version"
 /// #     }
 /// #
-/// #     fn init(config: &mut alumet::config::ConfigTable) -> anyhow::Result<Box<Self>> {
+/// #     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
 /// #         todo!()
 /// #     }
 /// #
-/// #     fn start(&mut self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
+/// #     fn start(&mut self, alumet: &mut AlumetStart) -> anyhow::Result<()> {
 /// #         todo!()
 /// #     }
 /// #
@@ -178,18 +178,19 @@ fn initialize_with_config(global_config: &mut toml::Table, plugin: PluginMetadat
     let name = &plugin.name;
     let version = &plugin.version;
     let sub_config = global_config.remove(name);
-    let mut plugin_config = match sub_config {
-        Some(toml::Value::Table(t)) => Ok(ConfigTable::new(t)?),
+    let plugin_config = match sub_config {
+        Some(toml::Value::Table(t)) => Ok(t),
         Some(bad_value) => Err(anyhow::anyhow!(
             "invalid configuration for plugin '{name}' v{version}: the value must be a table, not a {}.",
             bad_value.type_str()
         )),
         None => {
             // default to an empty config, so that the plugin can load some default values.
-            Ok(ConfigTable::new(toml::map::Map::new())?)
+            Ok(toml::Table::new())
         }
-    }?;
-    (plugin.init)(&mut plugin_config)
+    };
+    let plugin_config = ConfigTable(plugin_config?);
+    (plugin.init)(plugin_config)
 }
 
 /// Prints some statistics after the plugin start-up phase.
@@ -324,7 +325,7 @@ pub use static_plugins;
 
 #[cfg(test)]
 mod tests {
-    use crate::plugin::rust::AlumetPlugin;
+    use crate::plugin::{rust::AlumetPlugin, ConfigTable};
 
     #[test]
     fn static_plugin_macro() {
@@ -351,7 +352,7 @@ mod tests {
             "version"
         }
 
-        fn init(_config: &mut crate::config::ConfigTable) -> anyhow::Result<Box<Self>> {
+        fn init(_config: ConfigTable) -> anyhow::Result<Box<Self>> {
             todo!()
         }
 

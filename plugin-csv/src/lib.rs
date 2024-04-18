@@ -3,7 +3,7 @@ mod output;
 
 use std::path::PathBuf;
 
-use alumet::plugin::rust::AlumetPlugin;
+use alumet::plugin::{rust::AlumetPlugin, ConfigTable};
 use output::CsvOutput;
 
 pub struct CsvPlugin {
@@ -19,7 +19,7 @@ impl AlumetPlugin for CsvPlugin {
         env!("CARGO_PKG_VERSION")
     }
 
-    fn init(config: &mut alumet::config::ConfigTable) -> anyhow::Result<Box<Self>> {
+    fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
         // TODO config options
         Ok(Box::new(CsvPlugin { csv_path: PathBuf::from("alumet-output.csv") }))
     }

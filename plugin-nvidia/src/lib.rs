@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use alumet::plugin::rust::AlumetPlugin;
+use alumet::plugin::{rust::AlumetPlugin, ConfigTable};
 use anyhow::anyhow;
 
 #[cfg(feature = "jetson")]
@@ -21,7 +21,7 @@ impl AlumetPlugin for NvidiaPlugin {
         "0.1.0"
     }
 
-    fn init(_config: &mut alumet::config::ConfigTable) -> anyhow::Result<Box<Self>> {
+    fn init(_config: ConfigTable) -> anyhow::Result<Box<Self>> {
         // TODO read from config
         let poll_interval = Duration::from_secs(1);
         Ok(Box::new(NvidiaPlugin { poll_interval }))

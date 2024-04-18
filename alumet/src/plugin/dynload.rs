@@ -6,12 +6,11 @@ use std::{
     path::Path,
 };
 
-use crate::{config::ConfigTable, pipeline::runtime::{IdlePipeline, RunningPipeline}, plugin::version::Version};
-use anyhow::Context;
+use crate::{pipeline::runtime::{IdlePipeline, RunningPipeline}, plugin::version::Version};
 use libc::c_void;
 use libloading::{Library, Symbol};
 
-use super::{version, AlumetStart, Plugin};
+use super::{version, AlumetStart, ConfigTable, Plugin};
 use crate::ffi;
 use crate::plugin::PluginMetadata;
 
@@ -209,9 +208,9 @@ pub fn load_cdylib(file: &Path) -> Result<PluginMetadata, LoadError> {
     let initializable_info = PluginMetadata {
         name: name.clone(),
         version: version.clone(),
-        init: Box::new(move |config| {
+        init: Box::new(move |mut config| {
             // initialize the plugin
-            let external_plugin = init_fn(config);
+            let external_plugin = init_fn(&mut config.0);
             log::debug!("init called from Rust");
 
             if external_plugin.is_null() {
@@ -236,18 +235,17 @@ pub fn load_cdylib(file: &Path) -> Result<PluginMetadata, LoadError> {
 }
 
 /// Initializes a plugin, using its [`PluginMetadata`] and config table (not the global configuration).
-pub fn initialize(plugin: PluginMetadata, config: toml::Table) -> anyhow::Result<Box<dyn Plugin>> {
-    let mut ffi_config = ConfigTable::new(config).context("conversion to ffi-safe configuration failed")?;
-    let plugin_instance = (plugin.init)(&mut ffi_config)?;
+pub fn initialize(plugin: PluginMetadata, config: ConfigTable) -> anyhow::Result<Box<dyn Plugin>> {
+    let plugin_instance = (plugin.init)(config)?;
     Ok(plugin_instance)
 }
 
 /// Extracts the config table of a specific plugin from the global config.
-pub fn plugin_subconfig(plugin: &PluginMetadata, global_config: &mut toml::Table) -> anyhow::Result<toml::Table> {
+pub fn plugin_subconfig(plugin: &PluginMetadata, global_config: &mut toml::Table) -> anyhow::Result<ConfigTable> {
     let name = &plugin.name;
     let sub_config = global_config.remove(name);
     match sub_config {
-        Some(toml::Value::Table(t)) => Ok(t),
+        Some(toml::Value::Table(t)) => Ok(ConfigTable(t)),
         Some(bad_value) => Err(anyhow::anyhow!(
             "invalid plugin configuration for '{name}': the value must be a table, not a {}.",
             bad_value.type_str()

@@ -1,9 +1,8 @@
 mod socket;
 
 use alumet::{
-    config::ConfigTable,
     pipeline::runtime::RunningPipeline,
-    plugin::{rust::AlumetPlugin, AlumetStart},
+    plugin::{rust::AlumetPlugin, AlumetStart, ConfigTable},
 };
 use anyhow::Context;
 use socket::SocketControl;
@@ -21,7 +20,7 @@ impl AlumetPlugin for SocketControlPlugin {
         env!("CARGO_PKG_VERSION")
     }
 
-    fn init(config: &mut ConfigTable) -> anyhow::Result<Box<Self>> {
+    fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
         // TODO config options
         Ok(Box::new(SocketControlPlugin { control: None }))
     }

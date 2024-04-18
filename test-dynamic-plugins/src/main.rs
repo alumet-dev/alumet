@@ -48,7 +48,7 @@ fn run_with_plugin(
 
     // Create the plugin
     let plugin_config = plugin_subconfig(&plugin_info, global_config).expect("plugin subconfig should exist");
-    println!("[app] plugin_config: {plugin_config:?}");
+    println!("[app] plugin_config: {:?}", plugin_config.0);
     let mut plugin = initialize(plugin_info, plugin_config).expect("plugin instance should be created by init");
     assert_eq!(plugin.name(), expected_plugin_name);
     assert_eq!(plugin.version(), expected_plugin_version);

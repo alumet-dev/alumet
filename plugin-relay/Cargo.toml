@@ -14,6 +14,7 @@ anyhow = "1.0.82"
 hostname = "0.4.0"
 log = "0.4.21"
 prost = "0.12.4"
+serde = { version = "1.0.198", features = ["derive"] }
 tokio = { version = "1.37.0", features = ["rt"] }
 tonic = "0.11.0"
 

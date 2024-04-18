@@ -6,21 +6,41 @@ use crate::protocol::metric_collector_client::MetricCollectorClient;
 use crate::protocol::resource::Identifier;
 use crate::protocol::{self, RegisterReply};
 
-use alumet::config::ConfigValue;
 use alumet::measurement::{
     AttributeValue, MeasurementBuffer, MeasurementPoint, WrappedMeasurementType, WrappedMeasurementValue,
 };
 use alumet::pipeline::runtime::IdlePipeline;
 use alumet::pipeline::OutputContext;
-use alumet::plugin::rust::AlumetPlugin;
+use alumet::plugin::rust::{deserialize_config, AlumetPlugin};
+use alumet::plugin::ConfigTable;
 use alumet::resources::ResourceId;
-use anyhow::{anyhow, Context};
+use anyhow::Context;
+use serde::Deserialize;
 use tonic::transport::Channel;
 
 pub struct RelayClientPlugin {
     client_name: String,
     collector_uri: String,
     metric_ids: Arc<Mutex<HashMap<u64, u64>>>,
+}
+
+#[derive(Deserialize)]
+struct Config {
+    #[serde(default = "default_client_name")]
+    client_name: String,
+    #[serde(default = "default_collector_uri")]
+    collector_uri: String,
+}
+
+fn default_client_name() -> String {
+    hostname::get()
+        .expect("No client_name specified and unable to retrieve the hostname of the current node.")
+        .to_string_lossy()
+        .to_string()
+}
+
+fn default_collector_uri() -> String {
+    String::from("http://[::1]:50051")
 }
 
 impl AlumetPlugin for RelayClientPlugin {
@@ -32,31 +52,17 @@ impl AlumetPlugin for RelayClientPlugin {
         env!("CARGO_PKG_VERSION")
     }
 
-    fn init(config: &mut alumet::config::ConfigTable) -> anyhow::Result<Box<Self>> {
+    fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
         // Read the configuration.
-        let client_name = match config.get("client_name") {
-            Some(ConfigValue::String(s)) => s.to_owned(),
-            Some(bad) => Err(anyhow!(format!(
-                "Invalid config value for 'client_name': expected a string, got {bad:?}"
-            )))?,
-            None => hostname::get()?.to_string_lossy().to_string(),
-        };
-
-        let collector_uri = match config.get("collector_uri") {
-            Some(ConfigValue::String(s)) => s.to_owned(),
-            Some(bad) => Err(anyhow!(format!(
-                "Invalid configuration value for 'collector_uri': expected a string, got {bad:?}"
-            )))?,
-            None => String::from("http://[::1]:50051"),
-        };
+        let config = deserialize_config::<Config>(config)?;
 
         // Initialize a thread-safe HashMap to store the mapping 'local metric id' -> 'collector metric id'
         let metric_ids = Arc::new(Mutex::new(HashMap::new()));
 
         // Return initialized plugin.
         Ok(Box::new(Self {
-            client_name,
-            collector_uri,
+            client_name: config.client_name,
+            collector_uri: config.collector_uri,
             metric_ids,
         }))
     }
@@ -155,7 +161,7 @@ impl RelayClient {
         ) -> protocol::MeasurementPoint {
             // convert metric id
             let metric = *metric_ids.get(&m.metric.as_u64()).unwrap();
-            
+
             // TODO: if the connection drops, the client will retry to connect, which is good.
             // But if the server has crashed, its MetricRegistry has been reinitialized,
             // and the metrics of the client should be registered again (otherwise the server will error on metric ingestion).

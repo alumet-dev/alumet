@@ -203,33 +203,33 @@ typedef void (*OutputWriteFn)(void *instance,
                               const struct MeasurementBuffer *buffer,
                               const struct FfiOutputContext *ctx);
 
-struct NullableAStr config_string_in(const struct ConfigTable *table, struct AStr key);
+struct NullableAStr config_string_in(const ConfigTable *table, struct AStr key);
 
-const char *config_cstring_in(const struct ConfigTable *table, struct AStr key);
+const char *config_cstring_in(const ConfigTable *table, struct AStr key);
 
-const int64_t *config_int_in(const struct ConfigTable *table, struct AStr key);
+const int64_t *config_int_in(const ConfigTable *table, struct AStr key);
 
-const bool *config_bool_in(const struct ConfigTable *table, struct AStr key);
+const bool *config_bool_in(const ConfigTable *table, struct AStr key);
 
-const double *config_float_in(const struct ConfigTable *table, struct AStr key);
+const double *config_float_in(const ConfigTable *table, struct AStr key);
 
-const struct ConfigArray *config_array_in(const struct ConfigTable *table, struct AStr key);
+const ConfigArray *config_array_in(const ConfigTable *table, struct AStr key);
 
-const struct ConfigTable *config_table_in(const struct ConfigTable *table, struct AStr key);
+const ConfigTable *config_table_in(const ConfigTable *table, struct AStr key);
 
-struct NullableAStr config_string_at(struct ConfigArray *array, uintptr_t index);
+struct NullableAStr config_string_at(ConfigArray *array, uintptr_t index);
 
-const char *config_cstring_at(const struct ConfigArray *array, uintptr_t index);
+const char *config_cstring_at(const ConfigArray *array, uintptr_t index);
 
-const int64_t *config_int_at(const struct ConfigArray *array, uintptr_t index);
+const int64_t *config_int_at(const ConfigArray *array, uintptr_t index);
 
-const bool *config_bool_at(const struct ConfigArray *array, uintptr_t index);
+const bool *config_bool_at(const ConfigArray *array, uintptr_t index);
 
-const double *config_float_at(const struct ConfigArray *array, uintptr_t index);
+const double *config_float_at(const ConfigArray *array, uintptr_t index);
 
-const struct ConfigArray *config_array_at(const struct ConfigArray *array, uintptr_t index);
+const ConfigArray *config_array_at(const ConfigArray *array, uintptr_t index);
 
-const struct ConfigTable *config_table_at(const struct ConfigArray *array, uintptr_t index);
+const ConfigTable *config_table_at(const ConfigArray *array, uintptr_t index);
 
 struct AStr metric_name(struct RawMetricId metric, const struct FfiOutputContext *ctx);
 

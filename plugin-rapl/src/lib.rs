@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use alumet::{pipeline::{trigger::Trigger, Source}, plugin::rust::AlumetPlugin, units::Unit};
+use alumet::{pipeline::{trigger::Trigger, Source}, plugin::{rust::AlumetPlugin, ConfigTable}, units::Unit};
 use indoc::indoc;
 
 use crate::{
@@ -28,7 +28,7 @@ impl AlumetPlugin for RaplPlugin {
         "0.1.0"
     }
 
-    fn init(_config: &mut alumet::config::ConfigTable) -> anyhow::Result<Box<Self>> {
+    fn init(_config: ConfigTable) -> anyhow::Result<Box<Self>> {
         // TODO read from config
         let poll_interval = Duration::from_secs(1);
         Ok(Box::new(RaplPlugin { poll_interval }))

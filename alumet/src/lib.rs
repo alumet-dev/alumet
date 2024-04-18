@@ -12,7 +12,6 @@
 //! are provided by [plugins](plugin).
 
 pub mod agent;
-pub mod config;
 pub mod measurement;
 pub mod metrics;
 pub mod pipeline;

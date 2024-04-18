@@ -45,8 +45,7 @@
 //!
 //! In your library, define a structure for your plugin, and implement the [`rust::AlumetPlugin`] trait for it.
 //! ```no_run
-//! use alumet::plugin::{rust::AlumetPlugin, AlumetStart};
-//! use alumet::config::ConfigTable;
+//! use alumet::plugin::{rust::AlumetPlugin, AlumetStart, ConfigTable};
 //!
 //! struct MyPlugin {}
 //!
@@ -59,7 +58,7 @@
 //!         "0.1.0"
 //!     }
 //!
-//!     fn init(config: &mut ConfigTable) -> anyhow::Result<Box<Self>> {
+//!     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
 //!         // You can read the config and store some settings in your structure.
 //!         Ok(Box::new(MyPlugin {}))
 //!     }
@@ -87,7 +86,6 @@
 use std::future::Future;
 use std::marker::PhantomData;
 
-use crate::config::ConfigTable;
 use crate::measurement::{MeasurementBuffer, MeasurementType, WrappedMeasurementType};
 use crate::metrics::{Metric, MetricCreationError, RawMetricId, TypedMetricId};
 use crate::pipeline::builder::{AutonomousSourceBuilder, OutputBuilder, SourceBuilder, TransformBuilder};
@@ -110,7 +108,7 @@ pub(crate) mod version;
 pub struct PluginMetadata {
     pub name: String,
     pub version: String,
-    pub init: Box<dyn FnOnce(&mut ConfigTable) -> anyhow::Result<Box<dyn Plugin>>>,
+    pub init: Box<dyn FnOnce(ConfigTable) -> anyhow::Result<Box<dyn Plugin>>>,
 }
 
 impl PluginMetadata {
@@ -122,6 +120,9 @@ impl PluginMetadata {
         }
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct ConfigTable(pub toml::Table);
 
 /// Trait for plugins.
 ///

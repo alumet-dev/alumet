@@ -4,17 +4,20 @@ use std::{
 };
 
 use alumet::{
-    config::{ConfigTable, ConfigValue},
     measurement::{
         AttributeValue, MeasurementBuffer, MeasurementPoint, WrappedMeasurementType, WrappedMeasurementValue,
     },
     metrics::{Metric, RawMetricId},
     pipeline::builder::LateRegistrationHandle,
-    plugin::{rust::AlumetPlugin, AlumetStart},
+    plugin::{
+        rust::{deserialize_config, AlumetPlugin},
+        AlumetStart, ConfigTable,
+    },
     resources::{InvalidResourceError, ResourceId},
     units::{PrefixedUnit, Unit},
 };
 use anyhow::Context;
+use serde::Deserialize;
 use tonic::{transport::Server, Response, Status};
 
 use crate::protocol::{
@@ -26,7 +29,17 @@ use crate::protocol::{
 };
 
 pub struct RelayServerPlugin {
+    config: Config,
+}
+
+#[derive(Deserialize)]
+struct Config {
+    #[serde(default = "default_port")]
     port: u16,
+}
+
+fn default_port() -> u16 {
+    50051
 }
 
 impl AlumetPlugin for RelayServerPlugin {
@@ -38,16 +51,13 @@ impl AlumetPlugin for RelayServerPlugin {
         env!("CARGO_PKG_VERSION")
     }
 
-    fn init(config: &mut ConfigTable) -> anyhow::Result<Box<Self>> {
-        let port = match config.get("port") {
-            Some(ConfigValue::Integer(i)) => u16::try_from(*i).with_context(|| format!("invalid port {i}"))?,
-            _ => 50051, // default port
-        };
-        Ok(Box::new(RelayServerPlugin { port }))
+    fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
+        let config = deserialize_config(config)?;
+        Ok(Box::new(RelayServerPlugin { config }))
     }
 
     fn start(&mut self, alumet: &mut AlumetStart) -> anyhow::Result<()> {
-        let addr: SocketAddr = SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::LOCALHOST, self.port, 0, 0));
+        let addr: SocketAddr = SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::LOCALHOST, self.config.port, 0, 0));
         log::info!("Starting gRPC server with on socket {addr}");
         alumet.add_autonomous_source(move |p: &_, tx: &_| {
             let collector = GrpcMetricCollector {

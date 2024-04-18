@@ -2,11 +2,14 @@
 //!
 //! See the [documentation of the plugin module](super#static-plugins).
 
+use anyhow::Context;
+
 use crate::{
-    config::ConfigTable,
     pipeline::runtime::{IdlePipeline, RunningPipeline},
     plugin::{AlumetStart, Plugin},
 };
+
+use super::ConfigTable;
 
 /// Trait for Alumet plugins written in Rust.
 ///
@@ -24,7 +27,7 @@ pub trait AlumetPlugin {
     /// Initializes the plugin.
     ///
     /// Read more about the plugin lifecycle in the [module documentation](super).
-    fn init(config: &mut ConfigTable) -> anyhow::Result<Box<Self>>;
+    fn init(config: ConfigTable) -> anyhow::Result<Box<Self>>;
 
     /// Starts the plugin, allowing it to register metrics, sources and outputs.
     ///
@@ -57,6 +60,10 @@ pub trait AlumetPlugin {
         let _ = pipeline; // do nothing by default
         Ok(())
     }
+}
+
+pub fn deserialize_config<'de, T: serde::de::Deserialize<'de>>(config: ConfigTable) -> anyhow::Result<T> {
+    toml::Value::Table(config.0).try_into::<T>().with_context(|| format!("error when deserializing plugin config to {}", std::any::type_name::<T>()))
 }
 
 // Every AlumetPlugin is a Plugin :)
