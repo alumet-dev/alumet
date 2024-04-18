@@ -59,9 +59,9 @@ fn test_plugin_lifecycle() {
     assert!(plugins.iter().all(|p| p.state == State::PrePipelineStart));
 
     // Execute post-pipeline-start actions
-    let pipeline = pipeline.start();
+    let mut pipeline = pipeline.start();
     for p in plugins.iter_mut() {
-        p.post_pipeline_start(&pipeline).unwrap_or_else(|err| {
+        p.post_pipeline_start(&mut pipeline).unwrap_or_else(|err| {
             panic!(
                 "Plugin post_pipeline_start failed: {} v {} - {}",
                 p.name(),

@@ -75,7 +75,7 @@ impl Plugin for TestPlugin {
         Ok(())
     }
 
-    fn post_pipeline_start(&mut self, _: &alumet::pipeline::runtime::RunningPipeline) -> anyhow::Result<()> {
+    fn post_pipeline_start(&mut self, _: &mut alumet::pipeline::runtime::RunningPipeline) -> anyhow::Result<()> {
         self.state = State::PostPipelineStart;
         Ok(())
     }

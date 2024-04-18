@@ -4,7 +4,7 @@
 
 use crate::{
     config::ConfigTable,
-    pipeline::{builder::PipelineBuilder, runtime::{IdlePipeline, RunningPipeline}},
+    pipeline::runtime::{IdlePipeline, RunningPipeline},
     plugin::{AlumetStart, Plugin},
 };
 
@@ -53,7 +53,7 @@ pub trait AlumetPlugin {
     ///
     /// It can be used, for instance, to obtain a [`ControlHandle`](crate::pipeline::runtime::ControlHandle)
     /// of the pipeline. No modification to the pipeline can be applied.
-    fn post_pipeline_start(&mut self, pipeline: &RunningPipeline) -> anyhow::Result<()> {
+    fn post_pipeline_start(&mut self, pipeline: &mut RunningPipeline) -> anyhow::Result<()> {
         let _ = pipeline; // do nothing by default
         Ok(())
     }
@@ -81,7 +81,7 @@ impl<P: AlumetPlugin> Plugin for P {
         AlumetPlugin::pre_pipeline_start(self, pipeline)
     }
 
-    fn post_pipeline_start(&mut self, pipeline: &RunningPipeline) -> anyhow::Result<()> {
+    fn post_pipeline_start(&mut self, pipeline: &mut RunningPipeline) -> anyhow::Result<()> {
         AlumetPlugin::post_pipeline_start(self, pipeline)
     }
 }

@@ -142,7 +142,7 @@ impl Agent {
 
         // Operation: the pipeline is running.
         for plugin in initialized_plugins.iter_mut() {
-            plugin.post_pipeline_start(&pipeline).unwrap_or_else(|err| {
+            plugin.post_pipeline_start(&mut pipeline).unwrap_or_else(|err| {
                 panic!(
                     "Plugin post_pipeline_start failed: {} v{} - {err}",
                     plugin.name(),

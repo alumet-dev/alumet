@@ -6,7 +6,7 @@ use std::{
     path::Path,
 };
 
-use crate::{config::ConfigTable, plugin::version::Version};
+use crate::{config::ConfigTable, pipeline::runtime::{IdlePipeline, RunningPipeline}, plugin::version::Version};
 use anyhow::Context;
 use libc::c_void;
 use libloading::{Library, Symbol};
@@ -46,12 +46,12 @@ impl Plugin for DylibPlugin {
         Ok(())
     }
 
-    fn pre_pipeline_start(&mut self, _pipeline: &crate::pipeline::runtime::IdlePipeline) -> anyhow::Result<()> {
+    fn pre_pipeline_start(&mut self, _pipeline: &IdlePipeline) -> anyhow::Result<()> {
         // TODO
         Ok(())
     }
 
-    fn post_pipeline_start(&mut self, _pipeline: &crate::pipeline::runtime::RunningPipeline) -> anyhow::Result<()> {
+    fn post_pipeline_start(&mut self, _pipeline: &mut RunningPipeline) -> anyhow::Result<()> {
         // TODO
         Ok(())
     }

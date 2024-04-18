@@ -161,8 +161,8 @@ pub trait Plugin {
     /// i.e. the measurement pipeline has started.
     /// 
     /// It can be used, for instance, to obtain a [`ControlHandle`](crate::pipeline::runtime::ControlHandle)
-    /// of the pipeline. No modification to the pipeline can be applied.
-    fn post_pipeline_start(&mut self, pipeline: &RunningPipeline) -> anyhow::Result<()>;
+    /// of the pipeline.
+    fn post_pipeline_start(&mut self, pipeline: &mut RunningPipeline) -> anyhow::Result<()>;
 }
 
 /// Structure passed to plugins for the start-up phase.
