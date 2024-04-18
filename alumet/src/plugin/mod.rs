@@ -171,8 +171,7 @@ pub trait Plugin {
 /// such as registering new measurement sources.
 ///
 /// ## Note for applications
-/// You should not create `AlumetStart` manually, use [`PluginStartup`](manage::PluginStartup) instead.
-/// Even better, use [`Agent`](crate::agent::Agent).
+/// You should not create `AlumetStart` manually, build an [`Agent`](crate::agent::Agent) instead.
 pub struct AlumetStart<'a> {
     pub(crate) pipeline_builder: &'a mut PipelineBuilder,
     pub(crate) current_plugin_name: String,
