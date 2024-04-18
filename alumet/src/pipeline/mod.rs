@@ -31,7 +31,7 @@ pub trait Output: Send {
 /// The type of a [`Source`].
 ///
 /// It affects how Alumet schedules the polling of the source.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum SourceType {
     /// Nothing special. This is the right choice for most of the sources.
     Normal,

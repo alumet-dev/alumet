@@ -54,11 +54,13 @@ pub struct TransformBuilder {
 
 pub struct OutputBuilder {
     pub plugin: String,
-    pub build: Box<dyn FnOnce(&PendingPipeline) -> Box<dyn Output>>,
+    pub build: Box<dyn FnOnce(&PendingPipeline) -> anyhow::Result<Box<dyn Output>>>,
 }
 
+/// Information about a pipeline that is being built.
 pub struct PendingPipeline<'a> {
     to_output: &'a broadcast::Sender<runtime::OutputMsg>,
+    rt_handle: &'a tokio::runtime::Handle,
 }
 
 impl<'a> PendingPipeline<'a> {
@@ -69,6 +71,10 @@ impl<'a> PendingPipeline<'a> {
             reply_tx,
             reply_rx,
         }
+    }
+
+    pub fn async_runtime_handle(&self) -> &tokio::runtime::Handle {
+        self.rt_handle
     }
 }
 
@@ -132,6 +138,15 @@ pub enum PipelineBuildError {
     Invalid(InvalidReason),
     /// Build failure because of an IO error.
     Io(io::Error),
+    /// Build failure because a pipeline element (source, transform or output) failed to build
+    ElementBuild(anyhow::Error, ElementType, String),
+}
+
+#[derive(Debug)]
+pub enum ElementType {
+    Source,
+    Transform,
+    Output,
 }
 
 #[derive(Debug)]
@@ -154,6 +169,10 @@ impl fmt::Display for PipelineBuildError {
         match self {
             PipelineBuildError::Invalid(reason) => write!(f, "invalid pipeline configuration: {reason}"),
             PipelineBuildError::Io(err) => write!(f, "unable to build the pipeline: {err}"),
+            PipelineBuildError::ElementBuild(err, typ, plugin) => write!(
+                f,
+                "error while building an element of the pipeline ({typ:?} added by plugin {plugin}): {err:?}"
+            ),
         }
     }
 }
@@ -178,7 +197,7 @@ impl PipelineBuilder {
     }
 
     pub fn source_count(&self) -> usize {
-        self.sources.len()
+        self.sources.len() + self.autonomous_sources.len()
     }
 
     pub fn transform_count(&self) -> usize {
@@ -203,7 +222,7 @@ impl PipelineBuilder {
             log::warn!("No metrics have been registered, have you loaded the right plugins?")
         }
         // The pipeline requires at least 1 source and 1 output, otherwise the channels close (and it would be useless anyway).
-        if self.sources.is_empty() {
+        if self.sources.is_empty() && self.autonomous_sources.is_empty() {
             return Err(PipelineBuildError::Invalid(InvalidReason::NoSource));
         }
         if self.outputs.is_empty() {
@@ -223,11 +242,18 @@ impl PipelineBuilder {
         let out_tx = broadcast::Sender::<OutputMsg>::new(256);
 
         // Create the pipeline elements.
-        let pending = PendingPipeline { to_output: &out_tx };
         let sources: Vec<ConfiguredSource> = self
             .sources
             .into_iter()
             .map(|builder| {
+                let pending = PendingPipeline {
+                    to_output: &out_tx,
+                    rt_handle: if builder.source_type == SourceType::Normal {
+                        rt_normal.handle()
+                    } else {
+                        rt_priority.as_ref().unwrap().handle()
+                    },
+                };
                 let (source, trigger) = (builder.build)(&pending);
                 ConfiguredSource {
                     source,
@@ -237,6 +263,11 @@ impl PipelineBuilder {
                 }
             })
             .collect();
+
+        let pending = PendingPipeline {
+            to_output: &out_tx,
+            rt_handle: rt_normal.handle(),
+        };
         let transforms: Vec<ConfiguredTransform> = self
             .transforms
             .into_iter()
@@ -248,17 +279,20 @@ impl PipelineBuilder {
                 }
             })
             .collect();
-        let outputs: Vec<ConfiguredOutput> = self
+        let outputs: Result<Vec<ConfiguredOutput>, PipelineBuildError> = self
             .outputs
             .into_iter()
             .map(|builder| {
-                let output = (builder.build)(&pending);
-                ConfiguredOutput {
+                let output = (builder.build)(&pending).map_err(|err| {
+                    PipelineBuildError::ElementBuild(err, ElementType::Output, builder.plugin.clone())
+                })?;
+                Ok(ConfiguredOutput {
                     output,
                     plugin_name: builder.plugin,
-                }
+                })
             })
             .collect();
+        let outputs = outputs?;
 
         // Create the autonomous sources
         let autonomous_sources: Vec<_> = self

@@ -93,8 +93,8 @@ use crate::metrics::{Metric, MetricCreationError, RawMetricId, TypedMetricId};
 use crate::pipeline::builder::{AutonomousSourceBuilder, OutputBuilder, SourceBuilder, TransformBuilder};
 use crate::pipeline::runtime::{IdlePipeline, RunningPipeline};
 use crate::pipeline::trigger::Trigger;
-use crate::pipeline::{Output, Source, Transform};
 use crate::pipeline::{builder::PendingPipeline, builder::PipelineBuilder, SourceType};
+use crate::pipeline::{Output, Source, Transform};
 use crate::units::PrefixedUnit;
 
 use self::rust::AlumetPlugin;
@@ -150,16 +150,16 @@ pub trait Plugin {
     /// This method is called _after_ all the metrics, sources and outputs previously registered
     /// by [`Plugin::start`] have been stopped and unregistered.
     fn stop(&mut self) -> anyhow::Result<()>;
-    
+
     /// Function called between the plugin startup phase and the operation phase.
-    /// 
+    ///
     /// It can be used, for instance, to examine the metrics that have been registered.
     /// No modification to the pipeline can be applied.
     fn pre_pipeline_start(&mut self, pipeline: &IdlePipeline) -> anyhow::Result<()>;
 
     /// Function called after the beginning of the operation phase,
     /// i.e. the measurement pipeline has started.
-    /// 
+    ///
     /// It can be used, for instance, to obtain a [`ControlHandle`](crate::pipeline::runtime::ControlHandle)
     /// of the pipeline.
     fn post_pipeline_start(&mut self, pipeline: &mut RunningPipeline) -> anyhow::Result<()>;
@@ -182,9 +182,12 @@ impl<'a> AlumetStart<'a> {
     fn current_plugin_name(&self) -> &str {
         &self.current_plugin_name
     }
-    
+
     pub fn new(pipeline_builder: &'a mut PipelineBuilder, plugin_name: String) -> AlumetStart<'a> {
-        Self { pipeline_builder, current_plugin_name: plugin_name }
+        Self {
+            pipeline_builder,
+            current_plugin_name: plugin_name,
+        }
     }
 
     /// Creates a new metric with a measurement type `T` (checked at compile time).
@@ -243,7 +246,8 @@ impl<'a> AlumetStart<'a> {
     /// of the measurement pipeline. This allows to use some information about the pipeline while
     /// creating the source. A good use case is to access the late registration of metrics.
     ///
-    /// The downside is a more complicated code. In general, you should prefer to use [`add_source`].
+    /// The downside is a more complicated code.
+    /// In general, you should prefer to use [`add_source`] if possible.
     pub fn add_late_source<F: FnOnce(&PendingPipeline) -> (Box<dyn Source>, Trigger) + 'static>(
         &mut self,
         source_builder: F,
@@ -318,7 +322,22 @@ impl<'a> AlumetStart<'a> {
         let plugin = self.current_plugin_name().to_owned();
         self.pipeline_builder.outputs.push(OutputBuilder {
             plugin,
-            build: Box::new(|_| output),
+            build: Box::new(|_| Ok(output)),
+        })
+    }
+
+    /// Adds a "late" output to the Alumet pipeline.
+    /// 
+    /// Unlike [`add_output`], the output is not created immediately but during the construction
+    /// of the measurement pipeline. This allows to use some information about the pipeline while
+    /// creating the output. A good use case is to access the tokio runtime [`Handle`](tokio::runtime::Handle)
+    /// in order to use an async library.
+    /// 
+    /// In general, you should prefer to use [`add_output`] if possible.
+    pub fn add_late_output<F: FnOnce(&PendingPipeline) -> anyhow::Result<Box<dyn Output>> + 'static>(&mut self, output_builder: F) {
+        self.pipeline_builder.outputs.push(OutputBuilder {
+            plugin: self.current_plugin_name().to_owned(),
+            build: Box::new(output_builder),
         })
     }
 }
