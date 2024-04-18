@@ -11,8 +11,8 @@ use anyhow::Context;
 use libc::c_void;
 use libloading::{Library, Symbol};
 
-use crate::ffi;
 use super::{version, AlumetStart, Plugin};
+use crate::ffi;
 use crate::plugin::PluginMetadata;
 
 /// A plugin initialized from a dynamic library (aka. shared library).
@@ -45,9 +45,14 @@ impl Plugin for DylibPlugin {
         (self.stop_fn)(self.instance); // TODO error handling for ffi
         Ok(())
     }
-    
-    fn post_startup(&mut self, _startup: &super::manage::PluginStartup) -> anyhow::Result<()> {
-        // TODO post-startup in ffi
+
+    fn pre_pipeline_start(&mut self, _pipeline: &crate::pipeline::runtime::IdlePipeline) -> anyhow::Result<()> {
+        // TODO
+        Ok(())
+    }
+
+    fn post_pipeline_start(&mut self, _pipeline: &crate::pipeline::runtime::RunningPipeline) -> anyhow::Result<()> {
+        // TODO
         Ok(())
     }
 }
@@ -86,7 +91,7 @@ pub struct PluginRegistry {
 }
 
 /// Loads a dynamic plugin from a shared library file, and returns a [`PluginMetadata`] that allows to initialize the plugin.
-/// 
+///
 /// ## Required symbols
 /// To be valid, a dynamic plugin must declare the following shared symbols:
 /// - `PLUGIN_NAME: *const c_char`: the name of the plugin, as a null-terminated string
@@ -96,7 +101,7 @@ pub struct PluginRegistry {
 /// - `plugin_start: PluginStartFn`: see [`ffi::PluginStartFn`]
 /// - `plugin_stop: PluginStopFn`: see [`ffi::PluginStopFn`]
 /// - `plugin_drop: DropFn`: see [`ffi::DropFn`]
-/// 
+///
 /// ### Declaration in Rust
 /// Declaring such variables and symbols in the Rust language would look like the following:
 /// ```ignore
@@ -106,7 +111,7 @@ pub struct PluginRegistry {
 /// pub static PLUGIN_VERSION: &[u8] = b"0.0.1\0";
 /// #[no_mangle]
 /// pub static ALUMET_VERSION: &[u8] = b"0.1.0\0";
-/// 
+///
 /// #[no_mangle]
 /// pub extern "C" fn plugin_init(config: &ConfigTable) -> *mut MyPluginStruct {}
 /// #[no_mangle]
@@ -116,25 +121,25 @@ pub struct PluginRegistry {
 /// #[no_mangle]
 /// pub extern "C" fn plugin_drop(plugin: *mut MyPluginStruct) {}
 /// ```
-/// 
+///
 /// ### Declaration in C
 /// Declaring such variables and symbols in the C language would look like the following:
 /// ```ignore
 /// PLUGIN_API const char *PLUGIN_NAME = "my-plugin";
 /// PLUGIN_API const char *PLUGIN_VERSION = "0.0.1";
 /// PLUGIN_API const char *ALUMET_VERSION = "0.1.0";
-/// 
+///
 /// PLUGIN_API MyPluginStruct *plugin_init(const ConfigTable *config) {}
 /// PLUGIN_API void plugin_start(MyPluginStruct *plugin, AlumetStart *alumet) {}
 /// PLUGIN_API void plugin_stop(MyPluginStruct *plugin) {}
 /// PLUGIN_API void plugin_drop(MyPluginStruct *plugin) {}
 /// ```
-/// 
+///
 /// ## Exporting the symbols properly
 /// You must ensure that the aforementioned symbols are properly exported, so that the ALUMET agent can
 /// load them. But be careful not to export private variables and functions, as they can cause conflicts
 /// between different plugins.
-/// 
+///
 /// In Rust, the recommended way to do that is to make your crate a `cdylib` crate by putting the following
 /// in your `Cargo.toml` file:
 /// ```toml
@@ -142,7 +147,7 @@ pub struct PluginRegistry {
 /// crate-type = ["cdylib"]
 /// ```
 /// and to prefix the symbols to export with `#[no_mangle]`, as shown above.
-/// 
+///
 /// In C, the recommended way to do that is to compile with the following flags:
 /// ```ignore
 /// -shared -fPIC -fvisibility=hidden

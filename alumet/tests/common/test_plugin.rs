@@ -5,8 +5,8 @@ use alumet::metrics::{MetricId, TypedMetricId};
 use alumet::pipeline::trigger::Trigger;
 use alumet::pipeline::{Output, OutputContext, PollError, Source, Transform, TransformError, WriteError};
 use alumet::plugin::{AlumetStart, Plugin};
-use alumet::units::Unit;
 use alumet::resources::ResourceId;
+use alumet::units::Unit;
 
 pub struct TestPlugin {
     name: String,
@@ -26,12 +26,17 @@ pub enum State {
     Initialized,
     Started,
     Stopped,
-    PostStartup,
+    PrePipelineStart,
+    PostPipelineStart,
 }
 
 impl TestPlugin {
     pub fn init(name: &str, base_value_a: u64) -> Box<TestPlugin> {
-        Box::new(TestPlugin{name: name.to_owned(), base_value_a, state: State::Initialized})
+        Box::new(TestPlugin {
+            name: name.to_owned(),
+            base_value_a,
+            state: State::Initialized,
+        })
     }
 }
 impl Plugin for TestPlugin {
@@ -65,8 +70,13 @@ impl Plugin for TestPlugin {
         Ok(())
     }
 
-    fn post_startup(&mut self, _startup: &alumet::plugin::manage::PluginStartup) -> anyhow::Result<()> {
-        self.state = State::PostStartup;
+    fn pre_pipeline_start(&mut self, _: &alumet::pipeline::runtime::IdlePipeline) -> anyhow::Result<()> {
+        self.state = State::PrePipelineStart;
+        Ok(())
+    }
+
+    fn post_pipeline_start(&mut self, _: &alumet::pipeline::runtime::RunningPipeline) -> anyhow::Result<()> {
+        self.state = State::PostPipelineStart;
         Ok(())
     }
 
@@ -80,14 +90,24 @@ impl Source for TestSource {
     fn poll(&mut self, acc: &mut MeasurementAccumulator, timestamp: std::time::SystemTime) -> Result<(), PollError> {
         // generate some values for testing purposes, that evolve over time
         self.b_counter += 1;
-        let value_a = self.a_base + 4*(self.b_counter % 2);
+        let value_a = self.a_base + 4 * (self.b_counter % 2);
 
         // create a "resource id" to tag the data with an information about what the measurement is about
         let resource = ResourceId::custom("test", "imaginary-thing");
 
         // push the values to ALUMET pipeline
-        acc.push(MeasurementPoint::new(timestamp, self.metric_a, resource.clone(), value_a));
-        acc.push(MeasurementPoint::new(timestamp, self.metric_b, resource, self.b_counter));
+        acc.push(MeasurementPoint::new(
+            timestamp,
+            self.metric_a,
+            resource.clone(),
+            value_a,
+        ));
+        acc.push(MeasurementPoint::new(
+            timestamp,
+            self.metric_b,
+            resource,
+            self.b_counter,
+        ));
 
         Ok(())
     }

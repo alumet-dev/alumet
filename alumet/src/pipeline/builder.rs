@@ -14,7 +14,7 @@ use crate::{
     pipeline::{Output, Source, Transform},
 };
 
-use super::runtime::{self, MeasurementPipeline, OutputMsg};
+use super::runtime::{self, IdlePipeline, OutputMsg};
 use super::trigger::Trigger;
 use super::{threading, SourceType};
 
@@ -197,7 +197,7 @@ impl PipelineBuilder {
         self.metrics.iter()
     }
 
-    pub fn build(self) -> Result<MeasurementPipeline, PipelineBuildError> {
+    pub fn build(self) -> Result<IdlePipeline, PipelineBuildError> {
         // Check some conditions.
         if self.metrics.is_empty() {
             log::warn!("No metrics have been registered, have you loaded the right plugins?")
@@ -271,7 +271,7 @@ impl PipelineBuilder {
             })
             .collect();
 
-        Ok(MeasurementPipeline {
+        Ok(IdlePipeline {
             sources,
             transforms,
             outputs,

@@ -26,7 +26,8 @@ use super::{builder, SourceType};
 use super::trigger::{ConfiguredSourceTrigger, Trigger};
 use super::{OutputContext, PollError, TransformError, WriteError};
 
-pub struct MeasurementPipeline {
+/// A measurement pipeline that has not been started yet.
+pub struct IdlePipeline {
     // Elements of the pipeline
     pub(super) sources: Vec<builder::ConfiguredSource>,
     pub(super) transforms: Vec<builder::ConfiguredTransform>,
@@ -53,6 +54,8 @@ enum ControlMessage {
     Output(Option<String>, OutputCmd),
     Transform(Option<String>, TransformCmd),
 }
+
+/// A measurement pipeline that is currently running.
 pub struct RunningPipeline {
     // Keep the tokio runtimes alive
     _rt_normal: Runtime,
@@ -105,7 +108,7 @@ pub struct ControlHandle {
     tx: mpsc::Sender<ControlMessage>,
 }
 
-impl MeasurementPipeline {
+impl IdlePipeline {
     /// Starts the measurement pipeline.
     pub fn start(self) -> RunningPipeline {
         // Store the task handles in order to wait for them to complete before stopping,

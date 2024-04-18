@@ -2,8 +2,7 @@ use std::env;
 use std::path::Path;
 use std::time::Duration;
 
-use alumet::plugin::dynload::{initialize, load_cdylib, plugin_subconfig};
-use alumet::plugin::manage::PluginStartup;
+use alumet::{pipeline::builder::PipelineBuilder, plugin::{dynload::{initialize, load_cdylib, plugin_subconfig}, AlumetStart}};
 
 fn main() {
     // read arguments
@@ -55,12 +54,13 @@ fn run_with_plugin(
     assert_eq!(plugin.version(), expected_plugin_version);
 
     // Start the plugin
-    let mut startup = PluginStartup::new();
-    startup.start(plugin.as_mut()).expect("plugin should start fine");
+    let mut pipeline_builder = PipelineBuilder::new();
+    let mut handle = AlumetStart::new(&mut pipeline_builder, plugin.name().to_owned());
+    plugin.start(&mut handle).expect("plugin should start fine");
 
     // start the pipeline and wait for the tasks to finish
     println!("[app] Starting the pipeline...");
-    let pipeline = startup.pipeline_builder.build().expect("pipeline should build").start();
+    let pipeline = pipeline_builder.build().expect("pipeline should build").start();
 
     println!("[app] pipeline started");
 

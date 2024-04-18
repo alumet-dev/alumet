@@ -1,13 +1,12 @@
 //! Definition of Rust plugins.
-//! 
+//!
 //! See the [documentation of the plugin module](super#static-plugins).
 
 use crate::{
     config::ConfigTable,
+    pipeline::{builder::PipelineBuilder, runtime::{IdlePipeline, RunningPipeline}},
     plugin::{AlumetStart, Plugin},
 };
-
-use super::manage::PluginStartup;
 
 /// Trait for Alumet plugins written in Rust.
 ///
@@ -39,12 +38,23 @@ pub trait AlumetPlugin {
     /// This method is called _after_ all the metrics, sources and outputs previously registered
     /// by [`AlumetPlugin::start`] have been stopped and unregistered.
     fn stop(&mut self) -> anyhow::Result<()>;
-    
-    /// Function called after the plugin startup phase, i.e. after every plugin has started.
+
+    /// Function called between the plugin startup phase and the operation phase.
     ///
     /// It can be used, for instance, to examine the metrics that have been registered.
-    fn post_startup(&mut self, startup: &PluginStartup) -> anyhow::Result<()> {
-        let _ = startup;
+    /// No modification to the pipeline can be applied.
+    fn pre_pipeline_start(&mut self, pipeline: &IdlePipeline) -> anyhow::Result<()> {
+        let _ = pipeline; // do nothing by default
+        Ok(())
+    }
+
+    /// Function called after the beginning of the operation phase,
+    /// i.e. the measurement pipeline has started.
+    ///
+    /// It can be used, for instance, to obtain a [`ControlHandle`](crate::pipeline::runtime::ControlHandle)
+    /// of the pipeline. No modification to the pipeline can be applied.
+    fn post_pipeline_start(&mut self, pipeline: &RunningPipeline) -> anyhow::Result<()> {
+        let _ = pipeline; // do nothing by default
         Ok(())
     }
 }
@@ -66,8 +76,12 @@ impl<P: AlumetPlugin> Plugin for P {
     fn stop(&mut self) -> anyhow::Result<()> {
         AlumetPlugin::stop(self)
     }
-    
-    fn post_startup(&mut self, startup: &PluginStartup) -> anyhow::Result<()> {
-        AlumetPlugin::post_startup(self, startup)
+
+    fn pre_pipeline_start(&mut self, pipeline: &IdlePipeline) -> anyhow::Result<()> {
+        AlumetPlugin::pre_pipeline_start(self, pipeline)
+    }
+
+    fn post_pipeline_start(&mut self, pipeline: &RunningPipeline) -> anyhow::Result<()> {
+        AlumetPlugin::post_pipeline_start(self, pipeline)
     }
 }

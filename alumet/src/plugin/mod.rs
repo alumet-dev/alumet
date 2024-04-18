@@ -91,18 +91,17 @@ use crate::config::ConfigTable;
 use crate::measurement::{MeasurementBuffer, MeasurementType, WrappedMeasurementType};
 use crate::metrics::{Metric, MetricCreationError, RawMetricId, TypedMetricId};
 use crate::pipeline::builder::{AutonomousSourceBuilder, OutputBuilder, SourceBuilder, TransformBuilder};
+use crate::pipeline::runtime::{IdlePipeline, RunningPipeline};
 use crate::pipeline::trigger::Trigger;
 use crate::pipeline::{Output, Source, Transform};
 use crate::pipeline::{builder::PendingPipeline, builder::PipelineBuilder, SourceType};
 use crate::units::PrefixedUnit;
 
-use self::manage::PluginStartup;
 use self::rust::AlumetPlugin;
 
 #[cfg(feature = "dynamic")]
 pub mod dynload;
 
-pub mod manage;
 pub mod rust;
 pub mod util;
 pub(crate) mod version;
@@ -151,11 +150,19 @@ pub trait Plugin {
     /// This method is called _after_ all the metrics, sources and outputs previously registered
     /// by [`Plugin::start`] have been stopped and unregistered.
     fn stop(&mut self) -> anyhow::Result<()>;
-
-    /// Function called after the plugin startup phase, i.e. after every plugin has started.
-    ///
+    
+    /// Function called between the plugin startup phase and the operation phase.
+    /// 
     /// It can be used, for instance, to examine the metrics that have been registered.
-    fn post_startup(&mut self, startup: &PluginStartup) -> anyhow::Result<()>;
+    /// No modification to the pipeline can be applied.
+    fn pre_pipeline_start(&mut self, pipeline: &IdlePipeline) -> anyhow::Result<()>;
+
+    /// Function called after the beginning of the operation phase,
+    /// i.e. the measurement pipeline has started.
+    /// 
+    /// It can be used, for instance, to obtain a [`ControlHandle`](crate::pipeline::runtime::ControlHandle)
+    /// of the pipeline. No modification to the pipeline can be applied.
+    fn post_pipeline_start(&mut self, pipeline: &RunningPipeline) -> anyhow::Result<()>;
 }
 
 /// Structure passed to plugins for the start-up phase.
@@ -167,14 +174,18 @@ pub trait Plugin {
 /// You should not create `AlumetStart` manually, use [`PluginStartup`](manage::PluginStartup) instead.
 /// Even better, use [`Agent`](crate::agent::Agent).
 pub struct AlumetStart<'a> {
-    pipeline_builder: &'a mut PipelineBuilder,
-    current_plugin_name: String,
+    pub(crate) pipeline_builder: &'a mut PipelineBuilder,
+    pub(crate) current_plugin_name: String,
 }
 
-impl AlumetStart<'_> {
+impl<'a> AlumetStart<'a> {
     /// Returns the name of the plugin that is being started.
     fn current_plugin_name(&self) -> &str {
         &self.current_plugin_name
+    }
+    
+    pub fn new(pipeline_builder: &'a mut PipelineBuilder, plugin_name: String) -> AlumetStart<'a> {
+        Self { pipeline_builder, current_plugin_name: plugin_name }
     }
 
     /// Creates a new metric with a measurement type `T` (checked at compile time).
