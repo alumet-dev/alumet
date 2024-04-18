@@ -1,7 +1,7 @@
 Cargo.lock
 target/
-app-agent/flamegraph.svg
-app-agent/*.coz
-app-agent/perf.data
-app-agent/perf.data.old
-app-agent/*output.csv
+app-*/flamegraph.svg
+app-*/*.coz
+app-*/perf.data
+app-*/perf.data.old
+app-*/*output.csv

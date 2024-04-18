@@ -5,9 +5,12 @@ members = [
     "alumet-api-dynamic",
     "alumet-api-macros",
     "app-agent",
+    "app-relay-collector",
+    "plugin-csv",
     "plugin-nvidia",
     "plugin-rapl",
-    "plugin-relay", "plugin-socket-control",
+    "plugin-relay",
+    "plugin-socket-control",
     "test-dynamic-plugin-rust",
     "test-dynamic-plugins",
 ]

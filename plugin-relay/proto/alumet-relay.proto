@@ -1,0 +1,81 @@
+syntax = "proto3";
+package alumet_relay;
+
+service MetricCollector {
+    // Ingest new measurements, returns nothing.
+    rpc IngestMeasurements (MeasurementBuffer) returns (Empty);
+
+    // Registers new metrics, returns their id.
+    rpc RegisterMetrics (MetricDefinitions) returns (RegisterReply);
+}
+
+// ====== Metric Ingestion ======
+message Empty {}
+
+message MeasurementBuffer {
+    repeated MeasurementPoint points = 1;
+}
+
+message MeasurementPoint {
+    uint64 metric = 1;
+    uint64 timestamp_secs = 2;
+    uint32 timestamp_nanos = 3;
+    oneof value {
+        uint64 u64 = 4;
+        double f64 = 5;
+    }
+    Resource resource = 6;
+    repeated MeasurementAttribute attributes = 7;
+}
+
+message Resource {
+    string kind = 1;
+    oneof identifier {
+        string str = 2;
+        uint32 u32 = 3;
+    };
+}
+
+message MeasurementAttribute {
+    string key = 1;
+    oneof value {
+        string str = 2;
+        uint64 u64 = 3;
+        double f64 = 4;
+        bool bool = 5;
+    }
+}
+
+// ====== Registrations of IDs ======
+enum MeasurementValueType {
+    U64 = 0;
+    F64 = 1;
+}
+
+message PrefixedUnit {
+    /// Prefix of the base unit, can be empty, or something like "milli".
+    string prefix = 1;
+    // Unique name of the base unit.
+    string base_unit = 2;
+}
+
+message MetricDefinitions {
+    message MetricDef {
+        uint64 id_for_agent = 1;
+        string name = 2;
+        string description = 3;
+        MeasurementValueType type = 4;
+        PrefixedUnit unit = 5;
+    }
+    repeated MetricDef definitions = 1;
+}
+
+message RegisterReply {
+    message IdMapping {
+        // The id that is internally used by the agent.
+        uint64 id_for_agent = 1;
+        // The id to use when sending this metric to the collector.
+        uint64 id_for_collector = 2;
+    }
+    repeated IdMapping mappings = 1;
+}
