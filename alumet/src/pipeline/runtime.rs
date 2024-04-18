@@ -22,8 +22,8 @@ use crate::{
     pipeline::{Output, Source, Transform},
 };
 
-use super::{builder, SourceType};
 use super::trigger::{ConfiguredSourceTrigger, Trigger};
+use super::{builder, SourceType};
 use super::{OutputContext, PollError, TransformError, WriteError};
 
 /// A measurement pipeline that has not been started yet.
@@ -109,6 +109,14 @@ pub struct ControlHandle {
 }
 
 impl IdlePipeline {
+    pub fn metric_count(&self) -> usize {
+        self.metrics.len()
+    }
+
+    pub fn metric_iter(&self) -> crate::metrics::MetricIter<'_> {
+        self.metrics.iter()
+    }
+
     /// Starts the measurement pipeline.
     pub fn start(self) -> RunningPipeline {
         // Store the task handles in order to wait for them to complete before stopping,
