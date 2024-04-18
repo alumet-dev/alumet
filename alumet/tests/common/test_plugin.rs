@@ -65,7 +65,7 @@ impl Plugin for TestPlugin {
         Ok(())
     }
 
-    fn post_startup(&mut self, startup: &alumet::plugin::manage::PluginStartup) -> anyhow::Result<()> {
+    fn post_startup(&mut self, _startup: &alumet::plugin::manage::PluginStartup) -> anyhow::Result<()> {
         self.state = State::PostStartup;
         Ok(())
     }

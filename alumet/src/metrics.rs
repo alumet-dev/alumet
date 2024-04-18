@@ -99,7 +99,7 @@ impl RawMetricId {
     pub fn as_u64(&self) -> u64 {
         self.0 as u64
     }
-    
+
     pub fn from_u64(id: u64) -> RawMetricId {
         RawMetricId(id as _)
     }
@@ -188,6 +188,10 @@ impl MetricRegistry {
         self.metrics_by_id.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.metrics_by_id.is_empty()
+    }
+
     /// An iterator on the registered metrics.
     pub fn iter(&self) -> MetricIter<'_> {
         // return new iterator
@@ -199,7 +203,7 @@ impl MetricRegistry {
     /// Registers a new metric in this registry.
     ///
     /// A new id is generated and returned.
-    pub(crate) fn register(&mut self, mut m: Metric) -> Result<RawMetricId, MetricCreationError> {
+    pub(crate) fn register(&mut self, m: Metric) -> Result<RawMetricId, MetricCreationError> {
         let name = &m.name;
         if let Some(_name_conflict) = self.metrics_by_name.get(name) {
             return Err(MetricCreationError::new(format!(
@@ -226,6 +230,7 @@ impl MetricRegistry {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn register_infallible(&mut self, mut m: Metric, dedup_suffix: &str) -> RawMetricId {
         m.name = self.deduplicated_name(&m.name, dedup_suffix);
         self.register(m).unwrap()
@@ -298,11 +303,7 @@ impl fmt::Display for MetricCreationError {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        measurement::WrappedMeasurementType,
-        metrics::{Metric, RawMetricId},
-        units::Unit,
-    };
+    use crate::{measurement::WrappedMeasurementType, metrics::Metric, units::Unit};
 
     use super::MetricRegistry;
 

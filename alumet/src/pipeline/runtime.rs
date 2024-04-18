@@ -2,7 +2,6 @@
 
 use std::collections::HashMap;
 use std::future::Future;
-use std::io;
 use std::ops::BitOrAssign;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -23,280 +22,29 @@ use crate::{
     pipeline::{Output, Source, Transform},
 };
 
+use super::{builder, SourceType};
 use super::trigger::{ConfiguredSourceTrigger, Trigger};
-use super::{threading, OutputContext, PollError, TransformError, WriteError};
-
-/// A builder of measurement pipeline.
-pub struct PipelineBuilder {
-    pub(crate) sources: Vec<SourceBuilder>,
-    pub(crate) transforms: Vec<TransformBuilder>,
-    pub(crate) outputs: Vec<OutputBuilder>,
-    pub(crate) autonomous_sources: Vec<AutonomousSourceBuilder>,
-
-    // TODO restrict visibility
-    pub metrics: MetricRegistry,
-
-    pub(crate) normal_worker_threads: Option<usize>,
-    pub(crate) priority_worker_threads: Option<usize>,
-}
-
-pub struct SourceBuilder {
-    pub source_type: SourceType,
-    pub plugin: String,
-    pub build: Box<dyn FnOnce(&PendingPipeline) -> (Box<dyn Source>, Trigger)>,
-}
-
-pub struct AutonomousSourceBuilder {
-    pub plugin: String,
-    pub build: Box<
-        dyn FnOnce(&PendingPipeline, &mpsc::Sender<MeasurementBuffer>)
-        -> Pin<Box<dyn Future<Output=anyhow::Result<()>> + Send>>
-    >,
-}
-
-
-pub struct TransformBuilder {
-    pub plugin: String,
-    pub build: Box<dyn FnOnce(&PendingPipeline) -> Box<dyn Transform>>,
-}
-
-pub struct OutputBuilder {
-    pub plugin: String,
-    pub build: Box<dyn FnOnce(&PendingPipeline) -> Box<dyn Output>>,
-}
-
-pub struct PendingPipeline<'a> {
-    to_output: &'a broadcast::Sender<OutputMsg>,
-}
-
-impl<'a> PendingPipeline<'a> {
-    pub fn late_registration_handle(&self) -> LateRegistrationHandle {
-        let (reply_tx, reply_rx) = mpsc::channel::<Vec<RawMetricId>>(256);
-        LateRegistrationHandle {
-            to_outputs: self.to_output.clone(),
-            reply_tx,
-            reply_rx,
-        }
-    }
-}
-
-pub struct LateRegistrationHandle {
-    to_outputs: broadcast::Sender<OutputMsg>,
-    reply_tx: mpsc::Sender<Vec<RawMetricId>>,
-    reply_rx: mpsc::Receiver<Vec<RawMetricId>>,
-}
-
-impl LateRegistrationHandle {
-    pub async fn create_metrics_infallible(
-        &mut self,
-        metrics: Vec<Metric>,
-        source_name: String,
-    ) -> anyhow::Result<Vec<RawMetricId>> {
-        self.to_outputs.send(OutputMsg::RegisterMetrics {
-            metrics,
-            source_name,
-            reply_to: self.reply_tx.clone(),
-        })?;
-        match self.reply_rx.recv().await {
-            Some(metric_ids) => Ok(metric_ids),
-            None => {
-                todo!("reply channel closed")
-            }
-        }
-    }
-}
-
-impl PipelineBuilder {
-    pub fn new() -> Self {
-        Self {
-            sources: Vec::new(),
-            transforms: Vec::new(),
-            outputs: Vec::new(),
-            autonomous_sources: Vec::new(),
-            metrics: MetricRegistry::new(),
-            normal_worker_threads: None,
-            priority_worker_threads: None,
-        }
-    }
-    
-    pub fn source_count(&self) -> usize {
-        self.sources.len()
-    }
-    
-    pub fn transform_count(&self) -> usize {
-        self.transforms.len()
-    }
-    
-    pub fn output_count(&self) -> usize {
-        self.outputs.len()
-    }
-    
-    pub fn metric_count(&self) -> usize {
-        self.metrics.len()
-    }
-
-    pub fn build(self) -> anyhow::Result<MeasurementPipeline> {
-        // Create the runtimes.
-        let rt_normal: Runtime = self.build_normal_runtime()?;
-        let rt_priority: Option<Runtime> = self.build_priority_runtime()?;
-
-        // Channel: source -> transforms.
-        let (in_tx, in_rx) = mpsc::channel::<MeasurementBuffer>(256);
-
-        // Broadcast queue, used for two things:
-        // - transforms -> outputs
-        // - late metric registration -> outputs
-        let out_tx = broadcast::Sender::<OutputMsg>::new(256);
-
-        // Create the pipeline elements.
-        let pending = PendingPipeline { to_output: &out_tx };
-        let sources: Vec<ConfiguredSource> = self
-            .sources
-            .into_iter()
-            .map(|builder| {
-                let (source, trigger) = (builder.build)(&pending);
-                ConfiguredSource {
-                    source,
-                    plugin_name: builder.plugin,
-                    source_type: builder.source_type,
-                    trigger_provider: trigger,
-                }
-            })
-            .collect();
-        let transforms: Vec<ConfiguredTransform> = self
-            .transforms
-            .into_iter()
-            .map(|builder| {
-                let transform = (builder.build)(&pending);
-                ConfiguredTransform {
-                    transform,
-                    plugin_name: builder.plugin,
-                }
-            })
-            .collect();
-        let outputs: Vec<ConfiguredOutput> = self
-            .outputs
-            .into_iter()
-            .map(|builder| {
-                let output = (builder.build)(&pending);
-                ConfiguredOutput {
-                    output,
-                    plugin_name: builder.plugin,
-                }
-            })
-            .collect();
-        
-        // Create the autonomous sources
-        let autonomous_sources: Vec<_> = self.autonomous_sources
-            .into_iter().map(|builder| {
-                let data_tx = in_tx.clone();
-                let source = (builder.build)(&pending, &data_tx);
-                source
-            }).collect();
-
-        Ok(MeasurementPipeline {
-            sources,
-            transforms,
-            outputs,
-            autonomous_sources,
-            metrics: self.metrics,
-            from_sources: (in_tx, in_rx),
-            to_outputs: out_tx,
-            rt_normal,
-            rt_priority,
-        })
-    }
-
-    fn build_normal_runtime(&self) -> io::Result<Runtime> {
-        let mut builder = tokio::runtime::Builder::new_multi_thread();
-        builder.enable_all().thread_name("normal-worker");
-        if let Some(n) = self.normal_worker_threads {
-            builder.worker_threads(n);
-        }
-        builder.build()
-    }
-
-    fn build_priority_runtime(&self) -> io::Result<Option<Runtime>> {
-        if self
-            .sources
-            .iter()
-            .any(|s| s.source_type == SourceType::RealtimePriority)
-        {
-            let mut builder = tokio::runtime::Builder::new_multi_thread();
-            builder
-                .enable_all()
-                .on_thread_start(|| {
-                    threading::increase_thread_priority().expect("failed to create high-priority thread for worker")
-                })
-                .thread_name("priority-worker");
-            if let Some(n) = self.priority_worker_threads {
-                builder.worker_threads(n);
-            }
-            Ok(Some(builder.build()?))
-        } else {
-            Ok(None)
-        }
-    }
-}
+use super::{OutputContext, PollError, TransformError, WriteError};
 
 pub struct MeasurementPipeline {
     // Elements of the pipeline
-    sources: Vec<ConfiguredSource>,
-    transforms: Vec<ConfiguredTransform>,
-    outputs: Vec<ConfiguredOutput>,
-    autonomous_sources: Vec<Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>>,
+    pub(super) sources: Vec<builder::ConfiguredSource>,
+    pub(super) transforms: Vec<builder::ConfiguredTransform>,
+    pub(super) outputs: Vec<builder::ConfiguredOutput>,
+    pub(super) autonomous_sources: Vec<Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>>,
 
     // tokio Runtimes that execute the tasks
-    rt_normal: Runtime,
-    rt_priority: Option<Runtime>,
+    pub(super) rt_normal: Runtime,
+    pub(super) rt_priority: Option<Runtime>,
 
     // registries
-    metrics: MetricRegistry,
+    pub(super) metrics: MetricRegistry,
 
     /// Channel: source -> transforms
-    from_sources: (mpsc::Sender<MeasurementBuffer>, mpsc::Receiver<MeasurementBuffer>),
+    pub(super) from_sources: (mpsc::Sender<MeasurementBuffer>, mpsc::Receiver<MeasurementBuffer>),
 
     /// Broadcast queue to outputs
-    to_outputs: broadcast::Sender<OutputMsg>,
-}
-
-/// The type of a [`Source`].
-///
-/// It affects how Alumet schedules the polling of the source.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum SourceType {
-    /// Nothing special. This is the right choice for most of the sources.
-    Normal,
-    // Blocking, // todo: how to provide this type properly?
-    /// Signals that the pipeline should run the source on a thread with a
-    /// high scheduling priority.
-    RealtimePriority,
-}
-
-/// A source that is ready to run.
-pub struct ConfiguredSource {
-    /// The source.
-    pub source: Box<dyn Source>,
-    /// Name of the plugin that registered the source.
-    pub plugin_name: String,
-    /// Type of the source, for scheduling.
-    pub source_type: SourceType,
-    /// How to trigger this source.
-    pub trigger_provider: Trigger,
-}
-/// A transform that is ready to run.
-pub struct ConfiguredTransform {
-    /// The transform.
-    pub transform: Box<dyn Transform>,
-    /// Name of the plugin that registered the source.
-    pub plugin_name: String,
-}
-/// An output that is ready to run.
-pub struct ConfiguredOutput {
-    /// The output.
-    pub output: Box<dyn Output>,
-    /// Name of the plugin that registered the source.
-    pub plugin_name: String,
+    pub(super) to_outputs: broadcast::Sender<OutputMsg>,
 }
 
 /// A message for an element of the pipeline.
@@ -425,7 +173,7 @@ impl MeasurementPipeline {
                 .or_default()
                 .push(command_tx);
         }
-        
+
         // 4. Autonomous sources
         for src in self.autonomous_sources {
             self.rt_normal.spawn(src);
@@ -1225,7 +973,7 @@ mod tests {
         fn write(
             &mut self,
             measurements: &MeasurementBuffer,
-            ctx: &OutputContext,
+            _ctx: &OutputContext,
         ) -> Result<(), crate::pipeline::WriteError> {
             assert_eq!(measurements.len(), self.expected_input_len);
             self.output_count.fetch_add(measurements.len() as _, Ordering::Relaxed);

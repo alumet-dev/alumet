@@ -1,7 +1,7 @@
 //! Helpers for managing the lifecycle of plugins.
 
 use super::{AlumetStart, Plugin, PluginMetadata};
-use crate::{config::ConfigTable, pipeline::runtime::PipelineBuilder};
+use crate::{config::ConfigTable, pipeline::builder::PipelineBuilder};
 
 /// Helper for the plugin initialization phase.
 pub struct PluginInitialization {

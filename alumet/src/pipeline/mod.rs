@@ -5,6 +5,7 @@ use std::{fmt, time::SystemTime};
 use crate::{measurement::{MeasurementAccumulator, MeasurementBuffer}, metrics::MetricRegistry};
 
 pub mod runtime;
+pub mod builder;
 mod threading;
 mod scoped;
 pub mod trigger;
@@ -25,6 +26,19 @@ pub trait Transform: Send {
 pub trait Output: Send {
     /// Writes the measurements to the output.
     fn write(&mut self, measurements: &MeasurementBuffer, ctx: &OutputContext) -> Result<(), WriteError>;
+}
+
+/// The type of a [`Source`].
+///
+/// It affects how Alumet schedules the polling of the source.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SourceType {
+    /// Nothing special. This is the right choice for most of the sources.
+    Normal,
+    // Blocking, // todo: how to provide this type properly?
+    /// Signals that the pipeline should run the source on a thread with a
+    /// high scheduling priority.
+    RealtimePriority,
 }
 
 pub struct OutputContext {

@@ -93,6 +93,7 @@ enum TriggerMechanism {
     Timerfd(tokio_timerfd::Interval),
 
     /// A trigger based on [`tokio::time::sleep`].
+    #[allow(dead_code)]
     TokioSleep(tokio::time::Instant, tokio::time::Duration),
 
     /// A trigger based on an arbitrary [`Future`] that is returned on demand

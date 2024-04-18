@@ -126,7 +126,13 @@ impl Agent {
 
         // Operation phase.
         log::info!("Starting the measurement pipeline...");
-        let pipeline = startup.pipeline_builder.build().expect("Pipeline failed to build");
+        let pipeline = startup
+            .pipeline_builder
+            .build()
+            .unwrap_or_else(|err| {
+                log::error!("Pipeline failed to build: {err}");
+                panic!("Error: {err}")
+            });
         let mut pipeline = pipeline.start();
 
         log::info!("🔥 ALUMET measurement pipeline has started.");
@@ -145,13 +151,16 @@ fn print_stats(startup: &PluginStartup, plugins: &[Box<dyn Plugin>]) {
         .collect::<Vec<_>>()
         .join("\n");
 
-    let metrics_list = startup
-        .pipeline_builder
-        .metrics
-        .iter()
-        .map(|(_id, m)| format!("    - {}: {} ({})", m.name, m.value_type, m.unit))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let metrics = &startup.pipeline_builder.metrics;
+    let metrics_list = if metrics.len() == 0 {
+        String::from("    ∅")
+    } else {
+        metrics
+            .iter()
+            .map(|(_id, m)| format!("    - {}: {} ({})", m.name, m.value_type, m.unit))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
 
     let n_sources = startup.pipeline_builder.sources.len();
     let n_transforms = startup.pipeline_builder.transforms.len();
@@ -196,22 +205,25 @@ impl AgentBuilder {
     /// Defines a function to run after the plugin initialization phase.
     ///
     /// If a function has already been defined, it is replaced.
-    pub fn after_plugin_init(&mut self, f: fn(&mut Vec<Box<dyn Plugin>>)) {
+    pub fn after_plugin_init(&mut self, f: fn(&mut Vec<Box<dyn Plugin>>)) -> &mut Self {
         self.f_after_plugin_init = f;
+        self
     }
 
     /// Defines a function to run after the plugin start-up phase.
     ///
     /// If a function has already been defined, it is replaced.
-    pub fn after_plugin_start(&mut self, f: fn(&mut PluginStartup)) {
+    pub fn after_plugin_start(&mut self, f: fn(&mut PluginStartup)) -> &mut Self {
         self.f_after_plugin_start = f;
+        self
     }
 
     /// Defines a function to run just after the measurement pipeline has started.
     ///
     /// If a function has already been defined, it is replaced.
-    pub fn after_operation_begin(&mut self, f: fn(&mut RunningPipeline)) {
+    pub fn after_operation_begin(&mut self, f: fn(&mut RunningPipeline)) -> &mut Self {
         self.f_after_operation_begin = f;
+        self
     }
 }
 

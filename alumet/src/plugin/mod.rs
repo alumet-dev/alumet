@@ -90,9 +90,10 @@ use std::marker::PhantomData;
 use crate::config::ConfigTable;
 use crate::measurement::{MeasurementBuffer, MeasurementType, WrappedMeasurementType};
 use crate::metrics::{Metric, MetricCreationError, RawMetricId, TypedMetricId};
-use crate::pipeline;
-use crate::pipeline::runtime::{PendingPipeline, PipelineBuilder, SourceType};
+use crate::pipeline::builder::{AutonomousSourceBuilder, OutputBuilder, SourceBuilder, TransformBuilder};
 use crate::pipeline::trigger::Trigger;
+use crate::pipeline::{Output, Source, Transform};
+use crate::pipeline::{builder::PendingPipeline, builder::PipelineBuilder, SourceType};
 use crate::units::PrefixedUnit;
 
 use self::manage::PluginStartup;
@@ -217,9 +218,9 @@ impl AlumetStart<'_> {
     }
 
     /// Adds a measurement source to the Alumet pipeline.
-    pub fn add_source(&mut self, source: Box<dyn pipeline::Source>, trigger: Trigger) {
+    pub fn add_source(&mut self, source: Box<dyn Source>, trigger: Trigger) {
         let plugin = self.current_plugin_name().to_owned();
-        self.pipeline_builder.sources.push(pipeline::runtime::SourceBuilder {
+        self.pipeline_builder.sources.push(SourceBuilder {
             source_type: SourceType::Normal,
             plugin,
             build: Box::new(|_| (source, trigger)),
@@ -233,11 +234,11 @@ impl AlumetStart<'_> {
     /// creating the source. A good use case is to access the late registration of metrics.
     ///
     /// The downside is a more complicated code. In general, you should prefer to use [`add_source`].
-    pub fn add_late_source<F: FnOnce(&PendingPipeline) -> (Box<dyn pipeline::Source>, Trigger) + 'static>(
+    pub fn add_late_source<F: FnOnce(&PendingPipeline) -> (Box<dyn Source>, Trigger) + 'static>(
         &mut self,
         source_builder: F,
     ) {
-        self.pipeline_builder.sources.push(pipeline::runtime::SourceBuilder {
+        self.pipeline_builder.sources.push(SourceBuilder {
             source_type: SourceType::Normal,
             plugin: self.current_plugin_name().to_owned(),
             build: Box::new(source_builder),
@@ -245,11 +246,11 @@ impl AlumetStart<'_> {
     }
 
     /// Adds an autonomous source to the Alumet pipeline.
-    /// 
+    ///
     /// An autonomous source is not triggered by Alumet, but runs independently.
     /// It is given a [`Sender`](tokio::sync::mpsc::Sender) to send its measurements
     /// to the rest of the Alumet pipeline (transforms and outputs).
-    /// 
+    ///
     /// ## Example
     /// ```no_run
     /// use std::time::SystemTime;
@@ -257,7 +258,7 @@ impl AlumetStart<'_> {
     /// use alumet::measurement::MeasurementPoint;
     /// use alumet::units::Unit;
     /// # use alumet::plugin::AlumetStart;
-    /// 
+    ///
     /// # let alumet: &AlumetStart = todo!();
     /// let metric = alumet.create_metric::<u64>("my_metric", Unit::Second, "...").unwrap();
     /// alumet.add_autonomous_source(move |_, tx| {
@@ -287,31 +288,25 @@ impl AlumetStart<'_> {
         F: FnOnce(&PendingPipeline, &tokio::sync::mpsc::Sender<MeasurementBuffer>) -> S + 'static,
         S: Future<Output = anyhow::Result<()>> + Send + 'static,
     {
-        self.pipeline_builder
-            .autonomous_sources
-            .push(pipeline::runtime::AutonomousSourceBuilder {
-                plugin: self.current_plugin_name().to_owned(),
-                build: Box::new(|p: &_, tx: &_| {
-                    Box::pin(source_builder(p, tx))
-                }),
-            })
+        self.pipeline_builder.autonomous_sources.push(AutonomousSourceBuilder {
+            plugin: self.current_plugin_name().to_owned(),
+            build: Box::new(|p: &_, tx: &_| Box::pin(source_builder(p, tx))),
+        })
     }
 
     /// Adds a transform step to the Alumet pipeline.
-    pub fn add_transform(&mut self, transform: Box<dyn pipeline::Transform>) {
+    pub fn add_transform(&mut self, transform: Box<dyn Transform>) {
         let plugin = self.current_plugin_name().to_owned();
-        self.pipeline_builder
-            .transforms
-            .push(pipeline::runtime::TransformBuilder {
-                plugin,
-                build: Box::new(|_| transform),
-            });
+        self.pipeline_builder.transforms.push(TransformBuilder {
+            plugin,
+            build: Box::new(|_| transform),
+        });
     }
 
     /// Adds an output to the Alumet pipeline.
-    pub fn add_output(&mut self, output: Box<dyn pipeline::Output>) {
+    pub fn add_output(&mut self, output: Box<dyn Output>) {
         let plugin = self.current_plugin_name().to_owned();
-        self.pipeline_builder.outputs.push(pipeline::runtime::OutputBuilder {
+        self.pipeline_builder.outputs.push(OutputBuilder {
             plugin,
             build: Box::new(|_| output),
         })

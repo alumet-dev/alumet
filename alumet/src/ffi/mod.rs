@@ -16,15 +16,13 @@
 //! }
 //! ```
 
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
 use libc::c_void;
 
 use crate::config::ConfigTable;
 use crate::measurement::{MeasurementAccumulator, MeasurementBuffer};
 use crate::pipeline::OutputContext;
 use crate::plugin::AlumetStart;
-use time::{Timestamp, TimeDuration};
+use time::Timestamp;
 
 // Submodules
 pub mod config;
