@@ -195,7 +195,7 @@ fn parse_duration(d: &str) -> anyhow::Result<Duration> {
 mod tests {
     use std::time::Duration;
 
-    use crate::socket_control::parse_duration;
+    use crate::socket::parse_duration;
 
     #[test]
     fn duration_parsing() {

@@ -1,6 +1,6 @@
 use alumet::plugin::rust::AlumetPlugin;
 
-use super::output_csv::CsvOutput;
+use plugin_csv::CsvOutput;
 
 pub struct DefaultPlugin;
 

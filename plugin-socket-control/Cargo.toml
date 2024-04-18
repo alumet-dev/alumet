@@ -1,0 +1,11 @@
+[package]
+name = "plugin-socket-control"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+alumet = { version = "0.2.0", path = "../alumet" }
+anyhow = "1.0.82"
+log = "0.4.21"

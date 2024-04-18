@@ -7,6 +7,7 @@ members = [
     "app-agent",
     "plugin-nvidia",
     "plugin-rapl",
+    "plugin-relay", "plugin-socket-control",
     "test-dynamic-plugin-rust",
     "test-dynamic-plugins",
 ]

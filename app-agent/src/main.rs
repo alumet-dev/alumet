@@ -2,11 +2,9 @@ use alumet::agent::{static_plugins, AgentBuilder};
 
 use env_logger::Env;
 
-use crate::socket_control::SocketControl;
+use plugin_socket_control::SocketControl;
 
 mod default_plugin;
-mod output_csv;
-mod socket_control;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
