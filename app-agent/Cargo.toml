@@ -14,5 +14,4 @@ log = "0.4.20"
 plugin-csv = { version = "0.1.0", path = "../plugin-csv" }
 plugin-rapl = { version = "0.2.0", path = "../plugin-rapl" }
 plugin-socket-control = { version = "0.1.0", path = "../plugin-socket-control" }
-time = { version = "0.3.34", features = ["formatting"] }
 toml = "0.8.12"
