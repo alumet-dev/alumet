@@ -1,15 +1,15 @@
 //! Resources (measurement perimeter).
-//! 
+//!
 //! In Alumet, a "resource" represent a piece of hardware or software for which metrics can be gathered.
 //! In other words, a resource gives the perimeter of a measurement.
 //! Are we measuring the energy consumption of a GPU, of the whole machine or of a process of our operating system?
-//! 
+//!
 //! The largest perimeter is "the whole machine", represented by [`ResourceId::LocalMachine`].
 //! Therefore, if you work in a distributed environment, the resource id is not enough to identify what is being measured.
 //! You should add more information to your data, such as the hostname.
-//! 
+//!
 //! ## Measurement points and resources
-//! 
+//!
 //! To create a measurement point for a given resource, use
 //! the [`ResourceId`] enum to provide a unique resource identifier.
 //! Here is an example of a measurement point associated with the first CPU package (id "0").
@@ -20,7 +20,7 @@
 //! # let timestamp = std::time::SystemTime::now();
 //! # let metric_id: TypedMetricId<u64> = todo!();
 //! # let measurement_value = 0;
-//! 
+//!
 //! let measure = MeasurementPoint::new(
 //!     timestamp,
 //!     metric_id,
@@ -28,7 +28,7 @@
 //!     measurement_value
 //! );
 //! ```
-//! 
+//!
 //! Unlike metrics and units, resources are not registered in a global registry,
 //! but created each time they are needed.
 
@@ -83,11 +83,11 @@ impl ResourceId {
             ResourceId::Custom { kind, id: _ } => &kind,
         }
     }
-    
+
     pub fn id_string(&self) -> Option<String> {
         match self {
             ResourceId::LocalMachine => None,
-            r => Some(r.id_display().to_string())
+            r => Some(r.id_display().to_string()),
         }
     }
 
@@ -101,6 +101,57 @@ impl ResourceId {
             ResourceId::Dram { pkg_id } => LazyDisplayable::U32(*pkg_id),
             ResourceId::Gpu { bus_id } => LazyDisplayable::Str(&bus_id),
             ResourceId::Custom { kind: _, id } => LazyDisplayable::Str(&id),
+        }
+    }
+    
+    pub fn parse(kind: impl Into<StrCow>, id: impl Into<StrCow>) -> Result<Self, InvalidResourceError> {
+        ResourceId::custom(kind, id).normalized()
+    }
+
+    pub fn normalized(self) -> Result<Self, InvalidResourceError> {
+        match self {
+            ResourceId::Custom { kind, id } => match kind.as_ref() {
+                "local_machine" => {
+                    if id.is_empty() {
+                        Ok(ResourceId::LocalMachine)
+                    } else {
+                        Err(InvalidResourceError::InvalidId(kind))
+                    }
+                }
+                "process" => {
+                    let pid = id.parse().map_err(|_| InvalidResourceError::InvalidId(kind))?;
+                    Ok(ResourceId::Process { pid })
+                }
+                "cgroup" => Ok(ResourceId::ControlGroup { path: id }),
+                "cpu_package" => {
+                    let id = id.parse().map_err(|_| InvalidResourceError::InvalidId(kind))?;
+                    Ok(ResourceId::CpuPackage { id })
+                }
+                "cpu_core" => {
+                    let id = id.parse().map_err(|_| InvalidResourceError::InvalidId(kind))?;
+                    Ok(ResourceId::CpuCore { id })
+                }
+                "dram" => {
+                    let pkg_id = id.parse().map_err(|_| InvalidResourceError::InvalidId(kind))?;
+                    Ok(ResourceId::Dram { pkg_id })
+                }
+                "gpu" => Ok(ResourceId::Gpu { bus_id: id }),
+                _ => Ok(ResourceId::Custom { kind, id }),
+            },
+            r => Ok(r),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum InvalidResourceError {
+    InvalidId(StrCow),
+}
+
+impl fmt::Display for InvalidResourceError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            InvalidResourceError::InvalidId(kind) => write!(f, "invalid resource identifier for kind {kind}"),
         }
     }
 }
