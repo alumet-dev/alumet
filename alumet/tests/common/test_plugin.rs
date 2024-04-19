@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use alumet::measurement::{MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue};
+use alumet::measurement::{MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementValue};
 use alumet::metrics::{MetricId, TypedMetricId};
 use alumet::pipeline::trigger::Trigger;
 use alumet::pipeline::{Output, OutputContext, PollError, Source, Transform, TransformError, WriteError};
@@ -87,7 +87,7 @@ impl Plugin for TestPlugin {
 }
 
 impl Source for TestSource {
-    fn poll(&mut self, acc: &mut MeasurementAccumulator, timestamp: std::time::SystemTime) -> Result<(), PollError> {
+    fn poll(&mut self, acc: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         // generate some values for testing purposes, that evolve over time
         self.b_counter += 1;
         let value_a = self.a_base + 4 * (self.b_counter % 2);

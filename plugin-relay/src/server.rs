@@ -5,7 +5,7 @@ use std::{
 
 use alumet::{
     measurement::{
-        AttributeValue, MeasurementBuffer, MeasurementPoint, WrappedMeasurementType, WrappedMeasurementValue,
+        AttributeValue, MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementType, WrappedMeasurementValue
     },
     metrics::{Metric, RawMetricId},
     pipeline::builder::LateRegistrationHandle,
@@ -99,7 +99,7 @@ impl MetricCollector for GrpcMetricCollector {
             .points
             .into_iter()
             .map(|m| {
-                let timestamp = UNIX_EPOCH + Duration::new(m.timestamp_secs, m.timestamp_nanos);
+                let timestamp = Timestamp::from(UNIX_EPOCH + Duration::new(m.timestamp_secs, m.timestamp_nanos));
                 let value = m.value.unwrap().into();
                 let res = m.resource.unwrap();
                 let resource = ResourceId::try_from(res).unwrap();

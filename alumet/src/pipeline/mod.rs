@@ -1,8 +1,8 @@
 //! Asynchronous and modular measurement pipeline.
 
-use std::{fmt, time::SystemTime};
+use std::fmt;
 
-use crate::{measurement::{MeasurementAccumulator, MeasurementBuffer}, metrics::MetricRegistry};
+use crate::{measurement::{MeasurementAccumulator, MeasurementBuffer, Timestamp}, metrics::MetricRegistry};
 
 pub mod runtime;
 pub mod builder;
@@ -13,7 +13,7 @@ pub mod trigger;
 /// Produces measurements related to some metrics.
 pub trait Source: Send {
     /// Polls the source for new measurements.
-    fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: SystemTime) -> Result<(), PollError>;
+    fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError>;
 }
 
 /// Transforms measurements.

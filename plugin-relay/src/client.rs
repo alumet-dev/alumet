@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::UNIX_EPOCH;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::protocol::metric_collector_client::MetricCollectorClient;
 use crate::protocol::resource::Identifier;
@@ -167,8 +167,7 @@ impl RelayClient {
             // and the metrics of the client should be registered again (otherwise the server will error on metric ingestion).
 
             // convert timestamp
-            let time_diff = m
-                .timestamp
+            let time_diff = SystemTime::from(m.timestamp)
                 .duration_since(UNIX_EPOCH)
                 .expect("Every timestamp should be obtained from system_time_now()");
 

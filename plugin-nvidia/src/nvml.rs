@@ -1,5 +1,6 @@
-use std::{sync::Arc, time::SystemTime};
+use std::sync::Arc;
 
+use alumet::measurement::Timestamp;
 use alumet::metrics::MetricCreationError;
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint},
@@ -68,7 +69,7 @@ impl NvmlSource {
 }
 
 impl alumet::pipeline::Source for NvmlSource {
-    fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: SystemTime) -> Result<(), PollError> {
+    fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         let features = &self.device.features;
         let device = self.device.as_wrapper();
 

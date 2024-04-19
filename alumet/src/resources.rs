@@ -14,10 +14,10 @@
 //! the [`ResourceId`] enum to provide a unique resource identifier.
 //! Here is an example of a measurement point associated with the first CPU package (id "0").
 //! ```no_run
-//! use alumet::measurement::MeasurementPoint;
+//! use alumet::measurement::{MeasurementPoint, Timestamp};
 //! use alumet::resources::ResourceId;
 //! # use alumet::metrics::TypedMetricId;
-//! # let timestamp = std::time::SystemTime::now();
+//! # let timestamp = Timestamp::now();
 //! # let metric_id: TypedMetricId<u64> = todo!();
 //! # let measurement_value = 0;
 //!

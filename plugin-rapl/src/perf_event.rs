@@ -1,5 +1,5 @@
 use alumet::{
-    measurement::{AttributeValue, MeasurementPoint},
+    measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
     plugin::util::{CounterDiff, CounterDiffUpdate},
     resources::ResourceId,
@@ -206,8 +206,8 @@ impl PerfEventProbe {
 impl alumet::pipeline::Source for PerfEventProbe {
     fn poll(
         &mut self,
-        measurements: &mut alumet::measurement::MeasurementAccumulator,
-        timestamp: std::time::SystemTime,
+        measurements: &mut MeasurementAccumulator,
+        timestamp: Timestamp,
     ) -> Result<(), alumet::pipeline::PollError> {
         for (evt, counter) in &mut self.events {
             // read the new value of the perf-events counter

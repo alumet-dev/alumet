@@ -1,7 +1,7 @@
 use libc::c_void;
 use std::time::SystemTime;
 
-use super::{DropFn, FfiOutputContext, OutputWriteFn, SourcePollFn, TransformApplyFn};
+use super::{time::Timestamp, DropFn, FfiOutputContext, OutputWriteFn, SourcePollFn, TransformApplyFn};
 use crate::{
     measurement::{MeasurementAccumulator, MeasurementBuffer},
     pipeline::{self, OutputContext},
@@ -30,7 +30,7 @@ unsafe impl Send for FfiTransform {}
 unsafe impl Send for FfiOutput {}
 
 impl pipeline::Source for FfiSource {
-    fn poll(&mut self, into: &mut MeasurementAccumulator, time: SystemTime) -> Result<(), pipeline::PollError> {
+    fn poll(&mut self, into: &mut MeasurementAccumulator, time: crate::measurement::Timestamp) -> Result<(), pipeline::PollError> {
         (self.poll_fn)(self.data, into, time.into());
         Ok(())
     }

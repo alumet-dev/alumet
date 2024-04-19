@@ -20,4 +20,4 @@ pub mod resources;
 pub mod units;
 
 #[cfg(feature = "dynamic")]
-pub mod ffi;
+mod ffi;

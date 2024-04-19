@@ -6,7 +6,6 @@ use std::ops::BitOrAssign;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::SystemTime;
 
 use anyhow::{anyhow, Context};
 
@@ -14,6 +13,7 @@ use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tokio::{runtime::Runtime, sync::watch};
 
+use crate::measurement::Timestamp;
 use crate::metrics::{Metric, RawMetricId};
 use crate::pipeline::scoped;
 use crate::{
@@ -254,7 +254,7 @@ async fn run_source(
         trigger.next().await?;
 
         // poll the source
-        let timestamp = SystemTime::now();
+        let timestamp = Timestamp::now();
         source.poll(&mut buffer.as_accumulator(), timestamp)?;
 
         // Flush the measurements and update the command, not on every round for performance reasons.
@@ -646,7 +646,7 @@ mod tests {
     };
 
     use crate::{
-        measurement::{MeasurementBuffer, MeasurementPoint, WrappedMeasurementType, WrappedMeasurementValue},
+        measurement::{MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementType, WrappedMeasurementValue},
         metrics::{MetricRegistry, RawMetricId},
         pipeline::{trigger::Trigger, OutputContext, Transform},
         resources::ResourceId,
@@ -934,12 +934,12 @@ mod tests {
     impl crate::pipeline::Source for TestSource {
         fn poll(
             &mut self,
-            into: &mut crate::measurement::MeasurementAccumulator,
-            time: std::time::SystemTime,
+            into: &mut MeasurementAccumulator,
+            timestamp: Timestamp,
         ) -> Result<(), crate::pipeline::PollError> {
             self.n_calls += 1;
             let point = MeasurementPoint::new_untyped(
-                time,
+                timestamp,
                 RawMetricId(1),
                 ResourceId::LocalMachine,
                 WrappedMeasurementValue::U64(self.n_calls as u64),

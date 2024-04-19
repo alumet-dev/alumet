@@ -25,6 +25,19 @@ impl From<Timestamp> for SystemTime {
     }
 }
 
+
+impl From<Timestamp> for crate::measurement::Timestamp {
+    fn from(value: Timestamp) -> Self {
+        crate::measurement::Timestamp::from(SystemTime::from(value))
+    }
+}
+
+impl From<crate::measurement::Timestamp> for Timestamp {
+    fn from(value: crate::measurement::Timestamp) -> Self {
+        Timestamp::from(value.0)
+    }
+}
+
 // ====== Duration ======
 #[repr(C)]
 pub struct TimeDuration {

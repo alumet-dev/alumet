@@ -2,7 +2,7 @@ use std::{
     collections::HashSet,
     fs::File,
     io::{self, BufWriter, Write},
-    path::Path,
+    path::Path, time::SystemTime,
 };
 
 use alumet::{measurement::WrappedMeasurementValue, pipeline::OutputContext};
@@ -61,7 +61,7 @@ impl alumet::pipeline::Output for CsvOutput {
 
         for m in measurements.iter() {
             let metric_name = m.metric.name(ctx);
-            let datetime: OffsetDateTime = m.timestamp.into();
+            let datetime: OffsetDateTime = SystemTime::from(m.timestamp).into();
             let datetime: String = datetime.format(&Rfc3339)?;
             let value = match m.value {
                 WrappedMeasurementValue::F64(x) => x.to_string(),

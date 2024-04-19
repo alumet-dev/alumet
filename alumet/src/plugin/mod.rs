@@ -269,8 +269,7 @@ impl<'a> AlumetStart<'a> {
     /// ## Example
     /// ```no_run
     /// use std::time::SystemTime;
-    /// use alumet::measurement::MeasurementBuffer;
-    /// use alumet::measurement::MeasurementPoint;
+    /// use alumet::measurement::{MeasurementBuffer, MeasurementPoint, Timestamp};
     /// use alumet::units::Unit;
     /// # use alumet::plugin::AlumetStart;
     ///
@@ -281,7 +280,7 @@ impl<'a> AlumetStart<'a> {
     ///     async move {
     ///         let mut buf = MeasurementBuffer::new();
     ///         loop {
-    ///             let timestamp = SystemTime::now();
+    ///             let timestamp = Timestamp::now();
     ///             let resource = todo!();
     ///             let value = todo!();
     ///             let measurement = MeasurementPoint::new(

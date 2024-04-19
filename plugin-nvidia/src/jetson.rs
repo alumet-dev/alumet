@@ -3,11 +3,10 @@ use std::{
     fs::File,
     io::{ErrorKind, Read, Seek},
     path::{Path, PathBuf},
-    time::SystemTime,
 };
 
 use alumet::{
-    measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint},
+    measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
     pipeline::PollError,
     plugin::AlumetStart,
@@ -118,7 +117,7 @@ impl JetsonInaSource {
 }
 
 impl alumet::pipeline::Source for JetsonInaSource {
-    fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: SystemTime) -> Result<(), PollError> {
+    fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         let mut reading_buf = Vec::with_capacity(8);
 
         for sensor in &mut self.opened_sensors {

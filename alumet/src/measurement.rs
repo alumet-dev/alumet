@@ -1,18 +1,18 @@
 //! Measurement points and buffers.
-//! 
+//!
 //! Each step of the Alumet pipeline reads, produces or modifies timeseries data points,
 //! each represented as a [`MeasurementPoint`].
 //! This is usually done through a [`MeasurementBuffer`] (for transforms and outputs)
 //! or a [`MeasurementAccumulator`] (for sources).
-//! 
+//!
 //! ## Producing measurements
-//! 
+//!
 //! Assuming that you have a `buffer: &mut MeasurementBuffer` (or `MeasurementAccumulator`),
 //! you can produce new measurements like this:
 //! ```no_run
 //! use alumet::measurement::{MeasurementBuffer, MeasurementPoint};
 //! use alumet::resources::ResourceId;
-//! 
+//!
 //! # let buffer = MeasurementBuffer::new();
 //! # let my_metric: alumet::metrics::TypedMetricId<u64> = todo!();
 //! # let timestamp = todo!();
@@ -32,7 +32,7 @@ use super::metrics::{RawMetricId, TypedMetricId};
 use super::resources::ResourceId;
 
 /// A value that has been measured at a given point in time.
-/// 
+///
 /// Measurement points may also have attributes.
 /// Only certain types of values and attributes are allowed, see [`MeasurementType`] and [`AttributeValue`].
 #[derive(Clone)]
@@ -41,7 +41,7 @@ pub struct MeasurementPoint {
     pub metric: RawMetricId,
 
     /// The time of the measurement.
-    pub timestamp: SystemTime,
+    pub timestamp: Timestamp,
 
     /// The measured value.
     pub value: WrappedMeasurementValue,
@@ -54,13 +54,20 @@ pub struct MeasurementPoint {
     attributes: HashMap<String, AttributeValue, FxBuildHasher>,
 }
 
+/// A measurement of a clock.
+///
+/// This opaque type is currently a wrapper around [`SystemTime`],
+/// but this could change in the future.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Timestamp(pub(crate) SystemTime);
+
 impl MeasurementPoint {
     /// Creates a new `MeasurementPoint` without attributes.
     ///
     /// Use [`with_attr`](Self::with_attr) or [`with_attr_vec`](Self::with_attr_vec)
     /// to attach arbitrary attributes to the point.
     pub fn new<T: MeasurementType>(
-        timestamp: SystemTime,
+        timestamp: Timestamp,
         metric: TypedMetricId<T>,
         resource: ResourceId,
         value: T::T,
@@ -74,7 +81,7 @@ impl MeasurementPoint {
     /// Use [`with_attr`](Self::with_attr) or [`with_attr_vec`](Self::with_attr_vec)
     /// to attach arbitrary attributes to the point.
     pub fn new_untyped(
-        timestamp: SystemTime,
+        timestamp: Timestamp,
         metric: RawMetricId,
         resource: ResourceId,
         value: WrappedMeasurementValue,
@@ -130,6 +137,30 @@ impl MeasurementPoint {
             self.attributes.extend(attributes);
         }
         self
+    }
+}
+
+impl Timestamp {
+    pub fn now() -> Self {
+        Self(SystemTime::now())
+    }
+}
+
+impl From<SystemTime> for Timestamp {
+    fn from(value: SystemTime) -> Self {
+        Self(value)
+    }
+}
+
+impl From<Timestamp> for SystemTime {
+    fn from(value: Timestamp) -> Self {
+        value.0
+    }
+}
+
+impl fmt::Debug for Timestamp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
     }
 }
 
@@ -248,7 +279,7 @@ impl MeasurementBuffer {
     pub fn push(&mut self, point: MeasurementPoint) {
         self.points.push(point);
     }
-    
+
     /// Clears the buffer, removing all the measurements.
     pub fn clear(&mut self) {
         self.points.clear();
