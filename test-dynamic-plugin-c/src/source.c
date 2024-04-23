@@ -98,7 +98,8 @@ void source_poll(PowercapSource *source, MeasurementAccumulator *acc, Timestamp 
 
     // create the measurement point
     FfiResourceId resource = resource_new_cpu_package(0);
-    MeasurementPoint *p = mpoint_new_f64(timestamp, source->metric_id, resource, joules);
+    FfiConsumerId consumer = consumer_new_local_machine();
+    MeasurementPoint *p = mpoint_new_f64(timestamp, source->metric_id, resource, consumer, joules);
     mpoint_attr_u64(p, astring_ref(source->custom_attribute), 1234);
 
     // push the measurement to alumet

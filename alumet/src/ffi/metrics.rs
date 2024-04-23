@@ -7,11 +7,11 @@ use crate::{
         AttributeValue, MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue,
     },
     metrics::RawMetricId,
-    resources::ResourceId,
+    resources::{ResourceConsumerId, ResourceId},
 };
 
 use super::{
-    resources::FfiResourceId,
+    resources::{FfiConsumerId, FfiResourceId},
     string::{AStr, AString},
     time::Timestamp,
     FfiOutputContext,
@@ -38,10 +38,12 @@ fn mpoint_new(
     timestamp: Timestamp,
     metric: RawMetricId,
     resource: FfiResourceId,
+    consumer: FfiConsumerId,
     value: WrappedMeasurementValue,
 ) -> *mut MeasurementPoint {
     let resource = ResourceId::from(resource);
-    let p = MeasurementPoint::new_untyped(timestamp.into(), metric, resource, value);
+    let consumer = ResourceConsumerId::from(consumer);
+    let p = MeasurementPoint::new_untyped(timestamp.into(), metric, resource, consumer, value);
     Box::into_raw(Box::new(p)) // box and turn the box into a pointer, it now needs to be dropped manually
 }
 
@@ -50,9 +52,10 @@ pub extern "C" fn mpoint_new_u64(
     timestamp: Timestamp,
     metric: RawMetricId,
     resource: FfiResourceId,
+    consumer: FfiConsumerId,
     value: u64,
 ) -> *mut MeasurementPoint {
-    mpoint_new(timestamp, metric, resource, WrappedMeasurementValue::U64(value))
+    mpoint_new(timestamp, metric, resource, consumer, WrappedMeasurementValue::U64(value))
 }
 
 #[no_mangle]
@@ -60,9 +63,10 @@ pub extern "C" fn mpoint_new_f64(
     timestamp: Timestamp,
     metric: RawMetricId,
     resource: FfiResourceId,
+    consumer: FfiConsumerId,
     value: f64,
 ) -> *mut MeasurementPoint {
-    mpoint_new(timestamp, metric, resource, WrappedMeasurementValue::F64(value))
+    mpoint_new(timestamp, metric, resource, consumer, WrappedMeasurementValue::F64(value))
 }
 
 /// Free a MeasurementPoint.
@@ -125,6 +129,21 @@ pub extern "C" fn mpoint_resource_kind(point: &MeasurementPoint) -> AString {
 #[no_mangle]
 pub extern "C" fn mpoint_resource_id(point: &MeasurementPoint) -> AString {
     point.resource.id_display().to_string().into()
+}
+
+#[no_mangle]
+pub extern "C" fn mpoint_consumer(point: &MeasurementPoint) -> FfiConsumerId {
+    FfiConsumerId::from(point.consumer.to_owned())
+}
+
+#[no_mangle]
+pub extern "C" fn mpoint_consumer_kind(point: &MeasurementPoint) -> AString {
+    point.consumer.kind().into()
+}
+
+#[no_mangle]
+pub extern "C" fn mpoint_consumer_id(point: &MeasurementPoint) -> AString {
+    point.consumer.id_display().to_string().into()
 }
 
 #[repr(C)]

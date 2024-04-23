@@ -8,7 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use alumet::measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp};
+use alumet::{measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp}, resources::ResourceConsumerId};
 use alumet::metrics::TypedMetricId;
 use alumet::plugin::util::{CounterDiff, CounterDiffUpdate};
 use alumet::resources::ResourceId;
@@ -242,8 +242,9 @@ impl alumet::pipeline::Source for PowercapProbe {
             };
             if let Some(value) = diff {
                 let joules = (value as f64) * POWERCAP_ENERGY_UNIT;
+                let consumer = ResourceConsumerId::LocalMachine;
                 measurements.push(
-                    MeasurementPoint::new(timestamp, self.metric, zone.resource.clone(), joules)
+                    MeasurementPoint::new(timestamp, self.metric, zone.resource.clone(), consumer, joules)
                         .with_attr("domain", AttributeValue::String(zone.domain.to_string())),
                 )
             };

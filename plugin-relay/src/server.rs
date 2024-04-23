@@ -5,7 +5,7 @@ use std::{
 
 use alumet::{
     measurement::{
-        AttributeValue, MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementType, WrappedMeasurementValue
+        AttributeValue, MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementType, WrappedMeasurementValue,
     },
     metrics::{Metric, RawMetricId},
     pipeline::builder::LateRegistrationHandle,
@@ -13,10 +13,9 @@ use alumet::{
         rust::{deserialize_config, AlumetPlugin},
         AlumetStart, ConfigTable,
     },
-    resources::{InvalidResourceError, ResourceId},
+    resources::{InvalidConsumerError, InvalidResourceError, ResourceConsumerId, ResourceId},
     units::{PrefixedUnit, Unit},
 };
-use anyhow::Context;
 use serde::Deserialize;
 use tonic::{transport::Server, Response, Status};
 
@@ -24,7 +23,6 @@ use crate::protocol::{
     self,
     metric_collector_server::{MetricCollector, MetricCollectorServer},
     register_reply::IdMapping,
-    resource::Identifier,
     Empty, RegisterReply,
 };
 
@@ -101,14 +99,14 @@ impl MetricCollector for GrpcMetricCollector {
             .map(|m| {
                 let timestamp = Timestamp::from(UNIX_EPOCH + Duration::new(m.timestamp_secs, m.timestamp_nanos));
                 let value = m.value.unwrap().into();
-                let res = m.resource.unwrap();
-                let resource = ResourceId::try_from(res).unwrap();
+                let resource = ResourceId::try_from(m.resource.unwrap()).unwrap();
+                let consumer = ResourceConsumerId::try_from(m.consumer.unwrap()).unwrap();
                 let attributes: Vec<_> = m
                     .attributes
                     .into_iter()
                     .map(|attr| (attr.key, attr.value.unwrap().into()))
                     .collect();
-                MeasurementPoint::new_untyped(timestamp, RawMetricId::from_u64(m.metric), resource, value)
+                MeasurementPoint::new_untyped(timestamp, RawMetricId::from_u64(m.metric), resource, consumer, value)
                     .with_attr_vec(attributes)
             })
             .collect();
@@ -215,12 +213,25 @@ impl TryFrom<protocol::Resource> for ResourceId {
     type Error = InvalidResourceError;
 
     fn try_from(value: protocol::Resource) -> Result<Self, Self::Error> {
-        match value.identifier {
-            Some(Identifier::Str(id)) => ResourceId::parse(value.kind, id),
-            Some(Identifier::U32(id)) => ResourceId::parse(value.kind, id.to_string()),
+        match value.id {
+            Some(id) => ResourceId::parse(value.kind, id),
             None => match value.kind.as_str() {
                 "local_machine" => Ok(ResourceId::LocalMachine),
                 wrong => Err(InvalidResourceError::InvalidId(wrong.to_owned().into())),
+            },
+        }
+    }
+}
+
+impl TryFrom<protocol::ResourceConsumer> for ResourceConsumerId {
+    type Error = InvalidConsumerError;
+
+    fn try_from(value: protocol::ResourceConsumer) -> Result<Self, Self::Error> {
+        match value.id {
+            Some(id) => ResourceConsumerId::parse(value.kind, id),
+            None => match value.kind.as_str() {
+                "local_machine" => Ok(ResourceConsumerId::LocalMachine),
+                wrong => Err(InvalidConsumerError::InvalidId(wrong.to_owned().into())),
             },
         }
     }

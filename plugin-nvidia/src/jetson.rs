@@ -10,7 +10,7 @@ use alumet::{
     metrics::TypedMetricId,
     pipeline::PollError,
     plugin::AlumetStart,
-    resources::ResourceId,
+    resources::{ResourceConsumerId, ResourceId},
     units::{PrefixedUnit, Unit},
 };
 use anyhow::{anyhow, Context};
@@ -135,8 +135,9 @@ impl alumet::pipeline::Source for JetsonInaSource {
                         .with_context(|| format!("failed to parse {:?}: '{content}", m.file))?;
 
                     // store the value and clear the buffer
+                    let consumer = ResourceConsumerId::LocalMachine;
                     measurements.push(
-                        MeasurementPoint::new(timestamp, m.metric_id, m.resource_id.clone(), value)
+                        MeasurementPoint::new(timestamp, m.metric_id, m.resource_id.clone(), consumer, value)
                             .with_attr("jetson_ina_sensor", AttributeValue::String(sensor.i2c_id.clone()))
                             .with_attr("jetson_ina_channel_label", AttributeValue::String(chan.label.clone()))
                             .with_attr(

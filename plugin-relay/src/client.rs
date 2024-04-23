@@ -3,7 +3,6 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::protocol::metric_collector_client::MetricCollectorClient;
-use crate::protocol::resource::Identifier;
 use crate::protocol::{self, RegisterReply};
 
 use alumet::measurement::{
@@ -13,7 +12,6 @@ use alumet::pipeline::runtime::IdlePipeline;
 use alumet::pipeline::OutputContext;
 use alumet::plugin::rust::{deserialize_config, AlumetPlugin};
 use alumet::plugin::ConfigTable;
-use alumet::resources::ResourceId;
 use anyhow::Context;
 use serde::Deserialize;
 use tonic::transport::Channel;
@@ -177,18 +175,14 @@ impl RelayClient {
                 WrappedMeasurementValue::U64(x) => protocol::measurement_point::Value::U64(x),
             };
 
-            // convert resource
-            let proto_resource_id = match &m.resource {
-                ResourceId::LocalMachine => None,
-                ResourceId::Process { pid } => Some(Identifier::U32(*pid)),
-                ResourceId::CpuPackage { id } => Some(Identifier::U32(*id)),
-                ResourceId::CpuCore { id } => Some(Identifier::U32(*id)),
-                ResourceId::Dram { pkg_id } => Some(Identifier::U32(*pkg_id)),
-                other => Some(Identifier::Str(other.id_string().unwrap())),
-            };
+            // convert resource and consumer
             let resource = protocol::Resource {
                 kind: m.resource.kind().to_owned(),
-                identifier: proto_resource_id,
+                id: m.resource.id_string(),
+            };
+            let consumer = protocol::ResourceConsumer {
+                kind: m.consumer.kind().to_owned(),
+                id: m.consumer.id_string(),
             };
 
             // convert attributes
@@ -212,6 +206,7 @@ impl RelayClient {
                 timestamp_nanos: time_diff.subsec_nanos(),
                 value: Some(value),
                 resource: Some(resource),
+                consumer: Some(consumer),
                 attributes,
             }
         }

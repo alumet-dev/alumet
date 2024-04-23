@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use alumet::measurement::Timestamp;
 use alumet::metrics::MetricCreationError;
+use alumet::resources::ResourceConsumerId;
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint},
     metrics::TypedMetricId,
@@ -73,6 +74,9 @@ impl alumet::pipeline::Source for NvmlSource {
         let features = &self.device.features;
         let device = self.device.as_wrapper();
 
+        // no consumer, we just monitor the device here
+        let consumer = ResourceConsumerId::LocalMachine;
+
         if features.total_energy_consumption {
             // the difference in milliJoules
             let diff = match self.energy_counter.update(device.total_energy_consumption()?) {
@@ -87,6 +91,7 @@ impl alumet::pipeline::Source for NvmlSource {
                     timestamp,
                     self.metrics.total_energy_consumption,
                     self.resource.clone(),
+                    consumer.clone(),
                     joules,
                 ))
             }
@@ -101,6 +106,7 @@ impl alumet::pipeline::Source for NvmlSource {
                 timestamp,
                 self.metrics.instant_power,
                 self.resource.clone(),
+                consumer.clone(),
                 watts,
             ))
         }
@@ -111,12 +117,14 @@ impl alumet::pipeline::Source for NvmlSource {
                 timestamp,
                 self.metrics.major_utilization_gpu,
                 self.resource.clone(),
+                consumer.clone(),
                 u.gpu as u64,
             ));
             measurements.push(MeasurementPoint::new(
                 timestamp,
                 self.metrics.major_utilization_memory,
                 self.resource.clone(),
+                consumer.clone(),
                 u.memory as u64,
             ));
         }
@@ -274,7 +282,12 @@ impl NvmlDevices {
                         let handle = unsafe { gpu.handle() };
                         let lib = nvml.clone();
                         let bus_id = pci_info?.bus_id;
-                        let d = ManagedDevice { lib, handle, features, bus_id };
+                        let d = ManagedDevice {
+                            lib,
+                            handle,
+                            features,
+                            bus_id,
+                        };
                         Some(d)
                     } else {
                         let bus_id = match pci_info {

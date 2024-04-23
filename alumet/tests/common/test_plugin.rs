@@ -2,10 +2,10 @@ use std::time::Duration;
 
 use alumet::measurement::{MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementValue};
 use alumet::metrics::{MetricId, TypedMetricId};
-use alumet::pipeline::trigger::{self, TriggerSpec};
+use alumet::pipeline::trigger;
 use alumet::pipeline::{Output, OutputContext, PollError, Source, Transform, TransformError, WriteError};
 use alumet::plugin::{AlumetStart, Plugin};
-use alumet::resources::ResourceId;
+use alumet::resources::{ResourceConsumerId, ResourceId};
 use alumet::units::Unit;
 
 pub struct TestPlugin {
@@ -93,19 +93,22 @@ impl Source for TestSource {
         let value_a = self.a_base + 4 * (self.b_counter % 2);
 
         // create a "resource id" to tag the data with an information about what the measurement is about
-        let resource = ResourceId::custom("test", "imaginary-thing");
+        let resource = ResourceId::custom("test-resource", "imaginary-thing");
+        let consumer = ResourceConsumerId::custom("test-consumer", "does it work?");
 
         // push the values to ALUMET pipeline
         acc.push(MeasurementPoint::new(
             timestamp,
             self.metric_a,
             resource.clone(),
+            consumer.clone(),
             value_a,
         ));
         acc.push(MeasurementPoint::new(
             timestamp,
             self.metric_b,
             resource,
+            consumer.clone(),
             self.b_counter,
         ));
 

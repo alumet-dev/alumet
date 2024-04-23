@@ -64,11 +64,14 @@ pub mod builder {
     /// ## Example
     /// ```
     /// use alumet::pipeline::trigger;
+    /// use std::time::{Instant, Duration};
     ///
     /// let trigger_config = trigger::builder::time_interval(Duration::from_secs(1))
-    ///     .start_at(Instant::now() + Duration::from_secs(30))
+    ///     .starting_at(Instant::now() + Duration::from_secs(30))
     ///     .flush_interval(Duration::from_secs(2))
     ///     .update_interval(Duration::from_secs(5))
+    ///     .build()
+    ///     .unwrap();
     /// ```
     pub fn time_interval(poll_interval: Duration) -> TimeTriggerBuilder {
         TimeTriggerBuilder::new(poll_interval)

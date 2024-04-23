@@ -25,15 +25,18 @@ message MeasurementPoint {
         double f64 = 5;
     }
     Resource resource = 6;
-    repeated MeasurementAttribute attributes = 7;
+    ResourceConsumer consumer = 7;
+    repeated MeasurementAttribute attributes = 8;
 }
 
 message Resource {
     string kind = 1;
-    oneof identifier {
-        string str = 2;
-        uint32 u32 = 3;
-    };
+    optional string id = 2;
+}
+
+message ResourceConsumer {
+    string kind = 1;
+    optional string id = 2;
 }
 
 message MeasurementAttribute {

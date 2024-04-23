@@ -1,4 +1,4 @@
-use crate::resources::ResourceId;
+use crate::resources::{ResourceConsumerId, ResourceId};
 
 // pub(crate) const RESOURCE_ID_SIZE: usize = std::mem::size_of::<ResourceId>();
 
@@ -25,7 +25,28 @@ impl From<FfiResourceId> for ResourceId {
     }
 }
 
+#[repr(C)]
+pub struct FfiConsumerId {
+    bytes: [u8; 56], // same problem as above
+}
+
+impl From<ResourceConsumerId> for FfiConsumerId {
+    fn from(value: ResourceConsumerId) -> Self {
+        let bytes = unsafe { std::mem::transmute(value) };
+        FfiConsumerId { bytes }
+    }
+}
+
+impl From<FfiConsumerId> for ResourceConsumerId {
+    fn from(value: FfiConsumerId) -> Self {
+        let bytes = value.bytes;
+        unsafe { std::mem::transmute(bytes) }
+    }
+}
+
 // ====== Constructors ======
+
+// TODO find a way to generate these automatically?
 
 #[no_mangle]
 pub extern "C" fn resource_new_local_machine() -> FfiResourceId {
@@ -37,5 +58,25 @@ pub extern "C" fn resource_new_cpu_package(pkg_id: u32) -> FfiResourceId {
     ResourceId::CpuPackage { id: pkg_id }.into()
 }
 
-// ...
-// TODO find a way to generate these automatically?
+#[no_mangle]
+pub extern "C" fn consumer_new_local_machine() -> FfiConsumerId {
+    ResourceConsumerId::LocalMachine.into()
+}
+
+#[no_mangle]
+pub extern "C" fn consumer_new_process(pid: u32) -> FfiConsumerId {
+    ResourceConsumerId::Process { pid }.into()
+}
+
+// ====== Tests ======
+
+#[cfg(test)]
+mod tests {
+    use crate::resources::{ResourceConsumerId, ResourceId};
+
+    #[test]
+    fn test_memory_layout() {
+        assert_eq!(56, std::mem::size_of::<ResourceId>());
+        assert_eq!(56, std::mem::size_of::<ResourceConsumerId>());
+    }
+}

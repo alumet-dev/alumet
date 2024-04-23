@@ -282,11 +282,13 @@ impl<'a> AlumetStart<'a> {
     ///         loop {
     ///             let timestamp = Timestamp::now();
     ///             let resource = todo!();
+    ///             let consumer = todo!();
     ///             let value = todo!();
     ///             let measurement = MeasurementPoint::new(
     ///                 timestamp,
     ///                 metric,
     ///                 resource,
+    ///                 consumer,
     ///                 value
     ///             );
     ///             buf.push(measurement);

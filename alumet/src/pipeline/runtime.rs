@@ -716,7 +716,7 @@ mod tests {
         },
         metrics::{MetricRegistry, RawMetricId},
         pipeline::{trigger::TriggerSpec, OutputContext, Transform},
-        resources::ResourceId,
+        resources::{ResourceConsumerId, ResourceId},
     };
 
     use super::{
@@ -978,7 +978,7 @@ mod tests {
 
     fn new_trigger(test_interrupt: bool) -> TriggerSpec {
         let mut builder =
-            trigger::builder::time_interval(Duration::from_millis(5)).flush_interval(Duration::from_millis(10));
+            trigger::builder::time_interval(Duration::from_millis(10)).flush_interval(Duration::from_millis(20));
         if test_interrupt {
             builder = builder.update_interval(Duration::from_millis(1));
         }
@@ -1022,6 +1022,7 @@ mod tests {
                 timestamp,
                 RawMetricId(1),
                 ResourceId::LocalMachine,
+                ResourceConsumerId::LocalMachine,
                 WrappedMeasurementValue::U64(self.n_calls as u64),
             );
             into.push(point);

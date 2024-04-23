@@ -92,6 +92,10 @@ typedef struct FfiResourceId {
   uint8_t bytes[56];
 } FfiResourceId;
 
+typedef struct FfiConsumerId {
+  uint8_t bytes[56];
+} FfiConsumerId;
+
 typedef enum FfiMeasurementValue_Tag {
   FfiMeasurementValue_U64,
   FfiMeasurementValue_F64,
@@ -238,11 +242,13 @@ struct Timestamp *system_time_now(void);
 struct MeasurementPoint *mpoint_new_u64(struct Timestamp timestamp,
                                         struct RawMetricId metric,
                                         struct FfiResourceId resource,
+                                        struct FfiConsumerId consumer,
                                         uint64_t value);
 
 struct MeasurementPoint *mpoint_new_f64(struct Timestamp timestamp,
                                         struct RawMetricId metric,
                                         struct FfiResourceId resource,
+                                        struct FfiConsumerId consumer,
                                         double value);
 
 /**
@@ -270,6 +276,12 @@ struct FfiResourceId mpoint_resource(const struct MeasurementPoint *point);
 struct AString mpoint_resource_kind(const struct MeasurementPoint *point);
 
 struct AString mpoint_resource_id(const struct MeasurementPoint *point);
+
+struct FfiConsumerId mpoint_consumer(const struct MeasurementPoint *point);
+
+struct AString mpoint_consumer_kind(const struct MeasurementPoint *point);
+
+struct AString mpoint_consumer_id(const struct MeasurementPoint *point);
 
 uintptr_t mbuffer_len(const struct MeasurementBuffer *buf);
 
@@ -324,6 +336,10 @@ void alumet_add_output(struct AlumetStart *alumet,
 struct FfiResourceId resource_new_local_machine(void);
 
 struct FfiResourceId resource_new_cpu_package(uint32_t pkg_id);
+
+struct FfiConsumerId consumer_new_local_machine(void);
+
+struct FfiConsumerId consumer_new_process(uint32_t pid);
 
 /**
  * Creates a new `AString` from a C string `chars`, which must be null-terminated.

@@ -11,7 +11,7 @@
 //! you can produce new measurements like this:
 //! ```no_run
 //! use alumet::measurement::{MeasurementBuffer, MeasurementPoint};
-//! use alumet::resources::ResourceId;
+//! use alumet::resources::{ResourceId, ResourceConsumerId};
 //!
 //! # let buffer = MeasurementBuffer::new();
 //! # let my_metric: alumet::metrics::TypedMetricId<u64> = todo!();
@@ -19,7 +19,8 @@
 //! buffer.push(MeasurementPoint::new(
 //!     timestamp, // timestamp, provided by Alumet as a parameter of [Source::poll]
 //!     my_metric, // a TypedMetricId that you obtained from [AlumetStart::create_metric]
-//!     ResourceId::CpuPackage { id: 0 }, // the object that you are measuring
+//!     ResourceId::CpuPackage { id: 0 }, // the resource that you are measuring
+//!     ResourceConsumerId::LocalMachine, // the thing that consumes the resource (here the "local machine" means "no consumer, we monitor the entire cpu package")
 //!     1234, // the measurement value
 //! ));
 //! ```
@@ -27,6 +28,8 @@
 use core::fmt;
 use fxhash::FxBuildHasher;
 use std::{collections::HashMap, fmt::Display, time::SystemTime};
+
+use crate::resources::ResourceConsumerId;
 
 use super::metrics::{RawMetricId, TypedMetricId};
 use super::resources::ResourceId;
@@ -47,7 +50,16 @@ pub struct MeasurementPoint {
     pub value: WrappedMeasurementValue,
 
     /// The resource this measurement is about: CPU socket, GPU, process, ...
+    /// 
+    /// The `resource` and the `consumer` specify which object has been measured.
     pub resource: ResourceId,
+    
+    /// The consumer of the resource: process, container, ...
+    /// 
+    /// This gives additional information about the perimeter of the measurement.
+    /// For instance, we can measure the total CPU usage of the node,
+    /// or the usage of the CPU by a particular process.
+    pub consumer: ResourceConsumerId,
 
     /// Additional attributes on the measurement point.
     /// Not public because we could change how they are stored later.
@@ -70,9 +82,10 @@ impl MeasurementPoint {
         timestamp: Timestamp,
         metric: TypedMetricId<T>,
         resource: ResourceId,
+        consumer: ResourceConsumerId,
         value: T::T,
     ) -> MeasurementPoint {
-        Self::new_untyped(timestamp, metric.0, resource, T::wrapped_value(value))
+        Self::new_untyped(timestamp, metric.0, resource, consumer, T::wrapped_value(value))
     }
 
     /// Creates a new `MeasurementPoint` without attributes, using an untyped metric.
@@ -84,6 +97,7 @@ impl MeasurementPoint {
         timestamp: Timestamp,
         metric: RawMetricId,
         resource: ResourceId,
+        consumer: ResourceConsumerId,
         value: WrappedMeasurementValue,
     ) -> MeasurementPoint {
         MeasurementPoint {
@@ -91,6 +105,7 @@ impl MeasurementPoint {
             timestamp,
             value,
             resource,
+            consumer,
             attributes: HashMap::with_hasher(FxBuildHasher::default()),
         }
     }

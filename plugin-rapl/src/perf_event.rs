@@ -2,7 +2,7 @@ use alumet::{
     measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
     plugin::util::{CounterDiff, CounterDiffUpdate},
-    resources::ResourceId,
+    resources::{ResourceConsumerId, ResourceId},
 };
 use anyhow::{Context, Result};
 use log::debug;
@@ -226,8 +226,9 @@ impl alumet::pipeline::Source for PerfEventProbe {
             if let Some(value) = diff {
                 // convert to joules and push
                 let joules = (value as f64) * evt.scale;
+                let consumer = ResourceConsumerId::LocalMachine;
                 measurements.push(
-                    MeasurementPoint::new(timestamp, self.metric, evt.resource.clone(), joules)
+                    MeasurementPoint::new(timestamp, self.metric, evt.resource.clone(), consumer, joules)
                         .with_attr("domain", AttributeValue::String(evt.domain.to_string())),
                 );
             }

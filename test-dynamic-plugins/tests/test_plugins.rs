@@ -89,7 +89,7 @@ fn check_app_output(output: String, plugin_name: &str, plugin_version: &str) {
     assert_str_eq!("plugin_start finished successfully", lines[7]);
 
     let measurement_output_regex =
-        regex::Regex::new("\\[\\d+\\] on cpu_package 0, rapl_pkg_consumption\\(id \\d+\\) = \\d+\\.\\d+").unwrap();
+        regex::Regex::new("\\[\\d+\\] on cpu_package 0 by local_machine , rapl_pkg_consumption\\(id \\d+\\) = \\d+\\.\\d+").unwrap();
     for i in 8..lines.len() - 1 {
         assert!(
             measurement_output_regex.is_match(lines[i]),
