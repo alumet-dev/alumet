@@ -716,7 +716,7 @@ mod tests {
         },
         metrics::{MetricRegistry, RawMetricId},
         pipeline::{trigger::TriggerSpec, OutputContext, Transform},
-        resources::{ResourceConsumerId, ResourceId},
+        resources::{ResourceConsumer, Resource},
     };
 
     use super::{
@@ -1021,8 +1021,8 @@ mod tests {
             let point = MeasurementPoint::new_untyped(
                 timestamp,
                 RawMetricId(1),
-                ResourceId::LocalMachine,
-                ResourceConsumerId::LocalMachine,
+                Resource::LocalMachine,
+                ResourceConsumer::LocalMachine,
                 WrappedMeasurementValue::U64(self.n_calls as u64),
             );
             into.push(point);
@@ -1042,7 +1042,7 @@ mod tests {
         fn apply(&mut self, measurements: &mut MeasurementBuffer) -> Result<(), crate::pipeline::TransformError> {
             assert_eq!(measurements.len(), self.expected_input_len);
             for m in measurements.iter_mut() {
-                assert_eq!(m.resource, ResourceId::LocalMachine);
+                assert_eq!(m.resource, Resource::LocalMachine);
                 if self.check_input_type.load(Ordering::Relaxed) {
                     assert_eq!(m.value.measurement_type(), self.expected_input_type);
                 }

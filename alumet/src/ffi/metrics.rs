@@ -7,7 +7,7 @@ use crate::{
         AttributeValue, MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue,
     },
     metrics::RawMetricId,
-    resources::{ResourceConsumerId, ResourceId},
+    resources::{ResourceConsumer, Resource},
 };
 
 use super::{
@@ -41,8 +41,8 @@ fn mpoint_new(
     consumer: FfiConsumerId,
     value: WrappedMeasurementValue,
 ) -> *mut MeasurementPoint {
-    let resource = ResourceId::from(resource);
-    let consumer = ResourceConsumerId::from(consumer);
+    let resource = Resource::from(resource);
+    let consumer = ResourceConsumer::from(consumer);
     let p = MeasurementPoint::new_untyped(timestamp.into(), metric, resource, consumer, value);
     Box::into_raw(Box::new(p)) // box and turn the box into a pointer, it now needs to be dropped manually
 }

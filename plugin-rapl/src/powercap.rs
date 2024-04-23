@@ -8,10 +8,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use alumet::{measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp}, resources::ResourceConsumerId};
+use alumet::{measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp}, resources::ResourceConsumer};
 use alumet::metrics::TypedMetricId;
 use alumet::plugin::util::{CounterDiff, CounterDiffUpdate};
-use alumet::resources::ResourceId;
+use alumet::resources::Resource;
 use anyhow::{anyhow, Context};
 
 use super::domains::RaplDomainType;
@@ -164,7 +164,7 @@ struct OpenedZone {
     /// The maximum energy value for this zone, as reported by `max_energy_uj`
     max_energy_uj: u64,
     /// The corresponding ResourceId
-    resource: ResourceId,
+    resource: Resource,
 }
 
 impl PowercapProbe {
@@ -242,7 +242,7 @@ impl alumet::pipeline::Source for PowercapProbe {
             };
             if let Some(value) = diff {
                 let joules = (value as f64) * POWERCAP_ENERGY_UNIT;
-                let consumer = ResourceConsumerId::LocalMachine;
+                let consumer = ResourceConsumer::LocalMachine;
                 measurements.push(
                     MeasurementPoint::new(timestamp, self.metric, zone.resource.clone(), consumer, joules)
                         .with_attr("domain", AttributeValue::String(zone.domain.to_string())),

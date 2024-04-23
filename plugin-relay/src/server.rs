@@ -13,7 +13,7 @@ use alumet::{
         rust::{deserialize_config, AlumetPlugin},
         AlumetStart, ConfigTable,
     },
-    resources::{InvalidConsumerError, InvalidResourceError, ResourceConsumerId, ResourceId},
+    resources::{InvalidConsumerError, InvalidResourceError, ResourceConsumer, Resource},
     units::{PrefixedUnit, Unit},
 };
 use serde::Deserialize;
@@ -99,8 +99,8 @@ impl MetricCollector for GrpcMetricCollector {
             .map(|m| {
                 let timestamp = Timestamp::from(UNIX_EPOCH + Duration::new(m.timestamp_secs, m.timestamp_nanos));
                 let value = m.value.unwrap().into();
-                let resource = ResourceId::try_from(m.resource.unwrap()).unwrap();
-                let consumer = ResourceConsumerId::try_from(m.consumer.unwrap()).unwrap();
+                let resource = Resource::try_from(m.resource.unwrap()).unwrap();
+                let consumer = ResourceConsumer::try_from(m.consumer.unwrap()).unwrap();
                 let attributes: Vec<_> = m
                     .attributes
                     .into_iter()
@@ -209,28 +209,28 @@ impl From<protocol::measurement_attribute::Value> for AttributeValue {
     }
 }
 
-impl TryFrom<protocol::Resource> for ResourceId {
+impl TryFrom<protocol::Resource> for Resource {
     type Error = InvalidResourceError;
 
     fn try_from(value: protocol::Resource) -> Result<Self, Self::Error> {
         match value.id {
-            Some(id) => ResourceId::parse(value.kind, id),
+            Some(id) => Resource::parse(value.kind, id),
             None => match value.kind.as_str() {
-                "local_machine" => Ok(ResourceId::LocalMachine),
+                "local_machine" => Ok(Resource::LocalMachine),
                 wrong => Err(InvalidResourceError::InvalidId(wrong.to_owned().into())),
             },
         }
     }
 }
 
-impl TryFrom<protocol::ResourceConsumer> for ResourceConsumerId {
+impl TryFrom<protocol::ResourceConsumer> for ResourceConsumer {
     type Error = InvalidConsumerError;
 
     fn try_from(value: protocol::ResourceConsumer) -> Result<Self, Self::Error> {
         match value.id {
-            Some(id) => ResourceConsumerId::parse(value.kind, id),
+            Some(id) => ResourceConsumer::parse(value.kind, id),
             None => match value.kind.as_str() {
-                "local_machine" => Ok(ResourceConsumerId::LocalMachine),
+                "local_machine" => Ok(ResourceConsumer::LocalMachine),
                 wrong => Err(InvalidConsumerError::InvalidId(wrong.to_owned().into())),
             },
         }

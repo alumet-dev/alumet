@@ -5,7 +5,7 @@ use alumet::metrics::{MetricId, TypedMetricId};
 use alumet::pipeline::trigger;
 use alumet::pipeline::{Output, OutputContext, PollError, Source, Transform, TransformError, WriteError};
 use alumet::plugin::{AlumetStart, Plugin};
-use alumet::resources::{ResourceConsumerId, ResourceId};
+use alumet::resources::{ResourceConsumer, Resource};
 use alumet::units::Unit;
 
 pub struct TestPlugin {
@@ -93,8 +93,8 @@ impl Source for TestSource {
         let value_a = self.a_base + 4 * (self.b_counter % 2);
 
         // create a "resource id" to tag the data with an information about what the measurement is about
-        let resource = ResourceId::custom("test-resource", "imaginary-thing");
-        let consumer = ResourceConsumerId::custom("test-consumer", "does it work?");
+        let resource = Resource::custom("test-resource", "imaginary-thing");
+        let consumer = ResourceConsumer::custom("test-consumer", "does it work?");
 
         // push the values to ALUMET pipeline
         acc.push(MeasurementPoint::new(

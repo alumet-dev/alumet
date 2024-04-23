@@ -1,4 +1,4 @@
-use crate::resources::{ResourceConsumerId, ResourceId};
+use crate::resources::{ResourceConsumer, Resource};
 
 // pub(crate) const RESOURCE_ID_SIZE: usize = std::mem::size_of::<ResourceId>();
 
@@ -11,14 +11,14 @@ pub struct FfiResourceId {
     bytes: [u8; 56], // should be RESOURCE_ID_SIZE but https://github.com/mozilla/cbindgen/issues/892
 }
 
-impl From<ResourceId> for FfiResourceId {
-    fn from(value: ResourceId) -> Self {
+impl From<Resource> for FfiResourceId {
+    fn from(value: Resource) -> Self {
         let bytes = unsafe { std::mem::transmute(value) };
         FfiResourceId { bytes }
     }
 }
 
-impl From<FfiResourceId> for ResourceId {
+impl From<FfiResourceId> for Resource {
     fn from(value: FfiResourceId) -> Self {
         let bytes = value.bytes;
         unsafe { std::mem::transmute(bytes) }
@@ -30,14 +30,14 @@ pub struct FfiConsumerId {
     bytes: [u8; 56], // same problem as above
 }
 
-impl From<ResourceConsumerId> for FfiConsumerId {
-    fn from(value: ResourceConsumerId) -> Self {
+impl From<ResourceConsumer> for FfiConsumerId {
+    fn from(value: ResourceConsumer) -> Self {
         let bytes = unsafe { std::mem::transmute(value) };
         FfiConsumerId { bytes }
     }
 }
 
-impl From<FfiConsumerId> for ResourceConsumerId {
+impl From<FfiConsumerId> for ResourceConsumer {
     fn from(value: FfiConsumerId) -> Self {
         let bytes = value.bytes;
         unsafe { std::mem::transmute(bytes) }
@@ -50,33 +50,33 @@ impl From<FfiConsumerId> for ResourceConsumerId {
 
 #[no_mangle]
 pub extern "C" fn resource_new_local_machine() -> FfiResourceId {
-    ResourceId::LocalMachine.into()
+    Resource::LocalMachine.into()
 }
 
 #[no_mangle]
 pub extern "C" fn resource_new_cpu_package(pkg_id: u32) -> FfiResourceId {
-    ResourceId::CpuPackage { id: pkg_id }.into()
+    Resource::CpuPackage { id: pkg_id }.into()
 }
 
 #[no_mangle]
 pub extern "C" fn consumer_new_local_machine() -> FfiConsumerId {
-    ResourceConsumerId::LocalMachine.into()
+    ResourceConsumer::LocalMachine.into()
 }
 
 #[no_mangle]
 pub extern "C" fn consumer_new_process(pid: u32) -> FfiConsumerId {
-    ResourceConsumerId::Process { pid }.into()
+    ResourceConsumer::Process { pid }.into()
 }
 
 // ====== Tests ======
 
 #[cfg(test)]
 mod tests {
-    use crate::resources::{ResourceConsumerId, ResourceId};
+    use crate::resources::{ResourceConsumer, Resource};
 
     #[test]
     fn test_memory_layout() {
-        assert_eq!(56, std::mem::size_of::<ResourceId>());
-        assert_eq!(56, std::mem::size_of::<ResourceConsumerId>());
+        assert_eq!(56, std::mem::size_of::<Resource>());
+        assert_eq!(56, std::mem::size_of::<ResourceConsumer>());
     }
 }

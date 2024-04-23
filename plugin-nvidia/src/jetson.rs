@@ -10,7 +10,7 @@ use alumet::{
     metrics::TypedMetricId,
     pipeline::PollError,
     plugin::AlumetStart,
-    resources::{ResourceConsumerId, ResourceId},
+    resources::{ResourceConsumer, Resource},
     units::{PrefixedUnit, Unit},
 };
 use anyhow::{anyhow, Context};
@@ -67,7 +67,7 @@ pub struct OpenedInaMetric {
     /// The INA sensors provides integer values.
     metric_id: TypedMetricId<u64>,
     /// Id of the "resource" corresponding to the INA sensor.
-    resource_id: ResourceId,
+    resource_id: Resource,
     /// The virtual file in the sysfs, opened for reading.
     file: File,
 }
@@ -95,7 +95,7 @@ impl JetsonInaSource {
                             .with_context(|| format!("Could not open virtual file {}", m.path.display()))?;
                         Ok(OpenedInaMetric {
                             metric_id,
-                            resource_id: ResourceId::LocalMachine,
+                            resource_id: Resource::LocalMachine,
                             file,
                         })
                     })
@@ -135,7 +135,7 @@ impl alumet::pipeline::Source for JetsonInaSource {
                         .with_context(|| format!("failed to parse {:?}: '{content}", m.file))?;
 
                     // store the value and clear the buffer
-                    let consumer = ResourceConsumerId::LocalMachine;
+                    let consumer = ResourceConsumer::LocalMachine;
                     measurements.push(
                         MeasurementPoint::new(timestamp, m.metric_id, m.resource_id.clone(), consumer, value)
                             .with_attr("jetson_ina_sensor", AttributeValue::String(sensor.i2c_id.clone()))

@@ -11,7 +11,7 @@
 //! you can produce new measurements like this:
 //! ```no_run
 //! use alumet::measurement::{MeasurementBuffer, MeasurementPoint};
-//! use alumet::resources::{ResourceId, ResourceConsumerId};
+//! use alumet::resources::{Resource, ResourceConsumer};
 //!
 //! # let buffer = MeasurementBuffer::new();
 //! # let my_metric: alumet::metrics::TypedMetricId<u64> = todo!();
@@ -19,8 +19,8 @@
 //! buffer.push(MeasurementPoint::new(
 //!     timestamp, // timestamp, provided by Alumet as a parameter of [Source::poll]
 //!     my_metric, // a TypedMetricId that you obtained from [AlumetStart::create_metric]
-//!     ResourceId::CpuPackage { id: 0 }, // the resource that you are measuring
-//!     ResourceConsumerId::LocalMachine, // the thing that consumes the resource (here the "local machine" means "no consumer, we monitor the entire cpu package")
+//!     Resource::CpuPackage { id: 0 }, // the resource that you are measuring
+//!     ResourceConsumer::LocalMachine, // the thing that consumes the resource (here the "local machine" means "no consumer, we monitor the entire cpu package")
 //!     1234, // the measurement value
 //! ));
 //! ```
@@ -29,10 +29,10 @@ use core::fmt;
 use fxhash::FxBuildHasher;
 use std::{collections::HashMap, fmt::Display, time::SystemTime};
 
-use crate::resources::ResourceConsumerId;
+use crate::resources::ResourceConsumer;
 
 use super::metrics::{RawMetricId, TypedMetricId};
-use super::resources::ResourceId;
+use super::resources::Resource;
 
 /// A value that has been measured at a given point in time.
 ///
@@ -52,14 +52,14 @@ pub struct MeasurementPoint {
     /// The resource this measurement is about: CPU socket, GPU, process, ...
     /// 
     /// The `resource` and the `consumer` specify which object has been measured.
-    pub resource: ResourceId,
+    pub resource: Resource,
     
     /// The consumer of the resource: process, container, ...
     /// 
     /// This gives additional information about the perimeter of the measurement.
     /// For instance, we can measure the total CPU usage of the node,
     /// or the usage of the CPU by a particular process.
-    pub consumer: ResourceConsumerId,
+    pub consumer: ResourceConsumer,
 
     /// Additional attributes on the measurement point.
     /// Not public because we could change how they are stored later.
@@ -81,8 +81,8 @@ impl MeasurementPoint {
     pub fn new<T: MeasurementType>(
         timestamp: Timestamp,
         metric: TypedMetricId<T>,
-        resource: ResourceId,
-        consumer: ResourceConsumerId,
+        resource: Resource,
+        consumer: ResourceConsumer,
         value: T::T,
     ) -> MeasurementPoint {
         Self::new_untyped(timestamp, metric.0, resource, consumer, T::wrapped_value(value))
@@ -96,8 +96,8 @@ impl MeasurementPoint {
     pub fn new_untyped(
         timestamp: Timestamp,
         metric: RawMetricId,
-        resource: ResourceId,
-        consumer: ResourceConsumerId,
+        resource: Resource,
+        consumer: ResourceConsumer,
         value: WrappedMeasurementValue,
     ) -> MeasurementPoint {
         MeasurementPoint {

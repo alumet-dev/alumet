@@ -1,6 +1,6 @@
 use std::{fmt, str::FromStr};
 
-use alumet::resources::ResourceId;
+use alumet::resources::Resource;
 
 /// A known RAPL domain.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -55,14 +55,14 @@ impl RaplDomainType {
         RaplDomainType::Platform,
     ];
 
-    pub fn to_resource(&self, pkg_id: u32) -> ResourceId {
+    pub fn to_resource(&self, pkg_id: u32) -> Resource {
         match self {
-            RaplDomainType::Package => ResourceId::CpuPackage { id: pkg_id },
+            RaplDomainType::Package => Resource::CpuPackage { id: pkg_id },
             // PP0 records data for all the cores of a package, not individual cores
-            RaplDomainType::PP0 => ResourceId::CpuPackage { id: pkg_id },
-            RaplDomainType::PP1 => ResourceId::CpuPackage { id: pkg_id },
-            RaplDomainType::Dram => ResourceId::Dram { pkg_id },
-            RaplDomainType::Platform => ResourceId::LocalMachine,
+            RaplDomainType::PP0 => Resource::CpuPackage { id: pkg_id },
+            RaplDomainType::PP1 => Resource::CpuPackage { id: pkg_id },
+            RaplDomainType::Dram => Resource::Dram { pkg_id },
+            RaplDomainType::Platform => Resource::LocalMachine,
         }
     }
 }

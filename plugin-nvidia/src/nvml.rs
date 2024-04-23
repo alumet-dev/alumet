@@ -2,14 +2,14 @@ use std::sync::Arc;
 
 use alumet::measurement::Timestamp;
 use alumet::metrics::MetricCreationError;
-use alumet::resources::ResourceConsumerId;
+use alumet::resources::ResourceConsumer;
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint},
     metrics::TypedMetricId,
     pipeline::PollError,
     plugin::util::{CounterDiff, CounterDiffUpdate},
     plugin::AlumetStart,
-    resources::ResourceId,
+    resources::Resource,
     units::Unit,
 };
 use anyhow::Context;
@@ -50,7 +50,7 @@ pub struct NvmlSource {
     /// Alumet metrics IDs.
     metrics: Metrics,
     /// Alumet resource ID.
-    resource: ResourceId,
+    resource: Resource,
 }
 
 // The pointer `nvmlDevice_t` returned by NVML can be sent between threads.
@@ -64,7 +64,7 @@ impl NvmlSource {
             energy_counter: CounterDiff::with_max_value(u64::MAX),
             device,
             metrics,
-            resource: ResourceId::Gpu { bus_id },
+            resource: Resource::Gpu { bus_id },
         })
     }
 }
@@ -75,7 +75,7 @@ impl alumet::pipeline::Source for NvmlSource {
         let device = self.device.as_wrapper();
 
         // no consumer, we just monitor the device here
-        let consumer = ResourceConsumerId::LocalMachine;
+        let consumer = ResourceConsumer::LocalMachine;
 
         if features.total_energy_consumption {
             // the difference in milliJoules

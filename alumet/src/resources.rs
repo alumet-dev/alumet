@@ -4,7 +4,7 @@
 //! In other words, a resource gives the perimeter of a measurement.
 //! Are we measuring the energy consumption of a GPU, of the whole machine or of a process of our operating system?
 //!
-//! The largest perimeter is "the whole machine", represented by [`ResourceId::LocalMachine`].
+//! The largest perimeter is "the whole machine", represented by [`Resource::LocalMachine`].
 //! Therefore, if you work in a distributed environment, the resource id is not enough to identify what is being measured.
 //! You should add more information to your data, such as the hostname.
 //!
@@ -15,7 +15,7 @@
 //! Here is an example of a measurement point associated with the first CPU package (id "0").
 //! ```no_run
 //! use alumet::measurement::{MeasurementPoint, Timestamp};
-//! use alumet::resources::{ResourceId, ResourceConsumerId};
+//! use alumet::resources::{Resource, ResourceConsumer};
 //! #
 //! # use alumet::metrics::TypedMetricId;
 //! # let timestamp = Timestamp::now();
@@ -25,8 +25,8 @@
 //! let measure = MeasurementPoint::new(
 //!     timestamp,
 //!     metric_id,
-//!     ResourceId::CpuPackage { id: 0 },
-//!     ResourceConsumerId::LocalMachine,
+//!     Resource::CpuPackage { id: 0 },
+//!     ResourceConsumer::LocalMachine,
 //!     measurement_value
 //! );
 //! ```
@@ -43,7 +43,7 @@ pub type StrCow = Cow<'static, str>;
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
-pub enum ResourceId {
+pub enum Resource {
     /// The whole local machine, for instance the whole physical server.
     LocalMachine,
     /// A physical CPU package (which is not always the same as a NUMA node).
@@ -62,7 +62,7 @@ pub enum ResourceId {
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
-pub enum ResourceConsumerId {
+pub enum ResourceConsumer {
     /// The whole local machine.
     ///
     /// You can use this when there is no "consumer" of your resource, for instance when reporting
@@ -76,12 +76,12 @@ pub enum ResourceConsumerId {
     Custom { kind: StrCow, id: StrCow },
 }
 
-impl ResourceId {
-    /// Creates a new [`ResourceId::Custom`] with the given kind and id.
+impl Resource {
+    /// Creates a new [`Resource::Custom`] with the given kind and id.
     /// You can pass `&'static str` as kind, id, or both in order to avoid allocating memory.
     /// Strings are also accepted and will be moved into the ResourceId.
-    pub fn custom(kind: impl Into<StrCow>, id: impl Into<StrCow>) -> ResourceId {
-        ResourceId::Custom {
+    pub fn custom(kind: impl Into<StrCow>, id: impl Into<StrCow>) -> Resource {
+        Resource::Custom {
             kind: kind.into(),
             id: id.into(),
         }
@@ -89,70 +89,70 @@ impl ResourceId {
 
     pub fn kind(&self) -> &str {
         match self {
-            ResourceId::LocalMachine => "local_machine",
-            ResourceId::CpuPackage { .. } => "cpu_package",
-            ResourceId::CpuCore { .. } => "cpu_core",
-            ResourceId::Dram { .. } => "dram",
-            ResourceId::Gpu { .. } => "gpu",
-            ResourceId::Custom { kind, id: _ } => &kind,
+            Resource::LocalMachine => "local_machine",
+            Resource::CpuPackage { .. } => "cpu_package",
+            Resource::CpuCore { .. } => "cpu_core",
+            Resource::Dram { .. } => "dram",
+            Resource::Gpu { .. } => "gpu",
+            Resource::Custom { kind, id: _ } => &kind,
         }
     }
 
     pub fn id_string(&self) -> Option<String> {
         match self {
-            ResourceId::LocalMachine => None,
+            Resource::LocalMachine => None,
             r => Some(r.id_display().to_string()),
         }
     }
 
     pub fn id_display(&self) -> impl fmt::Display + '_ {
         match self {
-            ResourceId::LocalMachine => LazyDisplayable::Str(""),
-            ResourceId::CpuPackage { id } => LazyDisplayable::U32(*id),
-            ResourceId::CpuCore { id } => LazyDisplayable::U32(*id),
-            ResourceId::Dram { pkg_id } => LazyDisplayable::U32(*pkg_id),
-            ResourceId::Gpu { bus_id } => LazyDisplayable::Str(&bus_id),
-            ResourceId::Custom { kind: _, id } => LazyDisplayable::Str(&id),
+            Resource::LocalMachine => LazyDisplayable::Str(""),
+            Resource::CpuPackage { id } => LazyDisplayable::U32(*id),
+            Resource::CpuCore { id } => LazyDisplayable::U32(*id),
+            Resource::Dram { pkg_id } => LazyDisplayable::U32(*pkg_id),
+            Resource::Gpu { bus_id } => LazyDisplayable::Str(&bus_id),
+            Resource::Custom { kind: _, id } => LazyDisplayable::Str(&id),
         }
     }
 
     pub fn parse(kind: impl Into<StrCow>, id: impl Into<StrCow>) -> Result<Self, InvalidResourceError> {
-        ResourceId::custom(kind, id).normalize()
+        Resource::custom(kind, id).normalize()
     }
 
     pub fn normalize(self) -> Result<Self, InvalidResourceError> {
         match self {
-            ResourceId::Custom { kind, id } => match kind.as_ref() {
+            Resource::Custom { kind, id } => match kind.as_ref() {
                 "local_machine" => {
                     if id.is_empty() {
-                        Ok(ResourceId::LocalMachine)
+                        Ok(Resource::LocalMachine)
                     } else {
                         Err(InvalidResourceError::InvalidId(kind))
                     }
                 }
                 "cpu_package" => {
                     let id = id.parse().map_err(|_| InvalidResourceError::InvalidId(kind))?;
-                    Ok(ResourceId::CpuPackage { id })
+                    Ok(Resource::CpuPackage { id })
                 }
                 "cpu_core" => {
                     let id = id.parse().map_err(|_| InvalidResourceError::InvalidId(kind))?;
-                    Ok(ResourceId::CpuCore { id })
+                    Ok(Resource::CpuCore { id })
                 }
                 "dram" => {
                     let pkg_id = id.parse().map_err(|_| InvalidResourceError::InvalidId(kind))?;
-                    Ok(ResourceId::Dram { pkg_id })
+                    Ok(Resource::Dram { pkg_id })
                 }
-                "gpu" => Ok(ResourceId::Gpu { bus_id: id }),
-                _ => Ok(ResourceId::Custom { kind, id }),
+                "gpu" => Ok(Resource::Gpu { bus_id: id }),
+                _ => Ok(Resource::Custom { kind, id }),
             },
             r => Ok(r),
         }
     }
 }
 
-impl ResourceConsumerId {
-    pub fn custom(kind: impl Into<StrCow>, id: impl Into<StrCow>) -> ResourceConsumerId {
-        ResourceConsumerId::Custom {
+impl ResourceConsumer {
+    pub fn custom(kind: impl Into<StrCow>, id: impl Into<StrCow>) -> ResourceConsumer {
+        ResourceConsumer::Custom {
             kind: kind.into(),
             id: id.into(),
         }
@@ -160,42 +160,42 @@ impl ResourceConsumerId {
 
     pub fn kind(&self) -> &str {
         match self {
-            ResourceConsumerId::LocalMachine => "local_machine",
-            ResourceConsumerId::Process { .. } => "process",
-            ResourceConsumerId::ControlGroup { .. } => "cgroup",
-            ResourceConsumerId::Custom { kind, id: _ } => &kind,
+            ResourceConsumer::LocalMachine => "local_machine",
+            ResourceConsumer::Process { .. } => "process",
+            ResourceConsumer::ControlGroup { .. } => "cgroup",
+            ResourceConsumer::Custom { kind, id: _ } => &kind,
         }
     }
 
     pub fn id_string(&self) -> Option<String> {
         match self {
-            ResourceConsumerId::LocalMachine => None,
+            ResourceConsumer::LocalMachine => None,
             c => Some(c.id_display().to_string()),
         }
     }
 
     pub fn id_display(&self) -> impl fmt::Display + '_ {
         match self {
-            ResourceConsumerId::LocalMachine => LazyDisplayable::Str(""),
-            ResourceConsumerId::Process { pid } => LazyDisplayable::U32(*pid),
-            ResourceConsumerId::ControlGroup { path } => LazyDisplayable::Str(&path),
-            ResourceConsumerId::Custom { kind: _, id } => LazyDisplayable::Str(&id),
+            ResourceConsumer::LocalMachine => LazyDisplayable::Str(""),
+            ResourceConsumer::Process { pid } => LazyDisplayable::U32(*pid),
+            ResourceConsumer::ControlGroup { path } => LazyDisplayable::Str(&path),
+            ResourceConsumer::Custom { kind: _, id } => LazyDisplayable::Str(&id),
         }
     }
 
     pub fn parse(kind: impl Into<StrCow>, id: impl Into<StrCow>) -> Result<Self, InvalidConsumerError> {
-        ResourceConsumerId::custom(kind, id).normalize()
+        ResourceConsumer::custom(kind, id).normalize()
     }
 
     pub fn normalize(self) -> Result<Self, InvalidConsumerError> {
         match self {
-            ResourceConsumerId::Custom { kind, id } => match kind.as_ref() {
+            ResourceConsumer::Custom { kind, id } => match kind.as_ref() {
                 "process" => {
                     let pid = id.parse().map_err(|_| InvalidConsumerError::InvalidId(kind))?;
-                    Ok(ResourceConsumerId::Process { pid })
+                    Ok(ResourceConsumer::Process { pid })
                 }
-                "cgroup" => Ok(ResourceConsumerId::ControlGroup { path: id }),
-                _ => Ok(ResourceConsumerId::Custom { kind, id }),
+                "cgroup" => Ok(ResourceConsumer::ControlGroup { path: id }),
+                _ => Ok(ResourceConsumer::Custom { kind, id }),
             },
             r => Ok(r),
         }
