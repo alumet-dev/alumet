@@ -1,10 +1,10 @@
 use std::ffi::{c_char, CStr};
-use std::time::Instant;
 
 use libc::c_void;
 
 use crate::measurement::WrappedMeasurementType;
 use crate::metrics::RawMetricId;
+use crate::pipeline::trigger;
 use crate::{plugin::AlumetStart, units::Unit};
 
 use super::pipeline::{FfiOutput, FfiTransform};
@@ -65,11 +65,10 @@ pub extern "C" fn alumet_add_source(
     });
     alumet.add_source(
         source,
-        crate::pipeline::trigger::Trigger::TimeInterval {
-            start_time: Instant::now(),
-            poll_interval: poll_interval.into(),
-            flush_interval: flush_interval.into(),
-        },
+        trigger::builder::time_interval(poll_interval.into())
+            .flush_interval(flush_interval.into())
+            .build()
+            .unwrap(),
     );
 }
 #[no_mangle]

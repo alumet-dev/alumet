@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use alumet::measurement::{MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementValue};
 use alumet::metrics::{MetricId, TypedMetricId};
-use alumet::pipeline::trigger::Trigger;
+use alumet::pipeline::trigger::{self, TriggerSpec};
 use alumet::pipeline::{Output, OutputContext, PollError, Source, Transform, TransformError, WriteError};
 use alumet::plugin::{AlumetStart, Plugin};
 use alumet::resources::ResourceId;
@@ -60,7 +60,7 @@ impl Plugin for TestPlugin {
 
         // Add steps to the pipeline
         let source = Box::new(TestSource{metric_a,metric_b,a_base: self.base_value_a,b_counter:0});
-        let trigger = Trigger::at_interval(Duration::from_secs(1));
+        let trigger = trigger::builder::time_interval(Duration::from_secs(1)).build().unwrap();
         alumet.add_source(source, trigger);
         alumet.add_transform(Box::new(TestTransform));
         alumet.add_output(Box::new(TestOutput));

@@ -1,9 +1,11 @@
 //! Source triggers.
 
-use std::time::{Duration, Instant};
-use std::{fmt, io};
+use std::{fmt, time};
 use std::{future::Future, pin::Pin};
 
+use tokio::sync::watch;
+
+use super::runtime::SourceCmd;
 use super::PollError;
 
 /// A boxed future, from the `futures` crate.
@@ -14,72 +16,232 @@ pub type SourceTriggerOutput = Result<(), PollError>;
 /// Defines a trigger for measurement sources.
 ///
 /// The trigger controls when the [`Source`](super::Source) is polled for measurements.
-///
-/// ## Example
-/// ```
-/// use alumet::pipeline::trigger::Trigger;
-/// use std::time::Duration;
-/// 
-/// // Wait 30 seconds between each polling operation, and flush every time.
-/// let trigger = Trigger::at_interval(Duration::from_secs(30));
-/// ```
-/// 
-/// ## Advanced Example
-/// ```
-/// use alumet::pipeline::trigger::Trigger;
-/// use std::time::{Duration, Instant};
-///
-/// let trigger = Trigger::TimeInterval {
-///     // Start polling as soon as possible.
-///     start_time: Instant::now(),
-///     // Wait 30 seconds between each polling operation.
-///     poll_interval: Duration::from_secs(30),
-///     // Flush the measurements each 60 seconds (so, every 2 polls).
-///     flush_interval: Duration::from_secs(60),
-/// };
-/// ```
-#[derive(Clone, Debug)]
-pub enum Trigger {
-    /// A trigger based on a precise time interval.
+#[derive(Debug, Clone)]
+pub struct TriggerSpec {
+    mechanism: TriggerMechanismSpec,
+    interruptible: bool,
+    config: TriggerConfig,
+}
+
+/// Controls when the [`Source`](super::Source) is polled for measurements.
+pub(crate) struct Trigger {
+    pub config: TriggerConfig,
+    mechanism: TriggerMechanism,
+    interrupt_signal: Option<watch::Receiver<SourceCmd>>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct TriggerConfig {
+    /// Numbers of polling operations to do before flushing the measurements.
+    ///
+    /// Flushing more often increases the pressure on the memory allocator.
+    pub flush_rounds: usize,
+
+    /// Number of polling operations to do before updating the command.
+    ///
+    /// Updating more often increases the overhead of the measurement,
+    /// but decreases the time it takes for a [source command](super::runtime::SourceCmd)
+    /// to be applied.
+    pub update_rounds: usize,
+}
+
+/// Builder for source triggers.
+pub mod builder {
+    use core::fmt;
+    use std::time::{Duration, Instant};
+
+    use super::{TriggerConfig, TriggerMechanismSpec, TriggerSpec};
+
+    /// Returns a builder for a source trigger that polls the source at regular intervals.
+    ///
+    /// ## Timing
     ///
     /// The accuracy of the timing depends on the operating system and on the scheduling
     /// policy of the thread that executes the trigger.
     /// For small intervals of 1ms or less, it is recommended to run Alumet on Linux
     /// and to use [`SourceType::RealtimePriority`](super::runtime::SourceType::RealtimePriority).
-    TimeInterval {
-        /// Time of the first polling.
-        start_time: Instant,
-        /// Time interval between each polling.
-        poll_interval: Duration,
-        /// Time interval between each flushing of the measurements.
-        flush_interval: Duration,
-    },
-    /// A trigger based on an arbitrary [`Future`] that is returned on demand
-    /// by a function `f`.
-    Future {
-        /// Function that creates a (boxed) Future.
-        f: fn() -> BoxFuture<'static, SourceTriggerOutput>,
-        /// How many calls to the function `f` should be made before flushing the measurements.
-        flush_rounds: usize,
-    },
-}
+    ///
+    /// ## Example
+    /// ```
+    /// use alumet::pipeline::trigger;
+    ///
+    /// let trigger_config = trigger::builder::time_interval(Duration::from_secs(1))
+    ///     .start_at(Instant::now() + Duration::from_secs(30))
+    ///     .flush_interval(Duration::from_secs(2))
+    ///     .update_interval(Duration::from_secs(5))
+    /// ```
+    pub fn time_interval(poll_interval: Duration) -> TimeTriggerBuilder {
+        TimeTriggerBuilder::new(poll_interval)
+    }
 
-impl Trigger {
-    pub fn at_interval(poll_interval: Duration) -> Trigger {
-        Trigger::TimeInterval {
-            start_time: Instant::now(),
-            poll_interval,
-            flush_interval: poll_interval,
+    /// Builder for a source trigger that polls the source at regular intervals.
+    pub struct TimeTriggerBuilder {
+        start: Instant,
+        poll_interval: Duration,
+        config: TriggerConfig,
+        interruptible: bool,
+    }
+
+    #[derive(Debug)]
+    pub enum Error {
+        Io(std::io::Error),
+        InvalidConfig(String),
+    }
+
+    impl fmt::Display for Error {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            match self {
+                Error::Io(err) => write!(f, "io error: {err}"),
+                Error::InvalidConfig(msg) => write!(f, "invalid trigger config: {msg}"),
+            }
+        }
+    }
+    
+    impl std::error::Error for Error {}
+
+    impl TimeTriggerBuilder {
+        pub fn new(poll_interval: Duration) -> Self {
+            Self {
+                start: Instant::now(),
+                poll_interval,
+                config: TriggerConfig {
+                    flush_rounds: 1,
+                    update_rounds: 1,
+                },
+                interruptible: false,
+            }
+        }
+
+        /// Start polling at the given time.
+        pub fn starting_at(mut self, start: Instant) -> Self {
+            self.start = start;
+            self
+        }
+
+        /// Flush the measurements every `flush_rounds` polls.
+        pub fn flush_rounds(mut self, flush_rounds: usize) -> Self {
+            self.config.flush_rounds = flush_rounds;
+            self
+        }
+
+        /// Update the source command every `update_rounds` polls.
+        pub fn update_rounds(mut self, update_rounds: usize) -> Self {
+            self.config.update_rounds = update_rounds;
+            self
+        }
+
+        /// Flush the measurement after, at most, the given duration.
+        pub fn flush_interval(mut self, flush_interval: Duration) -> Self {
+            if self.poll_interval.is_zero() {
+                return self; // don't modify anything, build() will fail
+            }
+
+            // flush_rounds must be non-zero, or the remainder operation will panic (`i % flush_rounds` in the polling loop)
+            self.config.flush_rounds = ((flush_interval.as_nanos() / self.poll_interval.as_nanos()) as usize).max(1);
+            self
+        }
+
+        /// Update the source command after, at most, the given duration.
+        pub fn update_interval(mut self, update_interval: Duration) -> Self {
+            if self.poll_interval.is_zero() {
+                return self; // don't modify anything, build() will fail
+            }
+
+            if self.poll_interval > update_interval {
+                // The trigger mechanism needs to be interruptible, otherwise `trigger.next().await`
+                // would block the task for longer than the requested update interval, and
+                // the source commands would be applied too late.
+                self.config.update_rounds = 1;
+                self.interruptible = true;
+            } else {
+                self.config.update_rounds =
+                    ((update_interval.as_nanos() / self.poll_interval.as_nanos()) as usize).max(1);
+                self.interruptible = false;
+            }
+            self
+        }
+
+        /// Builds the trigger.
+        pub fn build(self) -> Result<TriggerSpec, Error> {
+            if self.poll_interval.is_zero() {
+                return Err(Error::InvalidConfig(format!("poll_interval must be non-zero")));
+            }
+            Ok(TriggerSpec {
+                mechanism: TriggerMechanismSpec::TimeInterval(self.start, self.poll_interval),
+                interruptible: self.interruptible,
+                config: self.config,
+            })
         }
     }
 }
 
-/// Controls when the [`Source`](super::Source) is polled for measurements.
-pub(crate) struct ConfiguredSourceTrigger {
-    /// The trigger that controls when to poll the source.
-    trigger: TriggerMechanism,
-    /// Numbers of polling operations to do before flushing the measurements.
-    pub flush_rounds: usize,
+impl TriggerSpec {
+    pub fn at_interval(poll_interval: time::Duration) -> TriggerSpec {
+        builder::time_interval(poll_interval).build().unwrap()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub(crate) enum TriggerReason {
+    Triggered,
+    Interrupted,
+}
+
+impl Trigger {
+    pub fn new(spec: TriggerSpec, interrupt_signal: watch::Receiver<SourceCmd>) -> Result<Self, std::io::Error> {
+        Ok(Self {
+            config: spec.config,
+            mechanism: TriggerMechanism::try_from(spec.mechanism)?,
+            interrupt_signal: Some(interrupt_signal),
+        })
+    }
+
+    #[allow(unused)]
+    pub fn without_signal(spec: TriggerSpec) -> Result<Option<Self>, std::io::Error> {
+        if spec.interruptible {
+            Ok(None)
+        } else {
+            Ok(Some(Self {
+                config: spec.config,
+                mechanism: TriggerMechanism::try_from(spec.mechanism)?,
+                interrupt_signal: None,
+            }))
+        }
+    }
+
+    pub async fn next(&mut self) -> Result<TriggerReason, PollError> {
+        if let Some(signal) = &mut self.interrupt_signal {
+            // Use select! to wake up on trigger _or_ signal, the first that occurs
+            tokio::select! {
+                biased; // don't choose the branch randomly (for performance)
+
+                res = self.mechanism.next() => {
+                    res?;
+                    Ok(TriggerReason::Triggered)
+                }
+                res = signal.changed() => {
+                    res?;
+                    Ok(TriggerReason::Interrupted)
+                }
+            }
+        } else {
+            // Simple case: simply wait for the trigger
+            self.mechanism.next().await?;
+            Ok(TriggerReason::Triggered)
+        }
+    }
+}
+
+/// Spec for a trigger mechanism.
+///
+/// Useful because some mechanisms, like tokio_timerfd::Interval, are not cloneable,
+/// and we need cloneable values for working with the watch channel in
+/// the implementation of the pipeline.
+#[derive(Debug, Clone)]
+enum TriggerMechanismSpec {
+    TimeInterval(time::Instant, time::Duration),
+    Future(fn() -> BoxFuture<'static, SourceTriggerOutput>),
 }
 
 /// The possible trigger mechanisms.
@@ -103,19 +265,41 @@ enum TriggerMechanism {
     Future(fn() -> BoxFuture<'static, SourceTriggerOutput>),
 }
 
-impl ConfiguredSourceTrigger {
+impl TryFrom<TriggerMechanismSpec> for TriggerMechanism {
+    type Error = std::io::Error;
+
+    fn try_from(value: TriggerMechanismSpec) -> Result<Self, Self::Error> {
+        Ok(match value {
+            TriggerMechanismSpec::TimeInterval(at, duration) => {
+                // Use timerfd if possible, fallback to `tokio::time::sleep`.
+                #[cfg(target_os = "linux")]
+                {
+                    TriggerMechanism::Timerfd(tokio_timerfd::Interval::new(at, duration)?)
+                }
+
+                #[cfg(not(target_os = "linux"))]
+                {
+                    TriggerMechanism::TokioSleep(at.into(), duration.into())
+                }
+            }
+            TriggerMechanismSpec::Future(f) => TriggerMechanism::Future(f),
+        })
+    }
+}
+
+impl TriggerMechanism {
     pub async fn next(&mut self) -> Result<(), PollError> {
         use tokio_stream::StreamExt;
 
-        match self.trigger {
+        match self {
             #[cfg(target_os = "linux")]
-            TriggerMechanism::Timerfd(ref mut interval) => {
+            TriggerMechanism::Timerfd(interval) => {
                 interval.next().await.unwrap()?;
                 Ok(())
             }
             TriggerMechanism::TokioSleep(start, period) => {
                 let now = tokio::time::Instant::now();
-                let deadline = if start > now { start } else { now + period };
+                let deadline = if &*start > &now { *start } else { now + *period };
                 tokio::time::sleep_until(deadline).await;
                 Ok(())
             }
@@ -124,56 +308,22 @@ impl ConfiguredSourceTrigger {
     }
 }
 
-impl Trigger {
-    /// Returns a new `SourceTrigger` along with some automatic settings.
-    pub(crate) fn auto_configured(self) -> io::Result<ConfiguredSourceTrigger> {
-        match self {
-            Trigger::TimeInterval {
-                start_time,
-                poll_interval,
-                flush_interval,
-            } => {
-                if flush_interval.is_zero() || poll_interval.is_zero() || flush_interval < poll_interval {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        "Invalid intervals, they must be non-zero, and poll_interval must be >= flush_interval.",
-                    ));
-                }
-                // flush_rounds must be non-zero, or the remainder operation will panic (`i % flush_rounds` in the polling loop)
-                let flush_rounds = (flush_interval.as_micros() / poll_interval.as_micros()) as usize;
-
-                // Use timerfd if possible, fallback to `tokio::time::sleep`.
-                #[cfg(target_os = "linux")]
-                let trigger = TriggerMechanism::Timerfd(tokio_timerfd::Interval::new(start_time, poll_interval)?);
-                #[cfg(not(target_os = "linux"))]
-                let trigger = TriggerMechanism::TokioSleep(tokio::time::Instant::from_std(start_time), poll_interval);
-
-                Ok(ConfiguredSourceTrigger { trigger, flush_rounds })
-            }
-            Trigger::Future { f, flush_rounds } => {
-                let trigger = TriggerMechanism::Future(f);
-                Ok(ConfiguredSourceTrigger { trigger, flush_rounds })
-            }
-        }
-    }
-}
-
 impl fmt::Debug for TriggerMechanism {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             #[cfg(target_os = "linux")]
-            Self::Timerfd(_) => f.write_str("TimerfdInterval"),
-            Self::TokioSleep(_, _) => f.write_str("TokioSleep"),
-            Self::Future(_) => f.write_str("Future"),
+            Self::Timerfd(_) => f.write_str("Timerfd trigger"),
+            Self::TokioSleep(_, _) => f.write_str("TokioSleep trigger"),
+            Self::Future(_) => f.write_str("Future trigger"),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
-    use super::Trigger;
+    use super::builder;
 
     #[test]
     fn trigger_auto_config() {
@@ -188,32 +338,38 @@ mod tests {
                 /*expected flush rounds or error*/ Some(1),
             ),
             (1, 2, Some(2)),
-            (2, 1, None), // flushing more often than polling is impossible!
+            (2, 1, Some(1)), // max(1)
             (2, 2, Some(1)),
             (22, 44, Some(2)),
             (21, 44, Some(2)), // rounding
             (22, 88, Some(4)),
-            (0, 1, None), // invalid interval
-            (1, 0, None), // invalid interval
-            (0, 0, None), // invalid interval
+            (0, 1, None),    // invalid interval
+            (1, 1, Some(1)), // max(1)
+            (1, 0, Some(1)), // max(1)
         ];
         for (poll_int, flush_int, expected_flush_rounds) in intervals_and_rounds {
-            let tp = Trigger::TimeInterval {
-                start_time: Instant::now(),
-                poll_interval: Duration::from_secs(poll_int),
-                flush_interval: Duration::from_secs(flush_int),
-            };
-            rt.block_on(async move {
-                match tp.auto_configured() {
-                    Ok(trigger) => {
-                        assert!(expected_flush_rounds.is_some());
-                        assert_eq!(expected_flush_rounds.unwrap(), trigger.flush_rounds);
-                    }
-                    Err(_) => {
-                        assert!(expected_flush_rounds.is_none());
-                    }
+            let res = builder::time_interval(Duration::from_secs(poll_int))
+                .flush_interval(Duration::from_secs(flush_int))
+                .build();
+            match res {
+                Ok(trigger_spec) => {
+                    assert!(
+                        expected_flush_rounds.is_some(),
+                        "unexpected ok for ({}, {})",
+                        poll_int,
+                        flush_int
+                    );
+                    assert_eq!(expected_flush_rounds.unwrap(), trigger_spec.config.flush_rounds);
                 }
-            });
+                Err(_) => {
+                    assert!(
+                        expected_flush_rounds.is_none(),
+                        "unexpected error for ({}, {})",
+                        poll_int,
+                        flush_int
+                    );
+                }
+            }
         }
     }
 }

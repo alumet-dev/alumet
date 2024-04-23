@@ -90,7 +90,7 @@ use crate::measurement::{MeasurementBuffer, MeasurementType, WrappedMeasurementT
 use crate::metrics::{Metric, MetricCreationError, RawMetricId, TypedMetricId};
 use crate::pipeline::builder::{AutonomousSourceBuilder, OutputBuilder, SourceBuilder, TransformBuilder};
 use crate::pipeline::runtime::{IdlePipeline, RunningPipeline};
-use crate::pipeline::trigger::Trigger;
+use crate::pipeline::trigger::TriggerSpec;
 use crate::pipeline::{builder::PendingPipeline, builder::PipelineBuilder, SourceType};
 use crate::pipeline::{Output, Source, Transform};
 use crate::units::PrefixedUnit;
@@ -232,7 +232,7 @@ impl<'a> AlumetStart<'a> {
     }
 
     /// Adds a measurement source to the Alumet pipeline.
-    pub fn add_source(&mut self, source: Box<dyn Source>, trigger: Trigger) {
+    pub fn add_source(&mut self, source: Box<dyn Source>, trigger: TriggerSpec) {
         let plugin = self.current_plugin_name().to_owned();
         self.pipeline_builder.sources.push(SourceBuilder {
             source_type: SourceType::Normal,
@@ -249,7 +249,7 @@ impl<'a> AlumetStart<'a> {
     ///
     /// The downside is a more complicated code.
     /// In general, you should prefer to use [`add_source`] if possible.
-    pub fn add_late_source<F: FnOnce(&PendingPipeline) -> (Box<dyn Source>, Trigger) + 'static>(
+    pub fn add_late_source<F: FnOnce(&PendingPipeline) -> (Box<dyn Source>, TriggerSpec) + 'static>(
         &mut self,
         source_builder: F,
     ) {

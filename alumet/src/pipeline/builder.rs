@@ -15,7 +15,7 @@ use crate::{
 };
 
 use super::runtime::{self, IdlePipeline, OutputMsg};
-use super::trigger::Trigger;
+use super::trigger::TriggerSpec;
 use super::{threading, SourceType};
 
 /// A builder of measurement pipeline.
@@ -34,7 +34,7 @@ pub struct PipelineBuilder {
 pub struct SourceBuilder {
     pub source_type: SourceType,
     pub plugin: String,
-    pub build: Box<dyn FnOnce(&PendingPipeline) -> (Box<dyn Source>, Trigger)>,
+    pub build: Box<dyn FnOnce(&PendingPipeline) -> (Box<dyn Source>, TriggerSpec)>,
 }
 
 pub struct AutonomousSourceBuilder {
@@ -115,7 +115,7 @@ pub struct ConfiguredSource {
     /// Type of the source, for scheduling.
     pub source_type: SourceType,
     /// How to trigger this source.
-    pub trigger_provider: Trigger,
+    pub trigger_provider: TriggerSpec,
 }
 /// A transform that is ready to run.
 pub struct ConfiguredTransform {

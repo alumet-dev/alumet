@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Context};
 
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tokio::{runtime::Runtime, sync::watch};
@@ -16,13 +17,14 @@ use tokio::{runtime::Runtime, sync::watch};
 use crate::measurement::Timestamp;
 use crate::metrics::{Metric, RawMetricId};
 use crate::pipeline::scoped;
+use crate::pipeline::trigger::TriggerReason;
 use crate::{
     measurement::MeasurementBuffer,
     metrics::MetricRegistry,
     pipeline::{Output, Source, Transform},
 };
 
-use super::trigger::{ConfiguredSourceTrigger, Trigger};
+use super::trigger::{Trigger, TriggerSpec};
 use super::{builder, SourceType};
 use super::{OutputContext, PollError, TransformError, WriteError};
 
@@ -213,7 +215,7 @@ pub enum SourceCmd {
     Run,
     Pause,
     Stop,
-    SetTrigger(Option<Trigger>),
+    SetTrigger(Option<TriggerSpec>),
 }
 
 async fn run_source(
@@ -221,82 +223,141 @@ async fn run_source(
     tx: mpsc::Sender<MeasurementBuffer>,
     mut commands: watch::Receiver<SourceCmd>,
 ) -> Result<(), PollError> {
-    fn init_trigger(provider: &mut Option<Trigger>) -> anyhow::Result<ConfiguredSourceTrigger> {
-        provider
+    /// Takes the [`Trigger`] from the option and initializes it.
+    fn init_trigger(
+        trigger_spec: &mut Option<TriggerSpec>,
+        interrupt_signal: watch::Receiver<SourceCmd>,
+    ) -> Result<Trigger, std::io::Error> {
+        let spec = trigger_spec
             .take()
-            .expect("invalid empty trigger in message Init(trigger)")
-            .auto_configured()
-            .context("init_trigger failed")
+            .expect("invalid empty trigger in message Init(trigger)");
+        Trigger::new(spec, interrupt_signal)
     }
 
     // the first command must be "init"
-    let mut trigger = {
+    let mut trigger: Trigger = {
+        let signal = commands.clone();
         let init_cmd = commands
             .wait_for(|c| matches!(c, SourceCmd::SetTrigger(_)))
             .await
             .expect("watch channel must stay open during run_source");
 
-        match (*init_cmd).clone() {
+        match init_cmd.clone() {
             // cloning required to borrow opt as mut below
-            SourceCmd::SetTrigger(mut opt) => init_trigger(&mut opt)?,
+            SourceCmd::SetTrigger(mut opt) => init_trigger(&mut opt, signal).unwrap(),
             _ => unreachable!(),
         }
     };
 
-    // Stores measurements in this buffer, and replace it every `flush_rounds` rounds.
-    // We probably need the capacity to store at least one measurement per round.
-    let mut buffer = MeasurementBuffer::with_capacity(trigger.flush_rounds);
+    // Store measurements in this buffer, and replace it every `flush_rounds` rounds.
+    // For now, we don't know how many measurements the source will produce, so we allocate 1 per round.
+    let mut buffer = MeasurementBuffer::with_capacity(trigger.config.flush_rounds);
 
     // main loop
     let mut i = 1usize;
     'run: loop {
-        // wait for trigger
-        trigger.next().await?;
+        // Wait for the trigger. It can return for two reasons:
+        // - "normal case": the underlying mechanism (e.g. timer) triggers <- this is the most likely case
+        // - "interrupt case": the underlying mechanism was idle (e.g. sleeping) but a new command arrived
+        let reason = trigger.next().await?;
 
-        // poll the source
-        let timestamp = Timestamp::now();
-        source.poll(&mut buffer.as_accumulator(), timestamp)?;
+        let update = match reason {
+            TriggerReason::Triggered => {
+                // poll the source
+                let timestamp = Timestamp::now();
+                source.poll(&mut buffer.as_accumulator(), timestamp)?;
 
-        // Flush the measurements and update the command, not on every round for performance reasons.
-        // This is done _after_ polling, to ensure that we poll at least once before flushing, even if flush_rounds is 1.
-        if i % trigger.flush_rounds == 0 {
-            // flush and create a new buffer
-            let prev_length = buffer.len(); // hint for the new buffer size, great if the number of measurements per flush doesn't change much
-            tx.try_send(buffer)
-                .context("todo: handle failed send (source too fast)")?;
-            buffer = MeasurementBuffer::with_capacity(prev_length);
-            log::debug!("source flushed {prev_length} measurements");
+                // Flush the measurements, not on every round for performance reasons.
+                // This is done _after_ polling, to ensure that we poll at least once before flushing, even if flush_rounds is 1.
+                if i % trigger.config.flush_rounds == 0 {
+                    // flush and create a new buffer
 
+                    // Hint for the new buffer capacity, great if the number of measurements per flush doesn't change much,
+                    // which is often the case.
+                    let prev_length = buffer.len();
+
+                    buffer = match tx.try_send(buffer) {
+                        Ok(()) => {
+                            // buffer has been sent, create a new one
+                            log::debug!("source flushed {prev_length} measurements");
+                            MeasurementBuffer::with_capacity(prev_length)
+                        }
+                        Err(TrySendError::Closed(_buf)) => {
+                            // the channel Receiver has been closed
+                            panic!("source channel should stay open");
+                        }
+                        Err(TrySendError::Full(buf)) => {
+                            // the channel's buffer is full! reduce the measurement frequency
+                            // TODO it would be better to choose which source to slow down based
+                            // on its frequency and number of measurements per poll.
+                            // buf
+                            todo!()
+                        }
+                    };
+                }
+
+                // only update on some rounds, for performance reasons.
+                let update = (i % trigger.config.update_rounds) == 0;
+
+                // increase i
+                i = i.wrapping_add(1);
+
+                update
+            }
+            TriggerReason::Interrupted => {
+                // interrupted because of a new command, forcibly update the command (see below)
+                true
+            }
+        };
+
+        if update {
             // update state based on the latest command
-            if commands.has_changed().unwrap() {
+            let current_command: Option<SourceCmd> = {
+                // restrict the scope of cmd_ref, otherwise it causes lifetime problems
+                let cmd_ref = commands.borrow_and_update();
+                if cmd_ref.has_changed() {
+                    Some(cmd_ref.clone())
+                } else {
+                    None
+                }
+            };
+
+            if let Some(cmd) = current_command {
+                let mut cmd = cmd;
                 let mut paused = false;
                 'pause: loop {
-                    let cmd = if paused {
-                        commands
-                            .changed()
-                            .await
-                            .expect("The output channel of paused source should be open.");
-                        (*commands.borrow()).clone()
-                    } else {
-                        (*commands.borrow_and_update()).clone()
-                    };
                     match cmd {
                         SourceCmd::Run => break 'pause,
                         SourceCmd::Pause => paused = true,
                         SourceCmd::Stop => break 'run,
                         SourceCmd::SetTrigger(mut opt) => {
-                            trigger = init_trigger(&mut opt)?;
-                            let hint_additional_elems = trigger.flush_rounds - (i % trigger.flush_rounds);
+                            let prev_flush_rounds = trigger.config.flush_rounds;
+
+                            // update the trigger
+                            let signal = commands.clone();
+                            trigger = init_trigger(&mut opt, signal).unwrap();
+                            i = 0;
+
+                            // estimate the required buffer capacity and allocate it
+                            let prev_length = buffer.len();
+                            let remaining_rounds = trigger.config.flush_rounds;
+                            let hint_additional_elems = remaining_rounds * prev_length / prev_flush_rounds;
                             buffer.reserve(hint_additional_elems);
+
+                            // don't be stuck here
                             if !paused {
                                 break 'pause;
                             }
                         }
                     }
+                    commands
+                        .changed()
+                        .await
+                        .expect("command channel of paused source should remain open");
+                    cmd = commands.borrow().clone();
                 }
             }
         }
-        i = i.wrapping_add(1);
     }
     Ok(())
 }
@@ -367,10 +428,13 @@ async fn run_output_from_broadcast(
     // - to change the command, update the variable and send a special message through the channel
     // In this alternative design, each Output would have one mpsc channel, and the Transform step would call send() or try_send() on each of them.
     //
-    // B) use a broadcast + watch, where the broadcast discards old values when a receiver (output) lags behind, instead of either (with option A):
+    // B) use a broadcast + watch, where the broadcast discards old values when a receiver (output) lags behind,
+    // instead of either (with option A):
     // - preventing the transform from running (mpsc channel's send() blocks when the queue is full).
     // - losing the most recent messages in transform, for one output. Other outputs that are not lagging behind will receive all messages fine, since try_send() does not block.
     //     The problem is: what to do with messages that could not be sent, when try_send() fails?
+    //
+    // We have chosen option (B).
 
     async fn handle_message(
         received_msg: OutputMsg,
@@ -637,7 +701,7 @@ mod tests {
             Arc,
         },
         thread::sleep,
-        time::{Duration, Instant},
+        time::Duration,
     };
 
     use tokio::{
@@ -646,93 +710,108 @@ mod tests {
     };
 
     use crate::{
-        measurement::{MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementType, WrappedMeasurementValue},
+        measurement::{
+            MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementType,
+            WrappedMeasurementValue,
+        },
         metrics::{MetricRegistry, RawMetricId},
-        pipeline::{trigger::Trigger, OutputContext, Transform},
+        pipeline::{trigger::TriggerSpec, OutputContext, Transform},
         resources::ResourceId,
     };
 
-    use super::{run_output_from_broadcast, run_source, run_transforms, OutputCmd, OutputMsg, SourceCmd};
+    use super::{
+        super::trigger, run_output_from_broadcast, run_source, run_transforms, OutputCmd, OutputMsg, SourceCmd,
+    };
 
     #[test]
     fn source_triggered_by_time() {
-        let rt = new_rt(2);
+        run_test(false);
+        run_test(true);
 
-        let source = TestSource::new();
-        let tp = new_tp();
-        let (tx, mut rx) = mpsc::channel::<MeasurementBuffer>(64);
-        let (cmd_tx, cmd_rx) = watch::channel(SourceCmd::SetTrigger(Some(tp)));
+        fn run_test(with_interruption: bool) {
+            let rt = new_rt(2);
 
-        let stopped = Arc::new(AtomicU8::new(TestSourceState::Running as _));
-        let stopped2 = stopped.clone();
-        rt.spawn(async move {
-            let mut n_polls = 0;
-            loop {
-                // check the measurements
-                if let Some(measurements) = rx.recv().await {
-                    assert_ne!(
-                        TestSourceState::Stopped as u8,
-                        stopped2.load(Ordering::Relaxed),
-                        "The source is stopped/paused, it should not produce measurements."
-                    );
+            let source = TestSource::new();
+            let tp = new_trigger(with_interruption);
+            println!("trigger: {tp:?}");
+            let (tx, mut rx) = mpsc::channel::<MeasurementBuffer>(64);
+            let (cmd_tx, cmd_rx) = watch::channel(SourceCmd::SetTrigger(Some(tp)));
 
-                    // 2 by 2 because flush_interval = 2*poll_interval
-                    assert_eq!(measurements.len(), 2);
-                    n_polls += 2;
-                    let last_point = measurements.iter().last().unwrap();
-                    let last_point_value = match last_point.value {
-                        WrappedMeasurementValue::U64(n) => n,
-                        _ => panic!("unexpected value type"),
-                    };
-                    assert_eq!(n_polls, last_point_value);
-                } else {
-                    // the channel is dropped when run_source terminates, which must only occur when the source is stopped
-                    assert_ne!(
-                        TestSourceState::Running as u8,
-                        stopped2.load(Ordering::Relaxed),
-                        "The source is not stopped, the channel should be open."
-                    );
+            let stopped = Arc::new(AtomicU8::new(TestSourceState::Running as _));
+            let stopped2 = stopped.clone();
+            rt.spawn(async move {
+                let mut n_polls = 0;
+                loop {
+                    // check the measurements
+                    if let Some(measurements) = rx.recv().await {
+                        assert_ne!(
+                            TestSourceState::Stopped as u8,
+                            stopped2.load(Ordering::Relaxed),
+                            "The source is stopped/paused, it should not produce measurements."
+                        );
+
+                        // 2 by 2 because flush_interval = 2*poll_interval
+                        assert_eq!(measurements.len(), 2);
+                        n_polls += 2;
+                        let last_point = measurements.iter().last().unwrap();
+                        let last_point_value = match last_point.value {
+                            WrappedMeasurementValue::U64(n) => n,
+                            _ => panic!("unexpected value type"),
+                        };
+                        assert_eq!(n_polls, last_point_value);
+                    } else {
+                        // the channel is dropped when run_source terminates, which must only occur when the source is stopped
+                        assert_ne!(
+                            TestSourceState::Running as u8,
+                            stopped2.load(Ordering::Relaxed),
+                            "The source is not stopped, the channel should be open."
+                        );
+                    }
                 }
-            }
-        });
+            });
 
-        // poll the source for some time
-        rt.spawn(run_source(Box::new(source), tx, cmd_rx));
-        sleep(Duration::from_millis(20));
+            // poll the source for some time
+            rt.spawn(run_source(Box::new(source), tx, cmd_rx));
+            sleep(Duration::from_millis(20));
 
-        // pause source
-        cmd_tx.send(SourceCmd::Pause).unwrap();
-        stopped.store(TestSourceState::Stopping as _, Ordering::Relaxed);
-        sleep(Duration::from_millis(10)); // some tolerance (wait for flushing)
-        stopped.store(TestSourceState::Stopped as _, Ordering::Relaxed);
+            // pause source
+            cmd_tx.send(SourceCmd::Pause).unwrap();
+            stopped.store(TestSourceState::Stopping as _, Ordering::Relaxed);
+            sleep(Duration::from_millis(10)); // some tolerance (wait for flushing)
+            stopped.store(TestSourceState::Stopped as _, Ordering::Relaxed);
 
-        // check that the source is paused
-        sleep(Duration::from_millis(10));
+            // check that the source is paused
+            sleep(Duration::from_millis(10));
 
-        // still paused after SetTrigger
-        cmd_tx.send(SourceCmd::SetTrigger(Some(new_tp()))).unwrap();
-        sleep(Duration::from_millis(20));
+            // still paused after SetTrigger
+            cmd_tx
+                .send(SourceCmd::SetTrigger(Some(new_trigger(with_interruption))))
+                .unwrap();
+            sleep(Duration::from_millis(20));
 
-        // resume source
-        cmd_tx.send(SourceCmd::Run).unwrap();
-        stopped.store(TestSourceState::Running as _, Ordering::Relaxed);
-        sleep(Duration::from_millis(5)); // lower tolerance (no flushing, just waiting for changes on the watch channel)
+            // resume source
+            cmd_tx.send(SourceCmd::Run).unwrap();
+            stopped.store(TestSourceState::Running as _, Ordering::Relaxed);
+            sleep(Duration::from_millis(5)); // lower tolerance (no flushing, just waiting for changes on the watch channel)
 
-        // poll for some time
-        sleep(Duration::from_millis(10));
+            // poll for some time
+            sleep(Duration::from_millis(10));
 
-        // still running after SetTrigger
-        cmd_tx.send(SourceCmd::SetTrigger(Some(new_tp()))).unwrap();
-        sleep(Duration::from_millis(20));
+            // still running after SetTrigger
+            cmd_tx
+                .send(SourceCmd::SetTrigger(Some(new_trigger(with_interruption))))
+                .unwrap();
+            sleep(Duration::from_millis(20));
 
-        // stop source
-        cmd_tx.send(SourceCmd::Stop).unwrap();
-        stopped.store(TestSourceState::Stopping as _, Ordering::Relaxed);
-        sleep(Duration::from_millis(10)); // some tolerance
-        stopped.store(TestSourceState::Stopped as _, Ordering::Relaxed);
+            // stop source
+            cmd_tx.send(SourceCmd::Stop).unwrap();
+            stopped.store(TestSourceState::Stopping as _, Ordering::Relaxed);
+            sleep(Duration::from_millis(10)); // some tolerance
+            stopped.store(TestSourceState::Stopped as _, Ordering::Relaxed);
 
-        // check that the source is stopped
-        sleep(Duration::from_millis(20));
+            // check that the source is stopped
+            sleep(Duration::from_millis(20));
+        }
 
         // drop the runtime, abort the tasks
     }
@@ -769,7 +848,7 @@ mod tests {
 
         // create source
         let source = TestSource::new();
-        let tp = new_tp();
+        let tp = new_trigger(false);
         let (src_tx, src_rx) = mpsc::channel::<MeasurementBuffer>(64);
         let (_src_cmd_tx, src_cmd_rx) = watch::channel(SourceCmd::SetTrigger(Some(tp)));
 
@@ -846,7 +925,7 @@ mod tests {
         let rt = new_rt(3);
         // create source
         let source = Box::new(TestSource::new());
-        let tp = new_tp();
+        let tp = new_trigger(false);
         let (src_tx, trans_rx) = mpsc::channel::<MeasurementBuffer>(64);
         let (src_cmd_tx, src_cmd_rx) = watch::channel(SourceCmd::SetTrigger(Some(tp)));
 
@@ -897,12 +976,13 @@ mod tests {
         assert_eq!(count, output_count.load(Ordering::Relaxed));
     }
 
-    fn new_tp() -> Trigger {
-        Trigger::TimeInterval {
-            start_time: Instant::now(),
-            poll_interval: Duration::from_millis(5),
-            flush_interval: Duration::from_millis(10),
+    fn new_trigger(test_interrupt: bool) -> TriggerSpec {
+        let mut builder =
+            trigger::builder::time_interval(Duration::from_millis(5)).flush_interval(Duration::from_millis(10));
+        if test_interrupt {
+            builder = builder.update_interval(Duration::from_millis(1));
         }
+        builder.build().unwrap()
     }
 
     fn new_rt(n_threads: usize) -> Runtime {

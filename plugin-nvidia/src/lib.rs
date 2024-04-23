@@ -49,7 +49,7 @@ impl NvidiaPlugin {
     /// For Jetson edge devices, use [`start_jetson`] instead.
     #[cfg(feature = "nvml")]
     fn start_nvml(&self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
-        use alumet::pipeline::trigger::Trigger;
+        use alumet::pipeline::trigger::TriggerSpec;
 
         let nvml = nvml::NvmlDevices::detect(true)?;
         let stats = nvml.detection_stats();
@@ -78,7 +78,7 @@ impl NvidiaPlugin {
         for maybe_device in nvml.devices {
             if let Some(device) = maybe_device {
                 let source = nvml::NvmlSource::new(device, metrics.clone())?;
-                alumet.add_source(Box::new(source), Trigger::at_interval(self.poll_interval));
+                alumet.add_source(Box::new(source), TriggerSpec::at_interval(self.poll_interval));
             }
         }
         Ok(())
@@ -89,7 +89,7 @@ impl NvidiaPlugin {
     /// This works by querying the embedded INA sensor(s).
     #[cfg(feature = "jetson")]
     fn start_jetson(&self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
-        use alumet::pipeline::trigger::Trigger;
+        use alumet::pipeline::trigger::TriggerSpec;
 
         let sensors = jetson::detect_ina_sensors()?;
         for sensor in &sensors {
@@ -100,7 +100,7 @@ impl NvidiaPlugin {
             }
         }
         let source = jetson::JetsonInaSource::open_sensors(sensors, alumet)?;
-        alumet.add_source(Box::new(source), Trigger::at_interval(self.poll_interval));
+        alumet.add_source(Box::new(source), TriggerSpec::at_interval(self.poll_interval));
         Ok(())
     }
 }

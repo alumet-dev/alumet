@@ -11,7 +11,7 @@ use std::{
 
 use alumet::pipeline::{
     runtime::{BlockingControlHandle, ControlHandle, OutputCmd, SourceCmd, TransformCmd},
-    trigger::Trigger,
+    trigger::{self, TriggerSpec},
 };
 use anyhow::{anyhow, Context};
 
@@ -91,11 +91,13 @@ fn run_command(command: String, handle: &ControlHandle) -> anyhow::Result<()> {
             ["trigger", "every", interval_str] => {
                 let poll_interval = parse_duration(&interval_str)?;
                 let flush_interval = poll_interval;
-                Ok(SourceCmd::SetTrigger(Some(Trigger::TimeInterval {
-                    start_time: Instant::now(),
-                    poll_interval,
-                    flush_interval,
-                })))
+                let trigger = trigger::builder::time_interval(poll_interval)
+                    .flush_interval(flush_interval)
+                    .build()
+                    .with_context(|| {
+                        format!("invalid trigger (poll every {poll_interval:?}, flush every {flush_interval:?})")
+                    })?;
+                Ok(SourceCmd::SetTrigger(Some(trigger)))
             }
             _ => Err(anyhow!("invalid arguments for source command: {args:?}")),
         }
@@ -204,7 +206,7 @@ mod tests {
         assert_eq!(parse_duration("0.1s").unwrap(), Duration::from_millis(100));
         assert_eq!(parse_duration("5ms").unwrap(), Duration::from_millis(5));
         assert_eq!(parse_duration("5mn").unwrap(), Duration::from_secs(60 * 5));
-        
+
         assert!(parse_duration("5").is_err());
         assert!(parse_duration("1abcd").is_err());
         assert!(parse_duration("sec").is_err());
