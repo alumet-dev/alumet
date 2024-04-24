@@ -25,6 +25,7 @@ impl SafeSubset {
         }
     }
 
+    #[allow(dead_code)]
     pub fn from_powercap_only(power_zones: PowerZoneHierarchy) -> Self {
         let power_zones = power_zones.flat;
         let mut domains: Vec<RaplDomainType> = power_zones.iter().map(|z| z.domain).collect();

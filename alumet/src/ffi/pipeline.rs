@@ -1,7 +1,6 @@
 use libc::c_void;
-use std::time::SystemTime;
 
-use super::{time::Timestamp, DropFn, FfiOutputContext, OutputWriteFn, SourcePollFn, TransformApplyFn};
+use super::{DropFn, FfiOutputContext, OutputWriteFn, SourcePollFn, TransformApplyFn};
 use crate::{
     measurement::{MeasurementAccumulator, MeasurementBuffer},
     pipeline::{self, OutputContext},

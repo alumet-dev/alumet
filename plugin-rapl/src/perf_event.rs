@@ -2,7 +2,7 @@ use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
     plugin::util::{CounterDiff, CounterDiffUpdate},
-    resources::{ResourceConsumer, Resource},
+    resources::{Resource, ResourceConsumer},
 };
 use anyhow::{Context, Result};
 use log::debug;
@@ -166,15 +166,15 @@ pub struct PerfEventProbe {
     /// Id of the metric to push.
     metric: TypedMetricId<f64>,
     /// Ready-to-use power events with additional metadata.
-    events: Vec<(OpenedPowerEvent, CounterDiff)>,
+    events: Vec<OpenedPowerEvent>,
 }
 
 struct OpenedPowerEvent {
     fd: File,
     scale: f64,
-    socket: u32,
     domain: RaplDomainType,
     resource: Resource,
+    counter: CounterDiff,
 }
 
 impl PerfEventProbe {
@@ -189,15 +189,15 @@ impl PerfEventProbe {
                 .with_context(|| format!("perf_event_open failed. {ADVICE}"))?;
             let fd = unsafe { File::from_raw_fd(raw_fd) };
             let scale = event.scale as f64;
+            let counter = CounterDiff::with_max_value(PERF_MAX_ENERGY);
             let opened_event = OpenedPowerEvent {
                 fd,
                 scale,
-                socket: *socket,
                 domain: event.domain,
                 resource: event.domain.to_resource(*socket),
+                counter,
             };
-            let counter = CounterDiff::with_max_value(PERF_MAX_ENERGY);
-            opened.push((opened_event, counter))
+            opened.push(opened_event)
         }
         Ok(PerfEventProbe { metric, events: opened })
     }
@@ -209,13 +209,13 @@ impl alumet::pipeline::Source for PerfEventProbe {
         measurements: &mut MeasurementAccumulator,
         timestamp: Timestamp,
     ) -> Result<(), alumet::pipeline::PollError> {
-        for (evt, counter) in &mut self.events {
+        for evt in &mut self.events {
             // read the new value of the perf-events counter
             let counter_value = read_perf_event(&mut evt.fd)
                 .with_context(|| format!("failed to read perf_event {:?} for domain {:?}", evt.fd, evt.domain))?;
 
             // correct any overflows
-            let diff = match counter.update(counter_value) {
+            let diff = match evt.counter.update(counter_value) {
                 CounterDiffUpdate::FirstTime => None,
                 CounterDiffUpdate::Difference(diff) => Some(diff),
                 CounterDiffUpdate::CorrectedDifference(diff) => {
@@ -229,7 +229,7 @@ impl alumet::pipeline::Source for PerfEventProbe {
                 let consumer = ResourceConsumer::LocalMachine;
                 measurements.push(
                     MeasurementPoint::new(timestamp, self.metric, evt.resource.clone(), consumer, joules)
-                        .with_attr("domain",evt.domain.as_str()),
+                        .with_attr("domain", evt.domain.as_str()),
                 );
             }
             // NOTE: the energy can be a floating-point number in Joules,

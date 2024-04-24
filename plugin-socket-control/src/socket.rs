@@ -6,12 +6,12 @@ use std::{
         Arc,
     },
     thread::JoinHandle,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use alumet::pipeline::{
     runtime::{BlockingControlHandle, ControlHandle, OutputCmd, SourceCmd, TransformCmd},
-    trigger::{self, TriggerSpec},
+    trigger,
 };
 use anyhow::{anyhow, Context};
 

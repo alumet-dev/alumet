@@ -1,6 +1,5 @@
 use anyhow::{anyhow, Context};
 use std::{
-    collections::HashSet,
     fs,
     num::ParseIntError,
     process::{Command, Stdio},
@@ -72,21 +71,6 @@ fn parse_cpu_list(cpulist: &str) -> anyhow::Result<Vec<u32>> {
 pub fn online_cpus() -> anyhow::Result<Vec<u32>> {
     let list = fs::read_to_string("/sys/devices/system/cpu/online")?;
     parse_cpu_list(&list)
-}
-
-/// Checks that the given slice contains only one CPU per socket.
-pub fn check_socket_cpus(cpus: &[CpuId]) -> anyhow::Result<()> {
-    let mut seen_sockets: HashSet<u32> = HashSet::new();
-    for cpu_info in cpus {
-        let s = cpu_info.socket;
-        if !seen_sockets.insert(s) {
-            return Err(anyhow::anyhow!(
-                "At most one CPU should be given per socket, wrong cpus for socket {}",
-                s
-            ));
-        }
-    }
-    Ok(())
 }
 
 pub fn cpu_vendor() -> anyhow::Result<CpuVendor> {

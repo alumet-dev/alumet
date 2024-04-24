@@ -39,22 +39,6 @@ impl FromStr for RaplDomainType {
 }
 
 impl RaplDomainType {
-    pub const ALL: [RaplDomainType; 5] = [
-        RaplDomainType::Package,
-        RaplDomainType::PP0,
-        RaplDomainType::PP1,
-        RaplDomainType::Dram,
-        RaplDomainType::Platform,
-    ];
-
-    pub const ALL_IN_ADDR_ORDER: [RaplDomainType; 5] = [
-        RaplDomainType::Package,
-        RaplDomainType::Dram,
-        RaplDomainType::PP0,
-        RaplDomainType::PP1,
-        RaplDomainType::Platform,
-    ];
-
     pub fn to_resource(&self, pkg_id: u32) -> Resource {
         match self {
             RaplDomainType::Package => Resource::CpuPackage { id: pkg_id },

@@ -8,10 +8,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use alumet::{measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp}, resources::ResourceConsumer};
 use alumet::metrics::TypedMetricId;
 use alumet::plugin::util::{CounterDiff, CounterDiffUpdate};
 use alumet::resources::Resource;
+use alumet::{
+    measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp},
+    resources::ResourceConsumer,
+};
 use anyhow::{anyhow, Context};
 
 use super::domains::RaplDomainType;
@@ -154,17 +157,16 @@ pub struct PowercapProbe {
     metric: TypedMetricId<f64>,
 
     /// Ready-to-use powercap zones with additional metadata
-    zones: Vec<(OpenedZone, CounterDiff)>,
+    zones: Vec<OpenedZone>,
 }
 
 struct OpenedZone {
     file: File,
-    socket: u32,
     domain: RaplDomainType,
-    /// The maximum energy value for this zone, as reported by `max_energy_uj`
-    max_energy_uj: u64,
     /// The corresponding ResourceId
     resource: Resource,
+    /// Overflow-correcting counter, to compute the energy consumption difference.
+    counter: CounterDiff,
 }
 
 impl PowercapProbe {
@@ -196,15 +198,14 @@ impl PowercapProbe {
 
             let socket = zone.socket_id.unwrap_or(0); // put psys in socket 0
 
+            let counter = CounterDiff::with_max_value(max_energy_uj);
             let opened_zone = OpenedZone {
                 file,
-                max_energy_uj,
-                socket,
                 domain: zone.domain,
                 resource: zone.domain.to_resource(socket),
+                counter,
             };
-            let counter = CounterDiff::with_max_value(max_energy_uj);
-            opened.push((opened_zone, counter));
+            opened.push(opened_zone);
         }
 
         Ok(PowercapProbe { metric, zones: opened })
@@ -222,7 +223,7 @@ impl alumet::pipeline::Source for PowercapProbe {
         // which is 16 bytes on all our test machines
         let mut zone_reading_buf = Vec::with_capacity(16);
 
-        for (zone, counter) in &mut self.zones {
+        for zone in &mut self.zones {
             // read the file from the beginning
             zone.file.rewind()?;
             zone.file.read_to_end(&mut zone_reading_buf)?;
@@ -235,7 +236,7 @@ impl alumet::pipeline::Source for PowercapProbe {
                 .with_context(|| format!("failed to parse {:?}: '{content}'", zone.file))?;
 
             // store the value, handle the overflow if there is one
-            let diff = match counter.update(counter_value) {
+            let diff = match zone.counter.update(counter_value) {
                 CounterDiffUpdate::FirstTime => None,
                 CounterDiffUpdate::Difference(diff) => Some(diff),
                 CounterDiffUpdate::CorrectedDifference(diff) => Some(diff),
