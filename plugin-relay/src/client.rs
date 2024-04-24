@@ -189,12 +189,13 @@ impl RelayClient {
             let attributes = m
                 .attributes()
                 .map(|(attr_key, attr_value)| protocol::MeasurementAttribute {
-                    key: attr_key.clone(),
+                    key: attr_key.to_owned(),
                     value: Some(match attr_value {
                         AttributeValue::F64(v) => protocol::measurement_attribute::Value::F64(*v),
                         AttributeValue::U64(v) => protocol::measurement_attribute::Value::U64(*v),
                         AttributeValue::Bool(v) => protocol::measurement_attribute::Value::Bool(*v),
                         AttributeValue::String(v) => protocol::measurement_attribute::Value::Str(v.to_owned()),
+                        AttributeValue::Str(v) => protocol::measurement_attribute::Value::Str(v.to_string()),
                     }),
                 })
                 .collect();

@@ -35,7 +35,7 @@ impl CsvOutput {
 fn collect_attribute_keys(buf: &MeasurementBuffer) -> HashSet<String> {
     let mut res = HashSet::new();
     for m in buf.iter() {
-        res.extend(m.attributes_keys().map(|k| k.clone()));
+        res.extend(m.attributes_keys().map(|k| k.to_owned()));
     }
     res
 }
@@ -53,7 +53,7 @@ impl alumet::pipeline::Output for CsvOutput {
             let sep = if attributes_in_header.is_empty() { "" } else { ";" };
             write!(
                 self.writer,
-                "metric;timestamp;value;resource_kind;resource_id{sep}{attributes_in_header};__late_attributes\n"
+                "metric;timestamp;value;resource_kind;resource_id;consumer_kind;consumer_id{sep}{attributes_in_header};__late_attributes\n"
             )?;
 
             self.attributes_in_header = Some(attr_keys);
@@ -69,9 +69,11 @@ impl alumet::pipeline::Output for CsvOutput {
             };
             let resource_kind = m.resource.kind();
             let resource_id = m.resource.id_display();
+            let consumer_kind = m.consumer.kind();
+            let consumer_id = m.consumer.id_display();
             write!(
                 self.writer,
-                "{metric_name};{datetime};{value};{resource_kind};{resource_id}"
+                "{metric_name};{datetime};{value};{resource_kind};{resource_id};{consumer_kind};{consumer_id}"
             )?;
 
             // sort the attributes by key

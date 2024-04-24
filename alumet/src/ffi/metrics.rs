@@ -1,4 +1,4 @@
-use std::time::SystemTime;
+use std::{borrow::Cow, time::SystemTime};
 
 use libc::c_void;
 
@@ -80,7 +80,7 @@ pub extern "C" fn mpoint_free(point: *mut MeasurementPoint) {
 /// Internal: C binding to [`MeasurementPoint::add_attr`].
 fn mpoint_attr(point: *mut MeasurementPoint, key: AStr, value: AttributeValue) {
     let point = unsafe { &mut *point }; // not Box::from_raw because we don't want to take ownership of the point
-    let key: &str = (&key).into();
+    let key = Cow::Owned(key.to_string());
     point.add_attr(key, value);
 }
 

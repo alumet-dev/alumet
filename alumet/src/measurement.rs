@@ -26,7 +26,9 @@
 //! ```
 
 use core::fmt;
+use std::borrow::Cow;
 use fxhash::FxBuildHasher;
+use smallvec::SmallVec;
 use std::{collections::HashMap, fmt::Display, time::SystemTime};
 
 use crate::resources::ResourceConsumer;
@@ -62,8 +64,16 @@ pub struct MeasurementPoint {
     pub consumer: ResourceConsumer,
 
     /// Additional attributes on the measurement point.
-    /// Not public because we could change how they are stored later.
-    attributes: HashMap<String, AttributeValue, FxBuildHasher>,
+    /// 
+    /// Not public because we could change how they are stored later (in fact it has already changed multiple times).
+    /// Uses  [`SmallVec`] to avoid allocations if the number of attributes is small.
+    attributes: SmallVec<[(Cow<'static, str>, AttributeValue); 4]>
+}
+
+#[derive(Clone)]
+pub struct MeasurementInGroup {
+    pub resource: Resource,
+    pub consumer: ResourceConsumer,
 }
 
 /// A measurement of a clock.
@@ -106,7 +116,7 @@ impl MeasurementPoint {
             value,
             resource,
             consumer,
-            attributes: HashMap::with_hasher(FxBuildHasher::default()),
+            attributes: SmallVec::new(),
         }
     }
 
@@ -116,40 +126,41 @@ impl MeasurementPoint {
     }
 
     /// Iterates on the attributes attached to the measurement point.
-    pub fn attributes(&self) -> impl Iterator<Item = (&String, &AttributeValue)> {
-        self.attributes.iter()
+    pub fn attributes(&self) -> impl Iterator<Item = (&str, &AttributeValue)> {
+        self.attributes.iter().map(|(k, v)| (k.as_ref(), v))
     }
 
     /// Iterates on the keys of the attributes that are attached to the point.
-    pub fn attributes_keys(&self) -> impl Iterator<Item = &String> {
-        self.attributes.keys()
+    pub fn attributes_keys(&self) -> impl Iterator<Item = &str> {
+        self.attributes.iter().map(|(k, _v)| k.as_ref())
     }
 
-    pub(crate) fn add_attr(&mut self, key: &str, value: AttributeValue) {
-        self.attributes.insert(key.to_owned(), value);
+    pub(crate) fn add_attr(&mut self, key: Cow<'static, str>, value: AttributeValue) {
+        self.attributes.push((key, value));
     }
 
     /// Sets an attribute on this measurement point.
     /// If an attribute with the same key already exists, its value is replaced.
-    pub fn with_attr(mut self, key: &str, value: AttributeValue) -> Self {
-        self.add_attr(key, value);
+    pub fn with_attr<K: Into<Cow<'static, str>>, V: Into<AttributeValue>>(mut self, key: K, value: V) -> Self {
+        self.add_attr(key.into(), value.into());
         self
     }
 
     /// Attaches multiple attributes to this measurement point, from a [`Vec`].
     /// Existing attributes with conflicting keys are replaced.
-    pub fn with_attr_vec(mut self, attributes: Vec<(String, AttributeValue)>) -> Self {
-        self.attributes.extend(attributes);
+    pub fn with_attr_vec<K: Into<Cow<'static, str>>>(mut self, attributes: Vec<(K, AttributeValue)>) -> Self {
+        self.attributes.extend(attributes.into_iter().map(|(k, v)| (k.into(), v)));
         self
     }
 
     /// Attaches multiple attributes to this measurement point, from a [`HashMap`].
     /// Existing attributes with conflicting keys are replaced.
-    pub fn with_attr_map(mut self, attributes: HashMap<String, AttributeValue, FxBuildHasher>) -> Self {
+    pub fn with_attr_map<K: Into<Cow<'static, str>>>(mut self, attributes: HashMap<K, AttributeValue, FxBuildHasher>) -> Self {
+        let converted = attributes.into_iter().map(|(k, v)| (k.into(), v));
         if self.attributes.is_empty() {
-            self.attributes = attributes;
+            self.attributes = converted.collect();
         } else {
-            self.attributes.extend(attributes);
+            self.attributes.extend(converted);
         }
         self
     }
@@ -244,6 +255,7 @@ pub enum AttributeValue {
     F64(f64),
     U64(u64),
     Bool(bool),
+    Str(&'static str),
     String(String),
 }
 
@@ -253,8 +265,39 @@ impl Display for AttributeValue {
             AttributeValue::F64(x) => write!(f, "{x}"),
             AttributeValue::U64(x) => write!(f, "{x}"),
             AttributeValue::Bool(x) => write!(f, "{x}"),
+            AttributeValue::Str(str) => f.write_str(str),
             AttributeValue::String(str) => f.write_str(str),
         }
+    }
+}
+
+impl From<f64> for AttributeValue {
+    fn from(value: f64) -> Self {
+        AttributeValue::F64(value)
+    }
+}
+
+impl From<u64> for AttributeValue {
+    fn from(value: u64) -> Self {
+        AttributeValue::U64(value)
+    }
+}
+
+impl From<bool> for AttributeValue {
+    fn from(value: bool) -> Self {
+        AttributeValue::Bool(value)
+    }
+}
+
+impl From<String> for AttributeValue {
+    fn from(value: String) -> Self {
+        AttributeValue::String(value)
+    }
+}
+
+impl From<&'static str> for AttributeValue {
+    fn from(value: &'static str) -> Self {
+        AttributeValue::Str(value)
     }
 }
 

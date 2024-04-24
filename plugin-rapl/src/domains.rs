@@ -19,7 +19,7 @@ pub enum RaplDomainType {
 
 impl fmt::Display for RaplDomainType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Debug::fmt(self, f)
+        f.write_str(&self.as_str())
     }
 }
 
@@ -63,6 +63,16 @@ impl RaplDomainType {
             RaplDomainType::PP1 => Resource::CpuPackage { id: pkg_id },
             RaplDomainType::Dram => Resource::Dram { pkg_id },
             RaplDomainType::Platform => Resource::LocalMachine,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            RaplDomainType::Package => "package",
+            RaplDomainType::PP0 => "pp0",
+            RaplDomainType::PP1 => "pp1",
+            RaplDomainType::Dram => "dram",
+            RaplDomainType::Platform => "platform",
         }
     }
 }

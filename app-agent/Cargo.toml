@@ -15,3 +15,6 @@ plugin-csv = { version = "0.1.0", path = "../plugin-csv" }
 plugin-rapl = { version = "0.2.0", path = "../plugin-rapl" }
 plugin-socket-control = { version = "0.1.0", path = "../plugin-socket-control" }
 toml = "0.8.12"
+
+[profile.release]
+debug = 1

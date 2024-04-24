@@ -1,5 +1,5 @@
 use alumet::{
-    measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp},
+    measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
     plugin::util::{CounterDiff, CounterDiffUpdate},
     resources::{ResourceConsumer, Resource},
@@ -229,7 +229,7 @@ impl alumet::pipeline::Source for PerfEventProbe {
                 let consumer = ResourceConsumer::LocalMachine;
                 measurements.push(
                     MeasurementPoint::new(timestamp, self.metric, evt.resource.clone(), consumer, joules)
-                        .with_attr("domain", AttributeValue::String(evt.domain.to_string())),
+                        .with_attr("domain",evt.domain.as_str()),
                 );
             }
             // NOTE: the energy can be a floating-point number in Joules,

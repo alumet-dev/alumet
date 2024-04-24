@@ -1,6 +1,10 @@
 use std::time::Duration;
 
-use alumet::{pipeline::{trigger::TriggerSpec, Source}, plugin::{rust::AlumetPlugin, ConfigTable}, units::Unit};
+use alumet::{
+    pipeline::{trigger, Source},
+    plugin::{rust::AlumetPlugin, ConfigTable},
+    units::Unit,
+};
 use indoc::indoc;
 
 use crate::{
@@ -30,7 +34,7 @@ impl AlumetPlugin for RaplPlugin {
 
     fn init(_config: ConfigTable) -> anyhow::Result<Box<Self>> {
         // TODO read from config
-        let poll_interval = Duration::from_secs(1);
+        let poll_interval = Duration::from_millis(1);
         Ok(Box::new(RaplPlugin { poll_interval }))
     }
 
@@ -113,7 +117,12 @@ impl AlumetPlugin for RaplPlugin {
                 }
             }
         };
-        alumet.add_source(source?, TriggerSpec::at_interval(self.poll_interval));
+        let trigger = trigger::builder::time_interval(self.poll_interval)
+            .flush_interval(Duration::from_secs(20))
+            .update_interval(Duration::from_secs(1))
+            .build()
+            .unwrap();
+        alumet.add_source(source?, trigger);
         Ok(())
     }
 
