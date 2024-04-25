@@ -11,7 +11,7 @@ default = ["dynamic"]
 dynamic = ["dep:libloading"]
 
 [dependencies]
-toml = "0.8.8"
+toml = { version = "0.8.8", features = ["preserve_order"] }
 libc = "0.2.152"
 log = "0.4.20"
 tokio = { version = "1.36.0", features = [
@@ -33,7 +33,7 @@ tokio-timerfd = "0.2.0"
 
 # Dev dependencies for tests.
 [dev-dependencies]
-serde = {version="1.0.198", features = ["derive"]}
+serde = { version = "1.0.198", features = ["derive"] }
 
 # Dependencies for the build script (build.rs).
 [build-dependencies]
