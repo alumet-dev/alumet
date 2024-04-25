@@ -16,6 +16,7 @@ use alumet::{
     resources::{InvalidConsumerError, InvalidResourceError, Resource, ResourceConsumer},
     units::{PrefixedUnit, Unit},
 };
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use tonic::{transport::Server, Response, Status};
 
@@ -91,7 +92,8 @@ impl AlumetPlugin for RelayServerPlugin {
                 Server::builder()
                     .add_service(MetricCollectorServer::new(collector))
                     .serve(addr)
-                    .await?; // Convert the error to anyhow's error type
+                    .await
+                    .context("server error")?;
                 Ok(())
             }
         });
