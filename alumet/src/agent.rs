@@ -98,6 +98,8 @@ impl Agent {
                     .unwrap_or_else(|err| log_and_panic(err, String::from("Could not load the configuration")))
             }
         };
+        log::debug!("Global configuration: {global_config:?}");
+
         // initialize the plugins with the config
         let mut initialized_plugins: Vec<Box<dyn Plugin>> = self
             .settings
@@ -251,10 +253,23 @@ fn log_and_panic<M: Display>(error: anyhow::Error, message: M) -> ! {
 fn initialize_with_config(global_config: &mut toml::Table, plugin: PluginMetadata) -> anyhow::Result<Box<dyn Plugin>> {
     let name = &plugin.name;
     let version = &plugin.version;
-    let sub_config = global_config.remove(name);
+
+    // Get the plugin's subconfig, which is at plugins.<name>
+    let plugins_table = match global_config.get_mut("plugins") {
+        Some(toml::Value::Table(t)) => Ok(t),
+        Some(bad_value) => Err(anyhow!(
+            "invalid global config: 'plugins' must be a table, not a {}.",
+            bad_value.type_str()
+        )),
+        None => Err(anyhow!("invalid global config: it should contain a 'plugins' table")),
+    };
+    let sub_config = plugins_table?.remove(name);
+
+    log::debug!("Initializing plugin {name} with config {sub_config:?}");
+
     let plugin_config = match sub_config {
         Some(toml::Value::Table(t)) => Ok(t),
-        Some(bad_value) => Err(anyhow::anyhow!(
+        Some(bad_value) => Err(anyhow!(
             "invalid configuration for plugin '{name}' v{version}: the value must be a table, not a {}.",
             bad_value.type_str()
         )),
