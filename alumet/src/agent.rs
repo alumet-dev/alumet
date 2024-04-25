@@ -199,6 +199,7 @@ impl Agent {
         log::info!("Starting the plugins...");
         let mut pipeline_builder = pipeline::builder::PipelineBuilder::new();
         pipeline_builder.source_constraints = self.settings.source_constraints;
+        pipeline_builder.allow_no_metrics = self.settings.allow_no_metrics;
 
         for plugin in initialized_plugins.iter_mut() {
             log::debug!("Starting plugin {} v{}", plugin.name(), plugin.version());
@@ -380,9 +381,9 @@ fn print_stats(pipeline_builder: &PipelineBuilder, plugins: &[Box<dyn Plugin>]) 
             .join("\n")
     };
 
-    let n_sources = pipeline_builder.sources.len();
-    let n_transforms = pipeline_builder.transforms.len();
-    let n_output = pipeline_builder.outputs.len();
+    let n_sources = pipeline_builder.source_count();
+    let n_transforms = pipeline_builder.transform_count();
+    let n_output = pipeline_builder.output_count();
     let str_source = if n_sources > 1 { "sources" } else { "source" };
     let str_transform = if n_sources > 1 { "transforms" } else { "transform" };
     let str_output = if n_sources > 1 { "outputs" } else { "output" };
