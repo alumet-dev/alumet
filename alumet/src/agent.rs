@@ -69,6 +69,7 @@ pub struct AgentBuilder {
     f_after_plugin_start: fn(&PipelineBuilder),
     f_before_operation_begin: fn(&IdlePipeline),
     f_after_operation_begin: fn(&mut RunningPipeline),
+    allow_no_metrics: bool,
 }
 
 enum AgentConfigSource {
@@ -336,6 +337,7 @@ impl AgentBuilder {
             f_after_plugin_start: |_| (),
             f_before_operation_begin: |_| (),
             f_after_operation_begin: |_| (),
+            allow_no_metrics: false,
         }
     }
 
@@ -394,6 +396,14 @@ impl AgentBuilder {
     /// If a function has already been defined, it is replaced.
     pub fn after_operation_begin(mut self, f: fn(&mut RunningPipeline)) -> Self {
         self.f_after_operation_begin = f;
+        self
+    }
+    
+    /// Disables the "no metrics registered" warning.
+    /// 
+    /// Use this if you only expect late metrics to be registered.
+    pub fn allow_no_metrics(mut self) -> Self {
+        self.allow_no_metrics = true;
         self
     }
 }

@@ -26,6 +26,7 @@ pub struct PipelineBuilder {
     pub(crate) autonomous_sources: Vec<AutonomousSourceBuilder>,
 
     pub(crate) metrics: MetricRegistry,
+    pub(crate) allow_no_metrics: bool,
 
     pub(crate) normal_worker_threads: Option<usize>,
     pub(crate) priority_worker_threads: Option<usize>,
@@ -191,6 +192,7 @@ impl PipelineBuilder {
             outputs: Vec::new(),
             autonomous_sources: Vec::new(),
             metrics: MetricRegistry::new(),
+            allow_no_metrics: false,
             normal_worker_threads: None,
             priority_worker_threads: None,
         }
@@ -218,7 +220,7 @@ impl PipelineBuilder {
 
     pub fn build(self) -> Result<IdlePipeline, PipelineBuildError> {
         // Check some conditions.
-        if self.metrics.is_empty() {
+        if self.metrics.is_empty() && !self.allow_no_metrics {
             log::warn!("No metrics have been registered, have you loaded the right plugins?")
         }
         // The pipeline requires at least 1 source and 1 output, otherwise the channels close (and it would be useless anyway).
