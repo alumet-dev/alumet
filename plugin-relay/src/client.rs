@@ -10,10 +10,10 @@ use alumet::measurement::{
 };
 use alumet::pipeline::runtime::IdlePipeline;
 use alumet::pipeline::OutputContext;
-use alumet::plugin::rust::{deserialize_config, AlumetPlugin};
+use alumet::plugin::rust::{deserialize_config, serialize_config, AlumetPlugin};
 use alumet::plugin::ConfigTable;
 use anyhow::Context;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tonic::transport::Channel;
 
 pub struct RelayClientPlugin {
@@ -22,12 +22,25 @@ pub struct RelayClientPlugin {
     metric_ids: Arc<Mutex<HashMap<u64, u64>>>,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 struct Config {
+    /// The name that this client will use to identify itself to the collector server.
+    /// Defaults to the hostname.
     #[serde(default = "default_client_name")]
     client_name: String,
+    
+    /// The URI of the collector, for instance `http://127.0.0.1:50051`.
     #[serde(default = "default_collector_uri")]
     collector_uri: String,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            client_name: default_client_name(),
+            collector_uri: default_collector_uri(),
+        }
+    }
 }
 
 fn default_client_name() -> String {
@@ -48,6 +61,10 @@ impl AlumetPlugin for RelayClientPlugin {
 
     fn version() -> &'static str {
         env!("CARGO_PKG_VERSION")
+    }
+
+    fn default_config() -> anyhow::Result<Option<ConfigTable>> {
+        Ok(Some(serialize_config(Config::default())?))
     }
 
     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {

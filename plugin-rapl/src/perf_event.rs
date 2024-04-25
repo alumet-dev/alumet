@@ -5,7 +5,6 @@ use alumet::{
     resources::{Resource, ResourceConsumer},
 };
 use anyhow::{Context, Result};
-use log::debug;
 use perf_event_open_sys as sys;
 use std::{
     fs::{self, File},
@@ -55,7 +54,7 @@ impl PowerEvent {
         attr.config = self.code.into();
         attr.type_ = pmu_type;
         attr.size = core::mem::size_of_val(&attr) as u32;
-        debug!("{attr:?}");
+        log::trace!("perf_event_open {attr:?}");
 
         let result = unsafe { sys::perf_event_open(&mut attr, pid, cpu, -1, 0) };
         if result == -1 {

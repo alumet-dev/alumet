@@ -1,5 +1,5 @@
 use std::{
-    net::{Ipv6Addr, SocketAddr, SocketAddrV6},
+    net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
     time::{Duration, UNIX_EPOCH},
 };
 
@@ -10,13 +10,13 @@ use alumet::{
     metrics::{Metric, RawMetricId},
     pipeline::builder::LateRegistrationHandle,
     plugin::{
-        rust::{deserialize_config, AlumetPlugin},
+        rust::{deserialize_config, serialize_config, AlumetPlugin},
         AlumetStart, ConfigTable,
     },
-    resources::{InvalidConsumerError, InvalidResourceError, ResourceConsumer, Resource},
+    resources::{InvalidConsumerError, InvalidResourceError, Resource, ResourceConsumer},
     units::{PrefixedUnit, Unit},
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tonic::{transport::Server, Response, Status};
 
 use crate::protocol::{
@@ -30,14 +30,26 @@ pub struct RelayServerPlugin {
     config: Config,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct Config {
-    #[serde(default = "default_port")]
+    /// Port on which to serve.
     port: u16,
+
+    /// If true, bind the server to an IPv4 socket instead of IPv6.
+    ipv4_only: bool,
+
+    /// IPv6 scope id, for link-local addressing.
+    ipv6_scope_id: Option<u32>,
 }
 
-fn default_port() -> u16 {
-    50051
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            port: 50051,
+            ipv4_only: false,
+            ipv6_scope_id: None,
+        }
+    }
 }
 
 impl AlumetPlugin for RelayServerPlugin {
@@ -48,6 +60,11 @@ impl AlumetPlugin for RelayServerPlugin {
     fn version() -> &'static str {
         env!("CARGO_PKG_VERSION")
     }
+    
+    fn default_config() -> anyhow::Result<Option<ConfigTable>> {
+        let config = serialize_config(Config::default())?;
+        Ok(Some(config))
+    }
 
     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
         let config = deserialize_config(config)?;
@@ -55,7 +72,15 @@ impl AlumetPlugin for RelayServerPlugin {
     }
 
     fn start(&mut self, alumet: &mut AlumetStart) -> anyhow::Result<()> {
-        let addr: SocketAddr = SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::LOCALHOST, self.config.port, 0, 0));
+        let addr: SocketAddr = match self.config.ipv4_only {
+            true => SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, self.config.port)),
+            false => SocketAddr::V6(SocketAddrV6::new(
+                Ipv6Addr::LOCALHOST,
+                self.config.port,
+                0,
+                self.config.ipv6_scope_id.unwrap_or(0),
+            )),
+        };
         log::info!("Starting gRPC server with on socket {addr}");
         alumet.add_autonomous_source(move |p: &_, tx: &_| {
             let collector = GrpcMetricCollector {
