@@ -8,16 +8,11 @@ fn main() {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     log::info!("Starting ALUMET relay agent v{VERSION}");
 
-    // Load the collector plugin, and the RAPL one to get some input.
+    // Load the relay plugin, and the RAPL one to get some input.
     let plugins = static_plugins![plugin_relay::client::RelayClientPlugin, plugin_rapl::RaplPlugin];
 
-    // Read the config file.
-    let config_path = std::path::Path::new("alumet-config.toml");
-    let file_content = std::fs::read_to_string(config_path).unwrap_or("".to_owned()); //.expect("failed to read file");
-    let config: toml::Table = file_content.parse().unwrap();
-
-    // Start the collector
-    let agent = AgentBuilder::new(plugins).config_value(config).build();
+    // Start the agent
+    let agent = AgentBuilder::new(plugins).config_path("alumet-agent.toml").build();
     let mut pipeline = agent.start();
 
     // Keep the pipeline running until the app closes.

@@ -15,13 +15,8 @@ fn main() {
     // Specifies the plugins that we want to load.
     let plugins = static_plugins![RaplPlugin, CsvPlugin, SocketControlPlugin];
 
-    // Read the config file.
-    let config_path = std::path::Path::new("alumet-config.toml");
-    let file_content = std::fs::read_to_string(config_path).unwrap_or("".to_owned()); //.expect("failed to read file");
-    let config: toml::Table = file_content.parse().unwrap();
-
     // Start the measurement agent.
-    let agent = AgentBuilder::new(plugins).config_value(config).build();
+    let agent = AgentBuilder::new(plugins).config_path("alumet-config.toml").build();
     let mut pipeline = agent.start();
     log::info!("ALUMET agent is ready.");
 
