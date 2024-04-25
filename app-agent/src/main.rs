@@ -80,7 +80,7 @@ impl Default for AppConfig {
 /// Command line arguments.
 #[derive(Parser)]
 struct Args {
-    /// Regenerates the configuration file and stop.
+    /// Regenerate the configuration file and stop.
     ///
     /// If the file exists, it will be overwritten.
     #[arg(long)]
