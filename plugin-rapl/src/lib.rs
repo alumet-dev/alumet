@@ -1,4 +1,4 @@
-use std::{default, time::Duration};
+use std::time::Duration;
 
 use alumet::{
     pipeline::{trigger, Source},

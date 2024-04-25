@@ -19,7 +19,7 @@ impl AlumetPlugin for CsvPlugin {
         env!("CARGO_PKG_VERSION")
     }
 
-    fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
+    fn init(_config: ConfigTable) -> anyhow::Result<Box<Self>> {
         // TODO config options
         Ok(Box::new(CsvPlugin { csv_path: PathBuf::from("alumet-output.csv") }))
     }
