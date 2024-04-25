@@ -36,7 +36,7 @@ impl AlumetPlugin for RaplPlugin {
     fn version() -> &'static str {
         "0.1.0"
     }
-    
+
     fn default_config() -> anyhow::Result<Option<ConfigTable>> {
         let config = serialize_config(Config::default())?;
         Ok(Some(config))
@@ -99,8 +99,8 @@ impl AlumetPlugin for RaplPlugin {
         };
 
         let trigger = trigger::builder::time_interval(self.config.poll_interval)
-            .flush_interval(Duration::from_secs(20))
-            .update_interval(Duration::from_secs(1))
+            .flush_interval(self.config.flush_interval)
+            .update_interval(self.config.flush_interval)
             .build()
             .unwrap();
         alumet.add_source(source?, trigger);
@@ -136,7 +136,6 @@ fn setup_perf_events_probe(
                     3. Run the agent as root (not recommanded).
                 "};
             log::warn!("{msg}");
-            // TODO add an option to disable perf_events and always use sysfs.
 
             setup_powercap_probe(metric, available_domains)
         }
@@ -171,6 +170,10 @@ struct Config {
     #[serde(with = "humantime_serde")]
     poll_interval: Duration,
 
+    /// Initial interval between two flushing of RAPL measurements.
+    #[serde(with = "humantime_serde")]
+    flush_interval: Duration,
+
     /// Set to true to disable perf_events and always use the powercap sysfs.
     no_perf_events: bool,
 }
@@ -179,7 +182,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             poll_interval: Duration::from_secs(1), // 1Hz
-            no_perf_events: false,                 // prefer perf_events
+            flush_interval: Duration::from_secs(5),
+            no_perf_events: false, // prefer perf_events
         }
     }
 }
