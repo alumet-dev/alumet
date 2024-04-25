@@ -189,7 +189,10 @@ impl IdlePipeline {
 
         // 4. Autonomous sources
         for src in self.autonomous_sources {
-            self.rt_normal.spawn(src);
+            let handle = self
+                .rt_normal
+                .spawn(async move { src.await.map_err(|e| PollError::Fatal(e)) });
+            source_handles.push(handle);
         }
 
         RunningPipeline {
