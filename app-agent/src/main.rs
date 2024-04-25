@@ -21,7 +21,7 @@ fn main() {
     let config: toml::Table = file_content.parse().unwrap();
 
     // Start the measurement agent.
-    let agent = AgentBuilder::new(plugins, config).build();
+    let agent = AgentBuilder::new(plugins).config_value(config).build();
     let mut pipeline = agent.start();
     log::info!("ALUMET agent is ready.");
 

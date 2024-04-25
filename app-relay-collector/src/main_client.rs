@@ -17,7 +17,7 @@ fn main() {
     let config: toml::Table = file_content.parse().unwrap();
 
     // Start the collector
-    let agent = AgentBuilder::new(plugins, config).build();
+    let agent = AgentBuilder::new(plugins).config_value(config).build();
     let mut pipeline = agent.start();
 
     // Keep the pipeline running until the app closes.

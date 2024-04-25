@@ -106,17 +106,29 @@ pub(crate) mod version;
 
 /// Plugin metadata, and a function that allows to initialize the plugin.
 pub struct PluginMetadata {
+    /// Name of the plugin, must be unique.
     pub name: String,
+    /// Version of the plugin, should follow semantic versioning (of the form `x.y.z`).
     pub version: String,
+    /// Function that initializes the plugin.
     pub init: Box<dyn FnOnce(ConfigTable) -> anyhow::Result<Box<dyn Plugin>>>,
+    /// Function that returns a default configuration for the plugin, or None
+    /// if the plugin has no configurable option.
+    /// 
+    /// The default config is used to generate the configuration file of the
+    /// Alumet agent, in case it does not exist. In other cases, the default
+    /// config returned by this function is not used, including when
+    pub default_config: Box<dyn Fn() -> Option<ConfigTable>>,
 }
 
 impl PluginMetadata {
+    /// Build a metadata structure for a static plugin that implements [`AlumetPlugin`].
     pub fn from_static<P: AlumetPlugin + 'static>() -> Self {
         Self {
             name: P::name().to_owned(),
             version: P::version().to_owned(),
             init: Box::new(|conf| P::init(conf).map(|p| p as _)),
+            default_config: Box::new(P::default_config),
         }
     }
 }
@@ -163,7 +175,7 @@ pub trait Plugin {
     ///
     /// It can be used, for instance, to obtain a [`ControlHandle`](crate::pipeline::runtime::ControlHandle)
     /// of the pipeline.
-    fn post_pipeline_start(&mut self, pipeline: &mut RunningPipeline) -> anyhow::Result<()>;
+    fn post_pipeline_start(&mut self, pipeline: &mut RunningPipeline) -> anyhow::Result<()>;   
 }
 
 /// Structure passed to plugins for the start-up phase.

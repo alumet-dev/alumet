@@ -716,7 +716,7 @@ mod tests {
         },
         metrics::{MetricRegistry, RawMetricId},
         pipeline::{trigger::TriggerSpec, OutputContext, Transform},
-        resources::{ResourceConsumer, Resource},
+        resources::{Resource, ResourceConsumer},
     };
 
     use super::{
@@ -725,93 +725,96 @@ mod tests {
 
     #[test]
     fn source_triggered_by_time() {
-        run_test(false);
-        run_test(true);
+        run_source_trigger_test(false);
+    }
+    #[test]
+    fn source_triggered_by_time_with_interruption() {
+        run_source_trigger_test(true);
+    }
 
-        fn run_test(with_interruption: bool) {
-            let rt = new_rt(2);
+    fn run_source_trigger_test(with_interruption: bool) {
+        let rt = new_rt(2);
 
-            let source = TestSource::new();
-            let tp = new_trigger(with_interruption);
-            println!("trigger: {tp:?}");
-            let (tx, mut rx) = mpsc::channel::<MeasurementBuffer>(64);
-            let (cmd_tx, cmd_rx) = watch::channel(SourceCmd::SetTrigger(Some(tp)));
+        let source = TestSource::new();
+        let tp = new_trigger(with_interruption);
+        println!("trigger: {tp:?}");
+        let (tx, mut rx) = mpsc::channel::<MeasurementBuffer>(64);
+        let (cmd_tx, cmd_rx) = watch::channel(SourceCmd::SetTrigger(Some(tp)));
 
-            let stopped = Arc::new(AtomicU8::new(TestSourceState::Running as _));
-            let stopped2 = stopped.clone();
-            rt.spawn(async move {
-                let mut n_polls = 0;
-                loop {
-                    // check the measurements
-                    if let Some(measurements) = rx.recv().await {
-                        assert_ne!(
-                            TestSourceState::Stopped as u8,
-                            stopped2.load(Ordering::Relaxed),
-                            "The source is stopped/paused, it should not produce measurements."
-                        );
+        let stopped = Arc::new(AtomicU8::new(TestSourceState::Running as _));
+        let stopped2 = stopped.clone();
+        rt.spawn(async move {
+            let mut n_polls = 0;
+            loop {
+                // check the measurements
+                if let Some(measurements) = rx.recv().await {
+                    assert_ne!(
+                        TestSourceState::Stopped as u8,
+                        stopped2.load(Ordering::Relaxed),
+                        "The source is stopped/paused, it should not produce measurements."
+                    );
 
-                        // 2 by 2 because flush_interval = 2*poll_interval
-                        assert_eq!(measurements.len(), 2);
-                        n_polls += 2;
-                        let last_point = measurements.iter().last().unwrap();
-                        let last_point_value = match last_point.value {
-                            WrappedMeasurementValue::U64(n) => n,
-                            _ => panic!("unexpected value type"),
-                        };
-                        assert_eq!(n_polls, last_point_value);
-                    } else {
-                        // the channel is dropped when run_source terminates, which must only occur when the source is stopped
-                        assert_ne!(
-                            TestSourceState::Running as u8,
-                            stopped2.load(Ordering::Relaxed),
-                            "The source is not stopped, the channel should be open."
-                        );
-                    }
+                    // 2 by 2 because flush_interval = 2*poll_interval
+                    assert_eq!(measurements.len(), 2);
+                    n_polls += 2;
+                    let last_point = measurements.iter().last().unwrap();
+                    let last_point_value = match last_point.value {
+                        WrappedMeasurementValue::U64(n) => n,
+                        _ => panic!("unexpected value type"),
+                    };
+                    assert_eq!(n_polls, last_point_value);
+                } else {
+                    // the channel is dropped when run_source terminates, which must only occur when the source is stopped
+                    assert_ne!(
+                        TestSourceState::Running as u8,
+                        stopped2.load(Ordering::Relaxed),
+                        "The source is not stopped, the channel should be open."
+                    );
                 }
-            });
+            }
+        });
 
-            // poll the source for some time
-            rt.spawn(run_source(Box::new(source), tx, cmd_rx));
-            sleep(Duration::from_millis(20));
+        // poll the source for some time
+        rt.spawn(run_source(Box::new(source), tx, cmd_rx));
+        sleep(Duration::from_millis(20));
 
-            // pause source
-            cmd_tx.send(SourceCmd::Pause).unwrap();
-            stopped.store(TestSourceState::Stopping as _, Ordering::Relaxed);
-            sleep(Duration::from_millis(10)); // some tolerance (wait for flushing)
-            stopped.store(TestSourceState::Stopped as _, Ordering::Relaxed);
+        // pause source
+        cmd_tx.send(SourceCmd::Pause).unwrap();
+        stopped.store(TestSourceState::Stopping as _, Ordering::Relaxed);
+        sleep(Duration::from_millis(10)); // some tolerance (wait for flushing)
+        stopped.store(TestSourceState::Stopped as _, Ordering::Relaxed);
 
-            // check that the source is paused
-            sleep(Duration::from_millis(10));
+        // check that the source is paused
+        sleep(Duration::from_millis(10));
 
-            // still paused after SetTrigger
-            cmd_tx
-                .send(SourceCmd::SetTrigger(Some(new_trigger(with_interruption))))
-                .unwrap();
-            sleep(Duration::from_millis(20));
+        // still paused after SetTrigger
+        cmd_tx
+            .send(SourceCmd::SetTrigger(Some(new_trigger(with_interruption))))
+            .unwrap();
+        sleep(Duration::from_millis(20));
 
-            // resume source
-            cmd_tx.send(SourceCmd::Run).unwrap();
-            stopped.store(TestSourceState::Running as _, Ordering::Relaxed);
-            sleep(Duration::from_millis(5)); // lower tolerance (no flushing, just waiting for changes on the watch channel)
+        // resume source
+        cmd_tx.send(SourceCmd::Run).unwrap();
+        stopped.store(TestSourceState::Running as _, Ordering::Relaxed);
+        sleep(Duration::from_millis(5)); // lower tolerance (no flushing, just waiting for changes on the watch channel)
 
-            // poll for some time
-            sleep(Duration::from_millis(10));
+        // poll for some time
+        sleep(Duration::from_millis(10));
 
-            // still running after SetTrigger
-            cmd_tx
-                .send(SourceCmd::SetTrigger(Some(new_trigger(with_interruption))))
-                .unwrap();
-            sleep(Duration::from_millis(20));
+        // still running after SetTrigger
+        cmd_tx
+            .send(SourceCmd::SetTrigger(Some(new_trigger(with_interruption))))
+            .unwrap();
+        sleep(Duration::from_millis(20));
 
-            // stop source
-            cmd_tx.send(SourceCmd::Stop).unwrap();
-            stopped.store(TestSourceState::Stopping as _, Ordering::Relaxed);
-            sleep(Duration::from_millis(10)); // some tolerance
-            stopped.store(TestSourceState::Stopped as _, Ordering::Relaxed);
+        // stop source
+        cmd_tx.send(SourceCmd::Stop).unwrap();
+        stopped.store(TestSourceState::Stopping as _, Ordering::Relaxed);
+        sleep(Duration::from_millis(10)); // some tolerance
+        stopped.store(TestSourceState::Stopped as _, Ordering::Relaxed);
 
-            // check that the source is stopped
-            sleep(Duration::from_millis(20));
-        }
+        // check that the source is stopped
+        sleep(Duration::from_millis(20));
 
         // drop the runtime, abort the tasks
     }
@@ -977,8 +980,9 @@ mod tests {
     }
 
     fn new_trigger(test_interrupt: bool) -> TriggerSpec {
-        let mut builder =
-            trigger::builder::time_interval(Duration::from_millis(10)).flush_interval(Duration::from_millis(20));
+        let mut builder = trigger::builder::time_interval(Duration::from_millis(5))
+            .flush_interval(Duration::from_millis(10))
+            .update_interval(Duration::from_millis(10));
         if test_interrupt {
             builder = builder.update_interval(Duration::from_millis(1));
         }

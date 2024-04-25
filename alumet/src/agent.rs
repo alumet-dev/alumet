@@ -1,6 +1,9 @@
 //! Helpers for creating a measurement agent.
 
-use std::fmt::Display;
+use std::{
+    fmt::Display,
+    path::{Path, PathBuf},
+};
 
 use crate::{
     pipeline::{
@@ -44,16 +47,14 @@ use crate::{
 /// #         todo!()
 /// #     }
 /// # }
-/// // Extract metadata from plugins (here, only one static plugin).
+/// // Extract metadata from plugins (here just one static plugin, which implements AlumetPlugin).
 /// let plugins = static_plugins![PluginA];
 ///
-/// // Parse the configuration file.
+/// // Locate the configuration file.
 /// let config_path = std::path::Path::new("alumet-config.toml");
-/// let file_content = std::fs::read_to_string(config_path).expect("failed to read file");
-/// let config: toml::Table = file_content.parse().unwrap();
 ///
 /// // Build the agent.
-/// let agent: Agent = AgentBuilder::new(plugins, config).build();
+/// let agent: Agent = AgentBuilder::new(plugins).config_path(config_path).build();
 /// ```
 pub struct Agent {
     settings: AgentBuilder,
@@ -62,11 +63,17 @@ pub struct Agent {
 /// A builder for [`Agent`].
 pub struct AgentBuilder {
     plugins: Vec<PluginMetadata>,
-    config: toml::Table,
+    config: AgentConfigSource,
+    default_agent_config: toml::Table,
     f_after_plugin_init: fn(&mut Vec<Box<dyn Plugin>>),
     f_after_plugin_start: fn(&PipelineBuilder),
     f_before_operation_begin: fn(&IdlePipeline),
     f_after_operation_begin: fn(&mut RunningPipeline),
+}
+
+enum AgentConfigSource {
+    Value(toml::Table),
+    FilePath(std::path::PathBuf),
 }
 
 impl Agent {
@@ -82,7 +89,16 @@ impl Agent {
     pub fn start(self) -> RunningPipeline {
         // Initialization phase.
         log::info!("Initializing the plugins...");
-        let mut global_config = self.settings.config;
+
+        // load the global config
+        let mut global_config = match self.settings.config {
+            AgentConfigSource::Value(config) => config,
+            AgentConfigSource::FilePath(path) => {
+                load_config_from_file(&self.settings.plugins, &path, &self.settings.default_agent_config)
+                    .unwrap_or_else(|err| log_and_panic(err, String::from("Could not load the configuration")))
+            }
+        };
+        // initialize the plugins with the config
         let mut initialized_plugins: Vec<Box<dyn Plugin>> = self
             .settings
             .plugins
@@ -164,6 +180,61 @@ impl Agent {
 
         pipeline
     }
+
+    /// Builds a default configuration by combining:
+    /// - the default agent config (which is set by [`AgentBuilder::default_agent_config`])
+    /// - the default config of each plugin (which are set by [`AgentBuilder::new`])
+    ///
+    /// This can be used to provide a command line option that (re)generates the configuration file.
+    pub fn default_config(&self) -> toml::Table {
+        build_default_config(&self.settings.plugins, &self.settings.default_agent_config)
+    }
+}
+
+fn load_config_from_file(
+    plugins: &[PluginMetadata],
+    path: &Path,
+    default_agent_config: &toml::Table,
+) -> anyhow::Result<toml::Table> {
+    match std::fs::read_to_string(&path) {
+        Ok(content) => content
+            .parse()
+            .with_context(|| format!("invalid TOML configuration {}", path.display())),
+        Err(e) => {
+            match e.kind() {
+                std::io::ErrorKind::NotFound => {
+                    // the file does not exist, create the default config and save it
+                    let default_config = build_default_config(plugins, default_agent_config);
+                    std::fs::write(&path, default_config.to_string())
+                        .with_context(|| format!("writing default config to {}", path.display()))?;
+
+                    Ok(default_config)
+                }
+                _ => Err(anyhow!(
+                    "unable to load the configuration from {} - {e}",
+                    path.display()
+                )),
+            }
+        }
+    }
+}
+
+/// Builds a default global configuration from the default configs of all the plugins,
+/// and the default config of the agent.
+fn build_default_config(plugins: &[PluginMetadata], default_agent_config: &toml::Table) -> toml::Table {
+    let mut default_config = default_agent_config.clone();
+
+    // Fill the config with all the default configs of the plugins,
+    // in a subtable to avoid name conflicts with the agent config.
+    let mut plugins_config = toml::Table::new();
+    for plugin in plugins {
+        if let Some(conf) = (plugin.default_config)() {
+            let key = plugin.name.clone();
+            plugins_config.insert(key, toml::Value::Table(conf.0));
+        }
+    }
+    default_config.insert(String::from("plugins"), toml::Value::Table(plugins_config));
+    default_config
 }
 
 fn log_and_panic<M: Display>(error: anyhow::Error, message: M) -> ! {
@@ -235,13 +306,14 @@ impl AgentBuilder {
     /// Creates a new builder with some non-initialized plugins,
     /// and the global configuration of the agent.
     ///
-    /// The global configuration contains the configuration of each
-    /// plugin, as TOML subtables. If a subtable is missing, the plugin
-    /// will receive an empty table for its initialization.
-    pub fn new(plugins: Vec<PluginMetadata>, config: toml::Table) -> Self {
+    // /// The global configuration contains the configuration of each
+    // /// plugin, as TOML subtables. If a subtable is missing, the plugin
+    // /// will receive an empty table for its initialization.
+    pub fn new(plugins: Vec<PluginMetadata>) -> Self {
         Self {
             plugins,
-            config,
+            config: AgentConfigSource::FilePath(PathBuf::from("alumet-config.toml")),
+            default_agent_config: toml::Table::new(),
             f_after_plugin_init: |_| (),
             f_after_plugin_start: |_| (),
             f_before_operation_begin: |_| (),
@@ -254,10 +326,31 @@ impl AgentBuilder {
         Agent { settings: self }
     }
 
+    /// Loads the global configuration from the given file path.
+    pub fn config_path<P: AsRef<Path>>(mut self, path: P) -> Self {
+        self.config = AgentConfigSource::FilePath(path.as_ref().to_owned());
+        self
+    }
+
+    pub fn default_agent_config(mut self, default_agent_config: toml::Table) -> Self {
+        self.default_agent_config = default_agent_config;
+        self
+    }
+
+    /// Uses the given table as the global configuration.
+    ///
+    /// Use this method to provide the configuration yourself instead of loading
+    /// it from a file. For instance, this can be used to load the configuration
+    /// from the command line arguments.
+    pub fn config_value(mut self, config: toml::Table) -> Self {
+        self.config = AgentConfigSource::Value(config);
+        self
+    }
+
     /// Defines a function to run after the plugin initialization phase.
     ///
     /// If a function has already been defined, it is replaced.
-    pub fn after_plugin_init(&mut self, f: fn(&mut Vec<Box<dyn Plugin>>)) -> &mut Self {
+    pub fn after_plugin_init(mut self, f: fn(&mut Vec<Box<dyn Plugin>>)) -> Self {
         self.f_after_plugin_init = f;
         self
     }
@@ -265,7 +358,7 @@ impl AgentBuilder {
     /// Defines a function to run after the plugin start-up phase.
     ///
     /// If a function has already been defined, it is replaced.
-    pub fn after_plugin_start(&mut self, f: fn(&PipelineBuilder)) -> &mut Self {
+    pub fn after_plugin_start(mut self, f: fn(&PipelineBuilder)) -> Self {
         self.f_after_plugin_start = f;
         self
     }
@@ -273,7 +366,7 @@ impl AgentBuilder {
     /// Defines a function to run just after the measurement pipeline has started.
     ///
     /// If a function has already been defined, it is replaced.
-    pub fn before_operation_begin(&mut self, f: fn(&IdlePipeline)) -> &mut Self {
+    pub fn before_operation_begin(mut self, f: fn(&IdlePipeline)) -> Self {
         self.f_before_operation_begin = f;
         self
     }
@@ -281,7 +374,7 @@ impl AgentBuilder {
     /// Defines a function to run just after the measurement pipeline has started.
     ///
     /// If a function has already been defined, it is replaced.
-    pub fn after_operation_begin(&mut self, f: fn(&mut RunningPipeline)) -> &mut Self {
+    pub fn after_operation_begin(mut self, f: fn(&mut RunningPipeline)) -> Self {
         self.f_after_operation_begin = f;
         self
     }
@@ -321,25 +414,71 @@ macro_rules! static_plugins {
     }
 }
 
+use anyhow::{anyhow, Context};
 pub use static_plugins;
 
 #[cfg(test)]
 mod tests {
-    use crate::plugin::{rust::AlumetPlugin, ConfigTable};
+    use serde::Serialize;
+
+    use crate::plugin::rust::{serialize_config, AlumetPlugin};
+    use crate::plugin::{AlumetStart, ConfigTable};
 
     #[test]
-    fn static_plugin_macro() {
-        let empty = static_plugins![];
-        assert!(empty.is_empty());
+    fn parse_config_file() {
+        let tmp = std::env::temp_dir();
+        let config_path = tmp.join("test-config.toml");
+        let config_content = r#"
+        key = "value"
+        
+        [plugins.name]
+        list = ["a", "b"]
+        count = 1
+    "#;
+        std::fs::write(&config_path, config_content).unwrap();
 
-        let single = static_plugins![MyPlugin];
-        assert_eq!(1, single.len());
-        assert_eq!("name", single[0].name);
-        assert_eq!("version", single[0].version);
+        let plugins = static_plugins![MyPlugin];
+        let config = super::load_config_from_file(&plugins, &config_path, &toml::Table::new()).unwrap();
+        assert_eq!(
+            config,
+            config_content.parse::<toml::Table>().unwrap(),
+            "returned config is wrong"
+        );
+        assert_eq!(
+            std::fs::read_to_string(config_path).unwrap(),
+            config_content,
+            "config file should not change"
+        );
+    }
 
-        // Accept single identifiers and qualified paths.
-        let multiple = static_plugins![MyPlugin, self::MyPlugin];
-        assert_eq!(2, multiple.len());
+    #[test]
+    fn create_default_config_file() {
+        let tmp = std::env::temp_dir();
+        let config_path = tmp.join("I-do-not-exist.toml");
+        let _ = std::fs::remove_file(&config_path);
+
+        let plugins = static_plugins![MyPlugin];
+        let config = super::load_config_from_file(&plugins, &config_path, &toml::Table::new()).unwrap();
+        let expected: toml::Table = r#"
+            [plugins.name]
+            list = ["default-item"]
+            count = 42
+        "#
+        .parse()
+        .unwrap();
+        assert_eq!(config, expected, "returned config is wrong");
+        assert!(
+            config_path.exists(),
+            "config file should be created with default values"
+        );
+        assert_eq!(
+            std::fs::read_to_string(config_path)
+                .unwrap()
+                .parse::<toml::Table>()
+                .unwrap(),
+            expected,
+            "config file should be correct"
+        );
     }
 
     struct MyPlugin;
@@ -356,12 +495,32 @@ mod tests {
             todo!()
         }
 
-        fn start(&mut self, _alumet: &mut crate::plugin::AlumetStart) -> anyhow::Result<()> {
+        fn start(&mut self, _alumet: &mut AlumetStart) -> anyhow::Result<()> {
             todo!()
         }
 
         fn stop(&mut self) -> anyhow::Result<()> {
             todo!()
+        }
+
+        fn default_config() -> Option<ConfigTable> {
+            let config = serialize_config(MyPluginConfig::default()).unwrap();
+            Some(config)
+        }
+    }
+
+    #[derive(Serialize)]
+    struct MyPluginConfig {
+        list: Vec<String>,
+        count: u32,
+    }
+
+    impl Default for MyPluginConfig {
+        fn default() -> Self {
+            Self {
+                list: vec![String::from("default-item")],
+                count: 42,
+            }
         }
     }
 }

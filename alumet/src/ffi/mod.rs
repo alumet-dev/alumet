@@ -35,8 +35,10 @@ pub mod time;
 
 // ====== Function types ======
 pub type PluginInitFn = extern "C" fn(config: *const toml::Table) -> *mut c_void;
+pub type PluginDefaultConfigFn = extern "C" fn(config: *mut toml::Table);
 pub type PluginStartFn = extern "C" fn(instance: *mut c_void, alumet: *mut AlumetStart);
 pub type PluginStopFn = extern "C" fn(instance: *mut c_void);
+
 pub type DropFn = unsafe extern "C" fn(instance: *mut c_void);
 pub type NullableDropFn = Option<unsafe extern "C" fn(instance: *mut c_void)>;
 

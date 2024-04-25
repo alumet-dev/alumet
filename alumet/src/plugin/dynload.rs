@@ -6,7 +6,10 @@ use std::{
     path::Path,
 };
 
-use crate::{pipeline::runtime::{IdlePipeline, RunningPipeline}, plugin::version::Version};
+use crate::{
+    pipeline::runtime::{IdlePipeline, RunningPipeline},
+    plugin::version::Version,
+};
 use libc::c_void;
 use libloading::{Library, Symbol};
 
@@ -170,6 +173,11 @@ pub fn load_cdylib(file: &Path) -> Result<PluginMetadata, LoadError> {
     let sym_stop: Symbol<ffi::PluginStopFn> = unsafe { lib.get(b"plugin_stop\0")? };
     let sym_drop: Symbol<ffi::DropFn> = unsafe { lib.get(b"plugin_drop\0")? };
 
+    // if this symbol is none, there is no default config
+    // (this means that it is optional to define `plugin_default_config`)
+    let sym_default_config: Option<Symbol<ffi::PluginDefaultConfigFn>> =
+        unsafe { lib.get(b"plugin_default_config\0") }.ok();
+
     log::debug!("symbols loaded");
 
     // convert the C strings to Rust strings, and wraps errors in LoadError::InvalidSymbol
@@ -203,6 +211,7 @@ pub fn load_cdylib(file: &Path) -> Result<PluginMetadata, LoadError> {
     let start_fn = *sym_start;
     let stop_fn = *sym_stop;
     let drop_fn = *sym_drop;
+    let default_config_fn = sym_default_config.map(|sym| *sym);
 
     // wrap the plugin info in a Rust struct, to allow the plugin to be initialized later
     let initializable_info = PluginMetadata {
@@ -229,6 +238,16 @@ pub fn load_cdylib(file: &Path) -> Result<PluginMetadata, LoadError> {
             };
             Ok(Box::new(plugin))
         }),
+        default_config: match default_config_fn {
+            Some(f) => Box::new(move || {
+                let mut config_to_fill = toml::Table::new();
+                log::debug!("filling default config");
+                f(&mut config_to_fill);
+                log::debug!("default config filled");
+                Some(ConfigTable(config_to_fill))
+            }),
+            None => Box::new(|| None),
+        },
     };
 
     Ok(initializable_info)

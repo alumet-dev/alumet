@@ -2,7 +2,7 @@
 //!
 //! See the [documentation of the plugin module](super#static-plugins).
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 
 use crate::{
     pipeline::runtime::{IdlePipeline, RunningPipeline},
@@ -28,6 +28,11 @@ pub trait AlumetPlugin {
     ///
     /// Read more about the plugin lifecycle in the [module documentation](super).
     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>>;
+
+    /// Returns the default configuration of the plugin.
+    fn default_config() -> Option<ConfigTable> {
+        None
+    }
 
     /// Starts the plugin, allowing it to register metrics, sources and outputs.
     ///
@@ -63,7 +68,15 @@ pub trait AlumetPlugin {
 }
 
 pub fn deserialize_config<'de, T: serde::de::Deserialize<'de>>(config: ConfigTable) -> anyhow::Result<T> {
-    toml::Value::Table(config.0).try_into::<T>().with_context(|| format!("error when deserializing plugin config to {}", std::any::type_name::<T>()))
+    toml::Value::Table(config.0).try_into::<T>().with_context(|| format!("error when deserializing ConfigTable to {}", std::any::type_name::<T>()))
+}
+
+pub fn serialize_config<T: serde::ser::Serialize>(config: T) -> anyhow::Result<ConfigTable> {
+    match toml::Value::try_from(config) {
+        Ok(toml::Value::Table(t)) => Ok(ConfigTable(t)),
+        Ok(wrong) => Err(anyhow!("{} did not get serialized to a toml Table but to a {}", std::any::type_name::<T>(), wrong.type_str())),
+        Err(e) => Err(anyhow!("error when serializing {} to ConfigTable", std::any::type_name::<T>())),
+    }
 }
 
 // Every AlumetPlugin is a Plugin :)
