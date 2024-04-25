@@ -15,7 +15,7 @@ use crate::{
 };
 
 use super::runtime::{self, IdlePipeline, OutputMsg};
-use super::trigger::TriggerSpec;
+use super::trigger::{TriggerConstraints, TriggerSpec};
 use super::{threading, SourceType};
 
 /// A builder of measurement pipeline.
@@ -24,6 +24,8 @@ pub struct PipelineBuilder {
     pub(crate) transforms: Vec<TransformBuilder>,
     pub(crate) outputs: Vec<OutputBuilder>,
     pub(crate) autonomous_sources: Vec<AutonomousSourceBuilder>,
+    
+    pub(crate) source_constraints: TriggerConstraints,
 
     pub(crate) metrics: MetricRegistry,
     pub(crate) allow_no_metrics: bool,
@@ -195,6 +197,7 @@ impl PipelineBuilder {
             allow_no_metrics: false,
             normal_worker_threads: None,
             priority_worker_threads: None,
+            source_constraints: TriggerConstraints::default(),
         }
     }
 
@@ -256,7 +259,11 @@ impl PipelineBuilder {
                         rt_priority.as_ref().unwrap().handle()
                     },
                 };
-                let (source, trigger) = (builder.build)(&pending);
+                let (source, mut trigger) = (builder.build)(&pending);
+                log::trace!("(plugin {}) TriggerSpec before constraints: {trigger:?}", builder.plugin);
+                trigger.constrain(&self.source_constraints);
+                log::trace!("(plugin {}) TriggerSpec after constraints: {trigger:?}", builder.plugin);
+
                 ConfiguredSource {
                     source,
                     plugin_name: builder.plugin,

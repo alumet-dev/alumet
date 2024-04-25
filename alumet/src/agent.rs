@@ -3,6 +3,7 @@
 use std::{
     fmt::Display,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use crate::{
@@ -10,6 +11,7 @@ use crate::{
         self,
         builder::PipelineBuilder,
         runtime::{IdlePipeline, RunningPipeline},
+        trigger::TriggerConstraints,
     },
     plugin::{AlumetStart, ConfigTable, Plugin, PluginMetadata},
 };
@@ -63,13 +65,14 @@ pub struct Agent {
 /// A builder for [`Agent`].
 pub struct AgentBuilder {
     plugins: Vec<PluginMetadata>,
-    config: AgentConfigSource,
-    default_agent_config: toml::Table,
+    config: Option<AgentConfigSource>,
+    default_app_config: toml::Table,
     f_after_plugin_init: fn(&mut Vec<Box<dyn Plugin>>),
     f_after_plugin_start: fn(&PipelineBuilder),
     f_before_operation_begin: fn(&IdlePipeline),
     f_after_operation_begin: fn(&mut RunningPipeline),
     allow_no_metrics: bool,
+    source_constraints: TriggerConstraints,
 }
 
 enum AgentConfigSource {
@@ -77,7 +80,87 @@ enum AgentConfigSource {
     FilePath(std::path::PathBuf),
 }
 
+pub struct AgentConfig {
+    plugins_table: toml::Table,
+    app_table: Option<toml::Table>,
+}
+
+impl TryFrom<toml::Table> for AgentConfig {
+    type Error = anyhow::Error;
+
+    fn try_from(mut global_config: toml::Table) -> Result<Self, Self::Error> {
+        // Extract the plugins' configurations.
+        let plugins_table = match global_config.remove("plugins") {
+            Some(toml::Value::Table(t)) => Ok(t),
+            Some(bad_value) => Err(anyhow!(
+                "invalid global config: 'plugins' must be a table, not a {}.",
+                bad_value.type_str()
+            )),
+            None => Err(anyhow!("invalid global config: it should contain a 'plugins' table")),
+        }?;
+
+        // What remains is the app's configuration.
+        let app_table = Some(global_config);
+
+        Ok(AgentConfig {
+            plugins_table,
+            app_table,
+        })
+    }
+}
+
+impl AgentConfig {
+    /// Returns a mutable reference to the plugin's subconfig, which is at plugins.<name>
+    pub fn plugin_config_mut(&mut self, plugin_name: &str) -> Option<&mut toml::Table> {
+        let sub_config = self.plugins_table.get_mut(plugin_name);
+        match sub_config {
+            Some(toml::Value::Table(t)) => Some(t),
+            _ => None,
+        }
+    }
+
+    /// Removes and returns the plugin's subconfig, which is at plugins.<name>
+    pub fn take_plugin_config(&mut self, plugin_name: &str) -> anyhow::Result<toml::Table> {
+        let sub_config = self.plugins_table.remove(plugin_name);
+        match sub_config {
+            Some(toml::Value::Table(t)) => Ok(t),
+            Some(bad_value) => Err(anyhow!(
+                "invalid configuration for plugin '{plugin_name}': the value must be a table, not a {}.",
+                bad_value.type_str()
+            )),
+            None => {
+                // default to an empty config, so that the plugin can load some default values.
+                Ok(toml::Table::new())
+            }
+        }
+    }
+
+    pub fn app_config_mut(&mut self) -> &mut toml::Table {
+        self.app_table.as_mut().unwrap()
+    }
+
+    pub fn take_app_config(&mut self) -> toml::Table {
+        self.app_table.take().unwrap()
+    }
+}
+
 impl Agent {
+    pub fn load_config(&mut self) -> anyhow::Result<AgentConfig> {
+        // Load the global config, from a file or from a value, depending on the agent's settings.
+        let global_config = match self.settings.config.take().unwrap() {
+            AgentConfigSource::Value(config) => config,
+            AgentConfigSource::FilePath(path) => {
+                load_config_from_file(&self.settings.plugins, &path, &self.settings.default_app_config)
+                    .unwrap_or_else(|err| log_and_panic(err, String::from("Could not load the configuration")))
+            }
+        };
+        log::debug!("Global configuration: {global_config:?}");
+
+        // Wrap the config in AgentConfig and check its structure.
+        let config = AgentConfig::try_from(global_config).context("invalid configuration")?;
+        Ok(config)
+    }
+
     /// Starts the agent.
     ///
     /// This method takes care of the following steps:
@@ -87,19 +170,9 @@ impl Agent {
     ///
     /// You can be notified after each step by building your agent
     /// with callbacks such as [`AgentBuilder::after_plugin_init`].
-    pub fn start(self) -> RunningPipeline {
+    pub fn start(self, mut config: AgentConfig) -> RunningPipeline {
         // Initialization phase.
         log::info!("Initializing the plugins...");
-
-        // load the global config
-        let mut global_config = match self.settings.config {
-            AgentConfigSource::Value(config) => config,
-            AgentConfigSource::FilePath(path) => {
-                load_config_from_file(&self.settings.plugins, &path, &self.settings.default_agent_config)
-                    .unwrap_or_else(|err| log_and_panic(err, String::from("Could not load the configuration")))
-            }
-        };
-        log::debug!("Global configuration: {global_config:?}");
 
         // initialize the plugins with the config
         let mut initialized_plugins: Vec<Box<dyn Plugin>> = self
@@ -109,7 +182,7 @@ impl Agent {
             .map(|plugin| {
                 let name = plugin.name.clone();
                 let version = plugin.version.clone();
-                initialize_with_config(&mut global_config, plugin).unwrap_or_else(|err| {
+                initialize_with_config(&mut config, plugin).unwrap_or_else(|err| {
                     log_and_panic(err, format!("Plugin failed to initialize: {} v{}", name, version))
                 })
             })
@@ -125,6 +198,8 @@ impl Agent {
         // Start-up phase.
         log::info!("Starting the plugins...");
         let mut pipeline_builder = pipeline::builder::PipelineBuilder::new();
+        pipeline_builder.source_constraints = self.settings.source_constraints;
+
         for plugin in initialized_plugins.iter_mut() {
             log::debug!("Starting plugin {} v{}", plugin.name(), plugin.version());
             let mut start_struct = AlumetStart {
@@ -190,7 +265,16 @@ impl Agent {
     ///
     /// This can be used to provide a command line option that (re)generates the configuration file.
     pub fn default_config(&self) -> anyhow::Result<toml::Table> {
-        build_default_config(&self.settings.plugins, &self.settings.default_agent_config)
+        build_default_config(&self.settings.plugins, &self.settings.default_app_config)
+    }
+
+    /// Sets the maximum interval between two updates of the commands processed by
+    /// each measurement [`Source`](crate::pipeline::Source).
+    ///
+    /// This only applies to the sources that are triggered by a time interval
+    /// managed by Alumet.
+    pub fn sources_max_update_interval(&mut self, max_update_interval: Duration) {
+        self.settings.source_constraints.max_update_interval = max_update_interval;
     }
 }
 
@@ -251,36 +335,12 @@ fn log_and_panic<M: Display>(error: anyhow::Error, message: M) -> ! {
 }
 
 /// Finds the configuration of a plugin in the global config, and initialize the plugin.
-fn initialize_with_config(global_config: &mut toml::Table, plugin: PluginMetadata) -> anyhow::Result<Box<dyn Plugin>> {
+fn initialize_with_config(agent_config: &mut AgentConfig, plugin: PluginMetadata) -> anyhow::Result<Box<dyn Plugin>> {
     let name = &plugin.name;
-    let version = &plugin.version;
+    let plugin_config = agent_config.take_plugin_config(name)?;
 
-    // Get the plugin's subconfig, which is at plugins.<name>
-    let plugins_table = match global_config.get_mut("plugins") {
-        Some(toml::Value::Table(t)) => Ok(t),
-        Some(bad_value) => Err(anyhow!(
-            "invalid global config: 'plugins' must be a table, not a {}.",
-            bad_value.type_str()
-        )),
-        None => Err(anyhow!("invalid global config: it should contain a 'plugins' table")),
-    };
-    let sub_config = plugins_table?.remove(name);
-
-    log::debug!("Initializing plugin {name} with config {sub_config:?}");
-
-    let plugin_config = match sub_config {
-        Some(toml::Value::Table(t)) => Ok(t),
-        Some(bad_value) => Err(anyhow!(
-            "invalid configuration for plugin '{name}' v{version}: the value must be a table, not a {}.",
-            bad_value.type_str()
-        )),
-        None => {
-            // default to an empty config, so that the plugin can load some default values.
-            Ok(toml::Table::new())
-        }
-    };
-    let plugin_config = ConfigTable(plugin_config?);
-    (plugin.init)(plugin_config)
+    log::debug!("Initializing plugin {name} with config {plugin_config:?}");
+    (plugin.init)(ConfigTable(plugin_config))
 }
 
 /// Prints some statistics after the plugin start-up phase.
@@ -331,13 +391,14 @@ impl AgentBuilder {
     pub fn new(plugins: Vec<PluginMetadata>) -> Self {
         Self {
             plugins,
-            config: AgentConfigSource::FilePath(PathBuf::from("alumet-config.toml")),
-            default_agent_config: toml::Table::new(),
+            config: Some(AgentConfigSource::FilePath(PathBuf::from("alumet-config.toml"))),
+            default_app_config: toml::Table::new(),
             f_after_plugin_init: |_| (),
             f_after_plugin_start: |_| (),
             f_before_operation_begin: |_| (),
             f_after_operation_begin: |_| (),
             allow_no_metrics: false,
+            source_constraints: TriggerConstraints::default(),
         }
     }
 
@@ -348,12 +409,22 @@ impl AgentBuilder {
 
     /// Loads the global configuration from the given file path.
     pub fn config_path<P: AsRef<Path>>(mut self, path: P) -> Self {
-        self.config = AgentConfigSource::FilePath(path.as_ref().to_owned());
+        self.config = Some(AgentConfigSource::FilePath(path.as_ref().to_owned()));
         self
     }
 
-    pub fn default_agent_config(mut self, default_agent_config: toml::Table) -> Self {
-        self.default_agent_config = default_agent_config;
+    /// Defines the default configuration for the agent application (not the plugins).
+    pub fn default_app_config_table(mut self, app_config: toml::Table) -> Self {
+        self.default_app_config = app_config;
+        self
+    }
+
+    /// Defines the default configuration for the agent application (not the plugins).
+    /// 
+    /// If `app_config` cannot be serialized to a [`toml::Table`], this function will panic.
+    pub fn default_app_config<C: Serialize>(mut self, app_config: C) -> Self {
+        self.default_app_config =
+            toml::Table::try_from(app_config).expect("default app config should be serializable to a TOML table");
         self
     }
 
@@ -363,7 +434,7 @@ impl AgentBuilder {
     /// it from a file. For instance, this can be used to load the configuration
     /// from the command line arguments.
     pub fn config_value(mut self, config: toml::Table) -> Self {
-        self.config = AgentConfigSource::Value(config);
+        self.config = Some(AgentConfigSource::Value(config));
         self
     }
 
@@ -398,9 +469,9 @@ impl AgentBuilder {
         self.f_after_operation_begin = f;
         self
     }
-    
+
     /// Disables the "no metrics registered" warning.
-    /// 
+    ///
     /// Use this if you only expect late metrics to be registered.
     pub fn allow_no_metrics(mut self) -> Self {
         self.allow_no_metrics = true;
@@ -443,6 +514,7 @@ macro_rules! static_plugins {
 }
 
 use anyhow::{anyhow, Context};
+use serde::Serialize;
 pub use static_plugins;
 
 #[cfg(test)]

@@ -57,7 +57,7 @@ fn default_config_1_plugin() {
         let mut default_agent_config = toml::Table::new();
         default_agent_config.insert(String::from("key"), toml::Value::String(String::from("value")));
         let agent = AgentBuilder::new(plugins)
-            .default_agent_config(default_agent_config)
+            .default_app_config(default_agent_config)
             .build();
         let config = agent.default_config().unwrap();
 

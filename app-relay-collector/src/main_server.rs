@@ -12,11 +12,12 @@ fn main() {
     let plugins = static_plugins![plugin_relay::server::RelayServerPlugin, plugin_csv::CsvPlugin];
 
     // Start the collector
-    let agent = AgentBuilder::new(plugins)
+    let mut agent = AgentBuilder::new(plugins)
         .config_path("alumet-collector.toml")
         .allow_no_metrics()
         .build();
-    let mut pipeline = agent.start();
+    let config = agent.load_config().unwrap();
+    let mut pipeline = agent.start(config);
 
     // Keep the pipeline running until the app closes.
     pipeline.wait_for_all();

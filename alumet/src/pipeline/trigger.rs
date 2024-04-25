@@ -1,5 +1,6 @@
 //! Source triggers.
 
+use std::time::Duration;
 use std::{fmt, time};
 use std::{future::Future, pin::Pin};
 
@@ -43,6 +44,11 @@ pub(crate) struct TriggerConfig {
     /// but decreases the time it takes for a [source command](super::runtime::SourceCmd)
     /// to be applied.
     pub update_rounds: usize,
+}
+
+/// Constraints that can be applied to a [`TriggerSpec`] after its construction.
+pub(crate) struct TriggerConstraints {
+    pub max_update_interval: time::Duration,
 }
 
 /// Builder for source triggers.
@@ -99,7 +105,7 @@ pub mod builder {
             }
         }
     }
-    
+
     impl std::error::Error for Error {}
 
     impl TimeTriggerBuilder {
@@ -179,8 +185,50 @@ pub mod builder {
 }
 
 impl TriggerSpec {
+    /// Defines a trigger that polls the source at regular intervals.
+    ///
+    /// For more options, use [`builder::time_interval`].
     pub fn at_interval(poll_interval: time::Duration) -> TriggerSpec {
         builder::time_interval(poll_interval).build().unwrap()
+    }
+
+    /// Adjusts the trigger specification to respect the given constraints.
+    ///
+    /// # Constraints
+    /// - `max_update_interval`: maximum amount of time allowed between two command updates
+    pub(crate) fn constrain(&mut self, constraints: &TriggerConstraints) {
+        if !self.interruptible {
+            let max_update_interval = constraints.max_update_interval;
+
+            match self.mechanism {
+                TriggerMechanismSpec::TimeInterval(_, poll_interval) => {
+                    let update_interval = match self.config.update_rounds.try_into() {
+                        Ok(update_rounds) => poll_interval * update_rounds,
+                        Err(_too_big) => time::Duration::MAX,
+                    };
+                    if poll_interval > max_update_interval {
+                        // The trigger mechanism needs to be interruptible to respect the max update time.
+                        // See TimeTriggerBuilder::update_interval.
+                        self.config.update_rounds = 1;
+                        self.interruptible = true;
+                    }
+                    if update_interval > max_update_interval {
+                        // Lower `update_rounds` to respect the max update time.
+                        self.config.update_rounds =
+                            ((max_update_interval.as_nanos() / poll_interval.as_nanos()) as usize).max(1);
+                    }
+                }
+                _ => (),
+            }
+        }
+    }
+}
+
+impl Default for TriggerConstraints {
+    fn default() -> Self {
+        Self {
+            max_update_interval: Duration::MAX,
+        }
     }
 }
 
@@ -326,14 +374,10 @@ impl fmt::Debug for TriggerMechanism {
 mod tests {
     use std::time::Duration;
 
-    use super::builder;
+    use super::{builder, TriggerConstraints, TriggerMechanismSpec};
 
     #[test]
     fn trigger_auto_config() {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
         let intervals_and_rounds = vec![
             (
                 /*poll interval*/ 1,
@@ -374,5 +418,63 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn trigger_constraints() {
+        let constraints = TriggerConstraints {
+            max_update_interval: Duration::from_secs(2),
+        };
+
+        let mut trigger = builder::time_interval(Duration::from_secs(1)) // 1sec
+            .flush_interval(Duration::from_secs(5)) // 5*1sec
+            .update_interval(Duration::from_secs(2)) // 2*1sec
+            .build()
+            .unwrap();
+        trigger.constrain(&constraints);
+        assert!(matches!(trigger.mechanism, TriggerMechanismSpec::TimeInterval(_, d) if d == Duration::from_secs(1)));
+        assert_eq!(trigger.config.flush_rounds, 5); // 5*1sec => 5 rounds
+        assert_eq!(trigger.config.update_rounds, 2); // 2*1sec => 2rounds
+        
+        let mut trigger = builder::time_interval(Duration::from_secs(2))
+            .flush_interval(Duration::from_secs(10))
+            .update_interval(Duration::from_secs(2))
+            .build()
+            .unwrap();
+        trigger.constrain(&constraints);
+        assert!(matches!(trigger.mechanism, TriggerMechanismSpec::TimeInterval(_, d) if d == Duration::from_secs(2)));
+        assert_eq!(trigger.config.flush_rounds, 5);
+        assert_eq!(trigger.config.update_rounds, 1);
+        
+        let mut trigger = builder::time_interval(Duration::from_secs(2))
+            .flush_interval(Duration::from_secs(10))
+            .update_interval(Duration::from_secs(6)) // multiple of poll_interval
+            .build()
+            .unwrap();
+        trigger.constrain(&constraints);
+        assert!(matches!(trigger.mechanism, TriggerMechanismSpec::TimeInterval(_, d) if d == Duration::from_secs(2)));
+        assert_eq!(trigger.config.flush_rounds, 5);
+        assert_eq!(trigger.config.update_rounds, 1);
+        
+        let mut trigger = builder::time_interval(Duration::from_secs(2))
+            .flush_interval(Duration::from_secs(10))
+            .update_interval(Duration::from_secs(5)) // not a multiple of poll_interval!
+            .build()
+            .unwrap();
+        trigger.constrain(&constraints);
+        assert!(matches!(trigger.mechanism, TriggerMechanismSpec::TimeInterval(_, d) if d == Duration::from_secs(2)));
+        assert_eq!(trigger.config.flush_rounds, 5);
+        assert_eq!(trigger.config.update_rounds, 1);
+        
+        let mut trigger = builder::time_interval(Duration::from_secs(3)) // bigger than max_update_interval!
+            .flush_interval(Duration::from_secs(15))
+            .update_interval(Duration::from_secs(3))
+            .build()
+            .unwrap();
+        trigger.constrain(&constraints);
+        assert!(matches!(trigger.mechanism, TriggerMechanismSpec::TimeInterval(_, d) if d == Duration::from_secs(3)));
+        assert!(trigger.interruptible);
+        assert_eq!(trigger.config.flush_rounds, 5);
+        assert_eq!(trigger.config.update_rounds, 1);
     }
 }
