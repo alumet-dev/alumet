@@ -262,10 +262,27 @@ impl Agent {
     /// Builds a default configuration by combining:
     /// - the default agent config (which is set by [`AgentBuilder::default_agent_config`])
     /// - the default config of each plugin (which are set by [`AgentBuilder::new`])
-    ///
-    /// This can be used to provide a command line option that (re)generates the configuration file.
     pub fn default_config(&self) -> anyhow::Result<toml::Table> {
         build_default_config(&self.settings.plugins, &self.settings.default_app_config)
+    }
+
+    /// Builds and saves a default configuration by combining:
+    /// - the default agent config (which is set by [`AgentBuilder::default_agent_config`])
+    /// - the default config of each plugin (which are set by [`AgentBuilder::new`])
+    ///
+    /// This can be used to provide a command line option that (re)generates the configuration file.
+    pub fn write_default_config(&self) -> anyhow::Result<()> {
+        let default_config = self.default_config()?;
+        match self.settings.config.as_ref().unwrap() {
+            AgentConfigSource::Value(_) => Err(anyhow!(
+                "write_default_config() only works if the Agent is built with config_path()"
+            )),
+            AgentConfigSource::FilePath(path) => {
+                std::fs::write(&path, default_config.to_string())
+                    .with_context(|| format!("writing default config to {}", path.display()))?;
+                Ok(())
+            }
+        }
     }
 
     /// Sets the maximum interval between two updates of the commands processed by
@@ -420,7 +437,7 @@ impl AgentBuilder {
     }
 
     /// Defines the default configuration for the agent application (not the plugins).
-    /// 
+    ///
     /// If `app_config` cannot be serialized to a [`toml::Table`], this function will panic.
     pub fn default_app_config<C: Serialize>(mut self, app_config: C) -> Self {
         self.default_app_config =
