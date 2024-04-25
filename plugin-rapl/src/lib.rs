@@ -1,11 +1,16 @@
-use std::time::Duration;
+use std::{default, time::Duration};
 
 use alumet::{
     pipeline::{trigger, Source},
-    plugin::{rust::AlumetPlugin, ConfigTable},
+    plugin::{
+        rust::{deserialize_config, serialize_config, AlumetPlugin},
+        ConfigTable,
+    },
     units::Unit,
 };
+use anyhow::Context;
 use indoc::indoc;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     consistency::{check_domains_consistency, SafeSubset},
@@ -20,7 +25,7 @@ mod perf_event;
 mod powercap;
 
 pub struct RaplPlugin {
-    poll_interval: Duration,
+    config: Config,
 }
 
 impl AlumetPlugin for RaplPlugin {
@@ -31,11 +36,15 @@ impl AlumetPlugin for RaplPlugin {
     fn version() -> &'static str {
         "0.1.0"
     }
+    
+    fn default_config() -> anyhow::Result<Option<ConfigTable>> {
+        let config = serialize_config(Config::default())?;
+        Ok(Some(config))
+    }
 
-    fn init(_config: ConfigTable) -> anyhow::Result<Box<Self>> {
-        // TODO read from config
-        let poll_interval = Duration::from_millis(1);
-        Ok(Box::new(RaplPlugin { poll_interval }))
+    fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
+        let config = deserialize_config(config).context("invalid config")?;
+        Ok(Box::new(RaplPlugin { config }))
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
@@ -66,12 +75,14 @@ impl AlumetPlugin for RaplPlugin {
             consistency::mkstring(&available_domains.domains, ", ")
         );
 
-        // Create the probe.
+        // Create the metric.
         let metric = alumet.create_metric::<f64>(
             "rapl_consumed_energy",
             Unit::Joule,
             "Energy consumed since the previous measurement, as reported by RAPL.",
         )?;
+
+        // Create the measurement source.
         let mut events_on_cpus = Vec::new();
         for event in &available_domains.perf_events {
             for cpu in &socket_cpus {
@@ -79,12 +90,39 @@ impl AlumetPlugin for RaplPlugin {
             }
         }
         log::debug!("Events to read: {events_on_cpus:?}");
-        let source: anyhow::Result<Box<dyn Source>> = match PerfEventProbe::new(metric, &events_on_cpus) {
-            Ok(perf_event_probe) => Ok(Box::new(perf_event_probe)),
-            Err(e) => {
-                // perf_events failed, log an error and try powercap instead
-                log::warn!("I could not use perf_events to read RAPL energy counters: {e}");
-                let msg = indoc! {"
+        let source = if self.config.no_perf_events {
+            // perf_events disabled by config, use powercap directly
+            setup_powercap_probe(metric, &available_domains)
+        } else {
+            // perf_events enabled, try it first and fallback to powercap if it fails
+            setup_perf_events_probe(metric, events_on_cpus, &available_domains)
+        };
+
+        let trigger = trigger::builder::time_interval(self.config.poll_interval)
+            .flush_interval(Duration::from_secs(20))
+            .update_interval(Duration::from_secs(1))
+            .build()
+            .unwrap();
+        alumet.add_source(source?, trigger);
+        Ok(())
+    }
+
+    fn stop(&mut self) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+
+fn setup_perf_events_probe(
+    metric: alumet::metrics::TypedMetricId<f64>,
+    events_on_cpus: Vec<(&perf_event::PowerEvent, &cpus::CpuId)>,
+    available_domains: &SafeSubset,
+) -> Result<Box<dyn Source>, anyhow::Error> {
+    let source: anyhow::Result<Box<dyn Source>> = match PerfEventProbe::new(metric, &events_on_cpus) {
+        Ok(perf_event_probe) => Ok(Box::new(perf_event_probe)),
+        Err(e) => {
+            // perf_events failed, log an error and try powercap instead
+            log::warn!("I could not use perf_events to read RAPL energy counters: {e}");
+            let msg = indoc! {"
                     I will fallback to the powercap sysfs, but perf_events is more efficient (see https://hal.science/hal-04420527).
                     
                     This warning is probably caused by insufficient privileges.
@@ -97,36 +135,51 @@ impl AlumetPlugin for RaplPlugin {
                     
                     3. Run the agent as root (not recommanded).
                 "};
-                log::warn!("{msg}");
-                // TODO add an option to disable perf_events and always use sysfs.
+            log::warn!("{msg}");
+            // TODO add an option to disable perf_events and always use sysfs.
 
-                match PowercapProbe::new(metric, &available_domains.power_zones) {
-                    Ok(powercap_probe) => Ok(Box::new(powercap_probe)),
-                    Err(e) => {
-                        let msg = indoc! {"
-                            I could not use the powercap sysfs to read RAPL energy counters.
-                            This is probably caused by insufficient privileges.
-                            Please check that you have read access to everything in '/sys/devices/virtual/powercap/intel-rapl'.
-                            
-                            A solution could be:
-                                sudo chmod a+r -R /sys/devices/virtual/powercap/intel-rapl
-                        "};
-                        log::error!("{msg}");
-                        Err(e)
-                    }
-                }
-            }
-        };
-        let trigger = trigger::builder::time_interval(self.poll_interval)
-            .flush_interval(Duration::from_secs(20))
-            .update_interval(Duration::from_secs(1))
-            .build()
-            .unwrap();
-        alumet.add_source(source?, trigger);
-        Ok(())
+            setup_powercap_probe(metric, available_domains)
+        }
+    };
+    source
+}
+
+fn setup_powercap_probe(
+    metric: alumet::metrics::TypedMetricId<f64>,
+    available_domains: &SafeSubset,
+) -> anyhow::Result<Box<dyn Source>> {
+    match PowercapProbe::new(metric, &available_domains.power_zones) {
+        Ok(powercap_probe) => Ok(Box::new(powercap_probe)),
+        Err(e) => {
+            let msg = indoc! {"
+                I could not use the powercap sysfs to read RAPL energy counters.
+                This is probably caused by insufficient privileges.
+                Please check that you have read access to everything in '/sys/devices/virtual/powercap/intel-rapl'.
+                    
+                A solution could be:
+                    sudo chmod a+r -R /sys/devices/virtual/powercap/intel-rapl
+            "};
+            log::error!("{msg}");
+            Err(e)
+        }
     }
+}
 
-    fn stop(&mut self) -> anyhow::Result<()> {
-        Ok(())
+#[derive(Deserialize, Serialize)]
+struct Config {
+    /// Initial interval between two RAPL measurements.
+    #[serde(with = "humantime_serde")]
+    poll_interval: Duration,
+
+    /// Set to true to disable perf_events and always use the powercap sysfs.
+    no_perf_events: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            poll_interval: Duration::from_secs(1), // 1Hz
+            no_perf_events: false,                 // prefer perf_events
+        }
     }
 }
