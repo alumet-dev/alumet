@@ -118,7 +118,7 @@ pub struct PluginMetadata {
     /// The default config is used to generate the configuration file of the
     /// Alumet agent, in case it does not exist. In other cases, the default
     /// config returned by this function is not used, including when
-    pub default_config: Box<dyn Fn() -> Option<ConfigTable>>,
+    pub default_config: Box<dyn Fn() -> anyhow::Result<Option<ConfigTable>>>,
 }
 
 impl PluginMetadata {

@@ -244,9 +244,9 @@ pub fn load_cdylib(file: &Path) -> Result<PluginMetadata, LoadError> {
                 log::debug!("filling default config");
                 f(&mut config_to_fill);
                 log::debug!("default config filled");
-                Some(ConfigTable(config_to_fill))
+                Ok(Some(ConfigTable(config_to_fill)))
             }),
-            None => Box::new(|| None),
+            None => Box::new(|| Ok(None)),
         },
     };
 

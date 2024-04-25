@@ -1,5 +1,3 @@
-use std::{env, panic};
-
 use alumet::{
     agent::AgentBuilder,
     plugin::{
@@ -29,7 +27,7 @@ fn static_plugin_macro() {
 fn default_config_no_plugin() {
     let plugins = static_plugins![];
     let agent = AgentBuilder::new(plugins).build();
-    let config = agent.default_config();
+    let config = agent.default_config().unwrap();
 
     let expected = toml::Table::from_iter(vec![(String::from("plugins"), toml::Value::Table(toml::Table::new()))]);
     assert_eq!(expected, config);
@@ -40,7 +38,7 @@ fn default_config_1_plugin() {
     {
         let plugins = static_plugins![MyPlugin];
         let agent = AgentBuilder::new(plugins).build();
-        let config = agent.default_config();
+        let config = agent.default_config().unwrap();
 
         let mut expected = toml::Table::new();
         let mut expected_plugins_confs = toml::Table::new();
@@ -61,7 +59,7 @@ fn default_config_1_plugin() {
         let agent = AgentBuilder::new(plugins)
             .default_agent_config(default_agent_config)
             .build();
-        let config = agent.default_config();
+        let config = agent.default_config().unwrap();
 
         let mut expected = toml::Table::new();
         let mut expected_plugins_confs = toml::Table::new();
@@ -100,9 +98,9 @@ impl AlumetPlugin for MyPlugin {
         todo!()
     }
 
-    fn default_config() -> Option<ConfigTable> {
-        let config = serialize_config(MyPluginConfig::default()).unwrap();
-        Some(config)
+    fn default_config() -> anyhow::Result<Option<ConfigTable>> {
+        let config = serialize_config(MyPluginConfig::default())?;
+        Ok(Some(config))
     }
 }
 

@@ -30,8 +30,8 @@ pub trait AlumetPlugin {
     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>>;
 
     /// Returns the default configuration of the plugin.
-    fn default_config() -> Option<ConfigTable> {
-        None
+    fn default_config() -> anyhow::Result<Option<ConfigTable>> {
+        Ok(None)
     }
 
     /// Starts the plugin, allowing it to register metrics, sources and outputs.

@@ -186,7 +186,7 @@ impl Agent {
     /// - the default config of each plugin (which are set by [`AgentBuilder::new`])
     ///
     /// This can be used to provide a command line option that (re)generates the configuration file.
-    pub fn default_config(&self) -> toml::Table {
+    pub fn default_config(&self) -> anyhow::Result<toml::Table> {
         build_default_config(&self.settings.plugins, &self.settings.default_agent_config)
     }
 }
@@ -204,10 +204,10 @@ fn load_config_from_file(
             match e.kind() {
                 std::io::ErrorKind::NotFound => {
                     // the file does not exist, create the default config and save it
-                    let default_config = build_default_config(plugins, default_agent_config);
+                    let default_config = build_default_config(plugins, default_agent_config)?;
                     std::fs::write(&path, default_config.to_string())
                         .with_context(|| format!("writing default config to {}", path.display()))?;
-
+                    log::info!("Default configuration written to {}", path.display());
                     Ok(default_config)
                 }
                 _ => Err(anyhow!(
@@ -221,20 +221,23 @@ fn load_config_from_file(
 
 /// Builds a default global configuration from the default configs of all the plugins,
 /// and the default config of the agent.
-fn build_default_config(plugins: &[PluginMetadata], default_agent_config: &toml::Table) -> toml::Table {
+fn build_default_config(plugins: &[PluginMetadata], default_agent_config: &toml::Table) -> anyhow::Result<toml::Table> {
     let mut default_config = default_agent_config.clone();
 
     // Fill the config with all the default configs of the plugins,
     // in a subtable to avoid name conflicts with the agent config.
     let mut plugins_config = toml::Table::new();
     for plugin in plugins {
-        if let Some(conf) = (plugin.default_config)() {
+        log::debug!("Generating default config for plugin {}", plugin.name);
+        let default_plugin_config = (plugin.default_config)()?;
+        log::debug!("default config: {default_plugin_config:?}");
+        if let Some(conf) = default_plugin_config {
             let key = plugin.name.clone();
             plugins_config.insert(key, toml::Value::Table(conf.0));
         }
     }
     default_config.insert(String::from("plugins"), toml::Value::Table(plugins_config));
-    default_config
+    Ok(default_config)
 }
 
 fn log_and_panic<M: Display>(error: anyhow::Error, message: M) -> ! {
@@ -503,9 +506,9 @@ mod tests {
             todo!()
         }
 
-        fn default_config() -> Option<ConfigTable> {
-            let config = serialize_config(MyPluginConfig::default()).unwrap();
-            Some(config)
+        fn default_config() -> anyhow::Result<Option<ConfigTable>> {
+            let config = serialize_config(MyPluginConfig::default())?;
+            Ok(Some(config))
         }
     }
 
