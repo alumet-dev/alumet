@@ -62,7 +62,7 @@ fn apply_config(agent: &mut Agent, global_config: &mut AgentConfig, cli_args: Ar
     }
 }
 
-/// Structure of the config file.
+/// Structure of the config file, excluding plugin configs.
 #[derive(Deserialize, Serialize)]
 struct AppConfig {
     #[serde(with = "humantime_serde")]
