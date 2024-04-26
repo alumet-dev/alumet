@@ -11,7 +11,7 @@ use anyhow::{anyhow, Context};
 
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{broadcast, mpsc};
-use tokio::task::JoinHandle;
+use tokio::task::JoinSet;
 use tokio::{runtime::Runtime, sync::watch};
 use tokio_util::sync::CancellationToken;
 
@@ -25,6 +25,7 @@ use crate::{
     pipeline::{Output, Source, Transform},
 };
 
+use super::builder::ElementType;
 use super::trigger::{Trigger, TriggerSpec};
 use super::{builder, SourceType};
 use super::{OutputContext, PollError, TransformError, WriteError};
@@ -64,10 +65,8 @@ pub struct RunningPipeline {
     _rt_normal: Runtime,
     _rt_priority: Option<Runtime>,
 
-    // Handles to wait for pipeline elements to finish.
-    source_handles: Vec<JoinHandle<Result<(), PollError>>>,
-    output_handles: Vec<JoinHandle<Result<(), WriteError>>>,
-    transform_handle: JoinHandle<Result<(), TransformError>>,
+    // JoinSet to wait for the tasks to finish.
+    task_set: JoinSet<Result<(), PipelineError>>,
 
     /// Controls the pipeline.
     controller: PipelineController,
@@ -125,12 +124,11 @@ impl IdlePipeline {
 
     /// Starts the measurement pipeline.
     pub fn start(self) -> RunningPipeline {
-        // Store the task handles in order to wait for them to complete before stopping,
-        // and the command senders in order to keep the receivers alive and to be able to send commands after the launch.
-        let mut source_handles = Vec::with_capacity(self.sources.len() + self.autonomous_sources.len());
-        let mut output_handles = Vec::with_capacity(self.outputs.len());
+        // Use a JoinSet to keep track of the spawned tasks.
+        let mut task_set = JoinSet::new();
 
-        // Store the Sender<SourceCmd>, Sender<OutputCmd> and transform mask.
+        // Store the command senders in order to keep the receivers alive,
+        // and to be able to send commands after the launch.
         let mut source_command_senders_by_plugin: HashMap<_, Vec<_>> = HashMap::new();
         let mut output_command_senders_by_plugin: HashMap<_, Vec<_>> = HashMap::new();
         let mut transforms_mask_by_plugin: HashMap<_, u64> = HashMap::new();
@@ -149,17 +147,16 @@ impl IdlePipeline {
                 metrics: self.metrics.clone(),
             };
             // Spawn the task and store the handle.
-            let handle = self
-                .rt_normal
-                .spawn(run_output_from_broadcast(out.output, msg_rx, command_rx, ctx));
-            output_handles.push(handle);
+            let task = run_output_from_broadcast(out.output, msg_rx, command_rx, ctx);
+            task_set.spawn_on(task, self.rt_normal.handle());
+
             output_command_senders_by_plugin
                 .entry(out.plugin_name)
                 .or_default()
                 .push(command_tx);
         }
 
-        // 2. Transforms
+        // 2. Transforms (all in the same task because they are applied one after another)
         let active_transforms = Arc::new(AtomicU64::new(u64::MAX)); // all active by default
         let mut transforms = Vec::with_capacity(self.transforms.len());
         for (i, t) in self.transforms.into_iter().enumerate() {
@@ -170,12 +167,8 @@ impl IdlePipeline {
                 .or_default()
                 .bitor_assign(mask);
         }
-        let transform_handle = self.rt_normal.spawn(run_transforms(
-            transforms,
-            in_rx,
-            self.to_outputs,
-            active_transforms.clone(),
-        ));
+        let transforms_task = run_transforms(transforms, in_rx, self.to_outputs, active_transforms.clone());
+        task_set.spawn_on(transforms_task, self.rt_normal.handle());
 
         // 3. Managed sources
         for src in self.sources {
@@ -185,8 +178,8 @@ impl IdlePipeline {
                 SourceType::Normal => &self.rt_normal,
                 SourceType::RealtimePriority => self.rt_priority.as_ref().unwrap(),
             };
-            let handle = runtime.spawn(run_source(src.source, data_tx, command_rx));
-            source_handles.push(handle);
+            let task = run_source(src.source, data_tx, command_rx);
+            task_set.spawn_on(task, runtime.handle());
             source_command_senders_by_plugin
                 .entry(src.plugin_name)
                 .or_default()
@@ -195,10 +188,8 @@ impl IdlePipeline {
 
         // 4. Autonomous sources
         for src in self.autonomous_sources {
-            let handle = self
-                .rt_normal
-                .spawn(async move { src.await.map_err(|e| PollError::Fatal(e)) });
-            source_handles.push(handle);
+            let task = async move { src.await.map_err(|e| PipelineError::from(PollError::Fatal(e))) };
+            task_set.spawn_on(task, self.rt_normal.handle());
         }
 
         // 5. Graceful shutdown on Ctrl+C
@@ -210,7 +201,7 @@ impl IdlePipeline {
             tokio::signal::ctrl_c()
                 .await
                 .expect("failed to listen for signal event");
-            
+
             log::info!("Termination signal received, shutting down...");
 
             // Stop the PipelineController.
@@ -228,9 +219,7 @@ impl IdlePipeline {
         RunningPipeline {
             _rt_normal: self.rt_normal,
             _rt_priority: self.rt_priority,
-            source_handles,
-            output_handles,
-            transform_handle,
+            task_set,
 
             // Don't start the control task yet, but be prepared to do it.
             controller: PipelineController::Waiting(PipelineControllerState {
@@ -256,7 +245,7 @@ async fn run_source(
     mut source: Box<dyn Source>,
     tx: mpsc::Sender<MeasurementBuffer>,
     mut commands: watch::Receiver<SourceCmd>,
-) -> Result<(), PollError> {
+) -> Result<(), PipelineError> {
     /// Takes the [`Trigger`] from the option and initializes it.
     fn init_trigger(
         trigger_spec: &mut Option<TriggerSpec>,
@@ -320,7 +309,7 @@ async fn run_source(
                             // the channel Receiver has been closed
                             panic!("source channel should stay open");
                         }
-                        Err(TrySendError::Full(buf)) => {
+                        Err(TrySendError::Full(_buf)) => {
                             // the channel's buffer is full! reduce the measurement frequency
                             // TODO it would be better to choose which source to slow down based
                             // on its frequency and number of measurements per poll.
@@ -365,8 +354,8 @@ async fn run_source(
                         SourceCmd::Pause => paused = true,
                         SourceCmd::Stop => {
                             log::trace!("received SourceCmd::Stop");
-                            break 'run
-                        },
+                            break 'run;
+                        }
                         SourceCmd::SetTrigger(mut opt) => {
                             let prev_flush_rounds = trigger.config.flush_rounds;
 
@@ -410,7 +399,7 @@ async fn run_transforms(
     mut rx: mpsc::Receiver<MeasurementBuffer>,
     tx: broadcast::Sender<OutputMsg>,
     active_flags: Arc<AtomicU64>,
-) -> Result<(), TransformError> {
+) -> Result<(), PipelineError> {
     loop {
         if let Some(mut measurements) = rx.recv().await {
             // Update the list of active transforms (the PipelineController can update the flags).
@@ -426,7 +415,11 @@ async fn run_transforms(
 
             // Send the results to the outputs.
             tx.send(OutputMsg::WriteMeasurements(measurements))
-                .context("could not send the measurements from transforms to the outputs")?;
+                .context("could not send the measurements from transforms to the outputs")
+                .map_err(|e| PipelineError {
+                    error: e,
+                    element: ElementType::Output,
+                })?;
         } else {
             log::warn!("The channel connected to the transform step has been closed, the transforms will stop.");
             break;
@@ -458,7 +451,7 @@ async fn run_output_from_broadcast(
     mut rx: broadcast::Receiver<OutputMsg>,
     mut commands: watch::Receiver<OutputCmd>,
     mut ctx: OutputContext,
-) -> Result<(), WriteError> {
+) -> Result<(), PipelineError> {
     // Two possible designs:
     // A) Use one mpsc channel + one shared variable that contains the current command,
     // - when a message is received, check the command and act accordingly
@@ -490,10 +483,18 @@ async fn run_output_from_broadcast(
                         .await;
                 match res {
                     Ok(write_res) => {
-                        if let Err(e) = write_res {
-                            log::error!("Output failed: {:?}", e); // todo give a name to the output
+                        match write_res {
+                            Ok(_) => Ok(()),
+                            Err(WriteError::CanRetry(e)) => {
+                                log::error!("Non-fatal error in output (will retry later) {e:#}");
+                                // TODO retry
+                                Ok(())
+                            },
+                            Err(WriteError::Fatal(e)) => {
+                                log::error!("Fatal error in output: {e:#}");
+                                Err(WriteError::Fatal(e))
+                            },
                         }
-                        Ok(())
                     }
                     Err(await_err) => {
                         if await_err.is_panic() {
@@ -566,20 +567,77 @@ async fn run_output_from_broadcast(
     Ok(())
 }
 
+#[derive(Debug)]
+pub struct PipelineError {
+    pub error: anyhow::Error,
+    pub element: ElementType,
+}
+
+impl From<PollError> for PipelineError {
+    fn from(value: PollError) -> Self {
+        Self {
+            error: match value {
+                PollError::Fatal(err) => err,
+                PollError::CanRetry(err) => err,
+            },
+            element: ElementType::Source,
+        }
+    }
+}
+
+impl From<TransformError> for PipelineError {
+    fn from(value: TransformError) -> Self {
+        Self {
+            error: match value {
+                TransformError::Fatal(err) => err,
+                TransformError::UnexpectedInput(err) => err,
+            },
+            element: ElementType::Transform,
+        }
+    }
+}
+
+impl From<WriteError> for PipelineError {
+    fn from(value: WriteError) -> Self {
+        Self {
+            error: match value {
+                WriteError::Fatal(err) => err,
+                WriteError::CanRetry(err) => err,
+            },
+            element: ElementType::Output,
+        }
+    }
+}
+
 impl RunningPipeline {
     /// Blocks the current thread until all tasks in the pipeline finish.
-    pub fn wait_for_all(&mut self) {
+    ///
+    /// If a task returns an error or panicks, `wait_for_all` returns an error without waiting
+    /// for the other tasks.
+    pub fn wait_for_all(&mut self) -> anyhow::Result<()> {
         self._rt_normal.block_on(async {
-            for handle in &mut self.source_handles {
-                handle.await.unwrap().unwrap(); // todo: handle errors
+            while let Some(task_result) = self.task_set.join_next().await {
+                match task_result {
+                    Ok(Ok(())) => (), // task completed successfully
+                    Ok(Err(err)) => {
+                        // task completed with error
+                        log::error!("{:?} task returned an error: {:#}", err.element, err.error);
+                        return Err(err.error);
+                    }
+                    Err(err) => {
+                        // task panicked or was cancelled
+                        if err.is_panic() {
+                            log::error!("An element of the pipeline panicked! {err}");
+                        } else if err.is_cancelled() {
+                            log::error!("An element of the pipeline has been unexpectedly cancelled. {err}");
+                        }
+                        return Err(err.into());
+                    }
+                }
             }
 
-            (&mut self.transform_handle).await.unwrap().unwrap();
-
-            for handle in &mut self.output_handles {
-                handle.await.unwrap().unwrap();
-            }
-        });
+            Ok(())
+        })
     }
 
     /// Returns a [`ControlHandle`], which allows to change the configuration

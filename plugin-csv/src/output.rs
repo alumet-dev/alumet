@@ -108,6 +108,7 @@ impl alumet::pipeline::Output for CsvOutput {
             write!(self.writer, "\n")?;
         }
         if self.force_flush {
+            log::trace!("flushing BufWriter");
             self.writer.flush()?;
         }
         Ok(())

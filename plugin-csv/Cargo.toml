@@ -8,4 +8,5 @@ edition = "2021"
 [dependencies]
 alumet = { version = "0.2.0", path = "../alumet" }
 anyhow = "1.0.82"
+log = "0.4.21"
 time = { version = "0.3.36", features = ["formatting"] }

@@ -176,6 +176,7 @@ impl Agent {
     ///
     /// You can be notified after each step by building your agent
     /// with callbacks such as [`AgentBuilder::after_plugin_init`].
+    #[must_use = "To keep Alumet running, call RunningAgent::wait_for_shutdown."]
     pub fn start(self, mut config: AgentConfig) -> RunningAgent {
         // Initialization phase.
         log::info!("Initializing the plugins...");
@@ -307,15 +308,43 @@ impl Agent {
 
 impl RunningAgent {
     /// Waits until the measurement pipeline stops, then stops the plugins.
-    pub fn wait_for_shutdown(mut self) {
-        self.pipeline.wait_for_all();
+    ///
+    /// If an element of the pipeline returns an error or panicks, the other elements are aborted and an error is returned.
+    pub fn wait_for_shutdown(mut self) -> anyhow::Result<()> {
+        let mut n_errors = 0;
 
+        // Wait for the pipeline to be stopped, by Ctrl+C or a command.
+        if let Err(error) = self.pipeline.wait_for_all() {
+            log::error!("Error in the measurement pipeline: {error}");
+            n_errors += 1;
+        }
+
+        // Drop the pipeline before stopping the plugin, because Plugin::stop expects
+        // the sources, transforms and outputs to be stopped and dropped before it is called.
+        // This will also drop the JoinSet inside of the pipeline, which will abort all tasks
+        // that have not finished yet.
+        log::info!("Dropping the pipeline...");
+        drop(self.pipeline);
+
+        // Stop all the plugins, even if some of them fail to stop properly.
         log::info!("Stopping the plugins...");
         for mut plugin in self.initialized_plugins {
-            log::info!("Stopping plugin {} v{}", plugin.name(), plugin.version());
-            plugin.stop().unwrap()
+            let name = plugin.name().to_owned();
+            let version = plugin.version().to_owned();
+            log::info!("Stopping plugin {name} v{version}");
+
+            if let Err(error) = plugin.stop() {
+                log::error!("Error while stopping plugin {name} v{version} - {error:#}");
+                n_errors += 1;
+            }
         }
         log::info!("All plugins have stopped.");
+
+        if n_errors == 0 {
+            Ok(())
+        } else {
+            Err(anyhow!("{n_errors} errors occured during the shutdown phase"))
+        }
     }
 }
 

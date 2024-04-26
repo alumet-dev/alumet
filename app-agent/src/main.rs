@@ -46,7 +46,7 @@ fn main() {
     log::info!("ALUMET agent is ready.");
 
     // Keep the pipeline running until the app closes.
-    running_agent.wait_for_shutdown();
+    running_agent.wait_for_shutdown().unwrap();
     log::info!("ALUMET agent has stopped.");
 }
 
