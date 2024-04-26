@@ -755,15 +755,15 @@ impl ControlHandle {
         }
     }
 
-    pub fn blocking_all(&self) -> BlockingControlHandle {
-        BlockingControlHandle {
+    pub fn blocking_all(&self) -> BlockingScopedControlHandle {
+        BlockingScopedControlHandle {
             handle: self,
             plugin_name: None,
         }
     }
 
-    pub fn blocking_plugin(&self, plugin_name: impl Into<String>) -> BlockingControlHandle {
-        BlockingControlHandle {
+    pub fn blocking_plugin(&self, plugin_name: impl Into<String>) -> BlockingScopedControlHandle {
+        BlockingScopedControlHandle {
             handle: self,
             plugin_name: Some(plugin_name.into()),
         }
@@ -776,6 +776,7 @@ pub struct ScopedControlHandle<'a> {
 }
 impl<'a> ScopedControlHandle<'a> {
     pub async fn control_sources(self, cmd: SourceCmd) {
+        // TODO investigate using try_send instead of send here
         self.handle
             .tx
             .send(ControlMessage::Source(self.plugin_name, cmd))
@@ -798,11 +799,11 @@ impl<'a> ScopedControlHandle<'a> {
     }
 }
 
-pub struct BlockingControlHandle<'a> {
+pub struct BlockingScopedControlHandle<'a> {
     handle: &'a ControlHandle,
     plugin_name: Option<String>,
 }
-impl<'a> BlockingControlHandle<'a> {
+impl<'a> BlockingScopedControlHandle<'a> {
     pub fn control_sources(self, cmd: SourceCmd) {
         self.handle
             .tx
