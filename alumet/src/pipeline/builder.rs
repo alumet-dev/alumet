@@ -1,4 +1,5 @@
 use core::fmt;
+use std::collections::HashMap;
 use std::future::Future;
 use std::io;
 use std::pin::Pin;
@@ -24,7 +25,7 @@ pub struct PipelineBuilder {
     pub(crate) transforms: Vec<TransformBuilder>,
     pub(crate) outputs: Vec<OutputBuilder>,
     pub(crate) autonomous_sources: Vec<AutonomousSourceBuilder>,
-    
+
     pub(crate) source_constraints: TriggerConstraints,
 
     pub(crate) metrics: MetricRegistry,
@@ -110,9 +111,11 @@ impl LateRegistrationHandle {
 }
 
 /// A source that is ready to run.
-pub struct ConfiguredSource {
+pub(super) struct ConfiguredSource {
     /// The source.
     pub source: Box<dyn Source>,
+    /// Name of the source.
+    pub name: String,
     /// Name of the plugin that registered the source.
     pub plugin_name: String,
     /// Type of the source, for scheduling.
@@ -120,17 +123,28 @@ pub struct ConfiguredSource {
     /// How to trigger this source.
     pub trigger_provider: TriggerSpec,
 }
+/// An autonomous source that is ready to run.
+pub(super) struct ConfiguredAutonomousSource {
+    /// The source.
+    pub source: Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>,
+    /// Name of the source.
+    pub name: String,
+}
 /// A transform that is ready to run.
-pub struct ConfiguredTransform {
+pub(super) struct ConfiguredTransform {
     /// The transform.
     pub transform: Box<dyn Transform>,
+    /// Name of the transform.
+    pub name: String,
     /// Name of the plugin that registered the source.
     pub plugin_name: String,
 }
 /// An output that is ready to run.
-pub struct ConfiguredOutput {
+pub(super) struct ConfiguredOutput {
     /// The output.
     pub output: Box<dyn Output>,
+    /// Name of the output.
+    pub name: String,
     /// Name of the plugin that registered the source.
     pub plugin_name: String,
 }
@@ -247,6 +261,7 @@ impl PipelineBuilder {
         let out_tx = broadcast::Sender::<OutputMsg>::new(256);
 
         // Create the pipeline elements.
+        let mut namegen = ElementNameGenerator::new();
         let sources: Vec<ConfiguredSource> = self
             .sources
             .into_iter()
@@ -259,13 +274,18 @@ impl PipelineBuilder {
                         rt_priority.as_ref().unwrap().handle()
                     },
                 };
+                let source_name = namegen.source_name(&builder);
                 let (source, mut trigger) = (builder.build)(&pending);
-                log::trace!("(plugin {}) TriggerSpec before constraints: {trigger:?}", builder.plugin);
+                log::trace!(
+                    "(plugin {}) TriggerSpec before constraints: {trigger:?}",
+                    builder.plugin
+                );
                 trigger.constrain(&self.source_constraints);
                 log::trace!("(plugin {}) TriggerSpec after constraints: {trigger:?}", builder.plugin);
 
                 ConfiguredSource {
                     source,
+                    name: source_name,
                     plugin_name: builder.plugin,
                     source_type: builder.source_type,
                     trigger_provider: trigger,
@@ -281,9 +301,11 @@ impl PipelineBuilder {
             .transforms
             .into_iter()
             .map(|builder| {
+                let name = namegen.transform_name(&builder);
                 let transform = (builder.build)(&pending);
                 ConfiguredTransform {
                     transform,
+                    name,
                     plugin_name: builder.plugin,
                 }
             })
@@ -292,11 +314,13 @@ impl PipelineBuilder {
             .outputs
             .into_iter()
             .map(|builder| {
+                let name = namegen.output_name(&builder);
                 let output = (builder.build)(&pending).map_err(|err| {
                     PipelineBuildError::ElementBuild(err, ElementType::Output, builder.plugin.clone())
                 })?;
                 Ok(ConfiguredOutput {
                     output,
+                    name,
                     plugin_name: builder.plugin,
                 })
             })
@@ -309,8 +333,9 @@ impl PipelineBuilder {
             .into_iter()
             .map(|builder| {
                 let data_tx = in_tx.clone();
+                let name = namegen.autonomous_source_name(&builder);
                 let source = (builder.build)(&pending, &data_tx);
-                source
+                ConfiguredAutonomousSource { source, name }
             })
             .collect();
 
@@ -356,5 +381,70 @@ impl PipelineBuilder {
         } else {
             Ok(None)
         }
+    }
+}
+
+/// Generates names for the pipeline elements.
+struct ElementNameGenerator {
+    normal_sources_per_plugin: HashMap<String, usize>,
+    autonomous_sources_per_plugin: HashMap<String, usize>,
+    transforms_per_plugin: HashMap<String, usize>,
+    outputs_per_plugin: HashMap<String, usize>,
+}
+
+impl ElementNameGenerator {
+    fn new() -> Self {
+        Self {
+            normal_sources_per_plugin: HashMap::new(),
+            autonomous_sources_per_plugin: HashMap::new(),
+            transforms_per_plugin: HashMap::new(),
+            outputs_per_plugin: HashMap::new(),
+        }
+    }
+
+    fn source_name(&mut self, builder: &SourceBuilder) -> String {
+        let plugin_name = builder.plugin.clone();
+        let count = self
+            .normal_sources_per_plugin
+            .entry(plugin_name.clone())
+            .and_modify(|count| *count += 1)
+            .or_default();
+        format!("{plugin_name}/source{count}")
+    }
+
+    fn autonomous_source_name(&mut self, builder: &AutonomousSourceBuilder) -> String {
+        let plugin_name = builder.plugin.clone();
+        let count = self
+            .autonomous_sources_per_plugin
+            .entry(plugin_name.clone())
+            .and_modify(|count| *count += 1)
+            .or_default();
+        format!("{plugin_name}/autonomous_source{count}")
+    }
+
+    fn transform_name(&mut self, builder: &TransformBuilder) -> String {
+        let plugin_name = builder.plugin.clone();
+        let count = self
+            .transforms_per_plugin
+            .entry(plugin_name.clone())
+            .and_modify(|count| *count += 1)
+            .or_default();
+        format!("{plugin_name}/transform{count}")
+    }
+
+    fn output_name(&mut self, builder: &OutputBuilder) -> String {
+        let plugin_name = builder.plugin.clone();
+        let count = self
+            .outputs_per_plugin
+            .entry(plugin_name.clone())
+            .and_modify(|count| *count += 1)
+            .or_default();
+        format!("{plugin_name}/output{count}")
+    }
+}
+
+impl Default for ElementNameGenerator {
+    fn default() -> Self {
+        Self::new()
     }
 }

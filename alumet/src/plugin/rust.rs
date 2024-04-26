@@ -75,7 +75,7 @@ pub fn serialize_config<T: serde::ser::Serialize>(config: T) -> anyhow::Result<C
     match toml::Value::try_from(config) {
         Ok(toml::Value::Table(t)) => Ok(ConfigTable(t)),
         Ok(wrong) => Err(anyhow!("{} did not get serialized to a toml Table but to a {}", std::any::type_name::<T>(), wrong.type_str())),
-        Err(e) => Err(anyhow!("error when serializing {} to ConfigTable", std::any::type_name::<T>())),
+        Err(e) => Err(anyhow!("error when serializing {} to ConfigTable: {e}", std::any::type_name::<T>())),
     }
 }
 

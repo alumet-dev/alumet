@@ -1,9 +1,7 @@
 //! Implementation of the measurement pipeline.
 
 use std::collections::HashMap;
-use std::future::Future;
 use std::ops::BitOrAssign;
-use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -22,10 +20,10 @@ use crate::pipeline::trigger::TriggerReason;
 use crate::{
     measurement::MeasurementBuffer,
     metrics::MetricRegistry,
-    pipeline::{Output, Source, Transform},
+    pipeline::{Output, Source},
 };
 
-use super::builder::ElementType;
+use super::builder::{ConfiguredTransform, ElementType};
 use super::trigger::{Trigger, TriggerSpec};
 use super::{builder, SourceType};
 use super::{OutputContext, PollError, TransformError, WriteError};
@@ -36,7 +34,7 @@ pub struct IdlePipeline {
     pub(super) sources: Vec<builder::ConfiguredSource>,
     pub(super) transforms: Vec<builder::ConfiguredTransform>,
     pub(super) outputs: Vec<builder::ConfiguredOutput>,
-    pub(super) autonomous_sources: Vec<Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>>,
+    pub(super) autonomous_sources: Vec<builder::ConfiguredAutonomousSource>,
 
     // tokio Runtimes that execute the tasks
     pub(super) rt_normal: Runtime,
@@ -146,28 +144,28 @@ impl IdlePipeline {
                 // The cost is a duplication of the registry (increased memory use) in the case where multiple outputs exist.
                 metrics: self.metrics.clone(),
             };
-            // Spawn the task and store the handle.
-            let task = run_output_from_broadcast(out.output, msg_rx, command_rx, ctx);
-            task_set.spawn_on(task, self.rt_normal.handle());
 
+            // Store command_tx so that we can accept commands later (commands can target the outputs of a specific plugin).
             output_command_senders_by_plugin
                 .entry(out.plugin_name)
                 .or_default()
                 .push(command_tx);
+
+            // Spawn the task in the JoinSet.
+            let task = run_output_from_broadcast(out.name, out.output, msg_rx, command_rx, ctx);
+            task_set.spawn_on(task, self.rt_normal.handle());
         }
 
         // 2. Transforms (all in the same task because they are applied one after another)
         let active_transforms = Arc::new(AtomicU64::new(u64::MAX)); // all active by default
-        let mut transforms = Vec::with_capacity(self.transforms.len());
-        for (i, t) in self.transforms.into_iter().enumerate() {
-            transforms.push(t.transform);
+        for (i, t) in self.transforms.iter().enumerate() {
             let mask: u64 = 1 << i;
             transforms_mask_by_plugin
-                .entry(t.plugin_name)
+                .entry(t.plugin_name.clone())
                 .or_default()
                 .bitor_assign(mask);
         }
-        let transforms_task = run_transforms(transforms, in_rx, self.to_outputs, active_transforms.clone());
+        let transforms_task = run_transforms(self.transforms, in_rx, self.to_outputs, active_transforms.clone());
         task_set.spawn_on(transforms_task, self.rt_normal.handle());
 
         // 3. Managed sources
@@ -178,17 +176,22 @@ impl IdlePipeline {
                 SourceType::Normal => &self.rt_normal,
                 SourceType::RealtimePriority => self.rt_priority.as_ref().unwrap(),
             };
-            let task = run_source(src.source, data_tx, command_rx);
-            task_set.spawn_on(task, runtime.handle());
             source_command_senders_by_plugin
                 .entry(src.plugin_name)
                 .or_default()
                 .push(command_tx);
+
+            let task = run_source(src.name, src.source, data_tx, command_rx);
+            task_set.spawn_on(task, runtime.handle());
         }
 
         // 4. Autonomous sources
         for src in self.autonomous_sources {
-            let task = async move { src.await.map_err(|e| e.context("error in autonomous source")) };
+            let task = async move {
+                src.source
+                    .await
+                    .map_err(|e| e.context(format!("error in autonomous source {}", src.name)))
+            };
             task_set.spawn_on(task, self.rt_normal.handle());
         }
 
@@ -242,6 +245,7 @@ pub enum SourceCmd {
 }
 
 async fn run_source(
+    source_name: String,
     mut source: Box<dyn Source>,
     tx: mpsc::Sender<MeasurementBuffer>,
     mut commands: watch::Receiver<SourceCmd>,
@@ -265,9 +269,11 @@ async fn run_source(
             .await
             .expect("watch channel must stay open during run_source");
 
+        // cloning required to borrow opt as mut below
         match init_cmd.clone() {
-            // cloning required to borrow opt as mut below
-            SourceCmd::SetTrigger(mut opt) => init_trigger(&mut opt, signal).context("source init_trigger failed")?,
+            SourceCmd::SetTrigger(mut opt) => {
+                init_trigger(&mut opt, signal).with_context(|| format!("init_trigger failed for {source_name}"))?
+            }
             _ => unreachable!(),
         }
     };
@@ -282,7 +288,7 @@ async fn run_source(
         // Wait for the trigger. It can return for two reasons:
         // - "normal case": the underlying mechanism (e.g. timer) triggers <- this is the most likely case
         // - "interrupt case": the underlying mechanism was idle (e.g. sleeping) but a new command arrived
-        let reason = trigger.next().await?;
+        let reason = trigger.next().await.with_context(|| source_name.clone())?;
 
         let update = match reason {
             TriggerReason::Triggered => {
@@ -291,10 +297,10 @@ async fn run_source(
                 match source.poll(&mut buffer.as_accumulator(), timestamp) {
                     Ok(()) => (),
                     Err(PollError::CanRetry(e)) => {
-                        log::error!("Non-fatal error during source polling (will retry): {e:#}");
+                        log::error!("Non-fatal error when polling {source_name} (will retry): {e:#}");
                     }
                     Err(PollError::Fatal(e)) => {
-                        return Err(e.context("fatal error during source polling"));
+                        return Err(e.context(format!("fatal error when polling {source_name}")));
                     }
                 };
 
@@ -310,7 +316,7 @@ async fn run_source(
                     buffer = match tx.try_send(buffer) {
                         Ok(()) => {
                             // buffer has been sent, create a new one
-                            log::debug!("source flushed {prev_length} measurements");
+                            log::debug!("{source_name} flushed {prev_length} measurements");
                             MeasurementBuffer::with_capacity(prev_length)
                         }
                         Err(TrySendError::Closed(_buf)) => {
@@ -322,7 +328,7 @@ async fn run_source(
                             // TODO it would be better to choose which source to slow down based
                             // on its frequency and number of measurements per poll.
                             // buf
-                            todo!()
+                            todo!("buffer is full")
                         }
                     };
                 }
@@ -357,20 +363,20 @@ async fn run_source(
                 let mut cmd = cmd;
                 let mut paused = false;
                 'pause: loop {
+                    log::trace!("{source_name} received {cmd:?}");
                     match cmd {
                         SourceCmd::Run => break 'pause,
                         SourceCmd::Pause => paused = true,
-                        SourceCmd::Stop => {
-                            log::trace!("received SourceCmd::Stop");
-                            break 'run;
-                        }
+                        SourceCmd::Stop => break 'run,
                         SourceCmd::SetTrigger(mut opt) => {
                             let prev_flush_rounds = trigger.config.flush_rounds;
 
                             // update the trigger
                             let signal = commands.clone();
                             trigger = init_trigger(&mut opt, signal).unwrap();
-                            i = 0;
+                            
+                            // don't reset the round count
+                            // i = 1;
 
                             // estimate the required buffer capacity and allocate it
                             let prev_length = buffer.len();
@@ -403,7 +409,7 @@ pub enum TransformCmd {
 }
 
 async fn run_transforms(
-    mut transforms: Vec<Box<dyn Transform>>,
+    mut transforms: Vec<ConfiguredTransform>,
     mut rx: mpsc::Receiver<MeasurementBuffer>,
     tx: broadcast::Sender<OutputMsg>,
     active_flags: Arc<AtomicU64>,
@@ -417,13 +423,13 @@ async fn run_transforms(
             for (i, t) in &mut transforms.iter_mut().enumerate() {
                 let t_flag = 1 << i;
                 if current_flags & t_flag != 0 {
-                    match t.apply(&mut measurements) {
+                    match t.transform.apply(&mut measurements) {
                         Ok(()) => (),
                         Err(TransformError::UnexpectedInput(e)) => {
-                            log::error!("Transform function received unexpected measurements: {e:#}");
+                            log::error!("Transform function {} received unexpected measurements: {e:#}", t.name);
                         }
                         Err(TransformError::Fatal(e)) => {
-                            return Err(e.context("fatal error in transform"));
+                            return Err(e.context(format!("fatal error in transform {}", t.name)));
                         }
                     }
                 }
@@ -441,7 +447,7 @@ async fn run_transforms(
 }
 
 /// A command for an output.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OutputCmd {
     Run,
     Pause,
@@ -459,6 +465,7 @@ pub enum OutputMsg {
 }
 
 async fn run_output_from_broadcast(
+    output_name: String,
     mut output: Box<dyn Output>,
     mut rx: broadcast::Receiver<OutputMsg>,
     mut commands: watch::Receiver<OutputCmd>,
@@ -480,6 +487,7 @@ async fn run_output_from_broadcast(
 
     async fn handle_message(
         received_msg: OutputMsg,
+        output_name: &str,
         output: &mut dyn Output,
         ctx: &mut OutputContext,
     ) -> anyhow::Result<()> {
@@ -498,11 +506,11 @@ async fn run_output_from_broadcast(
                         match write_res {
                             Ok(_) => Ok(()),
                             Err(WriteError::CanRetry(e)) => {
-                                log::error!("Non-fatal error in output (in a future version of Alumet, this means that the Output will try to write the same measurements later): {e:#}");
+                                log::error!("Non-fatal error in output {output_name} (in a future version of Alumet, this means that the Output will try to write the same measurements later): {e:#}");
                                 // TODO retry with the same measurements
                                 Ok(())
                             }
-                            Err(WriteError::Fatal(e)) => Err(e.context("fatal error in output")),
+                            Err(WriteError::Fatal(e)) => Err(e.context(format!("fatal error in output {output_name}"))),
                         }
                     }
                     Err(await_err) => {
@@ -539,19 +547,19 @@ async fn run_output_from_broadcast(
                     Ok(OutputCmd::Pause) => {
                         // wait for the command to change
                         match commands.wait_for(|cmd| cmd != &OutputCmd::Pause).await {
-                            Ok(new_cmd) => match *new_cmd {
-                                OutputCmd::Run => (), // exit the wait
-                                OutputCmd::Stop => {
-                                    log::trace!("received OutputCmd::Stop while paused");
-                                    break // stop the loop
-                                },
-                                OutputCmd::Pause => unreachable!(),
+                            Ok(new_cmd) => {
+                                log::trace!("{output_name} received {new_cmd:?}");
+                                match *new_cmd {
+                                    OutputCmd::Run => (), // exit the wait
+                                    OutputCmd::Stop => break, // stop the loop,
+                                    OutputCmd::Pause => unreachable!(),
+                                }
                             },
                             Err(_) => todo!("watch channel closed"),
                         };
                     },
                     Ok(OutputCmd::Stop) => {
-                        log::trace!("received OutputCmd::Stop");
+                        log::trace!("{output_name} received OutputCmd::Stop");
                         break // stop the loop
                     },
                     Err(_) => todo!("watch channel closed")
@@ -560,10 +568,10 @@ async fn run_output_from_broadcast(
             received_msg = rx.recv() => {
                 match received_msg {
                     Ok(msg) => {
-                        handle_message(msg, output.as_mut(), &mut ctx).await?;
+                        handle_message(msg, &output_name, output.as_mut(), &mut ctx).await?;
                     },
                     Err(broadcast::error::RecvError::Lagged(n)) => {
-                        log::warn!("Output is too slow, it lost the oldest {n} messages.");
+                        log::warn!("Output {output_name} is too slow, it lost the oldest {n} messages.");
                     },
                     Err(broadcast::error::RecvError::Closed) => {
                         log::warn!("The channel connected to output was closed, it will now stop.");
@@ -837,7 +845,11 @@ mod tests {
             WrappedMeasurementValue,
         },
         metrics::{MetricRegistry, RawMetricId},
-        pipeline::{trigger::TriggerSpec, OutputContext, Transform},
+        pipeline::{
+            builder::ConfiguredTransform,
+            trigger::TriggerSpec,
+            OutputContext, Transform,
+        },
         resources::{Resource, ResourceConsumer},
     };
 
@@ -846,7 +858,7 @@ mod tests {
     };
 
     #[test]
-    fn source_triggered_by_time() {
+    fn source_triggered_by_time_normal() {
         run_source_trigger_test(false);
     }
     #[test]
@@ -856,10 +868,13 @@ mod tests {
 
     fn run_source_trigger_test(with_interruption: bool) {
         let rt = new_rt(2);
-
         let source = TestSource::new();
-        let tp = new_trigger(with_interruption);
+
+        let period = Duration::from_millis(10);
+        let flush_rounds = 3;
+        let tp = new_trigger(with_interruption, period, flush_rounds);
         println!("trigger: {tp:?}");
+
         let (tx, mut rx) = mpsc::channel::<MeasurementBuffer>(64);
         let (cmd_tx, cmd_rx) = watch::channel(SourceCmd::SetTrigger(Some(tp)));
 
@@ -876,12 +891,13 @@ mod tests {
                         "The source is stopped/paused, it should not produce measurements."
                     );
 
-                    // 2 by 2 because flush_interval = 2*poll_interval
-                    assert_eq!(measurements.len(), 2);
-                    n_polls += 2;
+                    // Check that the correct number of rounds have passed.
+                    assert_eq!(measurements.len(), flush_rounds, "incorrect number of measurements: {measurements:?}");
+                    n_polls += flush_rounds;
+
                     let last_point = measurements.iter().last().unwrap();
                     let last_point_value = match last_point.value {
-                        WrappedMeasurementValue::U64(n) => n,
+                        WrappedMeasurementValue::U64(n) => n as usize,
                         _ => panic!("unexpected value type"),
                     };
                     assert_eq!(n_polls, last_point_value);
@@ -897,46 +913,54 @@ mod tests {
         });
 
         // poll the source for some time
-        rt.spawn(run_source(Box::new(source), tx, cmd_rx));
-        sleep(Duration::from_millis(20));
+        rt.spawn(run_source(String::from("test_source"), Box::new(source), tx, cmd_rx));
+        sleep(2 * period);
 
         // pause source
         cmd_tx.send(SourceCmd::Pause).unwrap();
         stopped.store(TestSourceState::Stopping as _, Ordering::Relaxed);
-        sleep(Duration::from_millis(10)); // some tolerance (wait for flushing)
+        sleep(period); // some tolerance (wait for flushing)
         stopped.store(TestSourceState::Stopped as _, Ordering::Relaxed);
 
         // check that the source is paused
-        sleep(Duration::from_millis(10));
+        sleep(2 * period);
 
         // still paused after SetTrigger
         cmd_tx
-            .send(SourceCmd::SetTrigger(Some(new_trigger(with_interruption))))
+            .send(SourceCmd::SetTrigger(Some(new_trigger(
+                with_interruption,
+                period,
+                flush_rounds,
+            ))))
             .unwrap();
-        sleep(Duration::from_millis(20));
+        sleep(2 * period);
 
         // resume source
         cmd_tx.send(SourceCmd::Run).unwrap();
         stopped.store(TestSourceState::Running as _, Ordering::Relaxed);
-        sleep(Duration::from_millis(5)); // lower tolerance (no flushing, just waiting for changes on the watch channel)
+        sleep(period / 2); // lower tolerance (no flushing, just waiting for changes on the watch channel)
 
         // poll for some time
-        sleep(Duration::from_millis(10));
+        sleep(period);
 
         // still running after SetTrigger
         cmd_tx
-            .send(SourceCmd::SetTrigger(Some(new_trigger(with_interruption))))
+            .send(SourceCmd::SetTrigger(Some(new_trigger(
+                with_interruption,
+                period,
+                flush_rounds,
+            ))))
             .unwrap();
-        sleep(Duration::from_millis(20));
+        sleep(2 * period);
 
         // stop source
         cmd_tx.send(SourceCmd::Stop).unwrap();
         stopped.store(TestSourceState::Stopping as _, Ordering::Relaxed);
-        sleep(Duration::from_millis(10)); // some tolerance
+        sleep(period); // some tolerance
         stopped.store(TestSourceState::Stopped as _, Ordering::Relaxed);
 
         // check that the source is stopped
-        sleep(Duration::from_millis(20));
+        sleep(2 * period);
 
         // drop the runtime, abort the tasks
     }
@@ -970,10 +994,18 @@ mod tests {
                 check_input_type: check_input_type_for_transform3.clone(),
             }),
         ];
+        let transforms: Vec<ConfiguredTransform> = transforms
+            .into_iter()
+            .map(|t| ConfiguredTransform {
+                transform: t,
+                name: String::from("test_transform"),
+                plugin_name: String::from(""),
+            })
+            .collect();
 
         // create source
         let source = TestSource::new();
-        let tp = new_trigger(false);
+        let tp = new_trigger(false, Duration::from_millis(10), 2);
         let (src_tx, src_rx) = mpsc::channel::<MeasurementBuffer>(64);
         let (_src_cmd_tx, src_cmd_rx) = watch::channel(SourceCmd::SetTrigger(Some(tp)));
 
@@ -1019,7 +1051,12 @@ mod tests {
         rt.spawn(run_transforms(transforms, src_rx, trans_tx, active_flags3));
 
         // poll the source for some time
-        rt.spawn(run_source(Box::new(source), src_tx, src_cmd_rx));
+        rt.spawn(run_source(
+            String::from("test_source"),
+            Box::new(source),
+            src_tx,
+            src_cmd_rx,
+        ));
         sleep(Duration::from_millis(20));
 
         // disable transform 3 only
@@ -1050,7 +1087,7 @@ mod tests {
         let rt = new_rt(3);
         // create source
         let source = Box::new(TestSource::new());
-        let tp = new_trigger(false);
+        let tp = new_trigger(false, Duration::from_millis(10), 2);
         let (src_tx, trans_rx) = mpsc::channel::<MeasurementBuffer>(64);
         let (src_cmd_tx, src_cmd_rx) = watch::channel(SourceCmd::SetTrigger(Some(tp)));
 
@@ -1071,9 +1108,15 @@ mod tests {
         };
 
         // start tasks
-        rt.spawn(run_output_from_broadcast(output, out_rx, out_cmd_rx, out_ctx));
+        rt.spawn(run_output_from_broadcast(
+            String::from("test_output"),
+            output,
+            out_rx,
+            out_cmd_rx,
+            out_ctx,
+        ));
         rt.spawn(run_transforms(transforms, trans_rx, trans_tx, active_flags));
-        rt.spawn(run_source(source, src_tx, src_cmd_rx));
+        rt.spawn(run_source(String::from("test_source"), source, src_tx, src_cmd_rx));
 
         // check the output
         sleep(Duration::from_millis(20));
@@ -1101,10 +1144,11 @@ mod tests {
         assert_eq!(count, output_count.load(Ordering::Relaxed));
     }
 
-    fn new_trigger(test_interrupt: bool) -> TriggerSpec {
-        let mut builder = trigger::builder::time_interval(Duration::from_millis(5))
-            .flush_interval(Duration::from_millis(10))
-            .update_interval(Duration::from_millis(10));
+    fn new_trigger(test_interrupt: bool, period: Duration, flush_rounds: usize) -> TriggerSpec {
+        let mut builder = trigger::builder::time_interval(period)
+            .flush_rounds(flush_rounds)
+            .update_rounds(flush_rounds);
+
         if test_interrupt {
             builder = builder.update_interval(Duration::from_millis(1));
         }

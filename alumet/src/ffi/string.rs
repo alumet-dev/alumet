@@ -73,6 +73,7 @@ impl<'a> NullableAStr<'a> {
         }
     }
 
+    #[allow(dead_code)]
     pub fn new(s: AStr) -> Self {
         Self {
             len: s.len,
