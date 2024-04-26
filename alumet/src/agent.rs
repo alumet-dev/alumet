@@ -343,7 +343,8 @@ impl RunningAgent {
         if n_errors == 0 {
             Ok(())
         } else {
-            Err(anyhow!("{n_errors} errors occured during the shutdown phase"))
+            let error_str = if n_errors == 1 { "error" } else { "errors" };
+            Err(anyhow!("{n_errors} {error_str} occured during the shutdown phase"))
         }
     }
 }
