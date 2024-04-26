@@ -62,6 +62,12 @@ pub struct Agent {
     settings: AgentBuilder,
 }
 
+/// An Agent that has been started.
+pub struct RunningAgent {
+    pub pipeline: RunningPipeline,
+    initialized_plugins: Vec<Box<dyn Plugin>>,
+}
+
 /// A builder for [`Agent`].
 pub struct AgentBuilder {
     plugins: Vec<PluginMetadata>,
@@ -170,7 +176,7 @@ impl Agent {
     ///
     /// You can be notified after each step by building your agent
     /// with callbacks such as [`AgentBuilder::after_plugin_init`].
-    pub fn start(self, mut config: AgentConfig) -> RunningPipeline {
+    pub fn start(self, mut config: AgentConfig) -> RunningAgent {
         // Initialization phase.
         log::info!("Initializing the plugins...");
 
@@ -257,7 +263,10 @@ impl Agent {
         log::info!("🔥 ALUMET measurement pipeline has started.");
         (self.settings.f_after_operation_begin)(&mut pipeline);
 
-        pipeline
+        RunningAgent {
+            pipeline,
+            initialized_plugins,
+        }
     }
 
     /// Builds a default configuration by combining:
@@ -293,6 +302,20 @@ impl Agent {
     /// managed by Alumet.
     pub fn sources_max_update_interval(&mut self, max_update_interval: Duration) {
         self.settings.source_constraints.max_update_interval = max_update_interval;
+    }
+}
+
+impl RunningAgent {
+    /// Waits until the measurement pipeline stops, then stops the plugins.
+    pub fn wait_for_shutdown(mut self) {
+        self.pipeline.wait_for_all();
+
+        log::info!("Stopping the plugins...");
+        for mut plugin in self.initialized_plugins {
+            log::info!("Stopping plugin {} v{}", plugin.name(), plugin.version());
+            plugin.stop().unwrap()
+        }
+        log::info!("All plugins have stopped.");
     }
 }
 

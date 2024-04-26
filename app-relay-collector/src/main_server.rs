@@ -42,10 +42,10 @@ fn main() {
     }
 
     // Start the collector.
-    let mut pipeline = agent.start(config);
+    let running_agent = agent.start(config);
 
     // Keep the pipeline running until the app closes.
-    pipeline.wait_for_all();
+    running_agent.wait_for_shutdown();
     log::info!("ALUMET relay collector has stopped.");
 }
 

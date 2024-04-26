@@ -20,7 +20,7 @@ fn main() {
     let args = Args::parse();
 
     // Specifies the plugins that we want to load.
-    let plugins = static_plugins![RaplPlugin, CsvPlugin, SocketControlPlugin];
+    let plugins = static_plugins![RaplPlugin, CsvPlugin/*, SocketControlPlugin*/];
 
     // Build the measurement agent.
     let mut agent = AgentBuilder::new(plugins)
@@ -42,11 +42,11 @@ fn main() {
     apply_config(&mut agent, &mut agent_config, args);
 
     // Start the measurement.
-    let mut pipeline = agent.start(agent_config);
+    let running_agent = agent.start(agent_config);
     log::info!("ALUMET agent is ready.");
 
     // Keep the pipeline running until the app closes.
-    pipeline.wait_for_all();
+    running_agent.wait_for_shutdown();
     log::info!("ALUMET agent has stopped.");
 }
 
