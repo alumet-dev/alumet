@@ -66,7 +66,7 @@ pub struct RunningPipeline {
     _rt_priority: Option<Runtime>,
 
     // JoinSet to wait for the tasks to finish.
-    task_set: JoinSet<Result<(), PipelineError>>,
+    task_set: JoinSet<anyhow::Result<()>>,
 
     /// Controls the pipeline.
     controller: PipelineController,
@@ -188,7 +188,7 @@ impl IdlePipeline {
 
         // 4. Autonomous sources
         for src in self.autonomous_sources {
-            let task = async move { src.await.map_err(|e| PipelineError::from(PollError::Fatal(e))) };
+            let task = async move { src.await.map_err(|e| e.context("error in autonomous source")) };
             task_set.spawn_on(task, self.rt_normal.handle());
         }
 
@@ -245,7 +245,7 @@ async fn run_source(
     mut source: Box<dyn Source>,
     tx: mpsc::Sender<MeasurementBuffer>,
     mut commands: watch::Receiver<SourceCmd>,
-) -> Result<(), PipelineError> {
+) -> anyhow::Result<()> {
     /// Takes the [`Trigger`] from the option and initializes it.
     fn init_trigger(
         trigger_spec: &mut Option<TriggerSpec>,
@@ -267,7 +267,7 @@ async fn run_source(
 
         match init_cmd.clone() {
             // cloning required to borrow opt as mut below
-            SourceCmd::SetTrigger(mut opt) => init_trigger(&mut opt, signal).unwrap(),
+            SourceCmd::SetTrigger(mut opt) => init_trigger(&mut opt, signal).context("source init_trigger failed")?,
             _ => unreachable!(),
         }
     };
@@ -288,7 +288,15 @@ async fn run_source(
             TriggerReason::Triggered => {
                 // poll the source
                 let timestamp = Timestamp::now();
-                source.poll(&mut buffer.as_accumulator(), timestamp)?;
+                match source.poll(&mut buffer.as_accumulator(), timestamp) {
+                    Ok(()) => (),
+                    Err(PollError::CanRetry(e)) => {
+                        log::error!("Non-fatal error during source polling (will retry): {e:#}");
+                    }
+                    Err(PollError::Fatal(e)) => {
+                        return Err(e.context("fatal error during source polling"));
+                    }
+                };
 
                 // Flush the measurements, not on every round for performance reasons.
                 // This is done _after_ polling, to ensure that we poll at least once before flushing, even if flush_rounds is 1.
@@ -399,7 +407,7 @@ async fn run_transforms(
     mut rx: mpsc::Receiver<MeasurementBuffer>,
     tx: broadcast::Sender<OutputMsg>,
     active_flags: Arc<AtomicU64>,
-) -> Result<(), PipelineError> {
+) -> anyhow::Result<()> {
     loop {
         if let Some(mut measurements) = rx.recv().await {
             // Update the list of active transforms (the PipelineController can update the flags).
@@ -409,17 +417,21 @@ async fn run_transforms(
             for (i, t) in &mut transforms.iter_mut().enumerate() {
                 let t_flag = 1 << i;
                 if current_flags & t_flag != 0 {
-                    t.apply(&mut measurements)?;
+                    match t.apply(&mut measurements) {
+                        Ok(()) => (),
+                        Err(TransformError::UnexpectedInput(e)) => {
+                            log::error!("Transform function received unexpected measurements: {e:#}");
+                        }
+                        Err(TransformError::Fatal(e)) => {
+                            return Err(e.context("fatal error in transform"));
+                        }
+                    }
                 }
             }
 
             // Send the results to the outputs.
             tx.send(OutputMsg::WriteMeasurements(measurements))
-                .context("could not send the measurements from transforms to the outputs")
-                .map_err(|e| PipelineError {
-                    error: e,
-                    element: ElementType::Output,
-                })?;
+                .context("could not send the measurements from transforms to the outputs")?;
         } else {
             log::warn!("The channel connected to the transform step has been closed, the transforms will stop.");
             break;
@@ -451,7 +463,7 @@ async fn run_output_from_broadcast(
     mut rx: broadcast::Receiver<OutputMsg>,
     mut commands: watch::Receiver<OutputCmd>,
     mut ctx: OutputContext,
-) -> Result<(), PipelineError> {
+) -> anyhow::Result<()> {
     // Two possible designs:
     // A) Use one mpsc channel + one shared variable that contains the current command,
     // - when a message is received, check the command and act accordingly
@@ -470,7 +482,7 @@ async fn run_output_from_broadcast(
         received_msg: OutputMsg,
         output: &mut dyn Output,
         ctx: &mut OutputContext,
-    ) -> Result<(), WriteError> {
+    ) -> anyhow::Result<()> {
         match received_msg {
             OutputMsg::WriteMeasurements(measurements) => {
                 // output.write() is blocking, do it in a dedicated thread.
@@ -486,14 +498,11 @@ async fn run_output_from_broadcast(
                         match write_res {
                             Ok(_) => Ok(()),
                             Err(WriteError::CanRetry(e)) => {
-                                log::error!("Non-fatal error in output (will retry later) {e:#}");
-                                // TODO retry
+                                log::error!("Non-fatal error in output (in a future version of Alumet, this means that the Output will try to write the same measurements later): {e:#}");
+                                // TODO retry with the same measurements
                                 Ok(())
-                            },
-                            Err(WriteError::Fatal(e)) => {
-                                log::error!("Fatal error in output: {e:#}");
-                                Err(WriteError::Fatal(e))
-                            },
+                            }
+                            Err(WriteError::Fatal(e)) => Err(e.context("fatal error in output")),
                         }
                     }
                     Err(await_err) => {
@@ -621,8 +630,8 @@ impl RunningPipeline {
                     Ok(Ok(())) => (), // task completed successfully
                     Ok(Err(err)) => {
                         // task completed with error
-                        log::error!("{:?} task returned an error: {:#}", err.element, err.error);
-                        return Err(err.error);
+                        log::error!("A task in the measurement pipeline returned an error: {err:#}");
+                        return Err(err);
                     }
                     Err(err) => {
                         // task panicked or was cancelled

@@ -7,12 +7,12 @@ use std::{future::Future, pin::Pin};
 use tokio::sync::watch;
 
 use super::runtime::SourceCmd;
-use super::PollError;
 
 /// A boxed future, from the `futures` crate.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
 /// The output of a SourceTrigger.
-pub type SourceTriggerOutput = Result<(), PollError>;
+pub type SourceTriggerOutput = Result<(), std::io::Error>;
 
 /// Defines a trigger for measurement sources.
 ///
@@ -261,7 +261,7 @@ impl Trigger {
         }
     }
 
-    pub async fn next(&mut self) -> Result<TriggerReason, PollError> {
+    pub async fn next(&mut self) -> anyhow::Result<TriggerReason> {
         if let Some(signal) = &mut self.interrupt_signal {
             // Use select! to wake up on trigger _or_ signal, the first that occurs
             tokio::select! {
@@ -339,7 +339,7 @@ impl TryFrom<TriggerMechanismSpec> for TriggerMechanism {
 }
 
 impl TriggerMechanism {
-    pub async fn next(&mut self) -> Result<(), PollError> {
+    pub async fn next(&mut self) -> Result<(), std::io::Error> {
         use tokio_stream::StreamExt;
 
         match self {
