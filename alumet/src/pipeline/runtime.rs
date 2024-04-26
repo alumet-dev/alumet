@@ -13,6 +13,7 @@ use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tokio::{runtime::Runtime, sync::watch};
+use tokio_util::sync::CancellationToken;
 
 use crate::measurement::Timestamp;
 use crate::metrics::{Metric, RawMetricId};
@@ -103,6 +104,9 @@ struct PipelineControllerState {
     /// either with a crate like arc-swap, or by using multiple Vec of transforms, each with an AtomicU64.
     active_transforms: Arc<AtomicU64>,
     transforms_mask_by_plugin: HashMap<String, u64>,
+
+    // Cancellation token to shut the controller down.
+    shutdown_token: CancellationToken,
 }
 
 #[derive(Clone)]
@@ -125,6 +129,8 @@ impl IdlePipeline {
         // and the command senders in order to keep the receivers alive and to be able to send commands after the launch.
         let mut source_handles = Vec::with_capacity(self.sources.len() + self.autonomous_sources.len());
         let mut output_handles = Vec::with_capacity(self.outputs.len());
+
+        // Store the Sender<SourceCmd>, Sender<OutputCmd> and transform mask.
         let mut source_command_senders_by_plugin: HashMap<_, Vec<_>> = HashMap::new();
         let mut output_command_senders_by_plugin: HashMap<_, Vec<_>> = HashMap::new();
         let mut transforms_mask_by_plugin: HashMap<_, u64> = HashMap::new();
@@ -195,6 +201,30 @@ impl IdlePipeline {
             source_handles.push(handle);
         }
 
+        // 5. Graceful shutdown on Ctrl+C
+        let source_command_senders: Vec<_> = source_command_senders_by_plugin.values().flatten().cloned().collect();
+        let output_command_senders: Vec<_> = output_command_senders_by_plugin.values().flatten().cloned().collect();
+        let shutdown_token = CancellationToken::new();
+        let cloned_token = shutdown_token.clone();
+        self.rt_normal.spawn(async move {
+            tokio::signal::ctrl_c()
+                .await
+                .expect("failed to listen for signal event");
+            
+            log::info!("Termination signal received, shutting down...");
+
+            // Stop the PipelineController.
+            cloned_token.cancel();
+
+            // Stop the pipeline elements.
+            for source_cs in source_command_senders {
+                source_cs.send_replace(SourceCmd::Stop);
+            }
+            for output_cs in output_command_senders {
+                output_cs.send_replace(OutputCmd::Stop);
+            }
+        });
+
         RunningPipeline {
             _rt_normal: self.rt_normal,
             _rt_priority: self.rt_priority,
@@ -208,6 +238,7 @@ impl IdlePipeline {
                 output_command_senders_by_plugin,
                 active_transforms,
                 transforms_mask_by_plugin,
+                shutdown_token,
             }),
         }
     }
@@ -332,7 +363,10 @@ async fn run_source(
                     match cmd {
                         SourceCmd::Run => break 'pause,
                         SourceCmd::Pause => paused = true,
-                        SourceCmd::Stop => break 'run,
+                        SourceCmd::Stop => {
+                            log::trace!("received SourceCmd::Stop");
+                            break 'run
+                        },
                         SourceCmd::SetTrigger(mut opt) => {
                             let prev_flush_rounds = trigger.config.flush_rounds;
 
@@ -497,13 +531,19 @@ async fn run_output_from_broadcast(
                         match commands.wait_for(|cmd| cmd != &OutputCmd::Pause).await {
                             Ok(new_cmd) => match *new_cmd {
                                 OutputCmd::Run => (), // exit the wait
-                                OutputCmd::Stop => break, // stop the loop
+                                OutputCmd::Stop => {
+                                    log::trace!("received OutputCmd::Stop while paused");
+                                    break // stop the loop
+                                },
                                 OutputCmd::Pause => unreachable!(),
                             },
                             Err(_) => todo!("watch channel closed"),
                         };
                     },
-                    Ok(OutputCmd::Stop) => break, // stop the loop
+                    Ok(OutputCmd::Stop) => {
+                        log::trace!("received OutputCmd::Stop");
+                        break // stop the loop
+                    },
                     Err(_) => todo!("watch channel closed")
                 }
             },
@@ -593,10 +633,22 @@ impl RunningPipeline {
                 let (tx, mut rx) = mpsc::channel::<ControlMessage>(256);
                 self._rt_normal.spawn(async move {
                     loop {
-                        if let Some(msg) = rx.recv().await {
-                            handle_message(&mut state, msg);
-                        } else {
-                            break; // channel closed
+                        tokio::select! {
+                            biased;
+
+                            _ = state.shutdown_token.cancelled() => {
+                                // The token was cancelled, shut down.
+                                break;
+                            }
+                            incoming = rx.recv() => {
+                                if let Some(message) = incoming {
+                                    // New message received
+                                    handle_message(&mut state, message);
+                                } else {
+                                    // Channel closed, shut down.
+                                    break;
+                                }
+                            }
                         }
                     }
                 });
