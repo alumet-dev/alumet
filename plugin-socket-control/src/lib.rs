@@ -21,7 +21,7 @@ impl AlumetPlugin for SocketControlPlugin {
         env!("CARGO_PKG_VERSION")
     }
 
-    fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
+    fn init(_config: ConfigTable) -> anyhow::Result<Box<Self>> {
         // TODO config options
         Ok(Box::new(SocketControlPlugin { control: None, socket_path: String::from("alumet-control.sock") }))
     }

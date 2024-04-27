@@ -19,7 +19,7 @@ pub enum RaplDomainType {
 
 impl fmt::Display for RaplDomainType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(&self.as_str())
+        f.write_str(self.as_str())
     }
 }
 
@@ -39,7 +39,7 @@ impl FromStr for RaplDomainType {
 }
 
 impl RaplDomainType {
-    pub fn to_resource(&self, pkg_id: u32) -> Resource {
+    pub fn to_resource(self, pkg_id: u32) -> Resource {
         match self {
             RaplDomainType::Package => Resource::CpuPackage { id: pkg_id },
             // PP0 records data for all the cores of a package, not individual cores

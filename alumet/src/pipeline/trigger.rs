@@ -173,7 +173,7 @@ pub mod builder {
         /// Builds the trigger.
         pub fn build(self) -> Result<TriggerSpec, Error> {
             if self.poll_interval.is_zero() {
-                return Err(Error::InvalidConfig(format!("poll_interval must be non-zero")));
+                return Err(Error::InvalidConfig(String::from("poll_interval must be non-zero")));
             }
             Ok(TriggerSpec {
                 mechanism: TriggerMechanismSpec::TimeInterval(self.start, self.poll_interval),
@@ -350,8 +350,9 @@ impl TriggerMechanism {
                 Ok(())
             }
             TriggerMechanism::TokioSleep(start, period) => {
+                let start = *start;
                 let now = tokio::time::Instant::now();
-                let deadline = if &*start > &now { *start } else { now + *period };
+                let deadline = if start > now { start } else { now + *period };
                 tokio::time::sleep_until(deadline).await;
                 Ok(())
             }

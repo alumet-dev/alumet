@@ -217,9 +217,9 @@ pub fn load_cdylib(file: &Path) -> Result<PluginMetadata, LoadError> {
     let initializable_info = PluginMetadata {
         name: name.clone(),
         version: version.clone(),
-        init: Box::new(move |mut config| {
+        init: Box::new(move |config| {
             // initialize the plugin
-            let external_plugin = init_fn(&mut config.0);
+            let external_plugin = init_fn(&config.0);
             log::debug!("init called from Rust");
 
             if external_plugin.is_null() {

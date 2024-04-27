@@ -289,7 +289,7 @@ impl Agent {
                 "write_default_config() only works if the Agent is built with config_path()"
             )),
             AgentConfigSource::FilePath(path) => {
-                std::fs::write(&path, default_config.to_string())
+                std::fs::write(path, default_config.to_string())
                     .with_context(|| format!("writing default config to {}", path.display()))?;
                 Ok(())
             }
@@ -354,7 +354,7 @@ fn load_config_from_file(
     path: &Path,
     default_agent_config: &toml::Table,
 ) -> anyhow::Result<toml::Table> {
-    match std::fs::read_to_string(&path) {
+    match std::fs::read_to_string(path) {
         Ok(content) => content
             .parse()
             .with_context(|| format!("invalid TOML configuration {}", path.display())),
@@ -363,7 +363,7 @@ fn load_config_from_file(
                 std::io::ErrorKind::NotFound => {
                     // the file does not exist, create the default config and save it
                     let default_config = build_default_config(plugins, default_agent_config)?;
-                    std::fs::write(&path, default_config.to_string())
+                    std::fs::write(path, default_config.to_string())
                         .with_context(|| format!("writing default config to {}", path.display()))?;
                     log::info!("Default configuration written to {}", path.display());
                     Ok(default_config)
@@ -424,7 +424,7 @@ fn print_stats(pipeline_builder: &PipelineBuilder, plugins: &[Box<dyn Plugin>]) 
         .join("\n");
 
     let metrics = &pipeline_builder.metrics;
-    let metrics_list = if metrics.len() == 0 {
+    let metrics_list = if metrics.is_empty() {
         String::from("    ∅")
     } else {
         metrics

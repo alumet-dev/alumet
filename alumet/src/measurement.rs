@@ -320,6 +320,11 @@ impl MeasurementBuffer {
             points: Vec::with_capacity(capacity),
         }
     }
+    
+    /// Returns true if this buffer is empty.
+    pub fn is_empty(&self) -> bool {
+        self.points.is_empty()
+    }
 
     /// Returns the number of measurement points in the buffer.
     pub fn len(&self) -> usize {

@@ -43,7 +43,7 @@ impl Version {
             _ => (),
         };
         let parts: Result<Vec<u8>, ParseIntError> = parts.into_iter().map(|p| p.parse()).collect();
-        let parts = parts.map_err(|e| Error::Parse(e))?;
+        let parts = parts.map_err(Error::Parse)?;
         Ok(Version {
             x: parts[0],
             y: parts[1],

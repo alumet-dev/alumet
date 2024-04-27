@@ -51,9 +51,9 @@ impl alumet::pipeline::Output for CsvOutput {
 
             let attributes_in_header = attr_keys_sorted.join(";");
             let sep = if attributes_in_header.is_empty() { "" } else { ";" };
-            write!(
+            writeln!(
                 self.writer,
-                "metric;timestamp;value;resource_kind;resource_id;consumer_kind;consumer_id{sep}{attributes_in_header};__late_attributes\n"
+                "metric;timestamp;value;resource_kind;resource_id;consumer_kind;consumer_id{sep}{attributes_in_header};__late_attributes"
             )?;
 
             self.attributes_in_header = Some(attr_keys);
@@ -105,7 +105,7 @@ impl alumet::pipeline::Output for CsvOutput {
             }
 
             // end of the record
-            write!(self.writer, "\n")?;
+            writeln!(self.writer)?;
         }
         if self.force_flush {
             log::trace!("flushing BufWriter");

@@ -13,8 +13,10 @@ fn main() {
     let sym_file_path = out_dir.join("alumet-symbols.txt");
 
     // Configure cbindgen for C
-    let mut cbindgen_config = cbindgen::Config::default();
-    cbindgen_config.language = cbindgen::Language::C;
+    let mut cbindgen_config = cbindgen::Config {
+        language: cbindgen::Language::C,
+        ..Default::default()
+    };
 
     // Avoid conflicts between enumeration values
     cbindgen_config.enumeration.prefix_with_name = true;
@@ -28,7 +30,7 @@ fn main() {
     cbindgen_config.parse.expand.crates.push(String::from("alumet"));
 
     // Generate the bindings
-    
+
     let bindings = with_rustc_bootstrap(|| {
         cbindgen::Builder::new()
             .with_crate(crate_dir)
@@ -53,14 +55,14 @@ fn main() {
 fn with_rustc_bootstrap<R>(f: impl FnOnce() -> R) -> R {
     let previous_bootstrap = env::var("RUSTC_BOOTSTRAP").ok();
     env::set_var("RUSTC_BOOTSTRAP", "1");
-    
+
     let res = f();
-    
+
     if let Some(prev) = previous_bootstrap {
         env::set_var("RUSTC_BOOTSTRAP", prev);
     } else {
         env::remove_var("RUSTC_BOOTSTRAP");
     }
-    
+
     res
 }

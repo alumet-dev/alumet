@@ -25,10 +25,9 @@ pub extern "C" fn alumet_create_metric(
     let name = (&name).into();
     let description = (&description).into();
     let unit = Unit::from(unit);
-    let metric_id = alumet
+    alumet
         .create_metric_untyped(name, value_type, unit, description)
-        .unwrap();
-    metric_id
+        .unwrap()
 }
 
 #[no_mangle]
@@ -43,10 +42,9 @@ pub extern "C" fn alumet_create_metric_c(
     let name = unsafe { CStr::from_ptr(name) }.to_str().unwrap();
     let description = unsafe { CStr::from_ptr(description) }.to_str().unwrap();
     let unit = Unit::from(unit);
-    let metric_id = alumet
+    alumet
         .create_metric_untyped(name, value_type, unit, description)
-        .unwrap();
-    metric_id
+        .unwrap()
 }
 
 #[no_mangle]

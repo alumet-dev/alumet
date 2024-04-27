@@ -242,14 +242,6 @@ fn check_running_graphics_processes(device: &Device) -> Result<AvailableVersion,
     }
 }
 
-fn if_supported<T>(res: Result<T, NvmlError>) -> Result<Option<T>, NvmlError> {
-    match res {
-        Ok(t) => Ok(Some(t)),
-        Err(NvmlError::NotSupported) => Ok(None),
-        Err(e) => Err(e),
-    }
-}
-
 fn is_supported<T>(res: Result<T, NvmlError>) -> Result<bool, NvmlError> {
     match res {
         Ok(_) => Ok(true),

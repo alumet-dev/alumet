@@ -156,7 +156,7 @@ pub fn all_power_events() -> Result<Vec<PowerEvent>> {
 fn read_perf_event(fd: &mut File) -> io::Result<u64> {
     let mut buf = [0u8; 8];
     // rewind() is INVALID for perf events, we must read "at the cursor" every time
-    fd.read(&mut buf)?;
+    let _ = fd.read(&mut buf)?;
     Ok(u64::from_ne_bytes(buf))
 }
 

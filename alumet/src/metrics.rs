@@ -115,13 +115,13 @@ pub struct TypedMetricId<T: MeasurementType>(pub(crate) RawMetricId, pub(crate) 
 
 impl MetricId for RawMetricId {
     fn untyped_id(&self) -> RawMetricId {
-        self.clone()
+        *self
     }
 }
 
 impl<T: MeasurementType> MetricId for TypedMetricId<T> {
     fn untyped_id(&self) -> RawMetricId {
-        self.0.clone()
+        self.0
     }
 }
 

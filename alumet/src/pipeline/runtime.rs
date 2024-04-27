@@ -499,7 +499,7 @@ async fn run_output_from_broadcast(
                 // but that would likely introduce a needless copy, and would be cumbersome to work with.
                 // Instead, we use the `scoped` module.
                 let res =
-                    scoped::spawn_blocking_with_output(output, ctx, move |out, ctx| out.write(&measurements, &ctx))
+                    scoped::spawn_blocking_with_output(output, ctx, move |out, ctx| out.write(&measurements, ctx))
                         .await;
                 match res {
                     Ok(write_res) => {
@@ -515,11 +515,10 @@ async fn run_output_from_broadcast(
                     }
                     Err(await_err) => {
                         if await_err.is_panic() {
-                            return Err(anyhow!(
+                            Err(anyhow!(
                                 "A blocking writing task panicked, there is a bug somewhere! Details: {}",
                                 await_err
-                            )
-                            .into());
+                            ))
                         } else {
                             todo!("unhandled error");
                         }
