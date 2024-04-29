@@ -116,7 +116,7 @@ impl TryFrom<toml::Table> for AgentConfig {
 }
 
 impl AgentConfig {
-    /// Returns a mutable reference to the plugin's subconfig, which is at plugins.<name>
+    /// Returns a mutable reference to the plugin's subconfig, which is at plugins.\<name\>
     pub fn plugin_config_mut(&mut self, plugin_name: &str) -> Option<&mut toml::Table> {
         let sub_config = self.plugins_table.get_mut(plugin_name);
         match sub_config {
@@ -125,7 +125,7 @@ impl AgentConfig {
         }
     }
 
-    /// Removes and returns the plugin's subconfig, which is at plugins.<name>
+    /// Removes and returns the plugin's subconfig, which is at plugins.\<name\>
     pub fn take_plugin_config(&mut self, plugin_name: &str) -> anyhow::Result<toml::Table> {
         let sub_config = self.plugins_table.remove(plugin_name);
         match sub_config {
@@ -271,14 +271,14 @@ impl Agent {
     }
 
     /// Builds a default configuration by combining:
-    /// - the default agent config (which is set by [`AgentBuilder::default_agent_config`])
+    /// - the default agent config (which is set by [`AgentBuilder::default_app_config`])
     /// - the default config of each plugin (which are set by [`AgentBuilder::new`])
     pub fn default_config(&self) -> anyhow::Result<toml::Table> {
         build_default_config(&self.settings.plugins, &self.settings.default_app_config)
     }
 
     /// Builds and saves a default configuration by combining:
-    /// - the default agent config (which is set by [`AgentBuilder::default_agent_config`])
+    /// - the default agent config (which is set by [`AgentBuilder::default_app_config`])
     /// - the default config of each plugin (which are set by [`AgentBuilder::new`])
     ///
     /// This can be used to provide a command line option that (re)generates the configuration file.

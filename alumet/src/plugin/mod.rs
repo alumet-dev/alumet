@@ -1,7 +1,7 @@
 //! Static and dynamic plugins.
 //!
 //! Plugins are an essential part of Alumet, as they provide the
-//! [`Source`](super::pipeline::Source)s, [`Transform`](super::pipeline::Transform)s and [`Output`](super::pipeline::Output)s.
+//! [`Source`]s, [`Transform`]s and [`Output`]s.
 //!
 //! ## Plugin lifecycle
 //! Every plugin follow these steps:
@@ -256,12 +256,12 @@ impl<'a> AlumetStart<'a> {
 
     /// Adds a "late" measurement source to the Alumet pipeline.
     ///
-    /// Unlike [`add_source`], the source is not created immediately but during the construction
+    /// Unlike [`add_source`](Self::add_source), the source is not created immediately but during the construction
     /// of the measurement pipeline. This allows to use some information about the pipeline while
     /// creating the source. A good use case is to access the late registration of metrics.
     ///
     /// The downside is a more complicated code.
-    /// In general, you should prefer to use [`add_source`] if possible.
+    /// In general, you should prefer to use [`add_source`](Self::add_source) if possible.
     pub fn add_late_source<F: FnOnce(&PendingPipeline) -> (Box<dyn Source>, TriggerSpec) + 'static>(
         &mut self,
         source_builder: F,
@@ -343,12 +343,12 @@ impl<'a> AlumetStart<'a> {
 
     /// Adds a "late" output to the Alumet pipeline.
     /// 
-    /// Unlike [`add_output`], the output is not created immediately but during the construction
+    /// Unlike [`add_output`](Self::add_output), the output is not created immediately but during the construction
     /// of the measurement pipeline. This allows to use some information about the pipeline while
     /// creating the output. A good use case is to access the tokio runtime [`Handle`](tokio::runtime::Handle)
     /// in order to use an async library.
     /// 
-    /// In general, you should prefer to use [`add_output`] if possible.
+    /// In general, you should prefer to use [`add_output`](Self::add_output) if possible.
     pub fn add_late_output<F: FnOnce(&PendingPipeline) -> anyhow::Result<Box<dyn Output>> + 'static>(&mut self, output_builder: F) {
         self.pipeline_builder.outputs.push(OutputBuilder {
             plugin: self.current_plugin_name().to_owned(),

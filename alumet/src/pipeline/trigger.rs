@@ -65,7 +65,7 @@ pub mod builder {
     /// The accuracy of the timing depends on the operating system and on the scheduling
     /// policy of the thread that executes the trigger.
     /// For small intervals of 1ms or less, it is recommended to run Alumet on Linux
-    /// and to use [`SourceType::RealtimePriority`](super::runtime::SourceType::RealtimePriority).
+    /// and to use [`SourceType::RealtimePriority`](crate::pipeline::SourceType::RealtimePriority).
     ///
     /// ## Example
     /// ```

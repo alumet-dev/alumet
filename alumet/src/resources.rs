@@ -11,7 +11,7 @@
 //! ## Measurement points and resources
 //!
 //! To create a measurement point for a given resource, use
-//! the [`ResourceId`] enum to provide a unique resource identifier.
+//! the [`Resource`] enum to provide a unique resource identifier.
 //! Here is an example of a measurement point associated with the first CPU package (id "0").
 //! ```no_run
 //! use alumet::measurement::{MeasurementPoint, Timestamp};
@@ -58,7 +58,7 @@ pub enum Resource {
     Custom { kind: StrCow, id: StrCow },
 }
 
-/// Consumer of a [`resource`](ResourceId).
+/// Consumer of a [`resource`](Resource).
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
