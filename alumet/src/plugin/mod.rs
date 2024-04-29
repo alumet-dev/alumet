@@ -100,6 +100,7 @@ use self::rust::AlumetPlugin;
 #[cfg(feature = "dynamic")]
 pub mod dynload;
 
+pub mod event;
 pub mod rust;
 pub mod util;
 pub(crate) mod version;
