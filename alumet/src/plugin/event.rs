@@ -70,6 +70,13 @@ impl<E: Event> EventBus<E> {
     /// Subscribes to the event bus.
     ///
     /// `listener` will be called on future events.
+    /// 
+    /// ## Performance caveats
+    /// 
+    /// Event listeners are called in same thread as the publisher, one after the other.
+    /// Therefore, **each listener should only perform a minimal amount of work**.
+    /// To execute large tasks in response to an event, consider sending a message
+    /// to another thread (or async future) through a [`channel`](tokio::sync::mpsc::channel).
     pub fn subscribe<F: Fn(E) + Send + 'static>(&self, listener: F) {
         let mut listeners = self.listeners.lock().unwrap();
         listeners.push(Box::new(listener));
