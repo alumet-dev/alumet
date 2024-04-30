@@ -182,9 +182,4 @@ pub async fn gather_values(token_k8s: &String, base_url: &String, li_node: &mut 
         }
     
     }
-
-    
-
-
-
 }

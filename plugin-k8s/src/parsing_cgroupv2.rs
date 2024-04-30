@@ -46,3 +46,104 @@ impl FromStr for CgroupV2Metric {
         return Ok(cgroup_struc_to_ret);
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parser(){
+        let str1 = format!("usage_usec 1111\n
+        user_usec 222222222222222222\n
+        system_usec 33\n
+        nr_periods 0\n
+        nr_throttled 0\n
+        throttled_usec 0");
+        let result: Result<CgroupV2Metric, anyhow::Error> = CgroupV2Metric::from_str(&str1);
+        match result {
+            Ok(metric) => {
+                assert_eq!(metric.name, "");
+                assert_eq!(metric.time_used_tot, 1111 as u64);
+                assert_eq!(metric.time_used_user_mode, 222222222222222222 as u64);
+                assert_eq!(metric.time_used_system_mode, 33 as u64);
+            },
+            Err(_) => assert!(false),
+        }
+        
+
+        let str2 = format!("nr_throttled 0\n
+        usage_usec 1111\n
+        system_usec 33");
+        let result: Result<CgroupV2Metric, anyhow::Error> = CgroupV2Metric::from_str(&str2);
+        match result {
+            Ok(metric) => {
+                assert_eq!(metric.name, "");
+                assert_eq!(metric.time_used_tot, 1111 as u64);
+                assert_eq!(metric.time_used_user_mode, 0 as u64);
+                assert_eq!(metric.time_used_system_mode, 33 as u64);
+            },
+            Err(_) => assert!(false),
+        }
+
+
+        let str3 = format!("
+        system_usec 33");
+        let result: Result<CgroupV2Metric, anyhow::Error> = CgroupV2Metric::from_str(&str3);
+        match result {
+            Ok(metric) => {
+                assert_eq!(metric.name, "");
+                assert_eq!(metric.time_used_tot, 0 as u64);
+                assert_eq!(metric.time_used_user_mode, 0 as u64);
+                assert_eq!(metric.time_used_system_mode, 33 as u64);
+            },
+            Err(_) => assert!(false),
+        }
+
+
+        let str4 = format!("usage_usec 1111\n
+        system_usec 33\n
+        user_usec 222222222222222222\n
+        throttled_usec 0");
+        let result: Result<CgroupV2Metric, anyhow::Error> = CgroupV2Metric::from_str(&str4);
+        match result {
+            Ok(metric) => {
+                assert_eq!(metric.name, "");
+                assert_eq!(metric.time_used_tot, 1111 as u64);
+                assert_eq!(metric.time_used_user_mode, 222222222222222222 as u64);
+                assert_eq!(metric.time_used_system_mode, 33 as u64);
+            },
+            Err(_) => assert!(false),
+        }
+
+
+        let str5 = format!("");
+        let result: Result<CgroupV2Metric, anyhow::Error> = CgroupV2Metric::from_str(&str5);
+        match result {
+            Ok(metric) => {
+                assert_eq!(metric.name, "");
+                assert_eq!(metric.time_used_tot, 0 as u64);
+                assert_eq!(metric.time_used_user_mode, 0 as u64);
+                assert_eq!(metric.time_used_system_mode, 0 as u64);
+            },
+            Err(_) => assert!(false),
+        }
+
+
+        let str6 = format!("nr_periods 0\n
+        nr_throttled 0\n
+        throttled_usec 0");
+        let result: Result<CgroupV2Metric, anyhow::Error> = CgroupV2Metric::from_str(&str6);
+        match result {
+            Ok(metric) => {
+                assert_eq!(metric.name, "");
+                assert_eq!(metric.time_used_tot, 0 as u64);
+                assert_eq!(metric.time_used_user_mode, 0 as u64);
+                assert_eq!(metric.time_used_system_mode, 0 as u64);
+            },
+            Err(_) => assert!(false),
+        }
+    
+    }
+
+}

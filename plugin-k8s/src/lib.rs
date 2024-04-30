@@ -1,5 +1,5 @@
-use std::time::Duration;
-use alumet::{pipeline::trigger::Trigger, plugin::{rust::AlumetPlugin, ConfigTable}};
+use std::{time::Duration, path::PathBuf};
+use alumet::{pipeline::trigger::TriggerSpec, plugin::{rust::AlumetPlugin, ConfigTable}};
 
 pub struct K8sPlugin{
     poll_interval: Duration,
@@ -28,7 +28,7 @@ impl AlumetPlugin for K8sPlugin{
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
-        let v2_used: bool = cgroup_v2::is_cgroups_v2();
+        let v2_used: bool = cgroup_v2::is_cgroups_v2(PathBuf::from("/sys/fs/cgroup/"));
         if v2_used == true{
             let final_li_metric_file: Vec<CgroupV2MetricFile> = cgroup_v2::list_all_k8s_pods_file();
             // I suppose value are 64 bit long
@@ -36,8 +36,7 @@ impl AlumetPlugin for K8sPlugin{
             match metrics_result {
                 Ok(metrics) => {
                     let probe = K8SProbe::new(metrics.clone(), final_li_metric_file)?;
-                    alumet.add_source(Box::new(probe), Trigger::at_interval(self.poll_interval));  
-                    println!("\n------------------------------------\n");     
+                    alumet.add_source(Box::new(probe), TriggerSpec::at_interval(self.poll_interval));  
                 },
                 Err(_) => todo!()
             }
@@ -50,6 +49,7 @@ impl AlumetPlugin for K8sPlugin{
     fn stop(&mut self) -> anyhow::Result<()> {
         Ok(())
     }
+
 }
 
 // #[cfg(test)]
@@ -62,3 +62,4 @@ impl AlumetPlugin for K8sPlugin{
 //         assert_eq!(result, 4);
 //     }
 // }
+

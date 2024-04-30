@@ -3,7 +3,7 @@ use alumet::{
     metrics::{TypedMetricId,MetricCreationError},
     plugin::{util::{CounterDiff,CounterDiffUpdate}, AlumetStart},
     units::Unit,
-    resources::ResourceId,
+    resources::{ResourceConsumer,Resource},
 };
 use anyhow::Result;
 
@@ -48,8 +48,8 @@ impl alumet::pipeline::Source for K8SProbe {
         measurements: &mut MeasurementAccumulator,
         timestamp: Timestamp,
     ) -> Result<(), alumet::pipeline::PollError> {    
-        for (metricFile, counter_tot, counter_usr, counter_sys) in &mut self.metric_and_counter {
-            let metrics: CgroupV2Metric = cgroup_v2::gather_value(metricFile)?;
+        for (metric_file, counter_tot, counter_usr, counter_sys) in &mut self.metric_and_counter {
+            let metrics: CgroupV2Metric = cgroup_v2::gather_value(metric_file)?;
             let diff_tot = match counter_tot.update(metrics.time_used_tot) {
                 CounterDiffUpdate::FirstTime => None,
                 CounterDiffUpdate::Difference(diff) => Some(diff),
@@ -66,15 +66,15 @@ impl alumet::pipeline::Source for K8SProbe {
                 CounterDiffUpdate::CorrectedDifference(diff) => Some(diff),
             };
             if let Some(value_tot) = diff_tot {
-                let p_tot: MeasurementPoint = MeasurementPoint::new(timestamp, self.metrics.time_used_tot, ResourceId::LocalMachine, value_tot as u64).with_attr("pod", AttributeValue::String(metrics.name.to_string()));
+                let p_tot: MeasurementPoint = MeasurementPoint::new(timestamp, self.metrics.time_used_tot, Resource::LocalMachine, ResourceConsumer::ControlGroup { path: (metric_file.path.to_string_lossy().to_string().into()) } , value_tot as u64).with_attr("pod", AttributeValue::String(metrics.name.to_string()));
                 measurements.push(p_tot);
             }
             if let Some(value_usr) = diff_usr{
-                let p_usr: MeasurementPoint = MeasurementPoint::new(timestamp, self.metrics.time_used_user_mode, ResourceId::LocalMachine, value_usr as u64).with_attr("pod", AttributeValue::String(metrics.name.to_string()));
+                let p_usr: MeasurementPoint = MeasurementPoint::new(timestamp, self.metrics.time_used_user_mode, Resource::LocalMachine, ResourceConsumer::ControlGroup { path: (metric_file.path.to_string_lossy().to_string().into()) }, value_usr as u64).with_attr("pod", AttributeValue::String(metrics.name.to_string()));
                 measurements.push(p_usr);
             }
             if let Some(value_sys) = diff_sys{
-                let p_sys: MeasurementPoint = MeasurementPoint::new(timestamp, self.metrics.time_used_system_mode, ResourceId::LocalMachine, value_sys as u64).with_attr("pod", AttributeValue::String(metrics.name.to_string()));
+                let p_sys: MeasurementPoint = MeasurementPoint::new(timestamp, self.metrics.time_used_system_mode, Resource::LocalMachine, ResourceConsumer::ControlGroup { path: (metric_file.path.to_string_lossy().to_string().into()) }, value_sys as u64).with_attr("pod", AttributeValue::String(metrics.name.to_string()));
                 measurements.push(p_sys);
             }
         }
