@@ -34,7 +34,7 @@ impl AlumetPlugin for RaplPlugin {
     }
 
     fn version() -> &'static str {
-        "0.1.0"
+        env!("CARGO_PKG_VERSION")
     }
 
     fn default_config() -> anyhow::Result<Option<ConfigTable>> {
