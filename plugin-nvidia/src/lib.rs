@@ -18,7 +18,7 @@ impl AlumetPlugin for NvidiaPlugin {
     }
 
     fn version() -> &'static str {
-        "0.1.0"
+        env!("CARGO_PKG_VERSION")
     }
 
     fn init(_config: ConfigTable) -> anyhow::Result<Box<Self>> {
