@@ -88,10 +88,12 @@ use std::marker::PhantomData;
 
 use crate::measurement::{MeasurementBuffer, MeasurementType, WrappedMeasurementType};
 use crate::metrics::{Metric, MetricCreationError, RawMetricId, TypedMetricId};
-use crate::pipeline::builder::{AutonomousSourceBuilder, OutputBuilder, SourceBuilder, TransformBuilder};
+use crate::pipeline::builder::{
+    AutonomousSourceBuilder, OutputBuilder, SourceBuilder, SourceMetadata, TransformBuilder,
+};
 use crate::pipeline::runtime::{IdlePipeline, RunningPipeline};
 use crate::pipeline::trigger::TriggerSpec;
-use crate::pipeline::{builder::PendingPipeline, builder::PipelineBuilder, SourceType};
+use crate::pipeline::{builder::PendingPipelineContext, builder::PipelineBuilder, SourceType};
 use crate::pipeline::{Output, Source, Transform};
 use crate::units::PrefixedUnit;
 
@@ -115,7 +117,7 @@ pub struct PluginMetadata {
     pub init: Box<dyn FnOnce(ConfigTable) -> anyhow::Result<Box<dyn Plugin>>>,
     /// Function that returns a default configuration for the plugin, or None
     /// if the plugin has no configurable option.
-    /// 
+    ///
     /// The default config is used to generate the configuration file of the
     /// Alumet agent, in case it does not exist. In other cases, the default
     /// config returned by this function is not used, including when
@@ -176,7 +178,7 @@ pub trait Plugin {
     ///
     /// It can be used, for instance, to obtain a [`ControlHandle`](crate::pipeline::runtime::ControlHandle)
     /// of the pipeline.
-    fn post_pipeline_start(&mut self, pipeline: &mut RunningPipeline) -> anyhow::Result<()>;   
+    fn post_pipeline_start(&mut self, pipeline: &mut RunningPipeline) -> anyhow::Result<()>;
 }
 
 /// Structure passed to plugins for the start-up phase.
@@ -248,8 +250,10 @@ impl<'a> AlumetStart<'a> {
     pub fn add_source(&mut self, source: Box<dyn Source>, trigger: TriggerSpec) {
         let plugin = self.current_plugin_name().to_owned();
         self.pipeline_builder.sources.push(SourceBuilder {
-            source_type: SourceType::Normal,
-            plugin,
+            metadata: SourceMetadata {
+                source_type: SourceType::Normal,
+                plugin,
+            },
             build: Box::new(|_| (source, trigger)),
         })
     }
@@ -262,13 +266,15 @@ impl<'a> AlumetStart<'a> {
     ///
     /// The downside is a more complicated code.
     /// In general, you should prefer to use [`add_source`](Self::add_source) if possible.
-    pub fn add_late_source<F: FnOnce(&PendingPipeline) -> (Box<dyn Source>, TriggerSpec) + 'static>(
+    pub fn add_late_source<F: FnOnce(&PendingPipelineContext) -> (Box<dyn Source>, TriggerSpec) + 'static>(
         &mut self,
         source_builder: F,
     ) {
         self.pipeline_builder.sources.push(SourceBuilder {
-            source_type: SourceType::Normal,
-            plugin: self.current_plugin_name().to_owned(),
+            metadata: SourceMetadata {
+                source_type: SourceType::Normal,
+                plugin: self.current_plugin_name().to_owned(),
+            },
             build: Box::new(source_builder),
         });
     }
@@ -314,7 +320,7 @@ impl<'a> AlumetStart<'a> {
     /// ```
     pub fn add_autonomous_source<F, S>(&mut self, source_builder: F)
     where
-        F: FnOnce(&PendingPipeline, &tokio::sync::mpsc::Sender<MeasurementBuffer>) -> S + 'static,
+        F: FnOnce(&PendingPipelineContext, &tokio::sync::mpsc::Sender<MeasurementBuffer>) -> S + 'static,
         S: Future<Output = anyhow::Result<()>> + Send + 'static,
     {
         self.pipeline_builder.autonomous_sources.push(AutonomousSourceBuilder {
@@ -342,14 +348,17 @@ impl<'a> AlumetStart<'a> {
     }
 
     /// Adds a "late" output to the Alumet pipeline.
-    /// 
+    ///
     /// Unlike [`add_output`](Self::add_output), the output is not created immediately but during the construction
     /// of the measurement pipeline. This allows to use some information about the pipeline while
     /// creating the output. A good use case is to access the tokio runtime [`Handle`](tokio::runtime::Handle)
     /// in order to use an async library.
-    /// 
+    ///
     /// In general, you should prefer to use [`add_output`](Self::add_output) if possible.
-    pub fn add_late_output<F: FnOnce(&PendingPipeline) -> anyhow::Result<Box<dyn Output>> + 'static>(&mut self, output_builder: F) {
+    pub fn add_late_output<F: FnOnce(&PendingPipelineContext) -> anyhow::Result<Box<dyn Output>> + 'static>(
+        &mut self,
+        output_builder: F,
+    ) {
         self.pipeline_builder.outputs.push(OutputBuilder {
             plugin: self.current_plugin_name().to_owned(),
             build: Box::new(output_builder),

@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::ops::BitOrAssign;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, Context};
 
@@ -17,13 +17,14 @@ use crate::measurement::Timestamp;
 use crate::metrics::{Metric, RawMetricId};
 use crate::pipeline::scoped;
 use crate::pipeline::trigger::TriggerReason;
+use crate::plugin::Plugin;
 use crate::{
     measurement::MeasurementBuffer,
     metrics::MetricRegistry,
     pipeline::{Output, Source},
 };
 
-use super::builder::{ConfiguredTransform, ElementType};
+use super::builder::{ConfiguredTransform, ElementType, SourceMetadata};
 use super::trigger::{Trigger, TriggerSpec};
 use super::{builder, SourceType};
 use super::{OutputContext, PollError, TransformError, WriteError};
@@ -50,11 +51,28 @@ pub struct IdlePipeline {
     pub(super) to_outputs: broadcast::Sender<OutputMsg>,
 }
 
-/// A message for an element of the pipeline.
+/// A message to control the pipeline.
 enum ControlMessage {
-    Source(Option<String>, SourceCmd),
-    Output(Option<String>, OutputCmd),
-    Transform(Option<String>, TransformCmd),
+    AddSource((builder::SourceMetadata, Box<dyn Source>, TriggerSpec)),
+    ModifySource(ElementCommand<SourceCmd>),
+    ModifyTransform(ElementCommand<TransformCmd>),
+    ModifyOutput(ElementCommand<OutputCmd>),
+}
+
+/// A command sent to one or multiple elements of the pipeline.
+struct ElementCommand<T> {
+    destination: MessageDestination,
+    command: T,
+}
+
+/// Specifies the destination of the [`ElementCommand`].
+#[derive(Clone)]
+enum MessageDestination {
+    /// Send the command to all the elements of this type
+    /// (e.g. all sources in case of an [`ElementCommand<SourceCmd>`]).
+    All,
+    /// Send the command to all the elements of this type registered by a specific plugin.
+    Plugin(String),
 }
 
 /// A measurement pipeline that is currently running.
@@ -64,7 +82,7 @@ pub struct RunningPipeline {
     _rt_priority: Option<Runtime>,
 
     // JoinSet to wait for the tasks to finish.
-    task_set: JoinSet<anyhow::Result<()>>,
+    task_set: Arc<Mutex<JoinSet<anyhow::Result<()>>>>,
 
     /// Controls the pipeline.
     controller: PipelineController,
@@ -102,8 +120,26 @@ struct PipelineControllerState {
     active_transforms: Arc<AtomicU64>,
     transforms_mask_by_plugin: HashMap<String, u64>,
 
-    // Cancellation token to shut the controller down.
+    /// Cancellation token to shut the controller down.
     shutdown_token: CancellationToken,
+
+    modifier: PipelineModifierState,
+}
+
+/// Things necessary for modifying the pipeline at runtime,
+/// that is, adding or removing pipeline elements.
+struct PipelineModifierState {
+    /// Name generator for the new sources.
+    namegen: builder::ElementNameGenerator,
+
+    /// Arc pointing to the JoinSet of the running pipeline.
+    task_set: Arc<Mutex<JoinSet<anyhow::Result<()>>>>,
+
+    /// Handle to the tokio runtime
+    rt_normal: tokio::runtime::Handle,
+
+    /// Sends measurements from Sources.
+    in_tx: mpsc::Sender<MeasurementBuffer>,
 }
 
 #[derive(Clone)]
@@ -219,6 +255,16 @@ impl IdlePipeline {
             }
         });
 
+        let task_set = Arc::new(Mutex::new(task_set));
+
+        // Store what is necessary to modify the pipeline while it is running, from any thread.
+        let modifier = PipelineModifierState {
+            namegen: builder::ElementNameGenerator::new(),
+            task_set: task_set.clone(),
+            rt_normal: self.rt_normal.handle().clone(),
+            in_tx,
+        };
+
         RunningPipeline {
             _rt_normal: self.rt_normal,
             _rt_priority: self.rt_priority,
@@ -231,6 +277,7 @@ impl IdlePipeline {
                 active_transforms,
                 transforms_mask_by_plugin,
                 shutdown_token,
+                modifier,
             }),
         }
     }
@@ -374,7 +421,7 @@ async fn run_source(
                             // update the trigger
                             let signal = commands.clone();
                             trigger = init_trigger(&mut opt, signal).unwrap();
-                            
+
                             // don't reset the round count
                             // i = 1;
 
@@ -632,7 +679,7 @@ impl RunningPipeline {
     /// for the other tasks.
     pub fn wait_for_all(&mut self) -> anyhow::Result<()> {
         self._rt_normal.block_on(async {
-            while let Some(task_result) = self.task_set.join_next().await {
+            while let Some(task_result) = self.task_set.lock().unwrap().join_next().await {
                 match task_result {
                     Ok(Ok(())) => (), // task completed successfully
                     Ok(Err(err)) => {
@@ -661,39 +708,64 @@ impl RunningPipeline {
     pub fn control_handle(&mut self) -> ControlHandle {
         fn handle_message(state: &mut PipelineControllerState, msg: ControlMessage) {
             match msg {
-                ControlMessage::Source(plugin_name, cmd) => {
-                    if let Some(plugin) = plugin_name {
+                ControlMessage::AddSource((source_metadata, source, trigger)) => {
+                    // prepare the source name, channels, etc.
+                    let modif = &mut state.modifier;
+                    let source_name = modif.namegen.source_name(&source_metadata);
+                    let in_tx = modif.in_tx.clone();
+                    let (command_tx, command_rx) = watch::channel(SourceCmd::SetTrigger(Some(trigger)));
+
+                    // save the command sender so that we can control the source task
+                    state
+                        .source_command_senders_by_plugin
+                        .entry(source_metadata.plugin)
+                        .or_default()
+                        .push(command_tx);
+
+                    // submit the task to the tokio Runtime
+                    let task = run_source(source_name, source, in_tx, command_rx);
+                    modif.task_set.lock().unwrap().spawn_on(task, &modif.rt_normal);
+                }
+
+                ControlMessage::ModifySource(ElementCommand {
+                    destination,
+                    command: message,
+                }) => match destination {
+                    MessageDestination::Plugin(plugin) => {
                         for s in state.source_command_senders_by_plugin.get(&plugin).unwrap() {
-                            s.send(cmd.clone()).unwrap();
+                            s.send(message.clone()).unwrap();
                         }
-                    } else {
+                    }
+                    MessageDestination::All => {
                         for senders in state.source_command_senders_by_plugin.values() {
                             for s in senders {
-                                s.send(cmd.clone()).unwrap();
+                                s.send(message.clone()).unwrap();
                             }
                         }
                     }
-                }
-                ControlMessage::Output(plugin_name, cmd) => {
-                    if let Some(plugin) = plugin_name {
+                },
+
+                ControlMessage::ModifyOutput(ElementCommand { destination, command }) => match destination {
+                    MessageDestination::Plugin(plugin) => {
                         for s in state.output_command_senders_by_plugin.get(&plugin).unwrap() {
-                            s.send(cmd.clone()).unwrap();
+                            s.send(command.clone()).unwrap();
                         }
-                    } else {
+                    }
+                    MessageDestination::All => {
                         for senders in state.output_command_senders_by_plugin.values() {
                             for s in senders {
-                                s.send(cmd.clone()).unwrap();
+                                s.send(command.clone()).unwrap();
                             }
                         }
                     }
-                }
-                ControlMessage::Transform(plugin_name, cmd) => {
-                    let mask: u64 = if let Some(plugin) = plugin_name {
-                        *state.transforms_mask_by_plugin.get(&plugin).unwrap()
-                    } else {
-                        u64::MAX
+                },
+
+                ControlMessage::ModifyTransform(ElementCommand { destination, command }) => {
+                    let mask: u64 = match destination {
+                        MessageDestination::All => u64::MAX,
+                        MessageDestination::Plugin(plugin) => *state.transforms_mask_by_plugin.get(&plugin).unwrap(),
                     };
-                    match cmd {
+                    match command {
                         TransformCmd::Enable => state.active_transforms.fetch_or(mask, Ordering::Relaxed),
                         TransformCmd::Disable => state.active_transforms.fetch_nand(mask, Ordering::Relaxed),
                     };
@@ -744,55 +816,75 @@ impl ControlHandle {
     pub fn all(&self) -> ScopedControlHandle {
         ScopedControlHandle {
             handle: self,
-            plugin_name: None,
+            destination: MessageDestination::All,
         }
     }
     pub fn plugin(&self, plugin_name: impl Into<String>) -> ScopedControlHandle {
         ScopedControlHandle {
             handle: self,
-            plugin_name: Some(plugin_name.into()),
+            destination: MessageDestination::Plugin(plugin_name.into()),
         }
     }
 
     pub fn blocking_all(&self) -> BlockingScopedControlHandle {
         BlockingScopedControlHandle {
             handle: self,
-            plugin_name: None,
+            destination: MessageDestination::All,
         }
     }
 
     pub fn blocking_plugin(&self, plugin_name: impl Into<String>) -> BlockingScopedControlHandle {
         BlockingScopedControlHandle {
             handle: self,
-            plugin_name: Some(plugin_name.into()),
+            destination: MessageDestination::Plugin(plugin_name.into()),
         }
+    }
+
+    /// Adds a new source to the pipeline, without interrupting the elements
+    /// (sources, transforms, outputs) that are currently running.
+    pub fn add_source(&self, me: &dyn Plugin, source: Box<dyn Source>, trigger: TriggerSpec) {
+        let metadata = SourceMetadata {
+            source_type: SourceType::Normal, // todo option to choose
+            plugin: me.name().to_owned(),
+        };
+        let msg = ControlMessage::AddSource((metadata, source, trigger));
+        self.tx.try_send(msg).unwrap()
     }
 }
 
 pub struct ScopedControlHandle<'a> {
     handle: &'a ControlHandle,
-    plugin_name: Option<String>,
+    destination: MessageDestination,
 }
 impl<'a> ScopedControlHandle<'a> {
-    pub async fn control_sources(self, cmd: SourceCmd) {
+    pub async fn control_sources(self, command: SourceCmd) {
         // TODO investigate using try_send instead of send here
         self.handle
             .tx
-            .send(ControlMessage::Source(self.plugin_name, cmd))
+            .send(ControlMessage::ModifySource(ElementCommand {
+                destination: self.destination.clone(),
+                command,
+            }))
             .await
             .unwrap();
     }
-    pub async fn control_transforms(self, cmd: TransformCmd) {
+    pub async fn control_transforms(self, command: TransformCmd) {
         self.handle
             .tx
-            .send(ControlMessage::Transform(self.plugin_name, cmd))
+            .send(ControlMessage::ModifyTransform(ElementCommand {
+                destination: self.destination.clone(),
+                command,
+            }))
             .await
             .unwrap();
     }
-    pub async fn control_outputs(self, cmd: OutputCmd) {
+    pub async fn control_outputs(self, command: OutputCmd) {
         self.handle
             .tx
-            .send(ControlMessage::Output(self.plugin_name, cmd))
+            .send(ControlMessage::ModifyOutput(ElementCommand {
+                destination: self.destination.clone(),
+                command,
+            }))
             .await
             .unwrap();
     }
@@ -800,25 +892,34 @@ impl<'a> ScopedControlHandle<'a> {
 
 pub struct BlockingScopedControlHandle<'a> {
     handle: &'a ControlHandle,
-    plugin_name: Option<String>,
+    destination: MessageDestination,
 }
 impl<'a> BlockingScopedControlHandle<'a> {
-    pub fn control_sources(self, cmd: SourceCmd) {
+    pub fn control_sources(self, command: SourceCmd) {
         self.handle
             .tx
-            .blocking_send(ControlMessage::Source(self.plugin_name, cmd))
+            .blocking_send(ControlMessage::ModifySource(ElementCommand {
+                destination: self.destination.clone(),
+                command,
+            }))
             .unwrap();
     }
-    pub fn control_transforms(self, cmd: TransformCmd) {
+    pub fn control_transforms(self, command: TransformCmd) {
         self.handle
             .tx
-            .blocking_send(ControlMessage::Transform(self.plugin_name, cmd))
+            .blocking_send(ControlMessage::ModifyTransform(ElementCommand {
+                destination: self.destination.clone(),
+                command,
+            }))
             .unwrap();
     }
-    pub fn control_outputs(self, cmd: OutputCmd) {
+    pub fn control_outputs(self, command: OutputCmd) {
         self.handle
             .tx
-            .blocking_send(ControlMessage::Output(self.plugin_name, cmd))
+            .blocking_send(ControlMessage::ModifyOutput(ElementCommand {
+                destination: self.destination.clone(),
+                command,
+            }))
             .unwrap();
     }
 }
@@ -845,11 +946,7 @@ mod tests {
             WrappedMeasurementValue,
         },
         metrics::{MetricRegistry, RawMetricId},
-        pipeline::{
-            builder::ConfiguredTransform,
-            trigger::TriggerSpec,
-            OutputContext, Transform,
-        },
+        pipeline::{builder::ConfiguredTransform, trigger::TriggerSpec, OutputContext, Transform},
         resources::{Resource, ResourceConsumer},
     };
 
@@ -892,7 +989,11 @@ mod tests {
                     );
 
                     // Check that the correct number of rounds have passed.
-                    assert_eq!(measurements.len(), flush_rounds, "incorrect number of measurements: {measurements:?}");
+                    assert_eq!(
+                        measurements.len(),
+                        flush_rounds,
+                        "incorrect number of measurements: {measurements:?}"
+                    );
                     n_polls += flush_rounds;
 
                     let last_point = measurements.iter().last().unwrap();

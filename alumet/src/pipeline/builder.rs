@@ -36,16 +36,20 @@ pub struct PipelineBuilder {
 }
 
 pub struct SourceBuilder {
+    pub metadata: SourceMetadata,
+    pub build: Box<dyn FnOnce(&PendingPipelineContext) -> (Box<dyn Source>, TriggerSpec)>,
+}
+
+pub struct SourceMetadata {
     pub source_type: SourceType,
     pub plugin: String,
-    pub build: Box<dyn FnOnce(&PendingPipeline) -> (Box<dyn Source>, TriggerSpec)>,
 }
 
 pub struct AutonomousSourceBuilder {
     pub plugin: String,
     pub build: Box<
         dyn FnOnce(
-            &PendingPipeline,
+            &PendingPipelineContext,
             &mpsc::Sender<MeasurementBuffer>,
         ) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>,
     >,
@@ -53,21 +57,21 @@ pub struct AutonomousSourceBuilder {
 
 pub struct TransformBuilder {
     pub plugin: String,
-    pub build: Box<dyn FnOnce(&PendingPipeline) -> Box<dyn Transform>>,
+    pub build: Box<dyn FnOnce(&PendingPipelineContext) -> Box<dyn Transform>>,
 }
 
 pub struct OutputBuilder {
     pub plugin: String,
-    pub build: Box<dyn FnOnce(&PendingPipeline) -> anyhow::Result<Box<dyn Output>>>,
+    pub build: Box<dyn FnOnce(&PendingPipelineContext) -> anyhow::Result<Box<dyn Output>>>,
 }
 
 /// Information about a pipeline that is being built.
-pub struct PendingPipeline<'a> {
+pub struct PendingPipelineContext<'a> {
     to_output: &'a broadcast::Sender<runtime::OutputMsg>,
     rt_handle: &'a tokio::runtime::Handle,
 }
 
-impl<'a> PendingPipeline<'a> {
+impl<'a> PendingPipelineContext<'a> {
     pub fn late_registration_handle(&self) -> LateRegistrationHandle {
         let (reply_tx, reply_rx) = mpsc::channel::<Vec<RawMetricId>>(256);
         LateRegistrationHandle {
@@ -266,34 +270,35 @@ impl PipelineBuilder {
             .sources
             .into_iter()
             .map(|builder| {
-                let pending = PendingPipeline {
+                let meta = builder.metadata;
+                let pending = PendingPipelineContext {
                     to_output: &out_tx,
-                    rt_handle: if builder.source_type == SourceType::Normal {
+                    rt_handle: if meta.source_type == SourceType::Normal {
                         rt_normal.handle()
                     } else {
                         rt_priority.as_ref().unwrap().handle()
                     },
                 };
-                let source_name = namegen.source_name(&builder);
+                let source_name = namegen.source_name(&meta);
                 let (source, mut trigger) = (builder.build)(&pending);
                 log::trace!(
                     "(plugin {}) TriggerSpec before constraints: {trigger:?}",
-                    builder.plugin
+                    meta.plugin
                 );
                 trigger.constrain(&self.source_constraints);
-                log::trace!("(plugin {}) TriggerSpec after constraints: {trigger:?}", builder.plugin);
+                log::trace!("(plugin {}) TriggerSpec after constraints: {trigger:?}", meta.plugin);
 
                 ConfiguredSource {
                     source,
                     name: source_name,
-                    plugin_name: builder.plugin,
-                    source_type: builder.source_type,
+                    plugin_name: meta.plugin,
+                    source_type: meta.source_type,
                     trigger_provider: trigger,
                 }
             })
             .collect();
 
-        let pending = PendingPipeline {
+        let pending = PendingPipelineContext {
             to_output: &out_tx,
             rt_handle: rt_normal.handle(),
         };
@@ -365,7 +370,7 @@ impl PipelineBuilder {
         if self
             .sources
             .iter()
-            .any(|s| s.source_type == SourceType::RealtimePriority)
+            .any(|s| s.metadata.source_type == SourceType::RealtimePriority)
         {
             let mut builder = tokio::runtime::Builder::new_multi_thread();
             builder
@@ -385,7 +390,7 @@ impl PipelineBuilder {
 }
 
 /// Generates names for the pipeline elements.
-struct ElementNameGenerator {
+pub(super) struct ElementNameGenerator {
     normal_sources_per_plugin: HashMap<String, usize>,
     autonomous_sources_per_plugin: HashMap<String, usize>,
     transforms_per_plugin: HashMap<String, usize>,
@@ -393,7 +398,7 @@ struct ElementNameGenerator {
 }
 
 impl ElementNameGenerator {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             normal_sources_per_plugin: HashMap::new(),
             autonomous_sources_per_plugin: HashMap::new(),
@@ -402,8 +407,8 @@ impl ElementNameGenerator {
         }
     }
 
-    fn source_name(&mut self, builder: &SourceBuilder) -> String {
-        let plugin_name = builder.plugin.clone();
+    pub fn source_name(&mut self, metadata: &SourceMetadata) -> String {
+        let plugin_name = metadata.plugin.clone();
         let count = self
             .normal_sources_per_plugin
             .entry(plugin_name.clone())
@@ -412,7 +417,7 @@ impl ElementNameGenerator {
         format!("{plugin_name}/source{count}")
     }
 
-    fn autonomous_source_name(&mut self, builder: &AutonomousSourceBuilder) -> String {
+    pub fn autonomous_source_name(&mut self, builder: &AutonomousSourceBuilder) -> String {
         let plugin_name = builder.plugin.clone();
         let count = self
             .autonomous_sources_per_plugin
@@ -422,7 +427,7 @@ impl ElementNameGenerator {
         format!("{plugin_name}/autonomous_source{count}")
     }
 
-    fn transform_name(&mut self, builder: &TransformBuilder) -> String {
+    pub fn transform_name(&mut self, builder: &TransformBuilder) -> String {
         let plugin_name = builder.plugin.clone();
         let count = self
             .transforms_per_plugin
@@ -432,7 +437,7 @@ impl ElementNameGenerator {
         format!("{plugin_name}/transform{count}")
     }
 
-    fn output_name(&mut self, builder: &OutputBuilder) -> String {
+    pub fn output_name(&mut self, builder: &OutputBuilder) -> String {
         let plugin_name = builder.plugin.clone();
         let count = self
             .outputs_per_plugin
