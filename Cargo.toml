@@ -9,6 +9,7 @@ members = [
     "plugin-csv",
     "plugin-k8s",
     "plugin-nvidia",
+    "plugin-perf",
     "plugin-rapl",
     "plugin-relay",
     "plugin-socket-control",

@@ -17,10 +17,10 @@
 //! }
 //!
 //! // Send an event to the bus for each new process.
-//! let event_bus = event::new_consumers(); 
+//! let event_bus = event::start_consumer_measurement(); 
 //! watch_new_processes(|pid| {
 //!     let process = ResourceConsumer::Process { pid };
-//!     let event = event::NewResourceConsumers(vec![process]);
+//!     let event = event::StartConsumerMeasurement(vec![process]);
 //!     event_bus.publish(event);
 //! });
 //! ```
@@ -30,7 +30,7 @@
 //! use alumet::plugin::event;
 //!
 //! // Get notified on each event that gets sent to the bus.
-//! let event_bus = event::new_consumers();
+//! let event_bus = event::start_consumer_measurement();
 //! event_bus.subscribe(move |event| {
 //!     let processes = event.0;
 //!     for p in processes {
@@ -44,7 +44,7 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 
-use crate::resources::ResourceConsumer;
+use crate::resources::{Resource, ResourceConsumer};
 
 /// Trait for constraining event types.
 pub trait Event: Clone {}
@@ -97,23 +97,35 @@ impl<E: Event> EventBus<E> {
 /// Contains all the global event buses.
 #[derive(Default)]
 struct EventBuses {
-    new_consumers: EventBus<NewResourceConsumers>,
+    start_consumer_measurement: EventBus<StartConsumerMeasurement>,
+    start_resource_measurement: EventBus<StartResourceMeasurement>,
 }
 
 /// Global variable, initialized only once, containing the event buses.
 static GLOBAL_EVENT_BUSES: OnceLock<EventBuses> = OnceLock::new();
 
+/// Returns the global event bus for the event [`StartConsumerMeasurement`].
+pub fn start_consumer_measurement() -> &'static EventBus<StartConsumerMeasurement> {
+    &GLOBAL_EVENT_BUSES.get_or_init(|| EventBuses::default()).start_consumer_measurement
+}
+
+/// Returns the global event bus for the event [`StartResourceMeasurement`].
+pub fn start_resource_measurement() -> &'static EventBus<StartResourceMeasurement> {
+    &GLOBAL_EVENT_BUSES.get_or_init(|| EventBuses::default()).start_resource_measurement
+}
+
 /// Event occuring when new [resource consumers](ResourceConsumer) are detected
 /// and should be measured.
 #[derive(Clone)]
-pub struct NewResourceConsumers(pub Vec<ResourceConsumer>);
+pub struct StartConsumerMeasurement(pub Vec<ResourceConsumer>);
 
-impl Event for NewResourceConsumers {}
+/// Event occuring when new [resources](Resource) are detected
+/// and should be measured.
+#[derive(Clone)]
+pub struct StartResourceMeasurement(pub Vec<Resource>);
 
-/// Returns the global event bus for the event [`NewResourceConsumers`].
-pub fn new_consumers() -> &'static EventBus<NewResourceConsumers> {
-    &GLOBAL_EVENT_BUSES.get_or_init(|| EventBuses::default()).new_consumers
-}
+impl Event for StartConsumerMeasurement {}
+impl Event for StartResourceMeasurement {}
 
 #[cfg(test)]
 mod tests {
