@@ -28,9 +28,9 @@ impl AlumetPlugin for K8sPlugin{
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
-        let v2_used: bool = cgroup_v2::is_cgroups_v2(PathBuf::from("/sys/fs/cgroup/"));
+        let v2_used: bool = cgroup_v2::is_accessible_dir(PathBuf::from("/sys/fs/cgroup/"));
         if v2_used == true{
-            let final_li_metric_file: Vec<CgroupV2MetricFile> = cgroup_v2::list_all_k8s_pods_file();
+            let final_li_metric_file: Vec<CgroupV2MetricFile> = cgroup_v2::list_all_k8s_pods_file()?;
             // I suppose value are 64 bit long
             let metrics_result = k8s_probe::Metrics::new(alumet);
             match metrics_result {

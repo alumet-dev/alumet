@@ -1,5 +1,7 @@
 use std::{vec, path::{Path, PathBuf}, fs::{self, File}, str::FromStr, io::{Read, Seek}};
 
+use anyhow::Error;
+
 use crate::parsing_cgroupv2::CgroupV2Metric;
 
 /// CgroupV2MetricFile represente a file containing cgroup v2 data about cpu usage
@@ -36,7 +38,7 @@ impl IntoIterator for CgroupV2MetricFile {
 }
 
 /// Check if a specific file is a dir. Used to know if cgroupv2 are used
-pub fn is_cgroups_v2(path: PathBuf) -> bool {
+pub fn is_accessible_dir(path: PathBuf) -> bool {
     if let Ok(metadata) = std::fs::metadata(&path) {
         metadata.is_dir()
     } else {
@@ -68,14 +70,14 @@ fn retrieve_name(path: &Path, prefix: &String) -> Option<String> {
                 };
                 return Some(without_suffix.to_owned());
             } else {
-                println!("Invalid UTF-8 in file name");
+                log::debug!("Invalid UTF-8 in file name");
                 return None;
             }
         } else {
-            println!("No file or directory name found");
+            log::debug!("No file or directory name found")
         }
     }
-    return None;
+    None
 }
 
 /// Return a Result containing an error or a Vector of CgroupV2MetricFile 
@@ -90,43 +92,42 @@ fn list_metric_file_in_dir(root_directory_path: &String, prefix: &String) -> any
                 if let Ok(entry_ok) = entry {
                     let mut path = entry_ok.path();
                     if path.is_dir(){
-                        match path.file_name() {
-                            Some(_dir_name) => {
-                                let new_prefixe = if prefix.ends_with(".slice/") {
-                                    &prefix[..prefix.len() - ".slice/".len()]
-                                } else {
-                                    prefix
+                        let _dir_name = path.file_name().expect("Impossible to write dir name");
+                        let new_prefixe = if prefix.ends_with(".slice/") {
+                            &prefix[..prefix.len() - ".slice/".len()]
+                        } else {
+                            prefix
+                        };
+                        match retrieve_name(&path, &new_prefixe.to_owned()){
+                            Some(name) => {
+                                path.push("cpu.stat");
+                                let file = match File::open(&path) {
+                                    Err(why) => {
+                                        return {
+                                            let message = format!("couldn't open {}: {}", path.display(), why);
+                                            Err(anyhow::Error::msg(message))
+                                        }
+                                    },
+                                    Ok(file) => file,
                                 };
-                                match retrieve_name(&path, &new_prefixe.to_owned()){
-                                    Some(name) => {
-                                        path.push("cpu.stat");
-                                        let file = match File::open(&path) {
-                                            Err(why) => panic!("couldn't open {}: {}", path.display(), why),
-                                            Ok(file) => file,
-                                        };
-                                        vec_file_metric.push(CgroupV2MetricFile{
-                                            name: name, 
-                                            path: path,
-                                            file: file,
-                                        });
-                                    }
-                                    None => {
-                                        continue
-                                    }
-                                }
+                                vec_file_metric.push(CgroupV2MetricFile{
+                                    name: name, 
+                                    path: path,
+                                    file: file,
+                                });
                             }
                             None => {
-                                panic!("Impossible to write dir name");
-                            }  
+                                continue
+                            }
                         }
                     }
                 }
             }
             return Ok(vec_file_metric);
-        }
+        },
         Err(err) => {
-            eprintln!("Erreur lors de la lecture du répertoire : {}", err);
-            return Err(anyhow::Error::from(err));
+            log::error!("Erreur lors de la lecture du répertoire : {err}");
+            return Err(Error::from(err));
         }
     }
 }
@@ -134,36 +135,24 @@ fn list_metric_file_in_dir(root_directory_path: &String, prefix: &String) -> any
 /// This function list all k8s pods availables, using 3 sub-directory to look in:
 /// For each subdirectory, we look in if there is a directory/ies about pods and we add it
 /// to a vector. All subdirectory are visited with the help of <list_metric_file_in_dir> function.
-pub fn list_all_k8s_pods_file() -> Vec<CgroupV2MetricFile>{
+pub fn list_all_k8s_pods_file() -> anyhow::Result<Vec<CgroupV2MetricFile>>{
     let mut final_li_metric_file: Vec<CgroupV2MetricFile> = Vec::new();
     let root_directory_path: &str = "/sys/fs/cgroup/kubepods.slice/";
     if !Path::new(root_directory_path).exists() {
         println!("Le répertoire n'existe pas !");
-        return final_li_metric_file
+        return Ok(final_li_metric_file);
     }
     let all_sub_dir: Vec<String> = vec!["".to_string(), "kubepods-besteffort.slice/".to_string(), "kubepods-burstable.slice/".to_string()];
     for prefix in all_sub_dir{
-        match list_metric_file_in_dir(&root_directory_path.to_owned(), &prefix.to_owned()){
-            Ok(mut result_vec) => {
-                final_li_metric_file.append(&mut result_vec);
-            }
-            Err(err) => {
-                panic!("Can't append the two vectors because: {:?}", err);
-            }
-        }
+        let mut result_vec = list_metric_file_in_dir(&root_directory_path.to_owned(), &prefix.to_owned())?;
+        final_li_metric_file.append(&mut result_vec);
     }
-    return final_li_metric_file;
+    return Ok(final_li_metric_file);
 }
 
 /// Giving as an argument a CgroupV2MetricFile this function retrieve a Result containing an 
 /// error or a CgroupV2Metric containing all we need
 pub fn gather_value(file: &mut CgroupV2MetricFile) -> anyhow::Result<CgroupV2Metric>{
-    // usage_usec : Le temps total d’utilisation du processeur par le groupe de processus, exprimé en microsecondes. Dans votre exemple, il s’élève à 54 566 400 122 microsecondes (soit environ 54,57 secondes).
-    // user_usec : Le temps passé par les processus du groupe en mode utilisateur (c’est-à-dire lorsqu’ils exécutent du code applicatif), également en microsecondes. Dans votre cas, cela représente environ 35 190 757 954 microsecondes (environ 35,19 secondes).
-    // system_usec : Le temps passé par les processus du groupe en mode noyau (lorsqu’ils exécutent des appels système ou des tâches de gestion du système), toujours en microsecondes. Dans votre exemple, cela équivaut à environ 19 375 642 167 microsecondes (environ 19,38 secondes).
-    // nr_periods : Le nombre de périodes de contrôle (ou intervalles) pendant lesquelles le groupe de processus a été surveillé. Dans votre cas, il est de 0, ce qui signifie qu’aucune période de contrôle n’a été enregistrée.
-    // nr_throttled : Le nombre de fois où le groupe de processus a été limité (throttled) en raison des contraintes imposées par le contrôleur CPU. Dans votre exemple, il est également de 0.
-    // throttled_usec : Le temps total pendant lequel le groupe de processus a été limité (throttled), exprimé en microsecondes. Dans votre cas, il est de 0 microsecondes.
     let mut content_file = String::new();
     file.file.read_to_string(&mut content_file).expect("Unable to read the file gathering values");
     file.file.rewind()?;
@@ -191,8 +180,8 @@ mod tests {
         }
         let cgroupv2_dir = root.join("myDirCgroup");
         std::fs::create_dir_all(&cgroupv2_dir).unwrap();
-        assert!(is_cgroups_v2(cgroupv2_dir));
-        assert!(!is_cgroups_v2(std::path::PathBuf::from("test-alumet-plugin-k8s/is_cgroupv2/myDirCgroup_bad")));
+        assert!(is_accessible_dir(cgroupv2_dir));
+        assert!(!is_accessible_dir(std::path::PathBuf::from("test-alumet-plugin-k8s/is_cgroupv2/myDirCgroup_bad")));
     }
 
     #[test]
@@ -297,13 +286,13 @@ mod tests {
                 assert_eq!(unwrap_li.len(), 4);
                 for pod in unwrap_li {
                     if !list_pod_name.contains(&pod.name.as_str()) {
-                        eprintln!("Pod name not in the list: {}", pod.name);
+                        log::error!("Pod name not in the list: {}",pod.name);
                         assert!(false);
                     }
                 }
             }
             Err(err) => {
-                eprintln!("Error reading li_met_file: {:?}", err);
+                log::error!("Error reading li_met_file: {:?}", err);
                 assert!(false);
             }
         }

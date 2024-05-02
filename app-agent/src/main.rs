@@ -21,9 +21,8 @@ fn main() {
     let args = Args::parse();
 
     // Specifies the plugins that we want to load.
-    // let plugins = static_plugins![RaplPlugin, CsvPlugin, SocketControlPlugin];
     log::info!("Starting plugins...");
-    let plugins = static_plugins![K8sPlugin, CsvPlugin, SocketControlPlugin];
+    let plugins = static_plugins![RaplPlugin, CsvPlugin, SocketControlPlugin];
 
     // Build the measurement agent.
     let mut agent = AgentBuilder::new(plugins)
