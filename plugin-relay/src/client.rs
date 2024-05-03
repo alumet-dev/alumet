@@ -88,7 +88,7 @@ impl AlumetPlugin for RelayClientPlugin {
         let metric_ids = self.metric_ids.clone();
 
         // The output cannot be created right now: we need the tokio Runtime (see below).
-        alumet.add_late_output(move |pipeline| {
+        alumet.add_output_builder(move |pipeline| {
             log::info!("Connecting to gRPC server {collector_uri}...");
 
             // Connect to gRPC server, using the tokio runtime in which Alumet will trigger the output.

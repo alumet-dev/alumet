@@ -9,7 +9,7 @@ use alumet::{
     pipeline::trigger::TriggerSpec,
     plugin::{
         event,
-        rust::{deserialize_config, AlumetPlugin},
+        rust::{deserialize_config, AlumetPlugin}, Plugin,
     },
     units::Unit,
 };
@@ -99,19 +99,21 @@ impl AlumetPlugin for PerfPlugin {
     fn post_pipeline_start(&mut self, pipeline: &mut alumet::pipeline::runtime::RunningPipeline) -> anyhow::Result<()> {
         let config_cloned = self.config.clone();
         let control_handle = pipeline.control_handle();
+        let plugin_name = self.name().to_owned();
         event::start_consumer_measurement().subscribe(move |e| {
             for consumer in e.0 {
                 let observable = match consumer {
-                    alumet::resources::ResourceConsumer::Process { pid } => Some(Observable::Process {
+                    alumet::resources::ResourceConsumer::Process { pid } => Some((Observable::Process {
                         pid: i32::try_from(pid).unwrap(),
-                    }),
-                    alumet::resources::ResourceConsumer::ControlGroup { path } => Some(Observable::Cgroup {
+                    }, format!("source-pid[{pid}]"))),
+                    alumet::resources::ResourceConsumer::ControlGroup { path } => Some((Observable::Cgroup {
                         path: path.to_string(),
                         fd: File::open(path.as_ref()).unwrap(),
-                    }),
+                    }, format!("source-cgroup[{path}]"))),
                     _ => None,
                 };
-                if let Some(o) = observable {
+
+                if let Some((o, source_name)) = observable {
                     let config = config_cloned.lock().unwrap();
                     let mut builder = PerfEventSourceBuilder::observe(o);
                     for (event, metric) in config.hardware_events.iter().zip(&config.hardware_metrics) {
@@ -121,11 +123,14 @@ impl AlumetPlugin for PerfPlugin {
                         builder.add(event.event.clone(), *metric).with_context(|| format!("could not configure software event {} (code {})", event.name, event.event.0))?;
                     }
                     for (event, metric) in config.cache_events.iter().zip(&config.cache_metrics) {
-                        builder.add(event.event.clone(), *metric).with_context(|| format!("could not configure cache event {} (code {})", event.name, event.event.0))?;
+                        builder.add(event.event.clone(), *metric).with_context(|| format!("could not configure cache event {}", event.name))?;
                     }
                     let source = builder.build();
+                    
+                    // Add the source to Alumet's pipeline.
                     control_handle.add_source(
-                        todo!(), // TODO don't pass the plugin, generate a name for the source right there
+                        plugin_name.clone(),
+                        source_name,
                         Box::new(source),
                         TriggerSpec::at_interval(Duration::from_secs(1)), // TODO config
                     );

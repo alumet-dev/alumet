@@ -28,19 +28,6 @@ pub trait Output: Send {
     fn write(&mut self, measurements: &MeasurementBuffer, ctx: &OutputContext) -> Result<(), WriteError>;
 }
 
-/// The type of a [`Source`].
-///
-/// It affects how Alumet schedules the polling of the source.
-#[derive(Debug, PartialEq, Eq)]
-pub enum SourceType {
-    /// Nothing special. This is the right choice for most of the sources.
-    Normal,
-    // Blocking, // todo: how to provide this type properly?
-    /// Signals that the pipeline should run the source on a thread with a
-    /// high scheduling priority.
-    RealtimePriority,
-}
-
 pub struct OutputContext {
     pub metrics: MetricRegistry,
 }

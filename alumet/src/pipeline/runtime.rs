@@ -17,16 +17,15 @@ use crate::measurement::Timestamp;
 use crate::metrics::{Metric, RawMetricId};
 use crate::pipeline::scoped;
 use crate::pipeline::trigger::TriggerReason;
-use crate::plugin::Plugin;
 use crate::{
     measurement::MeasurementBuffer,
     metrics::MetricRegistry,
     pipeline::{Output, Source},
 };
 
-use super::builder::{ConfiguredTransform, ElementType, SourceMetadata};
+use super::builder::{ConfiguredTransform, ElementType};
 use super::trigger::{Trigger, TriggerSpec};
-use super::{builder, SourceType};
+use super::builder;
 use super::{OutputContext, PollError, TransformError, WriteError};
 
 /// A measurement pipeline that has not been started yet.
@@ -53,7 +52,12 @@ pub struct IdlePipeline {
 
 /// A message to control the pipeline.
 enum ControlMessage {
-    AddSource((builder::SourceMetadata, Box<dyn Source>, TriggerSpec)),
+    AddSource {
+        requested_name: String,
+        plugin_name: String,
+        source: Box<dyn Source>,
+        trigger: TriggerSpec,
+    },
     ModifySource(ElementCommand<SourceCmd>),
     ModifyTransform(ElementCommand<TransformCmd>),
     ModifyOutput(ElementCommand<OutputCmd>),
@@ -207,11 +211,11 @@ impl IdlePipeline {
         // 3. Managed sources
         for src in self.sources {
             let data_tx = in_tx.clone();
-            let (command_tx, command_rx) = watch::channel(SourceCmd::SetTrigger(Some(src.trigger_provider)));
-            let runtime = match src.source_type {
-                SourceType::Normal => &self.rt_normal,
-                SourceType::RealtimePriority => self.rt_priority.as_ref().unwrap(),
+            let runtime = match src.trigger_provider.realtime_priority {
+                true => self.rt_priority.as_ref().unwrap(),
+                false => &self.rt_normal,
             };
+            let (command_tx, command_rx) = watch::channel(SourceCmd::SetTrigger(Some(src.trigger_provider)));
             source_command_senders_by_plugin
                 .entry(src.plugin_name)
                 .or_default()
@@ -708,17 +712,17 @@ impl RunningPipeline {
     pub fn control_handle(&mut self) -> ControlHandle {
         fn handle_message(state: &mut PipelineControllerState, msg: ControlMessage) {
             match msg {
-                ControlMessage::AddSource((source_metadata, source, trigger)) => {
+                ControlMessage::AddSource { requested_name, plugin_name: plugin, source, trigger } => {
                     // prepare the source name, channels, etc.
                     let modif = &mut state.modifier;
-                    let source_name = modif.namegen.source_name(&source_metadata);
+                    let source_name = modif.namegen.deduplicate(format!("{plugin}/{requested_name}"), false);
                     let in_tx = modif.in_tx.clone();
                     let (command_tx, command_rx) = watch::channel(SourceCmd::SetTrigger(Some(trigger)));
 
                     // save the command sender so that we can control the source task
                     state
                         .source_command_senders_by_plugin
-                        .entry(source_metadata.plugin)
+                        .entry(plugin)
                         .or_default()
                         .push(command_tx);
 
@@ -842,12 +846,13 @@ impl ControlHandle {
 
     /// Adds a new source to the pipeline, without interrupting the elements
     /// (sources, transforms, outputs) that are currently running.
-    pub fn add_source(&self, me: &dyn Plugin, source: Box<dyn Source>, trigger: TriggerSpec) {
-        let metadata = SourceMetadata {
-            source_type: SourceType::Normal, // todo option to choose
-            plugin: me.name().to_owned(),
+    pub fn add_source(&self, plugin_name: String, source_name: String, source: Box<dyn Source>, trigger: TriggerSpec) {
+        let msg = ControlMessage::AddSource {
+            requested_name: source_name,
+            plugin_name,
+            source,
+            trigger,
         };
-        let msg = ControlMessage::AddSource((metadata, source, trigger));
         self.tx.try_send(msg).unwrap()
     }
 }

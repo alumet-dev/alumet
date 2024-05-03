@@ -88,12 +88,10 @@ use std::marker::PhantomData;
 
 use crate::measurement::{MeasurementBuffer, MeasurementType, WrappedMeasurementType};
 use crate::metrics::{Metric, MetricCreationError, RawMetricId, TypedMetricId};
-use crate::pipeline::builder::{
-    AutonomousSourceBuilder, OutputBuilder, SourceBuilder, SourceMetadata, TransformBuilder,
-};
+use crate::pipeline::builder::{AutonomousSourceBuilder, ManagedSourceBuilder, OutputBuilder, TransformBuilder};
 use crate::pipeline::runtime::{IdlePipeline, RunningPipeline};
 use crate::pipeline::trigger::TriggerSpec;
-use crate::pipeline::{builder::PendingPipelineContext, builder::PipelineBuilder, SourceType};
+use crate::pipeline::{builder::PendingPipelineContext, builder::PipelineBuilder};
 use crate::pipeline::{Output, Source, Transform};
 use crate::units::PrefixedUnit;
 
@@ -276,16 +274,19 @@ impl<'a> AlumetStart<'a> {
     /// Adds a measurement source to the Alumet pipeline.
     pub fn add_source(&mut self, source: Box<dyn Source>, trigger: TriggerSpec) {
         let plugin = self.current_plugin_name().to_owned();
-        self.pipeline_builder.sources.push(SourceBuilder {
-            metadata: SourceMetadata {
-                source_type: SourceType::Normal,
-                plugin,
-            },
-            build: Box::new(|_| (source, trigger)),
+        let name = self
+            .pipeline_builder
+            .namegen
+            .deduplicate(format!("{plugin}/source"), true);
+        self.pipeline_builder.sources.push(ManagedSourceBuilder {
+            name,
+            plugin,
+            trigger,
+            build: Box::new(|_| source),
         })
     }
 
-    /// Adds a "late" measurement source to the Alumet pipeline.
+    /// Adds the builder of a measurement source to the Alumet pipeline.
     ///
     /// Unlike [`add_source`](Self::add_source), the source is not created immediately but during the construction
     /// of the measurement pipeline. This allows to use some information about the pipeline while
@@ -293,20 +294,25 @@ impl<'a> AlumetStart<'a> {
     ///
     /// The downside is a more complicated code.
     /// In general, you should prefer to use [`add_source`](Self::add_source) if possible.
-    pub fn add_late_source<F: FnOnce(&PendingPipelineContext) -> (Box<dyn Source>, TriggerSpec) + 'static>(
+    pub fn add_source_builder<F: FnOnce(&PendingPipelineContext) -> Box<dyn Source> + 'static>(
         &mut self,
+        trigger: TriggerSpec,
         source_builder: F,
     ) {
-        self.pipeline_builder.sources.push(SourceBuilder {
-            metadata: SourceMetadata {
-                source_type: SourceType::Normal,
-                plugin: self.current_plugin_name().to_owned(),
-            },
+        let plugin = self.current_plugin_name().to_owned();
+        let name = self
+            .pipeline_builder
+            .namegen
+            .deduplicate(format!("{plugin}/source"), true);
+        self.pipeline_builder.sources.push(ManagedSourceBuilder {
+            name,
+            plugin,
+            trigger,
             build: Box::new(source_builder),
         });
     }
 
-    /// Adds an autonomous source to the Alumet pipeline.
+    /// Adds the builder of an autonomous source to the Alumet pipeline.
     ///
     /// An autonomous source is not triggered by Alumet, but runs independently.
     /// It is given a [`Sender`](tokio::sync::mpsc::Sender) to send its measurements
@@ -350,8 +356,14 @@ impl<'a> AlumetStart<'a> {
         F: FnOnce(&PendingPipelineContext, &tokio::sync::mpsc::Sender<MeasurementBuffer>) -> S + 'static,
         S: Future<Output = anyhow::Result<()>> + Send + 'static,
     {
+        let plugin = self.current_plugin_name().to_owned();
+        let name = self
+            .pipeline_builder
+            .namegen
+            .deduplicate(format!("{plugin}/autonomous_source"), true);
         self.pipeline_builder.autonomous_sources.push(AutonomousSourceBuilder {
-            plugin: self.current_plugin_name().to_owned(),
+            name,
+            plugin,
             build: Box::new(|p: &_, tx: &_| Box::pin(source_builder(p, tx))),
         })
     }
@@ -359,7 +371,12 @@ impl<'a> AlumetStart<'a> {
     /// Adds a transform step to the Alumet pipeline.
     pub fn add_transform(&mut self, transform: Box<dyn Transform>) {
         let plugin = self.current_plugin_name().to_owned();
+        let name = self
+            .pipeline_builder
+            .namegen
+            .deduplicate(format!("{plugin}/transform"), true);
         self.pipeline_builder.transforms.push(TransformBuilder {
+            name,
             plugin,
             build: Box::new(|_| transform),
         });
@@ -368,13 +385,18 @@ impl<'a> AlumetStart<'a> {
     /// Adds an output to the Alumet pipeline.
     pub fn add_output(&mut self, output: Box<dyn Output>) {
         let plugin = self.current_plugin_name().to_owned();
+        let name = self
+            .pipeline_builder
+            .namegen
+            .deduplicate(format!("{plugin}/output"), true);
         self.pipeline_builder.outputs.push(OutputBuilder {
+            name,
             plugin,
             build: Box::new(|_| Ok(output)),
         })
     }
 
-    /// Adds a "late" output to the Alumet pipeline.
+    /// Adds the builder of an output to the Alumet pipeline.
     ///
     /// Unlike [`add_output`](Self::add_output), the output is not created immediately but during the construction
     /// of the measurement pipeline. This allows to use some information about the pipeline while
@@ -382,12 +404,18 @@ impl<'a> AlumetStart<'a> {
     /// in order to use an async library.
     ///
     /// In general, you should prefer to use [`add_output`](Self::add_output) if possible.
-    pub fn add_late_output<F: FnOnce(&PendingPipelineContext) -> anyhow::Result<Box<dyn Output>> + 'static>(
+    pub fn add_output_builder<F: FnOnce(&PendingPipelineContext) -> anyhow::Result<Box<dyn Output>> + 'static>(
         &mut self,
         output_builder: F,
     ) {
+        let plugin = self.current_plugin_name().to_owned();
+        let name = self
+            .pipeline_builder
+            .namegen
+            .deduplicate(format!("{plugin}/output"), true);
         self.pipeline_builder.outputs.push(OutputBuilder {
-            plugin: self.current_plugin_name().to_owned(),
+            name,
+            plugin,
             build: Box::new(output_builder),
         })
     }
