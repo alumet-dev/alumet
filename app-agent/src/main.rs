@@ -9,7 +9,6 @@ use plugin_csv::CsvPlugin;
 use plugin_rapl::RaplPlugin;
 use plugin_socket_control::SocketControlPlugin;
 use serde::{Deserialize, Serialize};
-use plugin_k8s::K8sPlugin;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -21,7 +20,6 @@ fn main() {
     let args = Args::parse();
 
     // Specifies the plugins that we want to load.
-    log::info!("Starting plugins...");
     let plugins = static_plugins![RaplPlugin, CsvPlugin, SocketControlPlugin];
 
     // Build the measurement agent.

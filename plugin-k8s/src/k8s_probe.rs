@@ -1,17 +1,19 @@
 use alumet::{
-    measurement::{AttributeValue, Timestamp, MeasurementAccumulator, MeasurementPoint},
-    metrics::{TypedMetricId,MetricCreationError},
-    plugin::{util::{CounterDiff,CounterDiffUpdate}, AlumetStart},
-    units::Unit,
-    resources::{ResourceConsumer,Resource},
+    measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp},
+    metrics::{MetricCreationError, TypedMetricId},
+    plugin::{
+        util::{CounterDiff, CounterDiffUpdate},
+        AlumetStart,
+    },
+    resources::{Resource, ResourceConsumer},
+    units::{PrefixedUnit, Unit},
 };
 use anyhow::Result;
 
 use crate::cgroup_v2::{self, CgroupV2MetricFile};
 use crate::parsing_cgroupv2::CgroupV2Metric;
 
-pub(crate) const CGROUP_MAX_TS: u64 = u64::MAX;
-
+pub(crate) const CGROUP_MAX_TIME_COUNTER: u64 = u64::MAX;
 
 /// Energy probe based on perf_event for intel RAPL.
 pub struct K8SProbe {
@@ -29,15 +31,16 @@ pub struct Metrics {
 impl K8SProbe {
     pub fn new(metric: Metrics, final_li_metric: Vec<CgroupV2MetricFile>) -> anyhow::Result<K8SProbe> {
         let mut metric_counter: Vec<(CgroupV2MetricFile, CounterDiff, CounterDiff, CounterDiff)> = Vec::new();
-        for elm in final_li_metric { //elm is  a CgroupV2MetricFile
-            let counter_tmp_tot = CounterDiff::with_max_value(CGROUP_MAX_TS);
-            let counter_tmp_usr = CounterDiff::with_max_value(CGROUP_MAX_TS);
-            let counter_tmp_sys = CounterDiff::with_max_value(CGROUP_MAX_TS);
-            metric_counter.push((elm, counter_tmp_tot, counter_tmp_usr, counter_tmp_sys));            
+        for metric_file in final_li_metric {
+            //elm is  a CgroupV2MetricFile
+            let counter_tmp_tot = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
+            let counter_tmp_usr = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
+            let counter_tmp_sys = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
+            metric_counter.push((metric_file, counter_tmp_tot, counter_tmp_usr, counter_tmp_sys));
         }
-        return Ok(K8SProbe{
-        metrics: metric,
-        metric_and_counter: metric_counter,
+        return Ok(K8SProbe {
+            metrics: metric,
+            metric_and_counter: metric_counter,
         });
     }
 }
@@ -47,13 +50,13 @@ impl alumet::pipeline::Source for K8SProbe {
         &mut self,
         measurements: &mut MeasurementAccumulator,
         timestamp: Timestamp,
-    ) -> Result<(), alumet::pipeline::PollError> {    
+    ) -> Result<(), alumet::pipeline::PollError> {
+        let mut file_buffer = String::new();
         for (metric_file, counter_tot, counter_usr, counter_sys) in &mut self.metric_and_counter {
-            let metrics: CgroupV2Metric = cgroup_v2::gather_value(metric_file)?;
+            let metrics: CgroupV2Metric = cgroup_v2::gather_value(metric_file, &mut file_buffer)?;
             let diff_tot = match counter_tot.update(metrics.time_used_tot) {
                 CounterDiffUpdate::FirstTime => None,
-                CounterDiffUpdate::Difference(diff) => Some(diff),
-                CounterDiffUpdate::CorrectedDifference(diff) => Some(diff),
+                CounterDiffUpdate::Difference(diff) | CounterDiffUpdate::CorrectedDifference(diff) => Some(diff),
             };
             let diff_usr = match counter_usr.update(metrics.time_used_user_mode) {
                 CounterDiffUpdate::FirstTime => None,
@@ -65,16 +68,40 @@ impl alumet::pipeline::Source for K8SProbe {
                 CounterDiffUpdate::Difference(diff) => Some(diff),
                 CounterDiffUpdate::CorrectedDifference(diff) => Some(diff),
             };
+            let consumer = ResourceConsumer::ControlGroup {
+                path: (metric_file.path.to_string_lossy().to_string().into()),
+            };
             if let Some(value_tot) = diff_tot {
-                let p_tot: MeasurementPoint = MeasurementPoint::new(timestamp, self.metrics.time_used_tot, Resource::LocalMachine, ResourceConsumer::ControlGroup { path: (metric_file.path.to_string_lossy().to_string().into()) } , value_tot as u64).with_attr("pod", AttributeValue::String(metrics.name.to_string()));
+                let p_tot: MeasurementPoint = MeasurementPoint::new(
+                    timestamp,
+                    self.metrics.time_used_tot,
+                    Resource::LocalMachine,
+                    consumer.clone(),
+                    value_tot as u64,
+                )
+                .with_attr("pod", AttributeValue::String(metrics.name.clone()));
                 measurements.push(p_tot);
             }
-            if let Some(value_usr) = diff_usr{
-                let p_usr: MeasurementPoint = MeasurementPoint::new(timestamp, self.metrics.time_used_user_mode, Resource::LocalMachine, ResourceConsumer::ControlGroup { path: (metric_file.path.to_string_lossy().to_string().into()) }, value_usr as u64).with_attr("pod", AttributeValue::String(metrics.name.to_string()));
+            if let Some(value_usr) = diff_usr {
+                let p_usr: MeasurementPoint = MeasurementPoint::new(
+                    timestamp,
+                    self.metrics.time_used_user_mode,
+                    Resource::LocalMachine,
+                    consumer.clone(),
+                    value_usr as u64,
+                )
+                .with_attr("pod", AttributeValue::String(metrics.name.clone()));
                 measurements.push(p_usr);
             }
-            if let Some(value_sys) = diff_sys{
-                let p_sys: MeasurementPoint = MeasurementPoint::new(timestamp, self.metrics.time_used_system_mode, Resource::LocalMachine, ResourceConsumer::ControlGroup { path: (metric_file.path.to_string_lossy().to_string().into()) }, value_sys as u64).with_attr("pod", AttributeValue::String(metrics.name.to_string()));
+            if let Some(value_sys) = diff_sys {
+                let p_sys: MeasurementPoint = MeasurementPoint::new(
+                    timestamp,
+                    self.metrics.time_used_system_mode,
+                    Resource::LocalMachine,
+                    consumer.clone(),
+                    value_sys as u64,
+                )
+                .with_attr("pod", AttributeValue::String(metrics.name.clone()));
                 measurements.push(p_sys);
             }
         }
@@ -82,17 +109,25 @@ impl alumet::pipeline::Source for K8SProbe {
     }
 }
 
-
 impl Metrics {
     pub fn new(alumet: &mut AlumetStart) -> Result<Self, MetricCreationError> {
-        let usec = Unit::Custom {
-            unique_name: "usec".to_owned(),
-            display_name: "µsec".to_owned(),
-        };
+        let usec: PrefixedUnit = PrefixedUnit::micro(Unit::Second);
         Ok(Self {
-        time_used_tot: alumet.create_metric::<u64>("total_usage_usec", usec.clone(), "Total CPU usage time by the group")?, 
-        time_used_user_mode: alumet.create_metric::<u64>("user_usage_usec", usec.clone(), "User CPU usage time by the group")?,
-        time_used_system_mode: alumet.create_metric::<u64>("system_usage_usec", usec.clone(), "System CPU usage time by the group")?,
+            time_used_tot: alumet.create_metric::<u64>(
+                "total_usage_usec",
+                usec.clone(),
+                "Total CPU usage time by the group",
+            )?,
+            time_used_user_mode: alumet.create_metric::<u64>(
+                "user_usage_usec",
+                usec.clone(),
+                "User CPU usage time by the group",
+            )?,
+            time_used_system_mode: alumet.create_metric::<u64>(
+                "system_usage_usec",
+                usec.clone(),
+                "System CPU usage time by the group",
+            )?,
         })
     }
 }

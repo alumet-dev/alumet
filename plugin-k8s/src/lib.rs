@@ -1,65 +1,73 @@
-use std::{time::Duration, path::PathBuf};
-use alumet::{pipeline::trigger::TriggerSpec, plugin::{rust::AlumetPlugin, ConfigTable}};
-
-pub struct K8sPlugin{
-    poll_interval: Duration,
-}
+use alumet::{
+    pipeline::trigger::TriggerSpec,
+    plugin::{
+        rust::{deserialize_config, serialize_config, AlumetPlugin},
+        ConfigTable,
+    },
+};
+use anyhow::Context;
+use serde::{Deserialize, Serialize};
+use std::{path::PathBuf, time::Duration};
 
 mod cgroup_v2;
-mod parsing_cgroupv2;
 mod k8s_probe;
+mod parsing_cgroupv2;
 
 use crate::cgroup_v2::CgroupV2MetricFile;
 use crate::k8s_probe::K8SProbe;
 
-impl AlumetPlugin for K8sPlugin{
+pub struct K8sPlugin {
+    config: Config,
+}
+
+#[derive(Deserialize, Serialize)]
+struct Config {
+    /// Initial interval between two cgroup measurements.
+    #[serde(with = "humantime_serde")]
+    poll_interval: Duration,
+}
+
+impl AlumetPlugin for K8sPlugin {
     fn name() -> &'static str {
-        "K8S"
+        "k8s"
     }
 
     fn version() -> &'static str {
-        "0.0.1"
+        env!("CARGO_PKG_VERSION")
     }
 
-    fn init(_config: ConfigTable) -> anyhow::Result<Box<Self>> {
-        // TODO read from config
-        let poll_interval = Duration::from_secs(1);
-        Ok(Box::new(K8sPlugin { poll_interval }))
+    fn default_config() -> anyhow::Result<Option<ConfigTable>> {
+        let config = serialize_config(Config::default())?;
+        Ok(Some(config))
+    }
+
+    fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
+        let config = deserialize_config(config).context("invalid config")?;
+        Ok(Box::new(K8sPlugin { config }))
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
-        let v2_used: bool = cgroup_v2::is_accessible_dir(PathBuf::from("/sys/fs/cgroup/"));
-        if v2_used == true{
-            let final_li_metric_file: Vec<CgroupV2MetricFile> = cgroup_v2::list_all_k8s_pods_file()?;
-            // I suppose value are 64 bit long
-            let metrics_result = k8s_probe::Metrics::new(alumet);
-            match metrics_result {
-                Ok(metrics) => {
-                    let probe = K8SProbe::new(metrics.clone(), final_li_metric_file)?;
-                    alumet.add_source(Box::new(probe), TriggerSpec::at_interval(self.poll_interval));  
-                },
-                Err(_) => todo!()
-            }
-            return Ok(());
-        }else{
-            panic!("Cgroups v2 are not being used!");
+        let v2_used: bool = cgroup_v2::is_accessible_dir(&PathBuf::from("/sys/fs/cgroup/"));
+        if !v2_used {
+            anyhow::bail!("Cgroups v2 are not being used!");
         }
+        let final_li_metric_file: Vec<CgroupV2MetricFile> = cgroup_v2::list_all_k8s_pods_file()?;
+        let metrics_result = k8s_probe::Metrics::new(alumet);
+        let metrics = metrics_result?;
+        let probe = K8SProbe::new(metrics.clone(), final_li_metric_file)?;
+        alumet.add_source(Box::new(probe), TriggerSpec::at_interval(self.config.poll_interval));
+        return Ok(());
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
         Ok(())
     }
-
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-
-//     #[test]
-//     fn it_works() {
-//         let result = add(2, 2);
-//         assert_eq!(result, 4);
-//     }
-// }
-
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            poll_interval: Duration::from_secs(1), // 1Hz
+        }
+    }
+}
