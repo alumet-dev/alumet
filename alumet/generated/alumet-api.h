@@ -32,10 +32,11 @@ typedef struct ConfigArray ConfigArray;
  * A configuration table for plugins.
  *
  * `ConfigTable` is currently a wrapper around [`toml::Table`].
+ * However, you probably don't need to add a dependency on the `toml` crate,
+ * since Alumet provides functions to easily serialize and deserialize configurations
+ * with `serde`.
  *
  * ## Example
- *
- * Alumet provides functions to easily serialize and deserialize configurations.
  *
  * ```
  * use serde::{Serialize, Deserialize};

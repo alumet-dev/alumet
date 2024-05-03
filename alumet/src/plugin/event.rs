@@ -18,8 +18,8 @@
 //!
 //! // Send an event to the bus for each new process.
 //! let event_bus = event::start_consumer_measurement(); 
-//! watch_new_processes(|pid| {
-//!     let process = ResourceConsumer::Process { pid };
+//! watch_new_processes(|notif| {
+//!     let process = ResourceConsumer::Process { pid: notif.pid };
 //!     let event = event::StartConsumerMeasurement(vec![process]);
 //!     event_bus.publish(event);
 //! });
@@ -36,6 +36,7 @@
 //!     for p in processes {
 //!         todo!()
 //!     }
+//!     Ok(())
 //! });
 //! ```
 
