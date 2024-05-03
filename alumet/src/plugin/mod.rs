@@ -136,6 +136,32 @@ impl PluginMetadata {
     }
 }
 
+/// A configuration table for plugins.
+/// 
+/// `ConfigTable` is currently a wrapper around [`toml::Table`].
+/// 
+/// ## Example
+/// 
+/// Alumet provides functions to easily serialize and deserialize configurations.
+/// 
+/// ```
+/// use serde::{Serialize, Deserialize};
+/// use alumet::plugin::ConfigTable;
+/// use alumet::plugin::rust::{serialize_config, deserialize_config};
+/// 
+/// #[derive(Serialize, Deserialize)]
+/// struct MyConfig {
+///     field: String
+/// }
+/// 
+/// // serialize struct to config
+/// let my_struct = MyConfig { field: String::from("value") };
+/// let serialized: ConfigTable = serialize_config(my_struct).expect("serialization failed");
+/// 
+/// // deserialize config to struct
+/// let my_table: ConfigTable = serialized;
+/// let deserialized: MyConfig = deserialize_config(my_table).expect("deserialization failed");
+/// ```
 #[derive(Debug, Clone)]
 pub struct ConfigTable(pub toml::Table);
 
