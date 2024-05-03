@@ -115,13 +115,13 @@ impl AlumetPlugin for PerfPlugin {
                     let config = config_cloned.lock().unwrap();
                     let mut builder = PerfEventSourceBuilder::observe(o);
                     for (event, metric) in config.hardware_events.iter().zip(&config.hardware_metrics) {
-                        builder.add(event.event.clone(), *metric);
+                        builder.add(event.event.clone(), *metric).with_context(|| format!("could not configure hardware event {} (code {})", event.name, event.event.0))?;
                     }
                     for (event, metric) in config.software_events.iter().zip(&config.software_metrics) {
-                        builder.add(event.event.clone(), *metric);
+                        builder.add(event.event.clone(), *metric).with_context(|| format!("could not configure software event {} (code {})", event.name, event.event.0))?;
                     }
                     for (event, metric) in config.cache_events.iter().zip(&config.cache_metrics) {
-                        builder.add(event.event.clone(), *metric);
+                        builder.add(event.event.clone(), *metric).with_context(|| format!("could not configure cache event {} (code {})", event.name, event.event.0))?;
                     }
                     let source = builder.build();
                     control_handle.add_source(
@@ -131,6 +131,7 @@ impl AlumetPlugin for PerfPlugin {
                     );
                 }
             }
+            Ok(())
         });
         Ok(())
     }

@@ -55,7 +55,7 @@ pub struct EventBus<E: Event> {
     ///
     /// We use a Mutex here, not a RwLock, because we don't want to impose a Sync
     /// bound on the listener functions.
-    listeners: Mutex<Vec<Box<dyn Fn(E) + Send>>>,
+    listeners: Mutex<Vec<Box<dyn Fn(E) -> anyhow::Result<()> + Send>>>,
 }
 
 impl<E: Event> Default for EventBus<E> {
@@ -77,7 +77,7 @@ impl<E: Event> EventBus<E> {
     /// Therefore, **each listener should only perform a minimal amount of work**.
     /// To execute large tasks in response to an event, consider sending a message
     /// to another thread (or async future) through a [`channel`](tokio::sync::mpsc::channel).
-    pub fn subscribe<F: Fn(E) + Send + 'static>(&self, listener: F) {
+    pub fn subscribe<F: Fn(E) -> anyhow::Result<()> + Send + 'static>(&self, listener: F) {
         let mut listeners = self.listeners.lock().unwrap();
         listeners.push(Box::new(listener));
     }
@@ -87,7 +87,9 @@ impl<E: Event> EventBus<E> {
     /// All the `listeners` will be called with the event.
     pub fn publish(&self, event: E) {
         for listener in self.listeners.lock().unwrap().deref() {
-            listener(event.clone());
+            if let Err(e) = listener(event.clone()) {
+                log::error!("Error in event handler: {e:?}")
+            }
         }
     }
 }
@@ -157,6 +159,7 @@ mod tests {
 
         bus.subscribe(move |event| {
             cloned_count.fetch_add(event.0, Ordering::SeqCst);
+            Ok(())
         });
 
         bus.publish(TestEvent(1));
