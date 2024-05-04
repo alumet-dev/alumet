@@ -3,14 +3,14 @@
 use std::collections::HashMap;
 use std::ops::BitOrAssign;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use anyhow::{anyhow, Context};
 
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::{broadcast, mpsc};
-use tokio::task::JoinSet;
+use tokio::task::{JoinError, JoinHandle, JoinSet};
 use tokio::{runtime::Runtime, sync::watch};
 use tokio_util::sync::CancellationToken;
 
@@ -87,8 +87,10 @@ pub struct RunningPipeline {
     _rt_normal: Runtime,
     _rt_priority: Option<Runtime>,
 
-    // JoinSet to wait for the tasks to finish.
-    task_set: Arc<Mutex<JoinSet<anyhow::Result<()>>>>,
+    /// Handle to the task that handles the shutdown of the pipeline.
+    ///
+    /// When this task finishes, the pipeline has shut down.
+    shutdown_task_handle: Option<JoinHandle<()>>,
 
     /// Controls the pipeline.
     controller: PipelineController,
@@ -142,8 +144,8 @@ struct PipelineModifierState {
     /// Name generator for the new sources.
     namegen: builder::ElementNameGenerator,
 
-    /// Arc pointing to the JoinSet of the running pipeline.
-    task_set: Arc<Mutex<JoinSet<anyhow::Result<()>>>>,
+    /// Arc pointing to the JoinSets of the running pipeline.
+    join_sets: Arc<tokio::sync::Mutex<ElementJoinSets>>,
 
     /// Handle to the tokio runtime
     rt_normal: tokio::runtime::Handle,
@@ -154,6 +156,9 @@ struct PipelineModifierState {
 
 #[derive(Clone)]
 pub struct ControlHandle {
+    /// Send a message to this channel to control the pipeline.
+    ///
+    /// Closed when the pipeline shuts down.
     tx: mpsc::Sender<ControlMessage>,
 }
 
@@ -169,7 +174,9 @@ impl IdlePipeline {
     /// Starts the measurement pipeline.
     pub fn start(self) -> RunningPipeline {
         // Use a JoinSet to keep track of the spawned tasks.
-        let mut task_set = JoinSet::new();
+        let mut source_set = JoinSet::new();
+        let mut transform_set = JoinSet::new();
+        let mut output_set = JoinSet::new();
 
         // Store the command senders in order to keep the receivers alive,
         // and to be able to send commands after the launch.
@@ -199,7 +206,7 @@ impl IdlePipeline {
 
             // Spawn the task in the JoinSet.
             let task = run_output_from_broadcast(out.name, out.output, msg_rx, command_rx, ctx);
-            task_set.spawn_on(task, self.rt_normal.handle());
+            output_set.spawn_on(task, self.rt_normal.handle());
         }
 
         // 2. Transforms (all in the same task because they are applied one after another)
@@ -212,7 +219,7 @@ impl IdlePipeline {
                 .bitor_assign(mask);
         }
         let transforms_task = run_transforms(self.transforms, in_rx, self.to_outputs, active_transforms.clone());
-        task_set.spawn_on(transforms_task, self.rt_normal.handle());
+        transform_set.spawn_on(transforms_task, self.rt_normal.handle());
 
         // 3. Managed sources
         for src in self.sources {
@@ -228,7 +235,7 @@ impl IdlePipeline {
                 .push(command_tx);
 
             let task = run_source(src.name, src.source, data_tx, command_rx);
-            task_set.spawn_on(task, runtime.handle());
+            source_set.spawn_on(task, runtime.handle());
         }
 
         // 4. Autonomous sources
@@ -238,20 +245,49 @@ impl IdlePipeline {
                     .await
                     .map_err(|e| e.context(format!("error in autonomous source {}", src.name)))
             };
-            task_set.spawn_on(task, self.rt_normal.handle());
+            source_set.spawn_on(task, self.rt_normal.handle());
         }
 
-        // 5. Graceful shutdown on Ctrl+C
+        // 5. Graceful shutdown on Ctrl+C or internal order.
         let source_command_senders: Vec<_> = source_command_senders_by_plugin.values().flatten().cloned().collect();
         let output_command_senders: Vec<_> = output_command_senders_by_plugin.values().flatten().cloned().collect();
 
         // mpsc channel for global shutdown order.
         let (global_shutdown_send, mut global_shutdown_recv) = tokio::sync::mpsc::unbounded_channel::<()>();
+
         // token for cancelling other tasks such as the PipelineController.
         let controller_shutdown_token = CancellationToken::new();
+
+        // Wrap and clone the task sets to wait for the tasks in a specific order (see below).
+        let join_sets = Arc::new(tokio::sync::Mutex::new(ElementJoinSets {
+            source_set,
+            transform_set,
+            output_set,
+        }));
+
+        // Function for handling errors in tasks.
+        fn handle_task_result(type_str: &str, result: Result<anyhow::Result<()>, JoinError>) {
+            match result {
+                Ok(Ok(())) => (), // task completed successfully
+                Ok(Err(err)) => {
+                    // task completed with error
+                    log::error!("A {type_str} task in the measurement pipeline returned an error: {err:#}");
+                }
+                Err(err) => {
+                    // task panicked or was cancelled
+                    if err.is_panic() {
+                        log::error!("A {type_str} task in the pipeline has panicked! {err:#}");
+                    } else if err.is_cancelled() {
+                        log::error!("A {type_str} task in the pipeline has been unexpectedly cancelled. {err:#}");
+                    }
+                }
+            }
+        }
+
+        // Spawn a task to handle the shutdown.
+        let cloned_join_sets = join_sets.clone();
         let cloned_token = controller_shutdown_token.clone();
-        // spawn task that handles the shutdown
-        self.rt_normal.spawn(async move {
+        let shutdown_task_handle = self.rt_normal.spawn(async move {
             tokio::select! {
                 biased; // no need for fairness/randomness here, in both cases we shut down
 
@@ -267,21 +303,39 @@ impl IdlePipeline {
             // Stop the pipeline controller.
             cloned_token.cancel();
 
-            // Stop the pipeline elements.
+            // Get the JoinSets.
+            let mut join_sets = cloned_join_sets.lock().await;
+
+            // Stop the sources first, and wait for them to send their last measurements to the transforms.
+            log::debug!("Stopping sources...");
             for source_cs in source_command_senders {
                 source_cs.send_replace(SourceCmd::Stop);
             }
+            while let Some(task_res) = join_sets.source_set.join_next().await {
+                handle_task_result("source", task_res);
+            }
+
+            // The transform task will stop because the sending half of the channel is now closed.
+            // Stop the transforms, and wait for them to send their last measurements to the outputs.
+            log::debug!("Waiting for transforms...");
+            while let Some(task_res) = join_sets.transform_set.join_next().await {
+                handle_task_result("transform", task_res);
+            }
+
+            // Stop the outputs, and wait for them to write their last measurements.
+            log::debug!("Stopping outputs...");
             for output_cs in output_command_senders {
                 output_cs.send_replace(OutputCmd::Stop);
             }
+            while let Some(task_res) = join_sets.output_set.join_next().await {
+                handle_task_result("output", task_res);
+            }
         });
-
-        let task_set = Arc::new(Mutex::new(task_set));
 
         // Store what is necessary to modify the pipeline while it is running, from any thread.
         let modifier = PipelineModifierState {
             namegen: builder::ElementNameGenerator::new(),
-            task_set: task_set.clone(),
+            join_sets,
             rt_normal: self.rt_normal.handle().clone(),
             in_tx,
         };
@@ -289,7 +343,7 @@ impl IdlePipeline {
         RunningPipeline {
             _rt_normal: self.rt_normal,
             _rt_priority: self.rt_priority,
-            task_set,
+            shutdown_task_handle: Some(shutdown_task_handle),
 
             // Don't start the control task yet, but be prepared to do it.
             controller: PipelineController::Waiting(PipelineControllerState {
@@ -303,6 +357,14 @@ impl IdlePipeline {
             }),
         }
     }
+}
+
+/// Stores [`JoinSet`]s for all the tasks of the pipeline
+/// that correspond to an element (source, transform, output).
+struct ElementJoinSets {
+    source_set: JoinSet<anyhow::Result<()>>,
+    transform_set: JoinSet<anyhow::Result<()>>,
+    output_set: JoinSet<anyhow::Result<()>>,
 }
 
 #[derive(Clone, Debug)]
@@ -436,7 +498,14 @@ async fn run_source(
                     match cmd {
                         SourceCmd::Run => break 'pause,
                         SourceCmd::Pause => paused = true,
-                        SourceCmd::Stop => break 'run,
+                        SourceCmd::Stop => {
+                            // flush now, then stop
+                            if !buffer.is_empty() {
+                                tx.try_send(buffer)
+                                    .expect("failed to flush measurements after receiving SourceCmd::Stop");
+                            }
+                            break 'run;
+                        }
                         SourceCmd::SetTrigger(mut opt) => {
                             let prev_flush_rounds = trigger.config.flush_rounds;
 
@@ -488,7 +557,7 @@ async fn run_transforms(
             // Update the list of active transforms (the PipelineController can update the flags).
             let current_flags = active_flags.load(Ordering::Relaxed);
 
-            // Run the enabled transforms. If one of them fails, we cannot continue.
+            // Run the enabled transforms. If one of them fails, the ability to continue running depends on the error type.
             for (i, t) in &mut transforms.iter_mut().enumerate() {
                 let t_flag = 1 << i;
                 if current_flags & t_flag != 0 {
@@ -508,7 +577,7 @@ async fn run_transforms(
             tx.send(OutputMsg::WriteMeasurements(measurements))
                 .context("could not send the measurements from transforms to the outputs")?;
         } else {
-            log::warn!("The channel connected to the transform step has been closed, the transforms will stop.");
+            log::debug!("The channel connected to the transform step has been closed, the transforms will stop.");
             break;
         }
     }
@@ -699,30 +768,21 @@ impl RunningPipeline {
     ///
     /// If a task returns an error or panicks, `wait_for_all` returns an error without waiting
     /// for the other tasks.
-    pub fn wait_for_all(&mut self) -> anyhow::Result<()> {
-        self._rt_normal.block_on(async {
-            while let Some(task_result) = self.task_set.lock().unwrap().join_next().await {
-                match task_result {
-                    Ok(Ok(())) => (), // task completed successfully
-                    Ok(Err(err)) => {
-                        // task completed with error
-                        log::error!("A task in the measurement pipeline returned an error: {err:#}");
-                        return Err(err);
-                    }
-                    Err(err) => {
-                        // task panicked or was cancelled
-                        if err.is_panic() {
-                            log::error!("An element of the pipeline panicked! {err}");
-                        } else if err.is_cancelled() {
-                            log::error!("An element of the pipeline has been unexpectedly cancelled. {err}");
-                        }
-                        return Err(err.into());
-                    }
+    pub fn wait_for_shutdown(mut self) -> anyhow::Result<()> {
+        let handle = self.shutdown_task_handle.take().unwrap(); // cannot be called twice, unwrap should never panic
+        let shutdown_res = self._rt_normal.block_on(async { handle.await });
+        match shutdown_res {
+            Ok(_) => Ok(()),
+            Err(err) => {
+                // task panicked or was cancelled
+                if err.is_panic() {
+                    log::error!("The shutdown task has panicked! {err:#}");
+                } else if err.is_cancelled() {
+                    log::error!("The shutdown task has been unexpectedly cancelled. {err:#}");
                 }
+                Err(err.into())
             }
-
-            Ok(())
-        })
+        }
     }
 
     /// Returns a [`ControlHandle`], which allows to change the configuration
@@ -757,7 +817,11 @@ impl RunningPipeline {
 
                     // submit the task to the tokio Runtime
                     let task = run_source(source_name, source, in_tx, command_rx);
-                    modif.task_set.lock().unwrap().spawn_on(task, &modif.rt_normal);
+                    modif
+                        .join_sets
+                        .blocking_lock()
+                        .source_set
+                        .spawn_on(task, &modif.rt_normal);
                 }
 
                 ControlMessage::ModifySource(ElementCommand {
@@ -845,6 +909,12 @@ impl RunningPipeline {
     }
 }
 
+impl Drop for RunningPipeline {
+    fn drop(&mut self) {
+        log::debug!("Dropping the pipeline...");
+    }
+}
+
 impl ControlHandle {
     pub fn all(&self) -> ScopedControlHandle {
         ScopedControlHandle {
@@ -875,7 +945,17 @@ impl ControlHandle {
 
     /// Requests the pipeline to shut down.
     pub fn shutdown(&self) {
-        self.tx.try_send(ControlMessage::Shutdown).unwrap();
+        match self.tx.try_send(ControlMessage::Shutdown) {
+            Ok(_) => {}
+            Err(TrySendError::Closed(_)) => {
+                // This may occur when the pipeline has already shut down. It's okay.
+                log::debug!("ControlHandle::shutdown() has been called but the pipeline is already shutting down.")
+            }
+            Err(TrySendError::Full(_)) => {
+                // TODO: handle this case? tx.blocking_send(ControlMessage::Shutdown) could work
+                todo!("buffer is full, cannot send command")
+            }
+        }
     }
 
     /// Adds a new source to the pipeline, without interrupting the elements

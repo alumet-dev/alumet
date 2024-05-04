@@ -310,21 +310,17 @@ impl RunningAgent {
     /// Waits until the measurement pipeline stops, then stops the plugins.
     ///
     /// If an element of the pipeline returns an error or panicks, the other elements are aborted and an error is returned.
-    pub fn wait_for_shutdown(mut self) -> anyhow::Result<()> {
+    pub fn wait_for_shutdown(self) -> anyhow::Result<()> {
         let mut n_errors = 0;
 
         // Wait for the pipeline to be stopped, by Ctrl+C or a command.
-        if let Err(error) = self.pipeline.wait_for_all() {
-            log::error!("Error in the measurement pipeline: {error}");
+        // Also, **drop** the pipeline before stopping the plugin, because Plugin::stop expects
+        // the sources, transforms and outputs to be stopped and dropped before it is called.
+        // All tokio tasks that have not finished yet will abort.
+        if let Err(err) = self.pipeline.wait_for_shutdown() {
+            log::error!("Error in the measurement pipeline: {err}");
             n_errors += 1;
         }
-
-        // Drop the pipeline before stopping the plugin, because Plugin::stop expects
-        // the sources, transforms and outputs to be stopped and dropped before it is called.
-        // This will also drop the JoinSet inside of the pipeline, which will abort all tasks
-        // that have not finished yet.
-        log::info!("Dropping the pipeline...");
-        drop(self.pipeline);
 
         // Stop all the plugins, even if some of them fail to stop properly.
         log::info!("Stopping the plugins...");
@@ -346,7 +342,7 @@ impl RunningAgent {
             let error_str = if n_errors == 1 { "error" } else { "errors" };
             Err(anyhow!("{n_errors} {error_str} occured during the shutdown phase"))
         }
-    }   
+    }
 }
 
 fn load_config_from_file(
