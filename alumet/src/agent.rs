@@ -346,7 +346,7 @@ impl RunningAgent {
             let error_str = if n_errors == 1 { "error" } else { "errors" };
             Err(anyhow!("{n_errors} {error_str} occured during the shutdown phase"))
         }
-    }
+    }   
 }
 
 fn load_config_from_file(

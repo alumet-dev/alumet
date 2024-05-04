@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::{anyhow, Context};
 
 use tokio::sync::mpsc::error::TrySendError;
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinSet;
 use tokio::{runtime::Runtime, sync::watch};
@@ -23,9 +24,9 @@ use crate::{
     pipeline::{Output, Source},
 };
 
+use super::builder;
 use super::builder::{ConfiguredTransform, ElementType};
 use super::trigger::{Trigger, TriggerSpec};
-use super::builder;
 use super::{OutputContext, PollError, TransformError, WriteError};
 
 /// A measurement pipeline that has not been started yet.
@@ -52,6 +53,7 @@ pub struct IdlePipeline {
 
 /// A message to control the pipeline.
 enum ControlMessage {
+    Shutdown,
     AddSource {
         requested_name: String,
         plugin_name: String,
@@ -114,6 +116,9 @@ impl Default for PipelineController {
 }
 
 struct PipelineControllerState {
+    /// Send a message to this channel in order to shutdown the entire pipeline.
+    global_shutdown_send: UnboundedSender<()>,
+
     // Senders to keep the receivers alive and to send commands.
     source_command_senders_by_plugin: HashMap<String, Vec<watch::Sender<SourceCmd>>>,
     output_command_senders_by_plugin: HashMap<String, Vec<watch::Sender<OutputCmd>>>,
@@ -127,6 +132,7 @@ struct PipelineControllerState {
     /// Cancellation token to shut the controller down.
     shutdown_token: CancellationToken,
 
+    /// State useful for modifying the pipeline.
     modifier: PipelineModifierState,
 }
 
@@ -238,16 +244,27 @@ impl IdlePipeline {
         // 5. Graceful shutdown on Ctrl+C
         let source_command_senders: Vec<_> = source_command_senders_by_plugin.values().flatten().cloned().collect();
         let output_command_senders: Vec<_> = output_command_senders_by_plugin.values().flatten().cloned().collect();
-        let shutdown_token = CancellationToken::new();
-        let cloned_token = shutdown_token.clone();
+
+        // mpsc channel for global shutdown order.
+        let (global_shutdown_send, mut global_shutdown_recv) = tokio::sync::mpsc::unbounded_channel::<()>();
+        // token for cancelling other tasks such as the PipelineController.
+        let controller_shutdown_token = CancellationToken::new();
+        let cloned_token = controller_shutdown_token.clone();
+        // spawn task that handles the shutdown
         self.rt_normal.spawn(async move {
-            tokio::signal::ctrl_c()
-                .await
-                .expect("failed to listen for signal event");
+            tokio::select! {
+                biased; // no need for fairness/randomness here, in both cases we shut down
 
-            log::info!("Termination signal received, shutting down...");
+                res = tokio::signal::ctrl_c() => {
+                   res.expect("failed to listen for signal event");
+                   log::info!("Termination signal received, shutting down...");
+                },
+                _ = global_shutdown_recv.recv() => {
+                    log::debug!("Internal shutdown order received, shutting down...");
+                }
+            }
 
-            // Stop the PipelineController.
+            // Stop the pipeline controller.
             cloned_token.cancel();
 
             // Stop the pipeline elements.
@@ -276,11 +293,12 @@ impl IdlePipeline {
 
             // Don't start the control task yet, but be prepared to do it.
             controller: PipelineController::Waiting(PipelineControllerState {
+                global_shutdown_send,
                 source_command_senders_by_plugin,
                 output_command_senders_by_plugin,
                 active_transforms,
                 transforms_mask_by_plugin,
-                shutdown_token,
+                shutdown_token: controller_shutdown_token,
                 modifier,
             }),
         }
@@ -712,7 +730,18 @@ impl RunningPipeline {
     pub fn control_handle(&mut self) -> ControlHandle {
         fn handle_message(state: &mut PipelineControllerState, msg: ControlMessage) {
             match msg {
-                ControlMessage::AddSource { requested_name, plugin_name: plugin, source, trigger } => {
+                ControlMessage::Shutdown => {
+                    state
+                        .global_shutdown_send
+                        .send(())
+                        .expect("failed to send shutdown message");
+                }
+                ControlMessage::AddSource {
+                    requested_name,
+                    plugin_name: plugin,
+                    source,
+                    trigger,
+                } => {
                     // prepare the source name, channels, etc.
                     let modif = &mut state.modifier;
                     let source_name = modif.namegen.deduplicate(format!("{plugin}/{requested_name}"), false);
@@ -842,6 +871,11 @@ impl ControlHandle {
             handle: self,
             destination: MessageDestination::Plugin(plugin_name.into()),
         }
+    }
+
+    /// Requests the pipeline to shut down.
+    pub fn shutdown(&self) {
+        self.tx.try_send(ControlMessage::Shutdown).unwrap();
     }
 
     /// Adds a new source to the pipeline, without interrupting the elements
