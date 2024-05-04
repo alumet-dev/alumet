@@ -21,6 +21,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::source::{Observable, PerfEventSourceBuilder};
 
+#[cfg(not(target_os = "linux"))]
+compile_error!("This plugin only works on Linux.");
+
 mod cpu;
 mod events;
 mod source;
