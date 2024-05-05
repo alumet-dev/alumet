@@ -363,6 +363,15 @@ impl MeasurementBuffer {
     }
 }
 
+impl<'a> IntoIterator for &'a MeasurementBuffer {
+    type Item = &'a MeasurementPoint;
+    type IntoIter = std::slice::Iter<'a, MeasurementPoint>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.points.iter()
+    }
+}
+
 impl std::fmt::Debug for MeasurementBuffer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MeasurementBuffer")
