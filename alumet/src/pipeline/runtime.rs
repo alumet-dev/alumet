@@ -431,6 +431,7 @@ async fn run_source(
                         log::error!("Non-fatal error when polling {source_name} (will retry): {e:#}");
                     }
                     Err(PollError::Fatal(e)) => {
+                        log::error!("Fatal error when polling {source_name} (will stop running): {e:?}");
                         return Err(e.context(format!("fatal error when polling {source_name}")));
                     }
                 };
@@ -567,6 +568,10 @@ async fn run_transforms(
                             log::error!("Transform function {} received unexpected measurements: {e:#}", t.name);
                         }
                         Err(TransformError::Fatal(e)) => {
+                            log::error!(
+                                "Fatal error in transform {} (this breaks the transform task!): {e:?}",
+                                t.name
+                            );
                             return Err(e.context(format!("fatal error in transform {}", t.name)));
                         }
                     }
@@ -648,7 +653,10 @@ async fn run_output_from_broadcast(
                                 // TODO retry with the same measurements
                                 Ok(())
                             }
-                            Err(WriteError::Fatal(e)) => Err(e.context(format!("fatal error in output {output_name}"))),
+                            Err(WriteError::Fatal(e)) => {
+                                log::error!("Fatal error in output {output_name} (it will stop running): {e:?}");
+                                Err(e.context(format!("fatal error in output {output_name}")))
+                            }
                         }
                     }
                     Err(await_err) => {
