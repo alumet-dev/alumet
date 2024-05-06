@@ -72,9 +72,9 @@ fn main() {
 
             // Notify the plugins that there is a process to observe.
             let pid = p.id();
+            log::info!("Child process '{external_command}' spawned with pid {pid}.");
             event::start_consumer_measurement()
                 .publish(StartConsumerMeasurement(vec![ResourceConsumer::Process { pid }]));
-            log::info!("Child process '{external_command}' spawned with pid {pid}.");
 
             // Wait for the process to terminate.
             let status = p.wait().expect("failed to wait for child process");
