@@ -1,0 +1,31 @@
+version: 2.1
+
+jobs:
+  build:
+    docker:
+      - image: cimg/rust:1.78.0
+    steps:
+      - checkout
+      - run: cargo --version
+      - restore_cache:
+        keys:
+          - v1-cargo-manifest-{{ checksum "Cargo.toml" }}
+          - v1-cargo-lock-{{ checksum "Cargo.lock" }}
+          - v1-target-{{ arch }}
+      - run:
+          name: Run Tests (including doc tests)
+          command: "cargo test"
+      - run:
+          name: Installing cargo-cache
+          command: "cargo install (--git git://github.com/matthiaskrgr/cargo-cache OR cargo-cache) --no-default-features --features ci-autoclean cargo-cache"
+      - run:
+          name: Optimizing the cache
+          command: "cargo cache"
+      - save_cache:
+        keys:
+          - v1-cargo-manifest-{{ checksum "Cargo.toml" }}
+          - v1-cargo-lock-{{ checksum "Cargo.lock" }}
+          - v1-target-{{ arch }}
+        paths:
+          - ~/.cargo
+          #- {{ .Environment.CARGO_HOME }}
