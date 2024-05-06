@@ -20,11 +20,11 @@ client = ["plugin-relay/client"]
 server = ["plugin-relay/server"]
 
 [[bin]]
-name = "relay-client"
+name = "alumet-relay-client"
 required-features = ["client"]
 path = "src/main_client.rs"
 
 [[bin]]
-name = "relay-server"
+name = "alumet-relay-server"
 required-features = ["server"]
 path = "src/main_server.rs"
