@@ -19,5 +19,6 @@ plugin-socket-control = { version = "0.1.0", path = "../plugin-socket-control" }
 serde = { version = "1.0.198", features = ["derive"] }
 toml = "0.8.12"
 
-[profile.release]
-debug = 1
+[[bin]]
+name = "alumet-agent"
+path = "src/main.rs"
