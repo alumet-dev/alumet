@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-alumet = { version = "0.2.0", path = "../alumet" }
+alumet = { path = "../alumet" }
 anyhow = "1.0.82"
 log = "0.4.21"
 
