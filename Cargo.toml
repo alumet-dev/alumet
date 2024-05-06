@@ -8,6 +8,7 @@ members = [
     "app-relay-collector",
     "plugin-csv",
     "plugin-k8s",
+    "plugin-influxdb",
     "plugin-nvidia",
     "plugin-perf",
     "plugin-rapl",

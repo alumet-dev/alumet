@@ -1,0 +1,14 @@
+[package]
+name = "plugin-influxdb"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alumet = { version = "0.2.0", path = "../alumet" }
+anyhow = "1.0.82"
+log = "0.4.21"
+
+# We disable HTTP2 because it's not supported by InfluxDB.
+reqwest = { version = "0.12.4", default-features = false, features = ["default-tls"] }
+serde = { version = "1.0.200", features = ["derive"] }
+tokio = { version = "1.37.0", features = ["rt"] }
