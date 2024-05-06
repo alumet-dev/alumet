@@ -9,7 +9,8 @@ use alumet::{
     pipeline::trigger::TriggerSpec,
     plugin::{
         event,
-        rust::{deserialize_config, AlumetPlugin}, Plugin,
+        rust::{deserialize_config, serialize_config, AlumetPlugin},
+        Plugin,
     },
     units::Unit,
 };
@@ -39,6 +40,10 @@ impl AlumetPlugin for PerfPlugin {
 
     fn version() -> &'static str {
         env!("CARGO_PKG_VERSION")
+    }
+
+    fn default_config() -> anyhow::Result<Option<alumet::plugin::ConfigTable>> {
+        Ok(Some(serialize_config(Config::default())?))
     }
 
     fn init(config: alumet::plugin::ConfigTable) -> anyhow::Result<Box<Self>> {
@@ -106,30 +111,49 @@ impl AlumetPlugin for PerfPlugin {
         event::start_consumer_measurement().subscribe(move |e| {
             for consumer in e.0 {
                 let observable = match consumer {
-                    alumet::resources::ResourceConsumer::Process { pid } => Some((Observable::Process {
-                        pid: i32::try_from(pid).unwrap(),
-                    }, format!("source-pid[{pid}]"))),
-                    alumet::resources::ResourceConsumer::ControlGroup { path } => Some((Observable::Cgroup {
-                        path: path.to_string(),
-                        fd: File::open(path.as_ref()).unwrap(),
-                    }, format!("source-cgroup[{path}]"))),
+                    alumet::resources::ResourceConsumer::Process { pid } => Some((
+                        Observable::Process {
+                            pid: i32::try_from(pid).unwrap(),
+                        },
+                        format!("source-pid[{pid}]"),
+                    )),
+                    alumet::resources::ResourceConsumer::ControlGroup { path } => Some((
+                        Observable::Cgroup {
+                            path: path.to_string(),
+                            fd: File::open(path.as_ref()).unwrap(),
+                        },
+                        format!("source-cgroup[{path}]"),
+                    )),
                     _ => None,
                 };
 
                 if let Some((o, source_name)) = observable {
+                    log::info!("Starting to observe {o:?}...");
                     let config = config_cloned.lock().unwrap();
-                    let mut builder = PerfEventSourceBuilder::observe(o);
+                    let mut builder = PerfEventSourceBuilder::observe(o)?;
                     for (event, metric) in config.hardware_events.iter().zip(&config.hardware_metrics) {
-                        builder.add(event.event.clone(), *metric).with_context(|| format!("could not configure hardware event {} (code {})", event.name, event.event.0))?;
+                        builder.add(event.event.clone(), *metric).with_context(|| {
+                            format!(
+                                "could not configure hardware event {} (code {})",
+                                event.name, event.event.0
+                            )
+                        })?;
                     }
                     for (event, metric) in config.software_events.iter().zip(&config.software_metrics) {
-                        builder.add(event.event.clone(), *metric).with_context(|| format!("could not configure software event {} (code {})", event.name, event.event.0))?;
+                        builder.add(event.event.clone(), *metric).with_context(|| {
+                            format!(
+                                "could not configure software event {} (code {})",
+                                event.name, event.event.0
+                            )
+                        })?;
                     }
                     for (event, metric) in config.cache_events.iter().zip(&config.cache_metrics) {
-                        builder.add(event.event.clone(), *metric).with_context(|| format!("could not configure cache event {}", event.name))?;
+                        builder
+                            .add(event.event.clone(), *metric)
+                            .with_context(|| format!("could not configure cache event {}", event.name))?;
                     }
-                    let source = builder.build();
-                    
+                    let source = builder.build()?;
+
                     // Add the source to Alumet's pipeline.
                     control_handle.add_source(
                         plugin_name.clone(),
@@ -137,6 +161,7 @@ impl AlumetPlugin for PerfPlugin {
                         Box::new(source),
                         TriggerSpec::at_interval(Duration::from_secs(1)), // TODO config
                     );
+                    log::debug!("New source has started.");
                 }
             }
             Ok(())
@@ -154,6 +179,20 @@ struct Config {
     hardware_events: Vec<String>,
     software_events: Vec<String>,
     cache_events: Vec<String>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            hardware_events: vec![
+                "REF_CPU_CYCLES".to_owned(),
+                "CACHE_MISSES".to_owned(),
+                "BRANCH_MISSES".to_owned(),
+            ],
+            software_events: vec![],
+            cache_events: vec!["LL_READ_MISS".to_owned()],
+        }
+    }
 }
 
 // TODO proper deserialization with serde?

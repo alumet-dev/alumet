@@ -9,5 +9,6 @@ edition = "2021"
 alumet = { version = "0.2.0", path = "../alumet" }
 anyhow = "1.0.82"
 itertools = "0.12.1"
+log = "0.4.21"
 perf-event2 = "0.7.2"
 serde = { version = "1.0.199", features = ["derive"] }
