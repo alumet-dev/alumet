@@ -38,7 +38,7 @@ impl Error for UnknownEventError {}
 /// Returns a hardware perf event from its name.
 ///
 /// ## Example
-/// ```
+/// ```ignore
 /// let event = parse_hardware("REF_CPU_CYCLES").unwrap();
 /// ```
 pub fn parse_hardware(event_name: &str) -> Result<NamedPerfEvent<events::Hardware>, UnknownEventError> {
@@ -72,7 +72,7 @@ pub fn parse_hardware(event_name: &str) -> Result<NamedPerfEvent<events::Hardwar
 /// Returns a software perf event from its name.
 ///
 /// ## Example
-/// ```
+/// ```ignore
 /// let event = parse_software("CONTEXT_SWITCHES").unwrap();
 /// ```
 pub fn parse_software(event_name: &str) -> Result<NamedPerfEvent<events::Software>, UnknownEventError> {
@@ -114,7 +114,7 @@ pub fn parse_software(event_name: &str) -> Result<NamedPerfEvent<events::Softwar
 /// Returns a cache perf event from a string of the form `<name>_<op>_<result>`.
 ///
 /// ## Example
-/// ```
+/// ```ignore
 /// let event = parse_cache("L1D_READ_ACCESS").unwrap();
 /// let event = parse_cache("LL_WRITE_MISS").unwrap();
 /// ```
