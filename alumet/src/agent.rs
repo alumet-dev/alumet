@@ -423,9 +423,14 @@ fn print_stats(pipeline_builder: &PipelineBuilder, plugins: &[Box<dyn Plugin>]) 
     let metrics_list = if metrics.is_empty() {
         String::from("    ∅")
     } else {
-        metrics
+        let mut m = metrics
             .iter()
-            .map(|(_id, m)| format!("    - {}: {} ({})", m.name, m.value_type, m.unit))
+            .map(|(id, m)| (id, format!("    - {}: {} ({})", m.name, m.value_type, m.unit)))
+            .collect::<Vec<_>>();
+        // Sort by metric id to display the metrics in the order they were registered (less confusing).
+        m.sort_by_key(|(id, _)| id.0);
+        m.into_iter()
+            .map(|(_, metric_str)| metric_str)
             .collect::<Vec<_>>()
             .join("\n")
     };
