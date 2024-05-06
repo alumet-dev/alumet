@@ -4,6 +4,7 @@ use std::time::Duration;
 use std::{fmt, time};
 use std::{future::Future, pin::Pin};
 
+use anyhow::Context;
 use tokio::sync::watch;
 
 use super::runtime::SourceCmd;
@@ -283,6 +284,7 @@ impl Trigger {
         }
     }
 
+    /// Waits for the next tick of the trigger, or for an interruption.
     pub async fn next(&mut self) -> anyhow::Result<TriggerReason> {
         if let Some(signal) = &mut self.interrupt_signal {
             // Use select! to wake up on trigger _or_ signal, the first that occurs
@@ -294,7 +296,8 @@ impl Trigger {
                     Ok(TriggerReason::Triggered)
                 }
                 res = signal.changed() => {
-                    res?;
+                    // changed() returns an Error if the watch::Sender has been dropped, which should not happen.
+                    res.context("watch::Sender dropped, which interrupted the Trigger")?;
                     Ok(TriggerReason::Interrupted)
                 }
             }
