@@ -7,25 +7,40 @@ jobs:
     steps:
       - checkout
       - run: cargo --version
+      - run:
+          name: Create concatenated cache key
+          command: |
+            find -name 'Cargo\.toml' | xargs cat > .combined_cache_key
+            if [ -f .cargo/config.toml ]; then
+              cat .cargo/config.toml >> .combined_cache_key
+            fi
+            if [ -f Cargo.lock ]; then
+              cat Cargo.lock >> .combined_cache_key
+            fi
+      - run:
+          name: Install required packages.
+          command: sudo apt-get update && sudo apt-get install llvm-dev libclang-dev protobuf-compiler --no-install-recommends
       - restore_cache:
-        keys:
-          - v1-cargo-manifest-{{ checksum "Cargo.toml" }}
-          - v1-cargo-lock-{{ checksum "Cargo.lock" }}
-          - v1-target-{{ arch }}
+          keys:
+            - v1-cache-{{ checksum ".combined_cache_key" }}
+      - run:
+          name: Create fake RAPL files for testing purposes.
+          command: |
+            sudo mkdir -p /sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/energy_uj
+            sudo chmod -R a+rw /sys/devices/virtual/powercap/intel-rapl
+            echo 123 > /sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/energy_uj
+            echo package-0 > /sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/name 
       - run:
           name: Run Tests (including doc tests)
           command: "cargo test"
       - run:
           name: Installing cargo-cache
-          command: "cargo install (--git git://github.com/matthiaskrgr/cargo-cache OR cargo-cache) --no-default-features --features ci-autoclean cargo-cache"
+          command: "cargo install cargo-cache --no-default-features --features ci-autoclean cargo-cache"
       - run:
           name: Optimizing the cache
           command: "cargo cache"
       - save_cache:
-        keys:
-          - v1-cargo-manifest-{{ checksum "Cargo.toml" }}
-          - v1-cargo-lock-{{ checksum "Cargo.lock" }}
-          - v1-target-{{ arch }}
-        paths:
-          - ~/.cargo
-          #- {{ .Environment.CARGO_HOME }}
+          key: v1-cache-{{ checksum ".combined_cache_key" }}
+          paths:
+            - ~/.cargo
+            #- {{ .Environment.CARGO_HOME }}
