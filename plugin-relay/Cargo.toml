@@ -9,7 +9,7 @@ client = []
 server = []
 
 [dependencies]
-alumet = { version = "0.2.0", path = "../alumet" }
+alumet = { path = "../alumet" }
 anyhow = "1.0.82"
 hostname = "0.4.0"
 log = "0.4.21"

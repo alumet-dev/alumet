@@ -9,7 +9,7 @@ edition = "2021"
 
 
 [dependencies]
-alumet = { version = "0.2.0", path = "../alumet" }
+alumet = { path = "../alumet" }
 anyhow = "1.0.79"
 humantime-serde = "1.1.1"
 indoc = "2.0.5"

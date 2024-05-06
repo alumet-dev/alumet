@@ -10,7 +10,7 @@ nvml = ["dep:nvml-wrapper", "dep:nvml-wrapper-sys"]
 jetson = ["dep:regex"]
 
 [dependencies]
-alumet = { version = "0.2.0", path = "../alumet" }
+alumet = { path = "../alumet" }
 anyhow = "1.0.79"
 log = "0.4.20"
 nvml-wrapper = { version = "0.10.0", features = ["legacy-functions"], optional = true}
