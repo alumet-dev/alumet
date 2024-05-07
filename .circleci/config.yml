@@ -24,15 +24,8 @@ jobs:
           keys:
             - v1-cache-{{ checksum ".combined_cache_key" }}
       - run:
-          name: Create fake RAPL files for testing purposes.
-          command: |
-            sudo mkdir -p /sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/energy_uj
-            sudo chmod -R a+rw /sys/devices/virtual/powercap/intel-rapl
-            echo 123 > /sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/energy_uj
-            echo package-0 > /sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/name 
-      - run:
           name: Run Tests (including doc tests)
-          command: "cargo test"
+          command: "CONTINUE_TEST_IF_NO_POWERCAP=true cargo test"
       - run:
           name: Installing cargo-cache
           command: "cargo install cargo-cache --no-default-features --features ci-autoclean cargo-cache"

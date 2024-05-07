@@ -263,6 +263,10 @@ mod tests {
 
     #[test]
     fn test_powercap() {
+        if std::env::var_os("CONTINUE_TEST_IF_NO_POWERCAP").is_some() {
+            return;
+        }
+
         let zones = all_power_zones().expect("failed to get powercap power zones");
         println!("---- Hierarchy ----");
         for z in zones.top {
