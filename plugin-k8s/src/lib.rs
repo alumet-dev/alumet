@@ -51,7 +51,7 @@ impl AlumetPlugin for K8sPlugin {
         if !v2_used {
             anyhow::bail!("Cgroups v2 are not being used!");
         }
-        let final_li_metric_file: Vec<CgroupV2MetricFile> = cgroup_v2::list_all_k8s_pods_file()?;
+        let final_li_metric_file: Vec<CgroupV2MetricFile> = cgroup_v2::list_all_k8s_pods_file("/sys/fs/cgroup/kubepods.slice/")?;
         let metrics_result = k8s_probe::Metrics::new(alumet);
         let metrics = metrics_result?;
         let probe = K8SProbe::new(metrics.clone(), final_li_metric_file)?;

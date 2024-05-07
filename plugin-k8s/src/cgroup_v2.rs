@@ -1,6 +1,6 @@
 use std::{
     fs::{self, File},
-    io::{self, Error, Read, Seek},
+    io::{Read, Seek},
     path::{Path, PathBuf},
     result::Result::Ok,
     str::FromStr,
@@ -93,19 +93,27 @@ fn list_metric_file_in_dir(root_directory_path: &String, prefix: &String) -> any
 /// This function list all k8s pods availables, using 3 sub-directory to look in:
 /// For each subdirectory, we look in if there is a directory/ies about pods and we add it
 /// to a vector. All subdirectory are visited with the help of <list_metric_file_in_dir> function.
-pub fn list_all_k8s_pods_file() -> anyhow::Result<Vec<CgroupV2MetricFile>> {
+pub fn list_all_k8s_pods_file(root_directory_str: &str) -> anyhow::Result<Vec<CgroupV2MetricFile>> {
     let mut final_li_metric_file: Vec<CgroupV2MetricFile> = Vec::new();
-    let root_directory_path: &str = "/sys/fs/cgroup/kubepods.slice/";
-    if !Path::new(root_directory_path).exists() {
+    let root_directory_path = Path::new(root_directory_str);
+    if !root_directory_path.exists() {
         return Ok(final_li_metric_file);
     }
-    let all_sub_dir: Vec<String> = vec![
-        "".to_string(),
-        "kubepods-besteffort.slice/".to_string(),
-        "kubepods-burstable.slice/".to_string(),
-    ];
+    // Add the root for all subdirectory:
+    let mut all_sub_dir: Vec<String> = vec!["".to_string()];
+    // Iterate in the root directory and add to the vec all folder ending with "".slice"
+    // On unix, folders are files, files are files and peripherals are also files
+    for file in fs::read_dir(root_directory_str)?{
+        let path = file?.path();
+        let mut file_name = path.file_name().unwrap().to_os_string().into_string().unwrap();
+        if path.is_dir() && file_name.ends_with(&String::from(".slice")){
+            file_name.push_str("/");
+            all_sub_dir.push(file_name);            
+        }
+    }
+
     for prefix in all_sub_dir {
-        let mut result_vec = list_metric_file_in_dir(&root_directory_path.to_owned(), &prefix.to_owned())?;
+        let mut result_vec = list_metric_file_in_dir(&root_directory_str.to_owned(), &prefix.to_owned())?;
         final_li_metric_file.append(&mut result_vec);
     }
     return Ok(final_li_metric_file);
