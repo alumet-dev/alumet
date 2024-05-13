@@ -8,6 +8,7 @@ use anyhow::Context;
 
 use tokio::runtime::Runtime;
 use tokio::sync::{broadcast, mpsc};
+use tokio_util::sync::CancellationToken;
 
 use crate::metrics::{Metric, MetricRegistry, RawMetricId};
 use crate::{
@@ -35,24 +36,24 @@ pub struct PipelineBuilder {
     pub(crate) priority_worker_threads: Option<usize>,
 }
 
-pub type SourceBuildFunction = dyn FnOnce(&PendingPipelineContext) -> Box<dyn Source>;
+pub type SourceBuildFn = dyn FnOnce(&PendingPipelineContext) -> Box<dyn Source>;
+pub type AutonomousSourceBuildFn = dyn FnOnce(
+    &PendingPipelineContext,
+    CancellationToken,
+    mpsc::Sender<MeasurementBuffer>,
+) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>;
 
 pub struct ManagedSourceBuilder {
     pub name: String,
     pub plugin: String,
     pub trigger: TriggerSpec,
-    pub build: Box<SourceBuildFunction>,
+    pub build: Box<SourceBuildFn>,
 }
 
 pub struct AutonomousSourceBuilder {
     pub name: String,
     pub plugin: String,
-    pub build: Box<
-        dyn FnOnce(
-            &PendingPipelineContext,
-            &mpsc::Sender<MeasurementBuffer>,
-        ) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>,
-    >,
+    pub build: Box<AutonomousSourceBuildFn>,
 }
 
 pub struct TransformBuilder {
@@ -283,13 +284,9 @@ impl PipelineBuilder {
                     },
                 };
                 let source = (builder.build)(&pending);
-                log::trace!(
-                    "(source {name}) TriggerSpec before constraints: {trigger:?}",
-                );
+                log::trace!("(source {name}) TriggerSpec before constraints: {trigger:?}",);
                 trigger.constrain(&self.source_constraints);
-                log::trace!(
-                    "(source {name}) TriggerSpec after constraints: {trigger:?}",
-                );
+                log::trace!("(source {name}) TriggerSpec after constraints: {trigger:?}",);
 
                 ConfiguredSource {
                     source,
@@ -333,13 +330,17 @@ impl PipelineBuilder {
         let outputs = outputs?;
 
         // Create the autonomous sources
+        let autonomous_shutdown_token = CancellationToken::new();
         let autonomous_sources: Vec<_> = self
             .autonomous_sources
             .into_iter()
             .map(|builder| {
                 let data_tx = in_tx.clone();
                 let name = builder.name;
-                let source = (builder.build)(&pending, &data_tx);
+                // This token will be cancelled when the global token gets cancelled (Alumet is shutting down).
+                // It can also be cancelled on its own, in which case only this source will be stopped.
+                let cancel_token = autonomous_shutdown_token.child_token();
+                let source = (builder.build)(&pending, cancel_token, data_tx);
                 ConfiguredAutonomousSource { source, name }
             })
             .collect();
@@ -349,6 +350,7 @@ impl PipelineBuilder {
             transforms,
             outputs,
             autonomous_sources,
+            autonomous_shutdown_token,
             metrics: self.metrics,
             from_sources: (in_tx, in_rx),
             to_outputs: out_tx,

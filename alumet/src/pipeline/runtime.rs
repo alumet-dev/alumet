@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::ops::BitOrAssign;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{anyhow, Context};
 
@@ -11,7 +12,9 @@ use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::{JoinError, JoinHandle, JoinSet};
+use tokio::time::timeout;
 use tokio::{runtime::Runtime, sync::watch};
+use tokio_util::sync::CancellationToken;
 
 use crate::measurement::Timestamp;
 use crate::metrics::{Metric, RawMetricId};
@@ -35,6 +38,9 @@ pub struct IdlePipeline {
     pub(super) transforms: Vec<builder::ConfiguredTransform>,
     pub(super) outputs: Vec<builder::ConfiguredOutput>,
     pub(super) autonomous_sources: Vec<builder::ConfiguredAutonomousSource>,
+
+    // Cancellation token to implement the graceful shutdown of autonomous sources.
+    pub(super) autonomous_shutdown_token: CancellationToken,
 
     // tokio Runtimes that execute the tasks
     pub(super) rt_normal: Runtime,
@@ -108,6 +114,9 @@ struct PipelineControllerState {
     /// either with a crate like arc-swap, or by using multiple Vec of transforms, each with an AtomicU64.
     active_transforms: Arc<AtomicU64>,
     transforms_mask_by_plugin: HashMap<String, u64>,
+
+    // Allows to shut the autonomous sources down.
+    autonomous_shutdown_token: CancellationToken,
 
     /// State useful for modifying the pipeline.
     modifier: PipelineModifierState,
@@ -244,6 +253,7 @@ impl IdlePipeline {
             output_command_senders_by_plugin,
             active_transforms,
             transforms_mask_by_plugin,
+            autonomous_shutdown_token: self.autonomous_shutdown_token,
             modifier: PipelineModifierState {
                 namegen: builder::ElementNameGenerator::new(),
                 join_sets,
@@ -714,6 +724,18 @@ async fn pipeline_control_task(
         }
     }
 
+    async fn join_next_source(
+        source_set: &mut JoinSet<anyhow::Result<()>>,
+    ) -> Option<Result<anyhow::Result<()>, JoinError>> {
+        match timeout(Duration::from_secs(3), source_set.join_next()).await {
+            Ok(res) => res,
+            Err(_) => {
+                log::error!("Timeout expired: sources did not stop on time.\nThis may be a bug in a plugin's autonomous source.");
+                panic!("Timeout expired: sources did not stop on time");
+            }
+        }
+    }
+
     // Pipeline control loop.
     loop {
         tokio::select! {
@@ -763,7 +785,8 @@ async fn pipeline_control_task(
     for source_cs in &source_command_senders {
         source_cs.send_replace(SourceCmd::Stop);
     }
-    while let Some(task_res) = join_sets.source_set.join_next().await {
+    state.autonomous_shutdown_token.cancel();
+    while let Some(task_res) = join_next_source(&mut join_sets.source_set).await {
         handle_task_result("source", task_res);
     }
 

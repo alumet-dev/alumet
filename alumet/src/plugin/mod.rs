@@ -86,6 +86,8 @@
 use std::future::Future;
 use std::marker::PhantomData;
 
+use tokio_util::sync::CancellationToken;
+
 use crate::measurement::{MeasurementBuffer, MeasurementType, WrappedMeasurementType};
 use crate::metrics::{Metric, MetricCreationError, RawMetricId, TypedMetricId};
 use crate::pipeline::builder::{AutonomousSourceBuilder, ManagedSourceBuilder, OutputBuilder, TransformBuilder};
@@ -317,6 +319,10 @@ impl<'a> AlumetStart<'a> {
     /// An autonomous source is not triggered by Alumet, but runs independently.
     /// It is given a [`Sender`](tokio::sync::mpsc::Sender) to send its measurements
     /// to the rest of the Alumet pipeline (transforms and outputs).
+    /// 
+    /// ## Graceful shutdown
+    /// To stop the autonomous source, a [`CancellationToken`] is provided.
+    /// When the token is cancelled, you should stop the source.
     ///
     /// ## Example
     /// ```no_run
@@ -327,11 +333,11 @@ impl<'a> AlumetStart<'a> {
     ///
     /// # let alumet: &AlumetStart = todo!();
     /// let metric = alumet.create_metric::<u64>("my_metric", Unit::Second, "...").unwrap();
-    /// alumet.add_autonomous_source(move |_, tx| {
+    /// alumet.add_autonomous_source(move |_, cancel_token, tx| {
     ///     let out_tx = tx.clone();
     ///     async move {
     ///         let mut buf = MeasurementBuffer::new();
-    ///         loop {
+    ///         while !cancel_token.is_cancelled() {
     ///             let timestamp = Timestamp::now();
     ///             let resource = todo!();
     ///             let consumer = todo!();
@@ -353,7 +359,7 @@ impl<'a> AlumetStart<'a> {
     /// ```
     pub fn add_autonomous_source<F, S>(&mut self, source_builder: F)
     where
-        F: FnOnce(&PendingPipelineContext, &tokio::sync::mpsc::Sender<MeasurementBuffer>) -> S + 'static,
+        F: FnOnce(&PendingPipelineContext, CancellationToken, tokio::sync::mpsc::Sender<MeasurementBuffer>) -> S + 'static,
         S: Future<Output = anyhow::Result<()>> + Send + 'static,
     {
         let plugin = self.current_plugin_name().to_owned();
@@ -364,7 +370,7 @@ impl<'a> AlumetStart<'a> {
         self.pipeline_builder.autonomous_sources.push(AutonomousSourceBuilder {
             name,
             plugin,
-            build: Box::new(|p: &_, tx: &_| Box::pin(source_builder(p, tx))),
+            build: Box::new(|p: &_, cancel, tx| Box::pin(source_builder(p, cancel, tx))),
         })
     }
 
