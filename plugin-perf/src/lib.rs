@@ -47,7 +47,7 @@ impl AlumetPlugin for PerfPlugin {
     }
 
     fn init(config: alumet::plugin::ConfigTable) -> anyhow::Result<Box<Self>> {
-        let config: Config = deserialize_config(config).context("invalid config")?;
+        let config: Config = deserialize_config(config)?;
         let config = ParsedConfig {
             hardware_events: config
                 .hardware_events
