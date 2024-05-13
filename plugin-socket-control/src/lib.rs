@@ -14,7 +14,7 @@ pub struct SocketControlPlugin {
 
 impl AlumetPlugin for SocketControlPlugin {
     fn name() -> &'static str {
-        env!("CARGO_PKG_NAME")
+        "socket-control"
     }
 
     fn version() -> &'static str {

@@ -12,7 +12,7 @@ pub struct CsvPlugin {
 
 impl AlumetPlugin for CsvPlugin {
     fn name() -> &'static str {
-        env!("CARGO_PKG_NAME")
+        "csv"
     }
 
     fn version() -> &'static str {
