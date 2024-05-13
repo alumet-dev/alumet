@@ -2,7 +2,10 @@ use std::{process, time::Duration};
 
 use alumet::{
     agent::{static_plugins, Agent, AgentBuilder, AgentConfig},
-    plugin::event::{self, StartConsumerMeasurement},
+    plugin::{
+        event::{self, StartConsumerMeasurement},
+        rust::InvalidConfig,
+    },
     resources::ResourceConsumer,
 };
 
@@ -50,7 +53,13 @@ fn main() {
     apply_config(&mut agent, &mut agent_config, args);
 
     // Start the measurement.
-    let mut running_agent = agent.start(agent_config);
+    let mut running_agent = agent.start(agent_config).unwrap_or_else(|err| {
+        log::error!("{err:?}");
+        if let Some(_) = err.downcast_ref::<InvalidConfig>() {
+            log::error!("HINT: You could try to regenerate the configuration by running `{} regen-config` (use --help to get more information).", env!("CARGO_BIN_NAME"));
+        }
+        panic!("ALUMET agent failed to start: {err}");
+    });
     log::info!("ALUMET agent is ready.");
 
     // Keep the pipeline running until...

@@ -185,6 +185,8 @@ impl fmt::Display for InvalidReason {
     }
 }
 
+impl std::error::Error for PipelineBuildError {}
+
 impl fmt::Display for PipelineBuildError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
