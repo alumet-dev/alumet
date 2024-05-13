@@ -215,6 +215,13 @@ impl TriggerSpec {
         builder::time_interval(poll_interval).build().unwrap()
     }
 
+    /// Creates a new builder for a trigger that polls the source at regular intervals.
+    /// 
+    /// This is equivalent to [`builder::time_interval`].
+    pub fn builder(poll_interval: time::Duration) -> builder::TimeTriggerBuilder {
+        builder::time_interval(poll_interval)
+    }
+
     /// Adjusts the trigger specification to respect the given constraints.
     ///
     /// # Constraints
