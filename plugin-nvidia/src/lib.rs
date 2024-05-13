@@ -8,7 +8,7 @@ mod jetson;
 #[cfg(feature = "nvml")]
 mod nvml;
 
-struct NvidiaPlugin {
+pub struct NvidiaPlugin {
     poll_interval: Duration,
 }
 
@@ -34,6 +34,9 @@ impl AlumetPlugin for NvidiaPlugin {
         #[cfg(feature = "jetson")]
         self.start_jetson(alumet)?;
 
+        #[cfg(all(not(feature = "nvml"), not(feature = "jetson")))]
+        compile_error!("To use the NVML plugin, please enable at least one of the following features: nvml, jetson");
+
         Ok(())
     }
 
@@ -50,11 +53,12 @@ impl NvidiaPlugin {
     #[cfg(feature = "nvml")]
     fn start_nvml(&self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
         use alumet::pipeline::trigger::TriggerSpec;
+        use anyhow::Context;
 
         let nvml = nvml::NvmlDevices::detect(true)?;
         let stats = nvml.detection_stats();
         if stats.found_devices == 0 {
-            return Err(anyhow!("No NVML-compatible GPU found."));
+            return Err(anyhow!("No NVML-compatible GPU found. If your device is a Jetson edge device, please disable the `nvml` feature of the plugin."));
         }
         if stats.working_devices == 0 {
             return Err(anyhow!(
@@ -65,9 +69,14 @@ impl NvidiaPlugin {
 
         for device in &nvml.devices {
             if let Some(device) = device {
-                log::debug!(
-                    "Found NVML device {} with features {:?}",
+                let device_name = device
+                    .as_wrapper()
+                    .name()
+                    .with_context(|| format!("failed to get the name of NVML device {}", device.bus_id))?;
+                log::info!(
+                    "Found NVML device {} \"{}\" with features: {}",
                     device.bus_id,
+                    device_name,
                     device.features
                 );
             }
@@ -92,8 +101,12 @@ impl NvidiaPlugin {
         use alumet::pipeline::trigger::TriggerSpec;
 
         let sensors = jetson::detect_ina_sensors()?;
+        if sensors.is_empty() {
+            return Err(anyhow!("No INA sensor found. If you are not running on a Jetson device, disable the `jetson` feature of the plugin."));
+        }
+
         for sensor in &sensors {
-            log::debug!("INA sensor found: {} at {}", sensor.i2c_id, sensor.path.display());
+            log::info!("Found INA sensor {} at {}", sensor.i2c_id, sensor.path.display());
             for chan in &sensor.channels {
                 let description = chan.description.as_deref().unwrap_or("?");
                 log::debug!("\t- channel {} \"{}\": {}", chan.id, chan.label, description);

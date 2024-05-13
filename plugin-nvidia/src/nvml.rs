@@ -1,8 +1,10 @@
+use std::fmt::Display;
 use std::sync::Arc;
 
 use alumet::measurement::Timestamp;
 use alumet::metrics::MetricCreationError;
 use alumet::resources::ResourceConsumer;
+use alumet::units::PrefixedUnit;
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint},
     metrics::TypedMetricId,
@@ -86,28 +88,26 @@ impl alumet::pipeline::Source for NvmlSource {
             };
             if let Some(diff) = diff {
                 // if meaningful (we need at least two measurements), convert to joules and push
-                let joules: f64 = diff as f64 / 1000.0;
+                let milli_joules = diff as u64;
                 measurements.push(MeasurementPoint::new(
                     timestamp,
                     self.metrics.total_energy_consumption,
                     self.resource.clone(),
                     consumer.clone(),
-                    joules,
+                    milli_joules,
                 ))
             }
         }
 
         if features.instant_power {
             // the power in milliWatts
-            let power = device.power_usage()?;
-            // convert to watts and push
-            let watts = power as f64 / 1000.0;
+            let milli_watts = device.power_usage()?;
             measurements.push(MeasurementPoint::new(
                 timestamp,
                 self.metrics.instant_power,
                 self.resource.clone(),
                 consumer.clone(),
-                watts,
+                milli_watts as u64,
             ))
         }
 
@@ -129,7 +129,72 @@ impl alumet::pipeline::Source for NvmlSource {
             ));
         }
 
-        // TODO more metrics
+        if features.decoder_utilization {
+            let u = device.decoder_utilization()?;
+            measurements.push(MeasurementPoint::new(
+                timestamp,
+                self.metrics.decoder_utilization,
+                self.resource.clone(),
+                consumer.clone(),
+                u.utilization as u64,
+            ));
+            measurements.push(MeasurementPoint::new(
+                timestamp,
+                self.metrics.decoder_sampling_period_us,
+                self.resource.clone(),
+                consumer.clone(),
+                u.sampling_period as u64,
+            ));
+        }
+
+        if features.encoder_utilization {
+            let u = device.encoder_utilization()?;
+            measurements.push(MeasurementPoint::new(
+                timestamp,
+                self.metrics.encoder_utilization,
+                self.resource.clone(),
+                consumer.clone(),
+                u.utilization as u64,
+            ));
+            measurements.push(MeasurementPoint::new(
+                timestamp,
+                self.metrics.encoder_sampling_period_us,
+                self.resource.clone(),
+                consumer.clone(),
+                u.sampling_period as u64,
+            ));
+        }
+
+        let n_compute_processes = match features.running_compute_processes {
+            AvailableVersion::Latest => Some(device.running_compute_processes_count()?),
+            AvailableVersion::V2 => Some(device.running_compute_processes_count_v2()?),
+            AvailableVersion::None => None,
+        };
+        if let Some(n) = n_compute_processes {
+            measurements.push(MeasurementPoint::new(
+                timestamp,
+                self.metrics.running_compute_processes,
+                self.resource.clone(),
+                consumer.clone(),
+                n as u64,
+            ));
+        }
+
+        let n_graphic_processes = match features.running_graphics_processes {
+            AvailableVersion::Latest => Some(device.running_graphics_processes_count()?),
+            AvailableVersion::V2 => Some(device.running_graphics_processes_count_v2()?),
+            AvailableVersion::None => None,
+        };
+        if let Some(n) = n_graphic_processes {
+            measurements.push(MeasurementPoint::new(
+                timestamp,
+                self.metrics.running_graphics_processes,
+                self.resource.clone(),
+                consumer.clone(),
+                n as u64,
+            ));
+        }
+
         // TODO explore device.samples() to gather multiple metrics at once
         Ok(())
     }
@@ -138,12 +203,14 @@ impl alumet::pipeline::Source for NvmlSource {
 /// Contains the ids of the measured metrics.
 #[derive(Clone)]
 pub struct Metrics {
-    total_energy_consumption: TypedMetricId<f64>,
-    instant_power: TypedMetricId<f64>,
+    total_energy_consumption: TypedMetricId<u64>,
+    instant_power: TypedMetricId<u64>,
     major_utilization_gpu: TypedMetricId<u64>,
     major_utilization_memory: TypedMetricId<u64>,
     decoder_utilization: TypedMetricId<u64>,
+    decoder_sampling_period_us: TypedMetricId<u64>,
     encoder_utilization: TypedMetricId<u64>,
+    encoder_sampling_period_us: TypedMetricId<u64>,
     running_compute_processes: TypedMetricId<u64>,
     running_graphics_processes: TypedMetricId<u64>,
 }
@@ -152,21 +219,39 @@ impl Metrics {
     pub fn new(alumet: &mut AlumetStart) -> Result<Self, MetricCreationError> {
         Ok(Self {
             total_energy_consumption: alumet.create_metric(
-                "nvml_consumed_energy",
-                Unit::Joule,
-                "energy consumption by the GPU since the previous measurement",
+                "nvml_energy_consumption",
+                PrefixedUnit::milli(Unit::Joule),
+                "energy consumption by the GPU (including memory) since the previous measurement",
             )?,
             instant_power: alumet.create_metric(
                 "nvml_instant_power",
-                Unit::Watt,
+                PrefixedUnit::milli(Unit::Watt),
                 "instantaneous power of the GPU at the time of the measurement",
             )?,
-            major_utilization_gpu: alumet.create_metric("gpu_utilization", Unit::Unity, "")?,
-            major_utilization_memory: alumet.create_metric("memory_utilization", Unit::Unity, "")?,
-            decoder_utilization: alumet.create_metric("decoder_utilization", Unit::Unity, "")?,
-            encoder_utilization: alumet.create_metric("encoder_utilization", Unit::Unity, "")?,
-            running_compute_processes: alumet.create_metric("n_compute_processes", Unit::Unity, "")?,
-            running_graphics_processes: alumet.create_metric("n_graphic_processes", Unit::Unity, "")?,
+            major_utilization_gpu: alumet.create_metric("nvml_gpu_utilization", Unit::Unity, "")?,
+            major_utilization_memory: alumet.create_metric("nvml_memory_utilization", Unit::Unity, "")?,
+            decoder_utilization: alumet.create_metric("nvml_decoder_utilization", Unit::Unity, "")?,
+            encoder_utilization: alumet.create_metric("nvml_encoder_utilization", Unit::Unity, "")?,
+            decoder_sampling_period_us: alumet.create_metric(
+                "nvml_decoder_sampling_period",
+                PrefixedUnit::micro(Unit::Second),
+                "",
+            )?,
+            encoder_sampling_period_us: alumet.create_metric(
+                "nvml_encoder_sampling_period",
+                PrefixedUnit::micro(Unit::Second),
+                "",
+            )?,
+            running_compute_processes: alumet.create_metric(
+                "nvml_n_compute_processes",
+                Unit::Unity,
+                "number of compute processes running on the device",
+            )?,
+            running_graphics_processes: alumet.create_metric(
+                "nvml_n_graphic_processes",
+                Unit::Unity,
+                "number of graphic processes running on the device",
+            )?,
         })
     }
 }
@@ -217,6 +302,38 @@ impl OptionalFeatures {
             || self.encoder_utilization
             || self.running_compute_processes != AvailableVersion::None
             || self.running_graphics_processes != AvailableVersion::None
+    }
+}
+
+impl Display for OptionalFeatures {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut available = Vec::new();
+        if self.total_energy_consumption {
+            available.push("total_energy_consumption");
+        }
+        if self.instant_power {
+            available.push("instant_power");
+        }
+        if self.major_utilization {
+            available.push("major_utilization");
+        }
+        if self.decoder_utilization {
+            available.push("decoder_utilization");
+        }
+        if self.encoder_utilization {
+            available.push("encoder_utilization");
+        }
+        match self.running_compute_processes {
+            AvailableVersion::Latest => available.push("running_compute_processes(latest)"),
+            AvailableVersion::V2 => available.push("running_compute_processes(v2)"),
+            AvailableVersion::None => (),
+        };
+        match self.running_graphics_processes {
+            AvailableVersion::Latest => available.push("running_graphics_processes(latest)"),
+            AvailableVersion::V2 => available.push("running_graphics_processes(v2)"),
+            AvailableVersion::None => (),
+        };
+        write!(f, "{}", available.join(", "))
     }
 }
 

@@ -1,11 +1,11 @@
 [package]
 name = "plugin-nvidia"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
-default = ["nvml", "jetson"]
+default = ["nvml"]
 nvml = ["dep:nvml-wrapper", "dep:nvml-wrapper-sys"]
 jetson = ["dep:regex"]
 
