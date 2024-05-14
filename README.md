@@ -7,7 +7,7 @@ Interesting features include:
 - true modularity: you can add new sources of measurements, data transforms and outputs without modifying the core of the tool
 - pay only for what you need: by choosing the plugins that are included in the tool, you avoid bloat and stay lightweight
 - performance: built in Rust, optimized for low latency and low memory consumption
-- unification: one core, one interface for all your metrics
+- unification: one core, one interface for all your metrics on all your devices
 
 Learn more on [the website](https://alumet.dev).
 
