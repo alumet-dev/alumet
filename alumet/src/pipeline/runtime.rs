@@ -4,12 +4,15 @@ use std::collections::HashMap;
 use std::ops::BitOrAssign;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{anyhow, Context};
 
 use tokio::sync::mpsc::error::TrySendError;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::{broadcast, mpsc};
-use tokio::task::JoinSet;
+use tokio::task::{JoinError, JoinHandle, JoinSet};
+use tokio::time::timeout;
 use tokio::{runtime::Runtime, sync::watch};
 use tokio_util::sync::CancellationToken;
 
@@ -23,9 +26,9 @@ use crate::{
     pipeline::{Output, Source},
 };
 
+use super::builder;
 use super::builder::{ConfiguredTransform, ElementType};
 use super::trigger::{Trigger, TriggerSpec};
-use super::{builder, SourceType};
 use super::{OutputContext, PollError, TransformError, WriteError};
 
 /// A measurement pipeline that has not been started yet.
@@ -35,6 +38,9 @@ pub struct IdlePipeline {
     pub(super) transforms: Vec<builder::ConfiguredTransform>,
     pub(super) outputs: Vec<builder::ConfiguredOutput>,
     pub(super) autonomous_sources: Vec<builder::ConfiguredAutonomousSource>,
+
+    // Cancellation token to implement the graceful shutdown of autonomous sources.
+    pub(super) autonomous_shutdown_token: CancellationToken,
 
     // tokio Runtimes that execute the tasks
     pub(super) rt_normal: Runtime,
@@ -50,11 +56,34 @@ pub struct IdlePipeline {
     pub(super) to_outputs: broadcast::Sender<OutputMsg>,
 }
 
-/// A message for an element of the pipeline.
+/// A message to control the pipeline.
 enum ControlMessage {
-    Source(Option<String>, SourceCmd),
-    Output(Option<String>, OutputCmd),
-    Transform(Option<String>, TransformCmd),
+    Shutdown,
+    AddSource {
+        requested_name: String,
+        plugin_name: String,
+        source: Box<dyn Source>,
+        trigger: TriggerSpec,
+    },
+    ModifySource(ElementCommand<SourceCmd>),
+    ModifyTransform(ElementCommand<TransformCmd>),
+    ModifyOutput(ElementCommand<OutputCmd>),
+}
+
+/// A command sent to one or multiple elements of the pipeline.
+struct ElementCommand<T> {
+    destination: MessageDestination,
+    command: T,
+}
+
+/// Specifies the destination of the [`ElementCommand`].
+#[derive(Clone)]
+enum MessageDestination {
+    /// Send the command to all the elements of this type
+    /// (e.g. all sources in case of an [`ElementCommand<SourceCmd>`]).
+    All,
+    /// Send the command to all the elements of this type registered by a specific plugin.
+    Plugin(String),
 }
 
 /// A measurement pipeline that is currently running.
@@ -63,35 +92,19 @@ pub struct RunningPipeline {
     _rt_normal: Runtime,
     _rt_priority: Option<Runtime>,
 
-    // JoinSet to wait for the tasks to finish.
-    task_set: JoinSet<anyhow::Result<()>>,
+    /// Handle to the task that handles the shutdown of the pipeline.
+    ///
+    /// When this task finishes, the pipeline has shut down.
+    shutdown_task_handle: Option<JoinHandle<()>>,
 
     /// Controls the pipeline.
-    controller: PipelineController,
-}
-
-enum PipelineController {
-    /// A controller that has not been started yet.
-    ///
-    /// The control task is lazily started, i.e. it does not exist if no one asks for a [`ControlHandle`].
-    Waiting(PipelineControllerState),
-
-    /// Temporary state.
-    Temporary,
-
-    /// A controller that has been started.
-    ///
-    /// The state has been moved to the control task, and we can communicate with it through the [`ControlHandle`].
-    Started(ControlHandle),
-}
-
-impl Default for PipelineController {
-    fn default() -> Self {
-        Self::Temporary
-    }
+    control_handle: ControlHandle,
 }
 
 struct PipelineControllerState {
+    /// Send a message to this channel in order to shutdown the entire pipeline.
+    global_shutdown_send: UnboundedSender<()>,
+
     // Senders to keep the receivers alive and to send commands.
     source_command_senders_by_plugin: HashMap<String, Vec<watch::Sender<SourceCmd>>>,
     output_command_senders_by_plugin: HashMap<String, Vec<watch::Sender<OutputCmd>>>,
@@ -102,12 +115,34 @@ struct PipelineControllerState {
     active_transforms: Arc<AtomicU64>,
     transforms_mask_by_plugin: HashMap<String, u64>,
 
-    // Cancellation token to shut the controller down.
-    shutdown_token: CancellationToken,
+    // Allows to shut the autonomous sources down.
+    autonomous_shutdown_token: CancellationToken,
+
+    /// State useful for modifying the pipeline.
+    modifier: PipelineModifierState,
+}
+
+/// Things necessary for modifying the pipeline at runtime,
+/// that is, adding or removing pipeline elements.
+struct PipelineModifierState {
+    /// Name generator for the new sources.
+    namegen: builder::ElementNameGenerator,
+
+    /// All the JoinSets of the running pipeline.
+    join_sets: ElementJoinSets,
+
+    /// Sends measurements from Sources.
+    in_tx: mpsc::Sender<MeasurementBuffer>,
+
+    /// Handle to the tokio runtime with "normal" threads.
+    rt_normal: tokio::runtime::Handle,
 }
 
 #[derive(Clone)]
 pub struct ControlHandle {
+    /// Send a message to this channel to control the pipeline.
+    ///
+    /// Closed when the pipeline shuts down.
     tx: mpsc::Sender<ControlMessage>,
 }
 
@@ -123,7 +158,9 @@ impl IdlePipeline {
     /// Starts the measurement pipeline.
     pub fn start(self) -> RunningPipeline {
         // Use a JoinSet to keep track of the spawned tasks.
-        let mut task_set = JoinSet::new();
+        let mut source_set = JoinSet::new();
+        let mut transform_set = JoinSet::new();
+        let mut output_set = JoinSet::new();
 
         // Store the command senders in order to keep the receivers alive,
         // and to be able to send commands after the launch.
@@ -153,7 +190,7 @@ impl IdlePipeline {
 
             // Spawn the task in the JoinSet.
             let task = run_output_from_broadcast(out.name, out.output, msg_rx, command_rx, ctx);
-            task_set.spawn_on(task, self.rt_normal.handle());
+            output_set.spawn_on(task, self.rt_normal.handle());
         }
 
         // 2. Transforms (all in the same task because they are applied one after another)
@@ -166,23 +203,23 @@ impl IdlePipeline {
                 .bitor_assign(mask);
         }
         let transforms_task = run_transforms(self.transforms, in_rx, self.to_outputs, active_transforms.clone());
-        task_set.spawn_on(transforms_task, self.rt_normal.handle());
+        transform_set.spawn_on(transforms_task, self.rt_normal.handle());
 
         // 3. Managed sources
         for src in self.sources {
             let data_tx = in_tx.clone();
-            let (command_tx, command_rx) = watch::channel(SourceCmd::SetTrigger(Some(src.trigger_provider)));
-            let runtime = match src.source_type {
-                SourceType::Normal => &self.rt_normal,
-                SourceType::RealtimePriority => self.rt_priority.as_ref().unwrap(),
+            let runtime = match src.trigger_provider.realtime_priority {
+                true => self.rt_priority.as_ref().unwrap(),
+                false => &self.rt_normal,
             };
+            let (command_tx, command_rx) = watch::channel(SourceCmd::SetTrigger(Some(src.trigger_provider)));
             source_command_senders_by_plugin
                 .entry(src.plugin_name)
                 .or_default()
                 .push(command_tx);
 
             let task = run_source(src.name, src.source, data_tx, command_rx);
-            task_set.spawn_on(task, runtime.handle());
+            source_set.spawn_on(task, runtime.handle());
         }
 
         // 4. Autonomous sources
@@ -192,48 +229,60 @@ impl IdlePipeline {
                     .await
                     .map_err(|e| e.context(format!("error in autonomous source {}", src.name)))
             };
-            task_set.spawn_on(task, self.rt_normal.handle());
+            source_set.spawn_on(task, self.rt_normal.handle());
         }
 
-        // 5. Graceful shutdown on Ctrl+C
-        let source_command_senders: Vec<_> = source_command_senders_by_plugin.values().flatten().cloned().collect();
-        let output_command_senders: Vec<_> = output_command_senders_by_plugin.values().flatten().cloned().collect();
-        let shutdown_token = CancellationToken::new();
-        let cloned_token = shutdown_token.clone();
-        self.rt_normal.spawn(async move {
-            tokio::signal::ctrl_c()
-                .await
-                .expect("failed to listen for signal event");
+        // 5. Graceful shutdown and pipeline control.
 
-            log::info!("Termination signal received, shutting down...");
+        // mpsc channel for global shutdown order.
+        let (global_shutdown_send, global_shutdown_recv) = mpsc::unbounded_channel::<()>();
 
-            // Stop the PipelineController.
-            cloned_token.cancel();
+        // Store the JoinSets to be able to wait for the tasks in a specific order (see pipeline_control_task).
+        let join_sets = ElementJoinSets {
+            source_set,
+            transform_set,
+            output_set,
+        };
 
-            // Stop the pipeline elements.
-            for source_cs in source_command_senders {
-                source_cs.send_replace(SourceCmd::Stop);
-            }
-            for output_cs in output_command_senders {
-                output_cs.send_replace(OutputCmd::Stop);
-            }
-        });
+        // Spawn a task to control the pipeline and orchestrate its shutdown.
+        // Most of the state (command senders, mask of the active transforms, etc.) is moved to this task.
+        let (control_tx, control_rx) = mpsc::channel::<ControlMessage>(256);
+        let controller_state = PipelineControllerState {
+            global_shutdown_send,
+            source_command_senders_by_plugin,
+            output_command_senders_by_plugin,
+            active_transforms,
+            transforms_mask_by_plugin,
+            autonomous_shutdown_token: self.autonomous_shutdown_token,
+            modifier: PipelineModifierState {
+                namegen: builder::ElementNameGenerator::new(),
+                join_sets,
+                in_tx,
+                rt_normal: self.rt_normal.handle().clone(),
+            },
+        };
+        let control_handle = ControlHandle { tx: control_tx };
+        let control_task_handle = self.rt_normal.spawn(pipeline_control_task(
+            global_shutdown_recv,
+            control_rx,
+            controller_state,
+        ));
 
         RunningPipeline {
             _rt_normal: self.rt_normal,
             _rt_priority: self.rt_priority,
-            task_set,
-
-            // Don't start the control task yet, but be prepared to do it.
-            controller: PipelineController::Waiting(PipelineControllerState {
-                source_command_senders_by_plugin,
-                output_command_senders_by_plugin,
-                active_transforms,
-                transforms_mask_by_plugin,
-                shutdown_token,
-            }),
+            shutdown_task_handle: Some(control_task_handle),
+            control_handle,
         }
     }
+}
+
+/// Stores [`JoinSet`]s for all the tasks of the pipeline
+/// that correspond to an element (source, transform, output).
+struct ElementJoinSets {
+    source_set: JoinSet<anyhow::Result<()>>,
+    transform_set: JoinSet<anyhow::Result<()>>,
+    output_set: JoinSet<anyhow::Result<()>>,
 }
 
 #[derive(Clone, Debug)]
@@ -300,6 +349,7 @@ async fn run_source(
                         log::error!("Non-fatal error when polling {source_name} (will retry): {e:#}");
                     }
                     Err(PollError::Fatal(e)) => {
+                        log::error!("Fatal error when polling {source_name} (will stop running): {e:?}");
                         return Err(e.context(format!("fatal error when polling {source_name}")));
                     }
                 };
@@ -367,14 +417,21 @@ async fn run_source(
                     match cmd {
                         SourceCmd::Run => break 'pause,
                         SourceCmd::Pause => paused = true,
-                        SourceCmd::Stop => break 'run,
+                        SourceCmd::Stop => {
+                            // flush now, then stop
+                            if !buffer.is_empty() {
+                                tx.try_send(buffer)
+                                    .expect("failed to flush measurements after receiving SourceCmd::Stop");
+                            }
+                            break 'run;
+                        }
                         SourceCmd::SetTrigger(mut opt) => {
                             let prev_flush_rounds = trigger.config.flush_rounds;
 
                             // update the trigger
                             let signal = commands.clone();
                             trigger = init_trigger(&mut opt, signal).unwrap();
-                            
+
                             // don't reset the round count
                             // i = 1;
 
@@ -419,7 +476,7 @@ async fn run_transforms(
             // Update the list of active transforms (the PipelineController can update the flags).
             let current_flags = active_flags.load(Ordering::Relaxed);
 
-            // Run the enabled transforms. If one of them fails, we cannot continue.
+            // Run the enabled transforms. If one of them fails, the ability to continue running depends on the error type.
             for (i, t) in &mut transforms.iter_mut().enumerate() {
                 let t_flag = 1 << i;
                 if current_flags & t_flag != 0 {
@@ -429,6 +486,10 @@ async fn run_transforms(
                             log::error!("Transform function {} received unexpected measurements: {e:#}", t.name);
                         }
                         Err(TransformError::Fatal(e)) => {
+                            log::error!(
+                                "Fatal error in transform {} (this breaks the transform task!): {e:?}",
+                                t.name
+                            );
                             return Err(e.context(format!("fatal error in transform {}", t.name)));
                         }
                     }
@@ -439,7 +500,7 @@ async fn run_transforms(
             tx.send(OutputMsg::WriteMeasurements(measurements))
                 .context("could not send the measurements from transforms to the outputs")?;
         } else {
-            log::warn!("The channel connected to the transform step has been closed, the transforms will stop.");
+            log::debug!("The channel connected to the transform step has been closed, the transforms will stop.");
             break;
         }
     }
@@ -499,7 +560,7 @@ async fn run_output_from_broadcast(
                 // but that would likely introduce a needless copy, and would be cumbersome to work with.
                 // Instead, we use the `scoped` module.
                 let res =
-                    scoped::spawn_blocking_with_output(output, ctx, move |out, ctx| out.write(&measurements, &ctx))
+                    scoped::spawn_blocking_with_output(output, ctx, move |out, ctx| out.write(&measurements, ctx))
                         .await;
                 match res {
                     Ok(write_res) => {
@@ -510,16 +571,18 @@ async fn run_output_from_broadcast(
                                 // TODO retry with the same measurements
                                 Ok(())
                             }
-                            Err(WriteError::Fatal(e)) => Err(e.context(format!("fatal error in output {output_name}"))),
+                            Err(WriteError::Fatal(e)) => {
+                                log::error!("Fatal error in output {output_name} (it will stop running): {e:?}");
+                                Err(e.context(format!("fatal error in output {output_name}")))
+                            }
                         }
                     }
                     Err(await_err) => {
                         if await_err.is_panic() {
-                            return Err(anyhow!(
+                            Err(anyhow!(
                                 "A blocking writing task panicked, there is a bug somewhere! Details: {}",
                                 await_err
-                            )
-                            .into());
+                            ))
                         } else {
                             todo!("unhandled error");
                         }
@@ -626,118 +689,244 @@ impl From<WriteError> for PipelineError {
     }
 }
 
+/// Task that controls the pipeline.
+///
+/// It handles [`ControlMessage`]s received by `message_rx`, as well as the shutdown
+/// of the pipeline triggered by `global_shutdown_recv` or [`tokio::signal::ctrl_c`].
+///
+/// ## Pipeline shutdown
+///
+/// On shutdown, the `state` is dropped, including the `watch::Sender`s
+/// of the commands. Thus, `watch::Receiver::changed()` will return an error.
+/// That is why the pipeline control task sends `SourceCmd::Stop` to every source,
+/// and wait for the sources to terminate.
+async fn pipeline_control_task(
+    mut global_shutdown_recv: UnboundedReceiver<()>,
+    mut message_rx: mpsc::Receiver<ControlMessage>,
+    mut state: PipelineControllerState,
+) {
+    // Function for handling errors in tasks.
+    fn handle_task_result(type_str: &str, result: Result<anyhow::Result<()>, JoinError>) {
+        match result {
+            Ok(Ok(())) => (), // task completed successfully
+            Ok(Err(err)) => {
+                // task completed with error
+                log::error!("A {type_str} task in the measurement pipeline returned an error: {err:?}");
+            }
+            Err(err) => {
+                // task panicked or was cancelled
+                if err.is_panic() {
+                    log::error!("A {type_str} task in the pipeline has panicked! {err:?}");
+                } else if err.is_cancelled() {
+                    log::error!("A {type_str} task in the pipeline has been unexpectedly cancelled. {err:?}");
+                }
+            }
+        }
+    }
+
+    async fn join_next_source(
+        source_set: &mut JoinSet<anyhow::Result<()>>,
+    ) -> Option<Result<anyhow::Result<()>, JoinError>> {
+        match timeout(Duration::from_secs(3), source_set.join_next()).await {
+            Ok(res) => res,
+            Err(_) => {
+                log::error!("Timeout expired: sources did not stop on time.\nThis may be a bug in a plugin's autonomous source.");
+                panic!("Timeout expired: sources did not stop on time");
+            }
+        }
+    }
+
+    // Pipeline control loop.
+    loop {
+        tokio::select! {
+            biased; // no need for fairness/randomness here
+
+            res = tokio::signal::ctrl_c() => {
+                // Graceful shutdown on Ctrl+C (SIGTERM).
+                res.expect("failed to listen for signal event");
+                log::info!("Termination signal received, shutting down...");
+                break;
+            },
+            _ = global_shutdown_recv.recv() => {
+                // Graceful shutdown on shutdown order.
+                log::debug!("Internal shutdown order received, shutting down...");
+                break;
+            }
+            incoming_message = message_rx.recv() => {
+                if let Some(message) = incoming_message {
+                    // New message received
+                    handle_control_message(&mut state, message);
+                } else {
+                    // Channel closed, shut down.
+                    break;
+                }
+            }
+        }
+    }
+    // End of the loop = shutdown phase.
+    // At this point we no longer accept new messages.
+
+    let mut join_sets: ElementJoinSets = state.modifier.join_sets;
+    let source_command_senders: Vec<watch::Sender<SourceCmd>> = state
+        .source_command_senders_by_plugin
+        .values()
+        .flatten()
+        .cloned()
+        .collect();
+    let output_command_senders: Vec<watch::Sender<OutputCmd>> = state
+        .output_command_senders_by_plugin
+        .values()
+        .flatten()
+        .cloned()
+        .collect();
+
+    // Stop the sources first, and wait for them to send their last measurements to the transforms.
+    log::debug!("Stopping sources...");
+    for source_cs in &source_command_senders {
+        source_cs.send_replace(SourceCmd::Stop);
+    }
+    state.autonomous_shutdown_token.cancel();
+    while let Some(task_res) = join_next_source(&mut join_sets.source_set).await {
+        handle_task_result("source", task_res);
+    }
+
+    // Ensure that all the `channel::Sender` that are connected to the transform task are dropped.
+    // Note that autonomous sources have to take care of that themselves (but the automatic drop at the end of the task should be enough).
+    drop(source_command_senders);
+    drop(state.modifier.in_tx);
+
+    // The transform task will stop because the sending half of the channel is now closed.
+    // Stop the transforms, and wait for them to send their last measurements to the outputs.
+    log::debug!("Waiting for transforms...");
+    while let Some(task_res) = join_sets.transform_set.join_next().await {
+        handle_task_result("transform", task_res);
+    }
+
+    // Stop the outputs, and wait for them to write their last measurements.
+    log::debug!("Stopping outputs...");
+    for output_cs in &output_command_senders {
+        output_cs.send_replace(OutputCmd::Stop);
+    }
+    while let Some(task_res) = join_sets.output_set.join_next().await {
+        handle_task_result("output", task_res);
+    }
+}
+
+/// Processes a message received by the PipelineController.
+///
+/// This function uses the `state` to modify the pipeline according to the `message`.
+fn handle_control_message(state: &mut PipelineControllerState, message: ControlMessage) {
+    match message {
+        ControlMessage::Shutdown => {
+            state
+                .global_shutdown_send
+                .send(())
+                .expect("failed to send shutdown message");
+        }
+        ControlMessage::AddSource {
+            requested_name,
+            plugin_name: plugin,
+            source,
+            trigger,
+        } => {
+            log::debug!("Adding new source {requested_name}");
+
+            // prepare the source name, channels, etc.
+            let modif = &mut state.modifier;
+            let source_name = modif.namegen.deduplicate(format!("{plugin}/{requested_name}"), false);
+            let in_tx = modif.in_tx.clone();
+            let (command_tx, command_rx) = watch::channel(SourceCmd::SetTrigger(Some(trigger)));
+
+            // save the command sender so that we can control the source task
+            state
+                .source_command_senders_by_plugin
+                .entry(plugin)
+                .or_default()
+                .push(command_tx);
+
+            // submit the task to the tokio Runtime, unless we are shutting down
+            let task = run_source(source_name, source, in_tx, command_rx);
+            modif.join_sets.source_set.spawn_on(task, &modif.rt_normal);
+        }
+
+        ControlMessage::ModifySource(ElementCommand {
+            destination,
+            command: message,
+        }) => match destination {
+            MessageDestination::Plugin(plugin) => {
+                for s in state.source_command_senders_by_plugin.get(&plugin).unwrap() {
+                    s.send(message.clone()).unwrap();
+                }
+            }
+            MessageDestination::All => {
+                for senders in state.source_command_senders_by_plugin.values() {
+                    for s in senders {
+                        s.send(message.clone()).unwrap();
+                    }
+                }
+            }
+        },
+
+        ControlMessage::ModifyOutput(ElementCommand { destination, command }) => match destination {
+            MessageDestination::Plugin(plugin) => {
+                for s in state.output_command_senders_by_plugin.get(&plugin).unwrap() {
+                    s.send(command.clone()).unwrap();
+                }
+            }
+            MessageDestination::All => {
+                for senders in state.output_command_senders_by_plugin.values() {
+                    for s in senders {
+                        s.send(command.clone()).unwrap();
+                    }
+                }
+            }
+        },
+
+        ControlMessage::ModifyTransform(ElementCommand { destination, command }) => {
+            let mask: u64 = match destination {
+                MessageDestination::All => u64::MAX,
+                MessageDestination::Plugin(plugin) => *state.transforms_mask_by_plugin.get(&plugin).unwrap(),
+            };
+            match command {
+                TransformCmd::Enable => state.active_transforms.fetch_or(mask, Ordering::Relaxed),
+                TransformCmd::Disable => state.active_transforms.fetch_nand(mask, Ordering::Relaxed),
+            };
+        }
+    }
+}
+
 impl RunningPipeline {
     /// Blocks the current thread until all tasks in the pipeline finish.
     ///
     /// If a task returns an error or panicks, `wait_for_all` returns an error without waiting
     /// for the other tasks.
-    pub fn wait_for_all(&mut self) -> anyhow::Result<()> {
-        self._rt_normal.block_on(async {
-            while let Some(task_result) = self.task_set.join_next().await {
-                match task_result {
-                    Ok(Ok(())) => (), // task completed successfully
-                    Ok(Err(err)) => {
-                        // task completed with error
-                        log::error!("A task in the measurement pipeline returned an error: {err:#}");
-                        return Err(err);
-                    }
-                    Err(err) => {
-                        // task panicked or was cancelled
-                        if err.is_panic() {
-                            log::error!("An element of the pipeline panicked! {err}");
-                        } else if err.is_cancelled() {
-                            log::error!("An element of the pipeline has been unexpectedly cancelled. {err}");
-                        }
-                        return Err(err.into());
-                    }
+    pub fn wait_for_shutdown(mut self) -> anyhow::Result<()> {
+        let handle = self.shutdown_task_handle.take().unwrap(); // cannot be called twice, unwrap should never panic
+        let shutdown_res = self._rt_normal.block_on(async { handle.await });
+        match shutdown_res {
+            Ok(_) => Ok(()),
+            Err(err) => {
+                // task panicked or was cancelled
+                if err.is_panic() {
+                    log::error!("The shutdown task has panicked! {err:#}");
+                } else if err.is_cancelled() {
+                    log::error!("The shutdown task has been unexpectedly cancelled. {err:#}");
                 }
+                Err(err.into())
             }
-
-            Ok(())
-        })
+        }
     }
 
     /// Returns a [`ControlHandle`], which allows to change the configuration
     /// of the pipeline while it is running.
     pub fn control_handle(&mut self) -> ControlHandle {
-        fn handle_message(state: &mut PipelineControllerState, msg: ControlMessage) {
-            match msg {
-                ControlMessage::Source(plugin_name, cmd) => {
-                    if let Some(plugin) = plugin_name {
-                        for s in state.source_command_senders_by_plugin.get(&plugin).unwrap() {
-                            s.send(cmd.clone()).unwrap();
-                        }
-                    } else {
-                        for senders in state.source_command_senders_by_plugin.values() {
-                            for s in senders {
-                                s.send(cmd.clone()).unwrap();
-                            }
-                        }
-                    }
-                }
-                ControlMessage::Output(plugin_name, cmd) => {
-                    if let Some(plugin) = plugin_name {
-                        for s in state.output_command_senders_by_plugin.get(&plugin).unwrap() {
-                            s.send(cmd.clone()).unwrap();
-                        }
-                    } else {
-                        for senders in state.output_command_senders_by_plugin.values() {
-                            for s in senders {
-                                s.send(cmd.clone()).unwrap();
-                            }
-                        }
-                    }
-                }
-                ControlMessage::Transform(plugin_name, cmd) => {
-                    let mask: u64 = if let Some(plugin) = plugin_name {
-                        *state.transforms_mask_by_plugin.get(&plugin).unwrap()
-                    } else {
-                        u64::MAX
-                    };
-                    match cmd {
-                        TransformCmd::Enable => state.active_transforms.fetch_or(mask, Ordering::Relaxed),
-                        TransformCmd::Disable => state.active_transforms.fetch_nand(mask, Ordering::Relaxed),
-                    };
-                }
-            }
-        }
+        self.control_handle.clone()
+    }
+}
 
-        let handle = match std::mem::take(&mut self.controller) {
-            PipelineController::Waiting(mut state) => {
-                // This is the first handle, start the control task and move the state to it.
-                let (tx, mut rx) = mpsc::channel::<ControlMessage>(256);
-                self._rt_normal.spawn(async move {
-                    loop {
-                        tokio::select! {
-                            biased;
-
-                            _ = state.shutdown_token.cancelled() => {
-                                // The token was cancelled, shut down.
-                                break;
-                            }
-                            incoming = rx.recv() => {
-                                if let Some(message) = incoming {
-                                    // New message received
-                                    handle_message(&mut state, message);
-                                } else {
-                                    // Channel closed, shut down.
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                });
-                ControlHandle { tx }
-            }
-            PipelineController::Temporary => unreachable!(),
-            PipelineController::Started(handle) => {
-                // This is NOT the first handle, return a clone of the existing handle.
-                handle
-            }
-        };
-        let cloned = handle.clone();
-        self.controller = PipelineController::Started(handle);
-        cloned
+impl Drop for RunningPipeline {
+    fn drop(&mut self) {
+        log::debug!("Dropping the pipeline...");
     }
 }
 
@@ -745,55 +934,91 @@ impl ControlHandle {
     pub fn all(&self) -> ScopedControlHandle {
         ScopedControlHandle {
             handle: self,
-            plugin_name: None,
+            destination: MessageDestination::All,
         }
     }
     pub fn plugin(&self, plugin_name: impl Into<String>) -> ScopedControlHandle {
         ScopedControlHandle {
             handle: self,
-            plugin_name: Some(plugin_name.into()),
+            destination: MessageDestination::Plugin(plugin_name.into()),
         }
     }
 
     pub fn blocking_all(&self) -> BlockingScopedControlHandle {
         BlockingScopedControlHandle {
             handle: self,
-            plugin_name: None,
+            destination: MessageDestination::All,
         }
     }
 
     pub fn blocking_plugin(&self, plugin_name: impl Into<String>) -> BlockingScopedControlHandle {
         BlockingScopedControlHandle {
             handle: self,
-            plugin_name: Some(plugin_name.into()),
+            destination: MessageDestination::Plugin(plugin_name.into()),
         }
+    }
+
+    /// Requests the pipeline to shut down.
+    pub fn shutdown(&self) {
+        match self.tx.try_send(ControlMessage::Shutdown) {
+            Ok(_) => {}
+            Err(TrySendError::Closed(_)) => {
+                // This may occur when the pipeline has already shut down. It's okay.
+                log::debug!("ControlHandle::shutdown() has been called but the pipeline is already shutting down.")
+            }
+            Err(TrySendError::Full(_)) => {
+                // TODO: handle this case? tx.blocking_send(ControlMessage::Shutdown) could work
+                todo!("buffer is full, cannot send command")
+            }
+        }
+    }
+
+    /// Adds a new source to the pipeline, without interrupting the elements
+    /// (sources, transforms, outputs) that are currently running.
+    pub fn add_source(&self, plugin_name: String, source_name: String, source: Box<dyn Source>, trigger: TriggerSpec) {
+        let msg = ControlMessage::AddSource {
+            requested_name: source_name,
+            plugin_name,
+            source,
+            trigger,
+        };
+        self.tx.try_send(msg).unwrap()
     }
 }
 
 pub struct ScopedControlHandle<'a> {
     handle: &'a ControlHandle,
-    plugin_name: Option<String>,
+    destination: MessageDestination,
 }
 impl<'a> ScopedControlHandle<'a> {
-    pub async fn control_sources(self, cmd: SourceCmd) {
+    pub async fn control_sources(self, command: SourceCmd) {
         // TODO investigate using try_send instead of send here
         self.handle
             .tx
-            .send(ControlMessage::Source(self.plugin_name, cmd))
+            .send(ControlMessage::ModifySource(ElementCommand {
+                destination: self.destination.clone(),
+                command,
+            }))
             .await
             .unwrap();
     }
-    pub async fn control_transforms(self, cmd: TransformCmd) {
+    pub async fn control_transforms(self, command: TransformCmd) {
         self.handle
             .tx
-            .send(ControlMessage::Transform(self.plugin_name, cmd))
+            .send(ControlMessage::ModifyTransform(ElementCommand {
+                destination: self.destination.clone(),
+                command,
+            }))
             .await
             .unwrap();
     }
-    pub async fn control_outputs(self, cmd: OutputCmd) {
+    pub async fn control_outputs(self, command: OutputCmd) {
         self.handle
             .tx
-            .send(ControlMessage::Output(self.plugin_name, cmd))
+            .send(ControlMessage::ModifyOutput(ElementCommand {
+                destination: self.destination.clone(),
+                command,
+            }))
             .await
             .unwrap();
     }
@@ -801,25 +1026,34 @@ impl<'a> ScopedControlHandle<'a> {
 
 pub struct BlockingScopedControlHandle<'a> {
     handle: &'a ControlHandle,
-    plugin_name: Option<String>,
+    destination: MessageDestination,
 }
 impl<'a> BlockingScopedControlHandle<'a> {
-    pub fn control_sources(self, cmd: SourceCmd) {
+    pub fn control_sources(self, command: SourceCmd) {
         self.handle
             .tx
-            .blocking_send(ControlMessage::Source(self.plugin_name, cmd))
+            .blocking_send(ControlMessage::ModifySource(ElementCommand {
+                destination: self.destination.clone(),
+                command,
+            }))
             .unwrap();
     }
-    pub fn control_transforms(self, cmd: TransformCmd) {
+    pub fn control_transforms(self, command: TransformCmd) {
         self.handle
             .tx
-            .blocking_send(ControlMessage::Transform(self.plugin_name, cmd))
+            .blocking_send(ControlMessage::ModifyTransform(ElementCommand {
+                destination: self.destination.clone(),
+                command,
+            }))
             .unwrap();
     }
-    pub fn control_outputs(self, cmd: OutputCmd) {
+    pub fn control_outputs(self, command: OutputCmd) {
         self.handle
             .tx
-            .blocking_send(ControlMessage::Output(self.plugin_name, cmd))
+            .blocking_send(ControlMessage::ModifyOutput(ElementCommand {
+                destination: self.destination.clone(),
+                command,
+            }))
             .unwrap();
     }
 }
@@ -846,11 +1080,7 @@ mod tests {
             WrappedMeasurementValue,
         },
         metrics::{MetricRegistry, RawMetricId},
-        pipeline::{
-            builder::ConfiguredTransform,
-            trigger::TriggerSpec,
-            OutputContext, Transform,
-        },
+        pipeline::{builder::ConfiguredTransform, trigger::TriggerSpec, OutputContext, Transform},
         resources::{Resource, ResourceConsumer},
     };
 
@@ -893,7 +1123,11 @@ mod tests {
                     );
 
                     // Check that the correct number of rounds have passed.
-                    assert_eq!(measurements.len(), flush_rounds, "incorrect number of measurements: {measurements:?}");
+                    assert_eq!(
+                        measurements.len(),
+                        flush_rounds,
+                        "incorrect number of measurements: {measurements:?}"
+                    );
                     n_polls += flush_rounds;
 
                     let last_point = measurements.iter().last().unwrap();

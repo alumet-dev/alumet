@@ -1,18 +1,20 @@
 [package]
 name = "plugin-nvidia"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
-default = ["nvml", "jetson"]
+default = ["nvml"]
 nvml = ["dep:nvml-wrapper", "dep:nvml-wrapper-sys"]
 jetson = ["dep:regex"]
 
 [dependencies]
 alumet = { path = "../alumet" }
 anyhow = "1.0.79"
+humantime-serde = "1.1.1"
 log = "0.4.20"
 nvml-wrapper = { version = "0.10.0", features = ["legacy-functions"], optional = true}
 nvml-wrapper-sys = { version = "0.8.0", optional = true }
 regex = { version = "1.10.4", optional = true }
+serde = { version = "1.0.201", features = ["derive"] }

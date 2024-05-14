@@ -1,15 +1,22 @@
 use std::time::Duration;
 
-use alumet::plugin::{rust::AlumetPlugin, ConfigTable};
-use anyhow::anyhow;
+use alumet::{
+    pipeline::trigger::TriggerSpec,
+    plugin::{
+        rust::{deserialize_config, serialize_config, AlumetPlugin},
+        ConfigTable,
+    },
+};
+use anyhow::{anyhow, Context};
+use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "jetson")]
 mod jetson;
 #[cfg(feature = "nvml")]
 mod nvml;
 
-struct NvidiaPlugin {
-    poll_interval: Duration,
+pub struct NvidiaPlugin {
+    config: Config,
 }
 
 impl AlumetPlugin for NvidiaPlugin {
@@ -18,13 +25,17 @@ impl AlumetPlugin for NvidiaPlugin {
     }
 
     fn version() -> &'static str {
-        "0.1.0"
+        env!("CARGO_PKG_VERSION")
     }
 
-    fn init(_config: ConfigTable) -> anyhow::Result<Box<Self>> {
-        // TODO read from config
-        let poll_interval = Duration::from_secs(1);
-        Ok(Box::new(NvidiaPlugin { poll_interval }))
+    fn default_config() -> anyhow::Result<Option<ConfigTable>> {
+        let config = serialize_config(Config::default())?;
+        Ok(Some(config))
+    }
+
+    fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
+        let config = deserialize_config(config)?;
+        Ok(Box::new(NvidiaPlugin { config }))
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
@@ -33,6 +44,9 @@ impl AlumetPlugin for NvidiaPlugin {
 
         #[cfg(feature = "jetson")]
         self.start_jetson(alumet)?;
+
+        #[cfg(all(not(feature = "nvml"), not(feature = "jetson")))]
+        compile_error!("To use the NVML plugin, please enable at least one of the following features: nvml, jetson");
 
         Ok(())
     }
@@ -49,12 +63,10 @@ impl NvidiaPlugin {
     /// For Jetson edge devices, use [`start_jetson`] instead.
     #[cfg(feature = "nvml")]
     fn start_nvml(&self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
-        use alumet::pipeline::trigger::TriggerSpec;
-
         let nvml = nvml::NvmlDevices::detect(true)?;
         let stats = nvml.detection_stats();
         if stats.found_devices == 0 {
-            return Err(anyhow!("No NVML-compatible GPU found."));
+            return Err(anyhow!("No NVML-compatible GPU found. If your device is a Jetson edge device, please disable the `nvml` feature of the plugin."));
         }
         if stats.working_devices == 0 {
             return Err(anyhow!(
@@ -65,9 +77,14 @@ impl NvidiaPlugin {
 
         for device in &nvml.devices {
             if let Some(device) = device {
-                log::debug!(
-                    "Found NVML device {} with features {:?}",
+                let device_name = device
+                    .as_wrapper()
+                    .name()
+                    .with_context(|| format!("failed to get the name of NVML device {}", device.bus_id))?;
+                log::info!(
+                    "Found NVML device {} \"{}\" with features: {}",
                     device.bus_id,
+                    device_name,
                     device.features
                 );
             }
@@ -78,7 +95,10 @@ impl NvidiaPlugin {
         for maybe_device in nvml.devices {
             if let Some(device) = maybe_device {
                 let source = nvml::NvmlSource::new(device, metrics.clone())?;
-                alumet.add_source(Box::new(source), TriggerSpec::at_interval(self.poll_interval));
+                let trigger = TriggerSpec::builder(self.config.poll_interval)
+                    .flush_interval(self.config.flush_interval)
+                    .build()?;
+                alumet.add_source(Box::new(source), trigger);
             }
         }
         Ok(())
@@ -89,18 +109,43 @@ impl NvidiaPlugin {
     /// This works by querying the embedded INA sensor(s).
     #[cfg(feature = "jetson")]
     fn start_jetson(&self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
-        use alumet::pipeline::trigger::TriggerSpec;
-
         let sensors = jetson::detect_ina_sensors()?;
+        if sensors.is_empty() {
+            return Err(anyhow!("No INA sensor found. If you are not running on a Jetson device, disable the `jetson` feature of the plugin."));
+        }
+
         for sensor in &sensors {
-            log::debug!("INA sensor found: {} at {}", sensor.i2c_id, sensor.path.display());
+            log::info!("Found INA sensor {} at {}", sensor.i2c_id, sensor.path.display());
             for chan in &sensor.channels {
                 let description = chan.description.as_deref().unwrap_or("?");
                 log::debug!("\t- channel {} \"{}\": {}", chan.id, chan.label, description);
             }
         }
         let source = jetson::JetsonInaSource::open_sensors(sensors, alumet)?;
-        alumet.add_source(Box::new(source), TriggerSpec::at_interval(self.poll_interval));
+        let trigger = TriggerSpec::builder(self.config.poll_interval)
+            .flush_interval(self.config.flush_interval)
+            .build()?;
+        alumet.add_source(Box::new(source), trigger);
         Ok(())
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+struct Config {
+    /// Initial interval between two Nvidia measurements.
+    #[serde(with = "humantime_serde")]
+    poll_interval: Duration,
+
+    /// Initial interval between two flushing of Nvidia measurements.
+    #[serde(with = "humantime_serde")]
+    flush_interval: Duration,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            poll_interval: Duration::from_secs(1), // 1Hz
+            flush_interval: Duration::from_secs(5),
+        }
     }
 }

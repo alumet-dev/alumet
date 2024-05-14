@@ -61,7 +61,7 @@ impl AlumetPlugin for RelayServerPlugin {
     fn version() -> &'static str {
         env!("CARGO_PKG_VERSION")
     }
-    
+
     fn default_config() -> anyhow::Result<Option<ConfigTable>> {
         let config = serialize_config(Config::default())?;
         Ok(Some(config))
@@ -83,15 +83,13 @@ impl AlumetPlugin for RelayServerPlugin {
             )),
         };
         log::info!("Starting gRPC server with on socket {addr}");
-        alumet.add_autonomous_source(move |p: &_, tx: &_| {
-            let collector = GrpcMetricCollector {
-                out_tx: tx.clone(),
-                late_reg: tokio::sync::Mutex::new(p.late_registration_handle()),
-            };
+        alumet.add_autonomous_source(move |p, cancel_token, out_tx| {
+            let late_reg = tokio::sync::Mutex::new(p.late_registration_handle());
+            let collector = GrpcMetricCollector { out_tx, late_reg };
             async move {
                 Server::builder()
                     .add_service(MetricCollectorServer::new(collector))
-                    .serve(addr)
+                    .serve_with_shutdown(addr, cancel_token.cancelled_owned())
                     .await
                     .context("server error")?;
                 Ok(())
@@ -101,7 +99,7 @@ impl AlumetPlugin for RelayServerPlugin {
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
-        todo!()
+        Ok(())
     }
 }
 

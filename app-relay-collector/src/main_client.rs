@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use alumet::agent::{static_plugins, Agent, AgentBuilder, AgentConfig};
+use alumet::plugin::rust::InvalidConfig;
 
 use clap::Parser;
 use env_logger::Env;
@@ -38,10 +39,16 @@ fn main() {
     apply_config(&mut agent, &mut agent_config, args);
 
     // Start the measurement
-    let running_agent = agent.start(agent_config);
+    let running_agent = agent.start(agent_config).unwrap_or_else(|err| {
+        log::error!("{err:?}");
+        if let Some(_) = err.downcast_ref::<InvalidConfig>() {
+            log::error!("HINT: You could try to regenerate the configuration by running `{} regen-config` (use --help to get more information).", env!("CARGO_BIN_NAME"));
+        }
+        panic!("ALUMET relay agent failed to start: {err}");
+    });
 
     // Keep the pipeline running until the app closes.
-    running_agent.wait_for_shutdown();
+    running_agent.wait_for_shutdown().unwrap();
     log::info!("ALUMET relay agent has stopped.");
 }
 

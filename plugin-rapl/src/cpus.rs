@@ -48,9 +48,9 @@ fn parse_cpu_list(cpulist: &str) -> anyhow::Result<Vec<u32>> {
             .map(str::parse)
             .collect::<Result<Vec<u32>, ParseIntError>>()?;
 
-        match bounds.as_slice() {
-            &[start, end] => Ok((start..=end).collect()),
-            &[n] => Ok(vec![n]),
+        match *bounds.as_slice() {
+            [start, end] => Ok((start..=end).collect()),
+            [n] => Ok(vec![n]),
             _ => Err(anyhow::anyhow!("invalid cpulist: {}", item)),
         }
     }

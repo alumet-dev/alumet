@@ -1,7 +1,6 @@
 //! Helpers for creating a measurement agent.
 
 use std::{
-    fmt::Display,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -116,7 +115,7 @@ impl TryFrom<toml::Table> for AgentConfig {
 }
 
 impl AgentConfig {
-    /// Returns a mutable reference to the plugin's subconfig, which is at plugins.<name>
+    /// Returns a mutable reference to the plugin's subconfig, which is at plugins.\<name\>
     pub fn plugin_config_mut(&mut self, plugin_name: &str) -> Option<&mut toml::Table> {
         let sub_config = self.plugins_table.get_mut(plugin_name);
         match sub_config {
@@ -125,7 +124,7 @@ impl AgentConfig {
         }
     }
 
-    /// Removes and returns the plugin's subconfig, which is at plugins.<name>
+    /// Removes and returns the plugin's subconfig, which is at plugins.\<name\>
     pub fn take_plugin_config(&mut self, plugin_name: &str) -> anyhow::Result<toml::Table> {
         let sub_config = self.plugins_table.remove(plugin_name);
         match sub_config {
@@ -156,14 +155,13 @@ impl Agent {
         let global_config = match self.settings.config.take().unwrap() {
             AgentConfigSource::Value(config) => config,
             AgentConfigSource::FilePath(path) => {
-                load_config_from_file(&self.settings.plugins, &path, &self.settings.default_app_config)
-                    .unwrap_or_else(|err| log_and_panic(err, String::from("Could not load the configuration")))
+                load_config_from_file(&self.settings.plugins, &path, &self.settings.default_app_config)?
             }
         };
         log::debug!("Global configuration: {global_config:?}");
 
         // Wrap the config in AgentConfig and check its structure.
-        let config = AgentConfig::try_from(global_config).context("invalid configuration")?;
+        let config = AgentConfig::try_from(global_config).context("invalid agent configuration")?;
         Ok(config)
     }
 
@@ -177,7 +175,7 @@ impl Agent {
     /// You can be notified after each step by building your agent
     /// with callbacks such as [`AgentBuilder::after_plugin_init`].
     #[must_use = "To keep Alumet running, call RunningAgent::wait_for_shutdown."]
-    pub fn start(self, mut config: AgentConfig) -> RunningAgent {
+    pub fn start(self, mut config: AgentConfig) -> anyhow::Result<RunningAgent> {
         // Initialization phase.
         log::info!("Initializing the plugins...");
 
@@ -186,14 +184,13 @@ impl Agent {
             .settings
             .plugins
             .into_iter()
-            .map(|plugin| {
+            .map(|plugin| -> anyhow::Result<Box<dyn Plugin>> {
                 let name = plugin.name.clone();
                 let version = plugin.version.clone();
-                initialize_with_config(&mut config, plugin).unwrap_or_else(|err| {
-                    log_and_panic(err, format!("Plugin failed to initialize: {} v{}", name, version))
-                })
+                initialize_with_config(&mut config, plugin)
+                    .with_context(|| format!("Plugin failed to initialize: {} v{}", name, version))
             })
-            .collect();
+            .collect::<anyhow::Result<Vec<_>>>()?;
 
         match initialized_plugins.len() {
             0 => log::warn!("No plugin has been initialized, please check your AgentBuilder."),
@@ -214,33 +211,24 @@ impl Agent {
                 pipeline_builder: &mut pipeline_builder,
                 current_plugin_name: plugin.name().to_owned(),
             };
-            plugin.start(&mut start_struct).unwrap_or_else(|err| {
-                log_and_panic(
-                    err,
-                    format!("Plugin failed to start: {} v{}", plugin.name(), plugin.version()),
-                )
-            })
+            plugin
+                .start(&mut start_struct)
+                .with_context(|| format!("Plugin failed to start: {} v{}", plugin.name(), plugin.version()))?;
         }
         print_stats(&pipeline_builder, &initialized_plugins);
         (self.settings.f_after_plugin_start)(&pipeline_builder);
 
         // Pre-Operation: pipeline building.
         log::info!("Building the measurement pipeline...");
-        let pipeline = pipeline_builder.build().unwrap_or_else(|err| {
-            log::error!("Pipeline failed to build: {err}");
-            panic!("Error: {err}")
-        });
+        let pipeline = pipeline_builder.build().context("Pipeline failed to build")?;
         for plugin in initialized_plugins.iter_mut() {
-            plugin.pre_pipeline_start(&pipeline).unwrap_or_else(|err| {
-                log_and_panic(
-                    err,
-                    format!(
-                        "Plugin pre_pipeline_start failed: {} v{}",
-                        plugin.name(),
-                        plugin.version()
-                    ),
+            plugin.pre_pipeline_start(&pipeline).with_context(|| {
+                format!(
+                    "Plugin pre_pipeline_start failed: {} v{}",
+                    plugin.name(),
+                    plugin.version()
                 )
-            });
+            })?;
         }
         (self.settings.f_before_operation_begin)(&pipeline);
 
@@ -249,36 +237,34 @@ impl Agent {
 
         // Operation: the pipeline is running.
         for plugin in initialized_plugins.iter_mut() {
-            plugin.post_pipeline_start(&mut pipeline).unwrap_or_else(|err| {
-                log_and_panic(
-                    err,
-                    format!(
-                        "Plugin post_pipeline_start failed: {} v{}",
-                        plugin.name(),
-                        plugin.version()
-                    ),
+            plugin.post_pipeline_start(&mut pipeline).with_context(|| {
+                format!(
+                    "Plugin post_pipeline_start failed: {} v{}",
+                    plugin.name(),
+                    plugin.version()
                 )
-            })
+            })?;
         }
 
         log::info!("🔥 ALUMET measurement pipeline has started.");
         (self.settings.f_after_operation_begin)(&mut pipeline);
 
-        RunningAgent {
+        let agent = RunningAgent {
             pipeline,
             initialized_plugins,
-        }
+        };
+        Ok(agent)
     }
 
     /// Builds a default configuration by combining:
-    /// - the default agent config (which is set by [`AgentBuilder::default_agent_config`])
+    /// - the default agent config (which is set by [`AgentBuilder::default_app_config`])
     /// - the default config of each plugin (which are set by [`AgentBuilder::new`])
     pub fn default_config(&self) -> anyhow::Result<toml::Table> {
         build_default_config(&self.settings.plugins, &self.settings.default_app_config)
     }
 
     /// Builds and saves a default configuration by combining:
-    /// - the default agent config (which is set by [`AgentBuilder::default_agent_config`])
+    /// - the default agent config (which is set by [`AgentBuilder::default_app_config`])
     /// - the default config of each plugin (which are set by [`AgentBuilder::new`])
     ///
     /// This can be used to provide a command line option that (re)generates the configuration file.
@@ -289,7 +275,7 @@ impl Agent {
                 "write_default_config() only works if the Agent is built with config_path()"
             )),
             AgentConfigSource::FilePath(path) => {
-                std::fs::write(&path, default_config.to_string())
+                std::fs::write(path, default_config.to_string())
                     .with_context(|| format!("writing default config to {}", path.display()))?;
                 Ok(())
             }
@@ -310,21 +296,17 @@ impl RunningAgent {
     /// Waits until the measurement pipeline stops, then stops the plugins.
     ///
     /// If an element of the pipeline returns an error or panicks, the other elements are aborted and an error is returned.
-    pub fn wait_for_shutdown(mut self) -> anyhow::Result<()> {
+    pub fn wait_for_shutdown(self) -> anyhow::Result<()> {
         let mut n_errors = 0;
 
         // Wait for the pipeline to be stopped, by Ctrl+C or a command.
-        if let Err(error) = self.pipeline.wait_for_all() {
-            log::error!("Error in the measurement pipeline: {error}");
+        // Also, **drop** the pipeline before stopping the plugin, because Plugin::stop expects
+        // the sources, transforms and outputs to be stopped and dropped before it is called.
+        // All tokio tasks that have not finished yet will abort.
+        if let Err(err) = self.pipeline.wait_for_shutdown() {
+            log::error!("Error in the measurement pipeline: {err}");
             n_errors += 1;
         }
-
-        // Drop the pipeline before stopping the plugin, because Plugin::stop expects
-        // the sources, transforms and outputs to be stopped and dropped before it is called.
-        // This will also drop the JoinSet inside of the pipeline, which will abort all tasks
-        // that have not finished yet.
-        log::info!("Dropping the pipeline...");
-        drop(self.pipeline);
 
         // Stop all the plugins, even if some of them fail to stop properly.
         log::info!("Stopping the plugins...");
@@ -354,7 +336,7 @@ fn load_config_from_file(
     path: &Path,
     default_agent_config: &toml::Table,
 ) -> anyhow::Result<toml::Table> {
-    match std::fs::read_to_string(&path) {
+    match std::fs::read_to_string(path) {
         Ok(content) => content
             .parse()
             .with_context(|| format!("invalid TOML configuration {}", path.display())),
@@ -363,7 +345,7 @@ fn load_config_from_file(
                 std::io::ErrorKind::NotFound => {
                     // the file does not exist, create the default config and save it
                     let default_config = build_default_config(plugins, default_agent_config)?;
-                    std::fs::write(&path, default_config.to_string())
+                    std::fs::write(path, default_config.to_string())
                         .with_context(|| format!("writing default config to {}", path.display()))?;
                     log::info!("Default configuration written to {}", path.display());
                     Ok(default_config)
@@ -398,13 +380,6 @@ fn build_default_config(plugins: &[PluginMetadata], default_agent_config: &toml:
     Ok(default_config)
 }
 
-fn log_and_panic<M: Display>(error: anyhow::Error, message: M) -> ! {
-    // Use the debug format to display all the causes of the error,
-    // see https://docs.rs/anyhow/1.0.82/anyhow/struct.Error.html#display-representations.
-    log::error!("{message} - {error:?}");
-    panic!("{message} - {error}");
-}
-
 /// Finds the configuration of a plugin in the global config, and initialize the plugin.
 fn initialize_with_config(agent_config: &mut AgentConfig, plugin: PluginMetadata) -> anyhow::Result<Box<dyn Plugin>> {
     let name = &plugin.name;
@@ -424,12 +399,17 @@ fn print_stats(pipeline_builder: &PipelineBuilder, plugins: &[Box<dyn Plugin>]) 
         .join("\n");
 
     let metrics = &pipeline_builder.metrics;
-    let metrics_list = if metrics.len() == 0 {
+    let metrics_list = if metrics.is_empty() {
         String::from("    ∅")
     } else {
-        metrics
+        let mut m = metrics
             .iter()
-            .map(|(_id, m)| format!("    - {}: {} ({})", m.name, m.value_type, m.unit))
+            .map(|(id, m)| (id, format!("    - {}: {} ({})", m.name, m.value_type, m.unit)))
+            .collect::<Vec<_>>();
+        // Sort by metric id to display the metrics in the order they were registered (less confusing).
+        m.sort_by_key(|(id, _)| id.0);
+        m.into_iter()
+            .map(|(_, metric_str)| metric_str)
             .collect::<Vec<_>>()
             .join("\n")
     };

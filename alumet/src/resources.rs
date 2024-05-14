@@ -11,7 +11,7 @@
 //! ## Measurement points and resources
 //!
 //! To create a measurement point for a given resource, use
-//! the [`ResourceId`] enum to provide a unique resource identifier.
+//! the [`Resource`] enum to provide a unique resource identifier.
 //! Here is an example of a measurement point associated with the first CPU package (id "0").
 //! ```no_run
 //! use alumet::measurement::{MeasurementPoint, Timestamp};
@@ -58,7 +58,7 @@ pub enum Resource {
     Custom { kind: StrCow, id: StrCow },
 }
 
-/// Consumer of a [`resource`](ResourceId).
+/// Consumer of a [`resource`](Resource).
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
@@ -94,7 +94,7 @@ impl Resource {
             Resource::CpuCore { .. } => "cpu_core",
             Resource::Dram { .. } => "dram",
             Resource::Gpu { .. } => "gpu",
-            Resource::Custom { kind, id: _ } => &kind,
+            Resource::Custom { kind, id: _ } => kind,
         }
     }
 
@@ -111,8 +111,8 @@ impl Resource {
             Resource::CpuPackage { id } => LazyDisplayable::U32(*id),
             Resource::CpuCore { id } => LazyDisplayable::U32(*id),
             Resource::Dram { pkg_id } => LazyDisplayable::U32(*pkg_id),
-            Resource::Gpu { bus_id } => LazyDisplayable::Str(&bus_id),
-            Resource::Custom { kind: _, id } => LazyDisplayable::Str(&id),
+            Resource::Gpu { bus_id } => LazyDisplayable::Str(bus_id),
+            Resource::Custom { kind: _, id } => LazyDisplayable::Str(id),
         }
     }
 
@@ -163,7 +163,7 @@ impl ResourceConsumer {
             ResourceConsumer::LocalMachine => "local_machine",
             ResourceConsumer::Process { .. } => "process",
             ResourceConsumer::ControlGroup { .. } => "cgroup",
-            ResourceConsumer::Custom { kind, id: _ } => &kind,
+            ResourceConsumer::Custom { kind, id: _ } => kind,
         }
     }
 
@@ -178,8 +178,8 @@ impl ResourceConsumer {
         match self {
             ResourceConsumer::LocalMachine => LazyDisplayable::Str(""),
             ResourceConsumer::Process { pid } => LazyDisplayable::U32(*pid),
-            ResourceConsumer::ControlGroup { path } => LazyDisplayable::Str(&path),
-            ResourceConsumer::Custom { kind: _, id } => LazyDisplayable::Str(&id),
+            ResourceConsumer::ControlGroup { path } => LazyDisplayable::Str(path),
+            ResourceConsumer::Custom { kind: _, id } => LazyDisplayable::Str(id),
         }
     }
 

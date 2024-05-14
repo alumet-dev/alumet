@@ -1,6 +1,6 @@
 [package]
-name = "plugin-csv"
-version = "0.2.0"
+name = "plugin-perf"
+version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -8,9 +8,7 @@ edition = "2021"
 [dependencies]
 alumet = { path = "../alumet" }
 anyhow = "1.0.82"
+itertools = "0.12.1"
 log = "0.4.21"
-serde = { version = "1.0.201", features = ["derive"] }
-time = { version = "0.3.36", features = ["formatting"] }
-
-[dev-dependencies]
-pretty_assertions = "1.4.0"
+perf-event2 = "0.7.2"
+serde = { version = "1.0.199", features = ["derive"] }

@@ -70,12 +70,6 @@ pub struct MeasurementPoint {
     attributes: SmallVec<[(Cow<'static, str>, AttributeValue); 4]>
 }
 
-#[derive(Clone)]
-pub struct MeasurementInGroup {
-    pub resource: Resource,
-    pub consumer: ResourceConsumer,
-}
-
 /// A measurement of a clock.
 ///
 /// This opaque type is currently a wrapper around [`SystemTime`],
@@ -167,6 +161,7 @@ impl MeasurementPoint {
 }
 
 impl Timestamp {
+    /// Returns a `Timestamp` representing the current system time.
     pub fn now() -> Self {
         Self(SystemTime::now())
     }
@@ -255,6 +250,10 @@ pub enum AttributeValue {
     F64(f64),
     U64(u64),
     Bool(bool),
+    /// A borrowed string attribute.
+    /// 
+    /// If you can use `AttributeValue::Str` instead of `AttributeValue::String`,
+    /// do it: it will save a memory allocation. 
     Str(&'static str),
     String(String),
 }
@@ -320,6 +319,11 @@ impl MeasurementBuffer {
             points: Vec::with_capacity(capacity),
         }
     }
+    
+    /// Returns true if this buffer is empty.
+    pub fn is_empty(&self) -> bool {
+        self.points.is_empty()
+    }
 
     /// Returns the number of measurement points in the buffer.
     pub fn len(&self) -> usize {
@@ -356,6 +360,15 @@ impl MeasurementBuffer {
     /// Returns a `MeasurementAccumulator` that will push all measurements to this buffer.
     pub fn as_accumulator(&mut self) -> MeasurementAccumulator {
         MeasurementAccumulator(self)
+    }
+}
+
+impl<'a> IntoIterator for &'a MeasurementBuffer {
+    type Item = &'a MeasurementPoint;
+    type IntoIter = std::slice::Iter<'a, MeasurementPoint>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.points.iter()
     }
 }
 

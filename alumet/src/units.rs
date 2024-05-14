@@ -79,7 +79,7 @@ pub enum UnitPrefix {
 impl Unit {
     /// Returns the unique name of the unit, as specified by the Unified Code for Units of Measure (UCUM).
     ///
-    /// See https://ucum.org/ucum#section-Base-Units and https://ucum.org/ucum#si
+    /// See <https://ucum.org/ucum#section-Base-Units> and <https://ucum.org/ucum#si>
     pub fn unique_name(&self) -> &str {
         match self {
             Unit::Unity => "1",
@@ -240,7 +240,7 @@ impl Display for PrefixedUnit {
 impl UnitPrefix {
     /// Returns the unique name of the unit, as specified by the Unified Code for Units of Measure (UCUM).
     ///
-    /// See https://ucum.org/ucum#section-Prefixes
+    /// See <https://ucum.org/ucum#section-Prefixes>
     pub fn unique_name(&self) -> &str {
         match self {
             UnitPrefix::Nano => "nano",
@@ -255,7 +255,7 @@ impl UnitPrefix {
 
     /// Returns the name to use when displaying (aka printing) the prefix, as specified by the Unified Code for Units of Measure (UCUM).
     ///
-    /// See https://ucum.org/ucum#section-Prefixes
+    /// See <https://ucum.org/ucum#section-Prefixes>
     pub fn display_name(&self) -> &str {
         match self {
             UnitPrefix::Nano => "n",

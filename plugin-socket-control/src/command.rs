@@ -29,7 +29,7 @@ pub async fn parse_and_run(command: String, handle: &ControlHandle) -> anyhow::R
             ["run"] => Ok(SourceCmd::Run),
             ["stop"] => Ok(SourceCmd::Stop),
             ["trigger", "every", interval_str] => {
-                let poll_interval = parse_duration(&interval_str)?;
+                let poll_interval = parse_duration(interval_str)?;
                 let flush_interval = poll_interval;
                 let trigger = trigger::builder::time_interval(poll_interval)
                     .flush_interval(flush_interval)
@@ -75,7 +75,7 @@ pub async fn parse_and_run(command: String, handle: &ControlHandle) -> anyhow::R
     }
 
     let parts: Vec<&str> = command.trim().split(' ').map(|s| s.trim()).collect();
-    let scope: Vec<&str> = parts.get(0).context("missing scope")?.split(':').collect();
+    let scope: Vec<&str> = parts.first().context("missing scope")?.split(':').collect();
     let args: &[&str] = &parts[1..];
     match scope[..] {
         [plugin_name, element] => {

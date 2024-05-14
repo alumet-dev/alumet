@@ -1,6 +1,6 @@
 [package]
 name = "app-agent"
-version = "0.1.0"
+version = "0.4.0"
 edition = "2021"
 description = "Metric collector agent to install on each node."
 
@@ -13,11 +13,13 @@ clap = { version = "4.5.4", features = ["derive"] }
 env_logger = "0.11.2"
 humantime-serde = "1.1.1"
 log = "0.4.20"
-plugin-csv = { version = "0.1.0", path = "../plugin-csv" }
+plugin-csv = { version = "0.2.0", path = "../plugin-csv" }
+plugin-perf = { version = "0.1.0", path = "../plugin-perf" }
 plugin-rapl = { version = "0.2.0", path = "../plugin-rapl" }
 plugin-socket-control = { version = "0.1.0", path = "../plugin-socket-control" }
 serde = { version = "1.0.198", features = ["derive"] }
 toml = "0.8.12"
 
-[profile.release]
-debug = 1
+[[bin]]
+name = "alumet-agent"
+path = "src/main.rs"

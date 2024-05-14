@@ -8,6 +8,7 @@ use anyhow::Context;
 
 use tokio::runtime::Runtime;
 use tokio::sync::{broadcast, mpsc};
+use tokio_util::sync::CancellationToken;
 
 use crate::metrics::{Metric, MetricRegistry, RawMetricId};
 use crate::{
@@ -17,11 +18,11 @@ use crate::{
 
 use super::runtime::{self, IdlePipeline, OutputMsg};
 use super::trigger::{TriggerConstraints, TriggerSpec};
-use super::{threading, SourceType};
 
 /// A builder of measurement pipeline.
 pub struct PipelineBuilder {
-    pub(crate) sources: Vec<SourceBuilder>,
+    pub(crate) namegen: ElementNameGenerator,
+    pub(crate) sources: Vec<ManagedSourceBuilder>,
     pub(crate) transforms: Vec<TransformBuilder>,
     pub(crate) outputs: Vec<OutputBuilder>,
     pub(crate) autonomous_sources: Vec<AutonomousSourceBuilder>,
@@ -35,39 +36,45 @@ pub struct PipelineBuilder {
     pub(crate) priority_worker_threads: Option<usize>,
 }
 
-pub struct SourceBuilder {
-    pub source_type: SourceType,
+pub type SourceBuildFn = dyn FnOnce(&PendingPipelineContext) -> Box<dyn Source>;
+pub type AutonomousSourceBuildFn = dyn FnOnce(
+    &PendingPipelineContext,
+    CancellationToken,
+    mpsc::Sender<MeasurementBuffer>,
+) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>;
+
+pub struct ManagedSourceBuilder {
+    pub name: String,
     pub plugin: String,
-    pub build: Box<dyn FnOnce(&PendingPipeline) -> (Box<dyn Source>, TriggerSpec)>,
+    pub trigger: TriggerSpec,
+    pub build: Box<SourceBuildFn>,
 }
 
 pub struct AutonomousSourceBuilder {
+    pub name: String,
     pub plugin: String,
-    pub build: Box<
-        dyn FnOnce(
-            &PendingPipeline,
-            &mpsc::Sender<MeasurementBuffer>,
-        ) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>,
-    >,
+    pub build: Box<AutonomousSourceBuildFn>,
 }
 
 pub struct TransformBuilder {
+    pub name: String,
     pub plugin: String,
-    pub build: Box<dyn FnOnce(&PendingPipeline) -> Box<dyn Transform>>,
+    pub build: Box<dyn FnOnce(&PendingPipelineContext) -> Box<dyn Transform>>,
 }
 
 pub struct OutputBuilder {
+    pub name: String,
     pub plugin: String,
-    pub build: Box<dyn FnOnce(&PendingPipeline) -> anyhow::Result<Box<dyn Output>>>,
+    pub build: Box<dyn FnOnce(&PendingPipelineContext) -> anyhow::Result<Box<dyn Output>>>,
 }
 
 /// Information about a pipeline that is being built.
-pub struct PendingPipeline<'a> {
+pub struct PendingPipelineContext<'a> {
     to_output: &'a broadcast::Sender<runtime::OutputMsg>,
     rt_handle: &'a tokio::runtime::Handle,
 }
 
-impl<'a> PendingPipeline<'a> {
+impl<'a> PendingPipelineContext<'a> {
     pub fn late_registration_handle(&self) -> LateRegistrationHandle {
         let (reply_tx, reply_rx) = mpsc::channel::<Vec<RawMetricId>>(256);
         LateRegistrationHandle {
@@ -118,8 +125,6 @@ pub(super) struct ConfiguredSource {
     pub name: String,
     /// Name of the plugin that registered the source.
     pub plugin_name: String,
-    /// Type of the source, for scheduling.
-    pub source_type: SourceType,
     /// How to trigger this source.
     pub trigger_provider: TriggerSpec,
 }
@@ -181,6 +186,8 @@ impl fmt::Display for InvalidReason {
     }
 }
 
+impl std::error::Error for PipelineBuildError {}
+
 impl fmt::Display for PipelineBuildError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -203,6 +210,7 @@ impl From<io::Error> for PipelineBuildError {
 impl PipelineBuilder {
     pub fn new() -> Self {
         Self {
+            namegen: ElementNameGenerator::new(),
             sources: Vec::new(),
             transforms: Vec::new(),
             outputs: Vec::new(),
@@ -261,39 +269,35 @@ impl PipelineBuilder {
         let out_tx = broadcast::Sender::<OutputMsg>::new(256);
 
         // Create the pipeline elements.
-        let mut namegen = ElementNameGenerator::new();
         let sources: Vec<ConfiguredSource> = self
             .sources
             .into_iter()
             .map(|builder| {
-                let pending = PendingPipeline {
+                let name = builder.name;
+                let mut trigger = builder.trigger;
+                let pending = PendingPipelineContext {
                     to_output: &out_tx,
-                    rt_handle: if builder.source_type == SourceType::Normal {
-                        rt_normal.handle()
-                    } else {
+                    rt_handle: if trigger.realtime_priority {
                         rt_priority.as_ref().unwrap().handle()
+                    } else {
+                        rt_normal.handle()
                     },
                 };
-                let source_name = namegen.source_name(&builder);
-                let (source, mut trigger) = (builder.build)(&pending);
-                log::trace!(
-                    "(plugin {}) TriggerSpec before constraints: {trigger:?}",
-                    builder.plugin
-                );
+                let source = (builder.build)(&pending);
+                log::trace!("(source {name}) TriggerSpec before constraints: {trigger:?}",);
                 trigger.constrain(&self.source_constraints);
-                log::trace!("(plugin {}) TriggerSpec after constraints: {trigger:?}", builder.plugin);
+                log::trace!("(source {name}) TriggerSpec after constraints: {trigger:?}",);
 
                 ConfiguredSource {
                     source,
-                    name: source_name,
+                    name,
                     plugin_name: builder.plugin,
-                    source_type: builder.source_type,
                     trigger_provider: trigger,
                 }
             })
             .collect();
 
-        let pending = PendingPipeline {
+        let pending = PendingPipelineContext {
             to_output: &out_tx,
             rt_handle: rt_normal.handle(),
         };
@@ -301,11 +305,10 @@ impl PipelineBuilder {
             .transforms
             .into_iter()
             .map(|builder| {
-                let name = namegen.transform_name(&builder);
                 let transform = (builder.build)(&pending);
                 ConfiguredTransform {
                     transform,
-                    name,
+                    name: builder.name,
                     plugin_name: builder.plugin,
                 }
             })
@@ -314,13 +317,12 @@ impl PipelineBuilder {
             .outputs
             .into_iter()
             .map(|builder| {
-                let name = namegen.output_name(&builder);
                 let output = (builder.build)(&pending).map_err(|err| {
                     PipelineBuildError::ElementBuild(err, ElementType::Output, builder.plugin.clone())
                 })?;
                 Ok(ConfiguredOutput {
                     output,
-                    name,
+                    name: builder.name,
                     plugin_name: builder.plugin,
                 })
             })
@@ -328,13 +330,17 @@ impl PipelineBuilder {
         let outputs = outputs?;
 
         // Create the autonomous sources
+        let autonomous_shutdown_token = CancellationToken::new();
         let autonomous_sources: Vec<_> = self
             .autonomous_sources
             .into_iter()
             .map(|builder| {
                 let data_tx = in_tx.clone();
-                let name = namegen.autonomous_source_name(&builder);
-                let source = (builder.build)(&pending, &data_tx);
+                let name = builder.name;
+                // This token will be cancelled when the global token gets cancelled (Alumet is shutting down).
+                // It can also be cancelled on its own, in which case only this source will be stopped.
+                let cancel_token = autonomous_shutdown_token.child_token();
+                let source = (builder.build)(&pending, cancel_token, data_tx);
                 ConfiguredAutonomousSource { source, name }
             })
             .collect();
@@ -344,6 +350,7 @@ impl PipelineBuilder {
             transforms,
             outputs,
             autonomous_sources,
+            autonomous_shutdown_token,
             metrics: self.metrics,
             from_sources: (in_tx, in_rx),
             to_outputs: out_tx,
@@ -362,16 +369,13 @@ impl PipelineBuilder {
     }
 
     fn build_priority_runtime(&self) -> io::Result<Option<Runtime>> {
-        if self
-            .sources
-            .iter()
-            .any(|s| s.source_type == SourceType::RealtimePriority)
-        {
+        if self.sources.iter().any(|s| s.trigger.realtime_priority) {
             let mut builder = tokio::runtime::Builder::new_multi_thread();
             builder
                 .enable_all()
                 .on_thread_start(|| {
-                    threading::increase_thread_priority().expect("failed to create high-priority thread for worker")
+                    super::threading::increase_thread_priority()
+                        .expect("failed to create high-priority thread for worker")
                 })
                 .thread_name("priority-worker");
             if let Some(n) = self.priority_worker_threads {
@@ -385,61 +389,33 @@ impl PipelineBuilder {
 }
 
 /// Generates names for the pipeline elements.
-struct ElementNameGenerator {
-    normal_sources_per_plugin: HashMap<String, usize>,
-    autonomous_sources_per_plugin: HashMap<String, usize>,
-    transforms_per_plugin: HashMap<String, usize>,
-    outputs_per_plugin: HashMap<String, usize>,
+pub(crate) struct ElementNameGenerator {
+    existing_names: HashMap<String, usize>,
 }
 
 impl ElementNameGenerator {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
-            normal_sources_per_plugin: HashMap::new(),
-            autonomous_sources_per_plugin: HashMap::new(),
-            transforms_per_plugin: HashMap::new(),
-            outputs_per_plugin: HashMap::new(),
+            existing_names: HashMap::new(),
         }
     }
 
-    fn source_name(&mut self, builder: &SourceBuilder) -> String {
-        let plugin_name = builder.plugin.clone();
-        let count = self
-            .normal_sources_per_plugin
-            .entry(plugin_name.clone())
-            .and_modify(|count| *count += 1)
-            .or_default();
-        format!("{plugin_name}/source{count}")
-    }
+    pub fn deduplicate(&mut self, mut name: String, always_suffix: bool) -> String {
+        use std::fmt::Write;
 
-    fn autonomous_source_name(&mut self, builder: &AutonomousSourceBuilder) -> String {
-        let plugin_name = builder.plugin.clone();
-        let count = self
-            .autonomous_sources_per_plugin
-            .entry(plugin_name.clone())
-            .and_modify(|count| *count += 1)
-            .or_default();
-        format!("{plugin_name}/autonomous_source{count}")
-    }
-
-    fn transform_name(&mut self, builder: &TransformBuilder) -> String {
-        let plugin_name = builder.plugin.clone();
-        let count = self
-            .transforms_per_plugin
-            .entry(plugin_name.clone())
-            .and_modify(|count| *count += 1)
-            .or_default();
-        format!("{plugin_name}/transform{count}")
-    }
-
-    fn output_name(&mut self, builder: &OutputBuilder) -> String {
-        let plugin_name = builder.plugin.clone();
-        let count = self
-            .outputs_per_plugin
-            .entry(plugin_name.clone())
-            .and_modify(|count| *count += 1)
-            .or_default();
-        format!("{plugin_name}/output{count}")
+        match self.existing_names.get_mut(&name) {
+            Some(n) => {
+                *n += 1;
+                write!(name, "-{n}").unwrap();
+            }
+            None => {
+                self.existing_names.insert(name.clone(), 0);
+                if always_suffix {
+                    write!(name, "-0").unwrap();
+                }
+            }
+        }
+        name
     }
 }
 

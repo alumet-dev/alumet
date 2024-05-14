@@ -10,7 +10,7 @@ use alumet::{
     metrics::TypedMetricId,
     pipeline::PollError,
     plugin::AlumetStart,
-    resources::{ResourceConsumer, Resource},
+    resources::{Resource, ResourceConsumer},
     units::{PrefixedUnit, Unit},
 };
 use anyhow::{anyhow, Context};
@@ -74,6 +74,10 @@ pub struct OpenedInaMetric {
 
 impl JetsonInaSource {
     pub fn open_sensors(sensors: Vec<InaSensor>, alumet: &mut AlumetStart) -> anyhow::Result<JetsonInaSource> {
+        if sensors.is_empty() {
+            return Err(anyhow!("Cannot construct a JetsonInaSource without any sensor."));
+        }
+
         let mut opened_sensors = Vec::with_capacity(4);
         for sensor in sensors {
             let mut sensor_opened_channels = Vec::with_capacity(sensor.channels.len());
@@ -121,7 +125,7 @@ impl alumet::pipeline::Source for JetsonInaSource {
         let mut reading_buf = Vec::with_capacity(8);
 
         for sensor in &mut self.opened_sensors {
-          for chan in &mut sensor.channels {
+            for chan in &mut sensor.channels {
                 for m in &mut chan.metrics {
                     // read the file from the beginning
                     m.file.rewind()?;
@@ -154,7 +158,7 @@ impl alumet::pipeline::Source for JetsonInaSource {
 }
 
 /// Returns a list of all the INA sensors available on the machine.
-/// 
+///
 /// This function supports multiple version of the NVIDIA Jetpack SDK.
 pub fn detect_ina_sensors() -> anyhow::Result<Vec<InaSensor>> {
     let mut res = detect_hierarchy_modern(SYSFS_INA)?;

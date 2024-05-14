@@ -4,6 +4,7 @@ use std::time::Duration;
 use std::{fmt, time};
 use std::{future::Future, pin::Pin};
 
+use anyhow::Context;
 use tokio::sync::watch;
 
 use super::runtime::SourceCmd;
@@ -21,6 +22,7 @@ pub type SourceTriggerOutput = Result<(), std::io::Error>;
 pub struct TriggerSpec {
     mechanism: TriggerMechanismSpec,
     interruptible: bool,
+    pub(crate) realtime_priority: bool,
     config: TriggerConfig,
 }
 
@@ -52,6 +54,8 @@ pub(crate) struct TriggerConstraints {
 }
 
 /// Builder for source triggers.
+///
+/// See [`builder::time_interval`](self::time_interval).
 pub mod builder {
     use core::fmt;
     use std::time::{Duration, Instant};
@@ -65,7 +69,7 @@ pub mod builder {
     /// The accuracy of the timing depends on the operating system and on the scheduling
     /// policy of the thread that executes the trigger.
     /// For small intervals of 1ms or less, it is recommended to run Alumet on Linux
-    /// and to use [`SourceType::RealtimePriority`](super::runtime::SourceType::RealtimePriority).
+    /// and to use [`SourceType::RealtimePriority`](crate::pipeline::SourceType::RealtimePriority).
     ///
     /// ## Example
     /// ```
@@ -89,6 +93,7 @@ pub mod builder {
         poll_interval: Duration,
         config: TriggerConfig,
         interruptible: bool,
+        realtime_priority: bool,
     }
 
     #[derive(Debug)]
@@ -118,6 +123,7 @@ pub mod builder {
                     update_rounds: 1,
                 },
                 interruptible: false,
+                realtime_priority: false,
             }
         }
 
@@ -170,14 +176,31 @@ pub mod builder {
             self
         }
 
+        /// Signals that the pipeline should run the source on a thread with a high scheduling priority.
+        ///
+        /// The actual implementation of this "high priority" is OS-dependent and comes with no strong guarantee.
+        /// On Linux, it typically means calling `sched_setscheduler` to change the scheduler priority.
+        ///
+        /// Note that Alumet may decide to apply this setting automatically for high polling frequencies (low `poll_interval`).
+        pub fn realtime_priority(mut self) -> Self {
+            self.realtime_priority = true;
+            self
+        }
+
         /// Builds the trigger.
-        pub fn build(self) -> Result<TriggerSpec, Error> {
+        pub fn build(mut self) -> Result<TriggerSpec, Error> {
             if self.poll_interval.is_zero() {
-                return Err(Error::InvalidConfig(format!("poll_interval must be non-zero")));
+                return Err(Error::InvalidConfig(String::from("poll_interval must be non-zero")));
             }
+            // automatically enable `realtime_priority` in some cases
+            if self.poll_interval <= Duration::from_millis(3) {
+                self.realtime_priority = true;
+            }
+
             Ok(TriggerSpec {
                 mechanism: TriggerMechanismSpec::TimeInterval(self.start, self.poll_interval),
                 interruptible: self.interruptible,
+                realtime_priority: self.realtime_priority,
                 config: self.config,
             })
         }
@@ -190,6 +213,13 @@ impl TriggerSpec {
     /// For more options, use [`builder::time_interval`].
     pub fn at_interval(poll_interval: time::Duration) -> TriggerSpec {
         builder::time_interval(poll_interval).build().unwrap()
+    }
+
+    /// Creates a new builder for a trigger that polls the source at regular intervals.
+    /// 
+    /// This is equivalent to [`builder::time_interval`].
+    pub fn builder(poll_interval: time::Duration) -> builder::TimeTriggerBuilder {
+        builder::time_interval(poll_interval)
     }
 
     /// Adjusts the trigger specification to respect the given constraints.
@@ -261,6 +291,7 @@ impl Trigger {
         }
     }
 
+    /// Waits for the next tick of the trigger, or for an interruption.
     pub async fn next(&mut self) -> anyhow::Result<TriggerReason> {
         if let Some(signal) = &mut self.interrupt_signal {
             // Use select! to wake up on trigger _or_ signal, the first that occurs
@@ -272,7 +303,8 @@ impl Trigger {
                     Ok(TriggerReason::Triggered)
                 }
                 res = signal.changed() => {
-                    res?;
+                    // changed() returns an Error if the watch::Sender has been dropped, which should not happen.
+                    res.context("watch::Sender dropped, which interrupted the Trigger")?;
                     Ok(TriggerReason::Interrupted)
                 }
             }
@@ -350,8 +382,9 @@ impl TriggerMechanism {
                 Ok(())
             }
             TriggerMechanism::TokioSleep(start, period) => {
+                let start = *start;
                 let now = tokio::time::Instant::now();
-                let deadline = if &*start > &now { *start } else { now + *period };
+                let deadline = if start > now { start } else { now + *period };
                 tokio::time::sleep_until(deadline).await;
                 Ok(())
             }
@@ -436,7 +469,7 @@ mod tests {
         assert!(matches!(trigger.mechanism, TriggerMechanismSpec::TimeInterval(_, d) if d == Duration::from_secs(1)));
         assert_eq!(trigger.config.flush_rounds, 5); // 5*1sec => 5 rounds
         assert_eq!(trigger.config.update_rounds, 2); // 2*1sec => 2rounds
-        
+
         let mut trigger = builder::time_interval(Duration::from_secs(2))
             .flush_interval(Duration::from_secs(10))
             .update_interval(Duration::from_secs(2))
@@ -446,7 +479,7 @@ mod tests {
         assert!(matches!(trigger.mechanism, TriggerMechanismSpec::TimeInterval(_, d) if d == Duration::from_secs(2)));
         assert_eq!(trigger.config.flush_rounds, 5);
         assert_eq!(trigger.config.update_rounds, 1);
-        
+
         let mut trigger = builder::time_interval(Duration::from_secs(2))
             .flush_interval(Duration::from_secs(10))
             .update_interval(Duration::from_secs(6)) // multiple of poll_interval
@@ -456,7 +489,7 @@ mod tests {
         assert!(matches!(trigger.mechanism, TriggerMechanismSpec::TimeInterval(_, d) if d == Duration::from_secs(2)));
         assert_eq!(trigger.config.flush_rounds, 5);
         assert_eq!(trigger.config.update_rounds, 1);
-        
+
         let mut trigger = builder::time_interval(Duration::from_secs(2))
             .flush_interval(Duration::from_secs(10))
             .update_interval(Duration::from_secs(5)) // not a multiple of poll_interval!
@@ -466,7 +499,7 @@ mod tests {
         assert!(matches!(trigger.mechanism, TriggerMechanismSpec::TimeInterval(_, d) if d == Duration::from_secs(2)));
         assert_eq!(trigger.config.flush_rounds, 5);
         assert_eq!(trigger.config.update_rounds, 1);
-        
+
         let mut trigger = builder::time_interval(Duration::from_secs(3)) // bigger than max_update_interval!
             .flush_interval(Duration::from_secs(15))
             .update_interval(Duration::from_secs(3))

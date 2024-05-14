@@ -8,7 +8,6 @@ use alumet::{
     },
     units::Unit,
 };
-use anyhow::Context;
 use indoc::indoc;
 use serde::{Deserialize, Serialize};
 
@@ -34,7 +33,7 @@ impl AlumetPlugin for RaplPlugin {
     }
 
     fn version() -> &'static str {
-        "0.1.0"
+        env!("CARGO_PKG_VERSION")
     }
 
     fn default_config() -> anyhow::Result<Option<ConfigTable>> {
@@ -43,7 +42,7 @@ impl AlumetPlugin for RaplPlugin {
     }
 
     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
-        let config = deserialize_config(config).context("invalid config")?;
+        let config = deserialize_config(config)?;
         Ok(Box::new(RaplPlugin { config }))
     }
 

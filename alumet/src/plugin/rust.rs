@@ -67,18 +67,6 @@ pub trait AlumetPlugin {
     }
 }
 
-pub fn deserialize_config<'de, T: serde::de::Deserialize<'de>>(config: ConfigTable) -> anyhow::Result<T> {
-    toml::Value::Table(config.0).try_into::<T>().with_context(|| format!("error when deserializing ConfigTable to {}", std::any::type_name::<T>()))
-}
-
-pub fn serialize_config<T: serde::ser::Serialize>(config: T) -> anyhow::Result<ConfigTable> {
-    match toml::Value::try_from(config) {
-        Ok(toml::Value::Table(t)) => Ok(ConfigTable(t)),
-        Ok(wrong) => Err(anyhow!("{} did not get serialized to a toml Table but to a {}", std::any::type_name::<T>(), wrong.type_str())),
-        Err(e) => Err(anyhow!("error when serializing {} to ConfigTable: {e}", std::any::type_name::<T>())),
-    }
-}
-
 // Every AlumetPlugin is a Plugin :)
 impl<P: AlumetPlugin> Plugin for P {
     fn name(&self) -> &str {
@@ -103,5 +91,46 @@ impl<P: AlumetPlugin> Plugin for P {
 
     fn post_pipeline_start(&mut self, pipeline: &mut RunningPipeline) -> anyhow::Result<()> {
         AlumetPlugin::post_pipeline_start(self, pipeline)
+    }
+}
+
+pub fn deserialize_config<'de, T: serde::de::Deserialize<'de>>(config: ConfigTable) -> anyhow::Result<T> {
+    toml::Value::Table(config.0)
+        .try_into::<T>()
+        .with_context(|| format!("error when deserializing ConfigTable to {}", std::any::type_name::<T>()))
+        .context(InvalidConfig)
+}
+
+pub fn serialize_config<T: serde::ser::Serialize>(config: T) -> anyhow::Result<ConfigTable> {
+    let res = match toml::Value::try_from(config) {
+        Ok(toml::Value::Table(t)) => Ok(ConfigTable(t)),
+        Ok(wrong) => Err(anyhow!(
+            "{} did not get serialized to a toml Table but to a {}",
+            std::any::type_name::<T>(),
+            wrong.type_str()
+        )),
+        Err(e) => Err(anyhow!(
+            "error when serializing {} to ConfigTable: {e}",
+            std::any::type_name::<T>()
+        )),
+    };
+    res.context(InvalidConfig)
+}
+
+/// Signals an invalid configuration.
+///
+/// Use this singleton with [`anyhow::Context`] to signal that
+/// an error has been caused by an invalid configuration.
+/// This will allow the Alumet application to display more helpful
+/// messages to the user.
+///
+/// `InvalidConfig` is automatically applied by [`serialize_config`] and [`deserialize_config`] if an error occurs.
+#[derive(Debug)]
+pub struct InvalidConfig;
+
+impl std::error::Error for InvalidConfig {}
+impl std::fmt::Display for InvalidConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "invalid configuration")
     }
 }

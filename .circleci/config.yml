@@ -1,0 +1,39 @@
+version: 2.1
+
+jobs:
+  build:
+    docker:
+      - image: cimg/rust:1.78.0
+    steps:
+      - checkout
+      - run: cargo --version
+      - run:
+          name: Create concatenated cache key
+          command: |
+            find -name 'Cargo\.toml' | xargs cat > .combined_cache_key
+            if [ -f .cargo/config.toml ]; then
+              cat .cargo/config.toml >> .combined_cache_key
+            fi
+            if [ -f Cargo.lock ]; then
+              cat Cargo.lock >> .combined_cache_key
+            fi
+      - run:
+          name: Install required packages.
+          command: sudo apt-get update && sudo apt-get install llvm-dev libclang-dev protobuf-compiler --no-install-recommends
+      - restore_cache:
+          keys:
+            - v1-cache-{{ checksum ".combined_cache_key" }}
+      - run:
+          name: Run Tests (including doc tests)
+          command: "CONTINUE_TEST_IF_NO_POWERCAP=true cargo test"
+      - run:
+          name: Installing cargo-cache
+          command: "cargo install cargo-cache --no-default-features --features ci-autoclean cargo-cache"
+      - run:
+          name: Optimizing the cache
+          command: "cargo cache"
+      - save_cache:
+          key: v1-cache-{{ checksum ".combined_cache_key" }}
+          paths:
+            - ~/.cargo
+            #- {{ .Environment.CARGO_HOME }}
