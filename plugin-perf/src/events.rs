@@ -15,6 +15,7 @@ pub struct NamedPerfEvent<E: events::Event + Clone> {
 
 impl<E: events::Event + Clone + From<u64>> NamedPerfEvent<E> {
     /// An event with a custom user-supplied id to pass to `perf_event_open`.
+    #[allow(dead_code)]
     pub fn custom(id: u64) -> Self {
         Self {
             name: format!("custom-{id}"),

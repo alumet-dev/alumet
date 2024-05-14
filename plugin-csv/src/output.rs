@@ -6,13 +6,13 @@ use std::{
     time::SystemTime,
 };
 
-use alumet::measurement::{AttributeValue, MeasurementBuffer};
+use alumet::measurement::MeasurementBuffer;
 use alumet::{measurement::WrappedMeasurementValue, pipeline::OutputContext};
 use anyhow::Context;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-use crate::csv::{self, CsvHelper};
+use crate::csv::CsvHelper;
 
 pub struct CsvOutput {
     /// The attributes that we have written to the header.
