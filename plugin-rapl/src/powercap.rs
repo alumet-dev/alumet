@@ -218,15 +218,19 @@ impl alumet::pipeline::Source for PowercapProbe {
         measurements: &mut MeasurementAccumulator,
         timestamp: Timestamp,
     ) -> Result<(), alumet::pipeline::PollError> {
-        // reuse the same buffer for all the zones
-        // the size of the content of the file `energy_uj` should never exceed those of `max_energy_uj`,
-        // which is 16 bytes on all our test machines
+        // Reuse the same buffer for all the zones.
+        // The size of the content of the file `energy_uj` should never exceed those of `max_energy_uj`,
+        // which is 16 bytes on all our test machines (if it does exceed 16 bytes it's fine, but less optimal).
         let mut zone_reading_buf = Vec::with_capacity(16);
 
         for zone in &mut self.zones {
             // read the file from the beginning
-            zone.file.rewind()?;
-            zone.file.read_to_end(&mut zone_reading_buf)?;
+            zone.file
+                .rewind()
+                .with_context(|| format!("failed to rewind {:?}", zone.file))?;
+            zone.file
+                .read_to_end(&mut zone_reading_buf)
+                .with_context(|| format!("failed to read {:?}", zone.file))?;
 
             // parse the content of the file
             let content = std::str::from_utf8(&zone_reading_buf)?;

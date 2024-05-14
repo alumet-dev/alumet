@@ -21,9 +21,10 @@ pub enum CpuVendor {
 
 /// Retrieves the CPUs to monitor (one per socket) in order
 /// to get RAPL perf counters.
-pub fn cpus_to_monitor() -> anyhow::Result<Vec<CpuId>> {
-    let mask = fs::read_to_string("/sys/devices/power/cpumask")?;
-    let cpus_and_sockets = parse_cpu_and_socket_list(&mask)?;
+pub fn cpus_to_monitor_with_perf() -> anyhow::Result<Vec<CpuId>> {
+    let path = "/sys/devices/power/cpumask";
+    let mask = fs::read_to_string(path).with_context(|| format!("failed to read {path}"))?;
+    let cpus_and_sockets = parse_cpu_and_socket_list(&mask).with_context(|| format!("failed to parse {path}"))?;
     Ok(cpus_and_sockets)
 }
 
@@ -69,7 +70,8 @@ fn parse_cpu_list(cpulist: &str) -> anyhow::Result<Vec<u32>> {
 }
 
 pub fn online_cpus() -> anyhow::Result<Vec<u32>> {
-    let list = fs::read_to_string("/sys/devices/system/cpu/online")?;
+    let path = "/sys/devices/system/cpu/online";
+    let list = std::fs::read_to_string(path).with_context(|| format!("failed to parse {path}"))?;
     parse_cpu_list(&list)
 }
 

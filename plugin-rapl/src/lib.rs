@@ -8,6 +8,7 @@ use alumet::{
     },
     units::Unit,
 };
+use anyhow::{anyhow, Context};
 use indoc::indoc;
 use serde::{Deserialize, Serialize};
 
@@ -47,28 +48,83 @@ impl AlumetPlugin for RaplPlugin {
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
-        // Get cpu info.
-        let all_cpus = cpus::online_cpus()?;
-        let socket_cpus = cpus::cpus_to_monitor()?;
-        let n_sockets = socket_cpus.len();
-        let n_cpu_cores = all_cpus.len();
-        log::debug!("{n_sockets}/{n_cpu_cores} monitorable CPU (cores) found: {socket_cpus:?}");
+        let mut use_perf = !self.config.no_perf_events;
+        let mut use_powercap = true;
+        let mut check_consistency = true;
 
-        // Discover RAPL domains available in perf_events and powercap.
-        let perf_events = perf_event::all_power_events()?;
-        let (available_domains, subset_indicator) = match powercap::all_power_zones() {
-            Ok(power_zones) => {
-                let domains = check_domains_consistency(perf_events, power_zones);
-                let subset_indicator = if domains.is_whole { "" } else { " (\"safe\" subset)" };
-                (domains, subset_indicator)
+        if let Ok(false) = std::path::Path::new(perf_event::PERF_SYSFS_DIR).try_exists() {
+            // PERF_SYSFS_DIR does not exist
+            check_consistency = false;
+            if use_perf {
+                log::error!(
+                    "{} does not exist, the Intel RAPL PMU module may not be enabled. Is your Linux kernel too old?",
+                    perf_event::PERF_SYSFS_DIR
+                );
+                log::warn!("Because of the previous error, I will disable perf_events and fall back to powercap.");
+                use_perf = false;
+            } else {
+                log::warn!(
+                    "{} does not exist, the Intel RAPL PMU module may not be enabled. Is your Linux kernel too old?",
+                    perf_event::PERF_SYSFS_DIR
+                );
+                log::warn!("I will not use perf_events to check the consistency of the RAPL interfaces.");
             }
-            Err(e) => {
-                log::warn!("The consistency of the RAPL domains reported by the different interfaces of the Linux kernel cannot be checked (this is useful to work around bugs in some kernel versions on some machines): {e}");
-                let domains = SafeSubset::from_perf_only(perf_events);
-                let subset_indicator = " (unchecked consistency)";
-                (domains, subset_indicator)
+        }
+
+        // Discover RAPL domains available in perf_events and powercap. Beware, this can fail!
+        let try_perf_events = perf_event::all_power_events();
+        let try_power_zones = powercap::all_power_zones();
+
+        let (available_domains, subset_indicator) = match (try_perf_events, try_power_zones) {
+            (Ok(perf_events), Ok(power_zones)) => {
+                if !check_consistency {
+                    (SafeSubset::from_powercap_only(power_zones), " (from powercap)")
+                } else {
+                    let mut safe_domains = check_domains_consistency(&perf_events, &power_zones);
+                    let mut domain_origin = "";
+                    if !safe_domains.is_whole {
+                        // If one of the domain set is smaller, it could be empty, which would prevent the plugin from measuring anything.
+                        // In that case, we fall back to the other interface, the one that reports a non-empty list of domains.
+                        if perf_events.is_empty() && !power_zones.top.is_empty() {
+                            log::warn!("perf_events returned an empty list of RAPL domains, I will disable perf_events and use powercap instead.");
+                            use_perf = false;
+                            safe_domains = SafeSubset::from_powercap_only(power_zones);
+                            domain_origin = " (from powercap)";
+                        } else if !perf_events.is_empty() && power_zones.top.is_empty() {
+                            log::warn!("perf_events returned an empty list of RAPL domains, I will disable powercap and use perf_events instead.");
+                            use_powercap = false;
+                            safe_domains = SafeSubset::from_perf_only(perf_events);
+                            domain_origin = " (from perf_events)";
+                        } else {
+                            domain_origin = " (\"safe subset\")";
+                        }
+                    }
+                    (safe_domains, domain_origin)
+                }
+            }
+            (Ok(perf_events), Err(powercap_err)) => {
+                log::error!(
+                    "Cannot read the list of RAPL domains available via the powercap interface: {powercap_err:?}."
+                );
+                log::warn!("The consistency of the RAPL domains reported by the different interfaces of the Linux kernel cannot be checked (this is useful to work around bugs in some kernel versions on some machines).");
+                (SafeSubset::from_perf_only(perf_events), " (from perf_events)")
+            }
+            (Err(perf_err), Ok(power_zones)) => {
+                log::warn!(
+                    "Cannot read the list of RAPL domains available via the perf_events interface: {perf_err:?}."
+                );
+                log::warn!("The consistency of the RAPL domains reported by the different interfaces of the Linux kernel cannot be checked (this is useful to work around bugs in some kernel versions on some machines).");
+                (SafeSubset::from_powercap_only(power_zones), " (from powercap)")
+            }
+            (Err(perf_err), Err(power_err)) => {
+                log::error!("I could use neither perf_events nor powercap.\nperf_events error: {perf_err:?}\npowercap error: {power_err:?}");
+                Err(anyhow!(
+                    "Both perf_events and powercap failed, unable to read RAPL couters: {perf_err}\n{power_err}"
+                ))?
             }
         };
+
+        // We have found a set of RAPL domains that we agree on (in the best case, perf_events and powercap both work, are accessible by the agent and report the same list of domains).
         log::info!(
             "Available RAPL domains{subset_indicator}: {}",
             consistency::mkstring(&available_domains.domains, ", ")
@@ -82,27 +138,36 @@ impl AlumetPlugin for RaplPlugin {
         )?;
 
         // Create the measurement source.
-        let mut events_on_cpus = Vec::new();
-        for event in &available_domains.perf_events {
-            for cpu in &socket_cpus {
-                events_on_cpus.push((event, cpu));
+        let source = match (use_perf, use_powercap) {
+            (true, true) => {
+                // prefer perf_events, fallback to powercap if it fails
+                setup_perf_events_probe_or_fallback(metric, &available_domains)?
             }
-        }
-        log::debug!("Events to read: {events_on_cpus:?}");
-        let source = if self.config.no_perf_events {
-            // perf_events disabled by config, use powercap directly
-            setup_powercap_probe(metric, &available_domains)
-        } else {
-            // perf_events enabled, try it first and fallback to powercap if it fails
-            setup_perf_events_probe(metric, events_on_cpus, &available_domains)
+            (true, false) => {
+                // only use perf
+                setup_perf_events_probe(metric, &available_domains)
+                    .context("Failed to create RAPL probe based on perf_events")?
+            }
+            (false, true) => {
+                // only use powercap
+                setup_powercap_probe(metric, &available_domains)
+                    .context("Failed to create RAPL probe based on powercap")?
+            }
+            (false, false) => {
+                // error: no available interface!
+                return Err(anyhow!(
+                    "I can use neither perf_events nor powercap: impossible to measure RAPL counters."
+                ));
+            }
         };
 
+        // Configure the source and add it to Alumet
         let trigger = trigger::builder::time_interval(self.config.poll_interval)
             .flush_interval(self.config.flush_interval)
             .update_interval(self.config.flush_interval)
             .build()
             .unwrap();
-        alumet.add_source(source?, trigger);
+        alumet.add_source(source, trigger);
         Ok(())
     }
 
@@ -111,12 +176,40 @@ impl AlumetPlugin for RaplPlugin {
     }
 }
 
+fn setup_perf_events_probe_or_fallback(
+    metric: alumet::metrics::TypedMetricId<f64>,
+    available_domains: &SafeSubset,
+) -> anyhow::Result<Box<dyn Source>> {
+    setup_perf_events_probe(metric, available_domains).or_else(|_| {
+        log::warn!("I will fallback to the powercap sysfs, but perf_events is more efficient (see https://hal.science/hal-04420527).");
+        setup_powercap_probe(metric, available_domains)
+    })
+}
+
 fn setup_perf_events_probe(
     metric: alumet::metrics::TypedMetricId<f64>,
-    events_on_cpus: Vec<(&perf_event::PowerEvent, &cpus::CpuId)>,
     available_domains: &SafeSubset,
 ) -> Result<Box<dyn Source>, anyhow::Error> {
-    let source: anyhow::Result<Box<dyn Source>> = match PerfEventProbe::new(metric, &events_on_cpus) {
+    // Get cpu info (this can fail in some weird circumstances, let's be robust).
+    let all_cpus = cpus::online_cpus()?;
+    let socket_cpus = cpus::cpus_to_monitor_with_perf()
+        .context("I could not determine how to use perf_events to read RAPL energy counters. The Intel RAPL PMU module may not be enabled, is your Linux kernel too old?")?;
+
+    let n_sockets = socket_cpus.len();
+    let n_cpu_cores = all_cpus.len();
+    log::debug!("{n_sockets}/{n_cpu_cores} monitorable CPU (cores) found: {socket_cpus:?}");
+
+    // Build the right combination of perf events.
+    let mut events_on_cpus = Vec::new();
+    for event in &available_domains.perf_events {
+        for cpu in &socket_cpus {
+            events_on_cpus.push((event, cpu));
+        }
+    }
+    log::debug!("Events to read: {events_on_cpus:?}");
+
+    // Try to create the source
+    match PerfEventProbe::new(metric, &events_on_cpus) {
         Ok(perf_event_probe) => Ok(Box::new(perf_event_probe)),
         Err(e) => {
             // perf_events failed, log an error and try powercap instead
@@ -135,11 +228,9 @@ fn setup_perf_events_probe(
                     3. Run the agent as root (not recommanded).
                 "};
             log::warn!("{msg}");
-
-            setup_powercap_probe(metric, available_domains)
+            Err(e)
         }
-    };
-    source
+    }
 }
 
 fn setup_powercap_probe(

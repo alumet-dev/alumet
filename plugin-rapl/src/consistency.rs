@@ -42,8 +42,8 @@ impl SafeSubset {
 
 /// Checks the consistency of the RAPL domains reported by the different interfaces of the Linux kernel,
 /// and returns the list of domains that are available everywhere ("safe subset").
-pub fn check_domains_consistency(perf_events: Vec<PowerEvent>, power_zones: PowerZoneHierarchy) -> SafeSubset {
-    // get all the domains available via perf-events
+pub fn check_domains_consistency(perf_events: &[PowerEvent], power_zones: &PowerZoneHierarchy) -> SafeSubset {
+    // get all the domains available via perf_events
     let mut perf_rapl_domains: Vec<RaplDomainType> = perf_events.iter().map(|e| e.domain).collect();
     perf_rapl_domains.sort_by_key(|k| k.to_string());
     perf_rapl_domains.dedup_by_key(|k| k.to_string());
@@ -55,10 +55,10 @@ pub fn check_domains_consistency(perf_events: Vec<PowerEvent>, power_zones: Powe
 
     // warn for inconsistencies
     if perf_rapl_domains != powercap_rapl_domains {
-        log::warn!("Powercap and perf-event don't report the same RAPL domains. This may be due to a bug in powercap or in perf-event.");
+        log::warn!("Powercap and perf_events don't report the same RAPL domains. This may be caused by a bug in powercap or in perf_events.");
         log::warn!("Upgrading to a newer kernel could fix the problem.");
-        log::warn!("Perf-event: {}", mkstring(&perf_rapl_domains, ", "));
-        log::warn!("Powercap:   {}", mkstring(&powercap_rapl_domains, ", "));
+        log::warn!("Perf_events: {}", mkstring(&perf_rapl_domains, ", "));
+        log::warn!("Powercap:    {}", mkstring(&powercap_rapl_domains, ", "));
 
         match cpus::cpu_vendor() {
             Ok(CpuVendor::Amd) =>
@@ -68,7 +68,7 @@ pub fn check_domains_consistency(perf_events: Vec<PowerEvent>, power_zones: Powe
                     - All events are present in the sysfs, but they should not be there. This seems to have been fixed in Linux 5.17.
                     See https://github.com/torvalds/linux/commit/0036fb00a756a2f6e360d44e2e3d2200a8afbc9b.
 
-                    - The \"core\" domain doesn't work in perf-event, it could be added soon, if it's supported.
+                    - The \"core\" domain doesn't work in perf_events, it could be added soon, if it's supported.
                     See https://lore.kernel.org/lkml/20230217161354.129442-1-wyes.karny@amd.com/T/.
 
                     NOTE: It could also be totally unsupported, because it gives erroneous/aberrant values in powercap on our bi-socket AMD EPYC 7702 64-core Processor.
@@ -91,13 +91,15 @@ pub fn check_domains_consistency(perf_events: Vec<PowerEvent>, power_zones: Powe
             }
         }
         let perf_events_subset = perf_events
-            .into_iter()
+            .iter()
             .filter(|e| domains_subset.contains(&e.domain))
+            .cloned()
             .collect();
         let power_zones_subset = power_zones
             .flat
-            .into_iter()
+            .iter()
             .filter(|z| domains_subset.contains(&z.domain))
+            .cloned()
             .collect();
         SafeSubset {
             domains: domains_subset,
@@ -108,8 +110,8 @@ pub fn check_domains_consistency(perf_events: Vec<PowerEvent>, power_zones: Powe
     } else {
         SafeSubset {
             domains: perf_rapl_domains,
-            perf_events,
-            power_zones: power_zones.flat,
+            perf_events: perf_events.to_owned(),
+            power_zones: power_zones.flat.to_owned(),
             is_whole: true,
         }
     }

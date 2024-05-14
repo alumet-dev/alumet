@@ -20,8 +20,9 @@ use super::domains::RaplDomainType;
 // for an explanation of the RAPL PMU driver.
 
 pub(crate) const PERF_MAX_ENERGY: u64 = u64::MAX;
+pub(crate) const PERF_SYSFS_DIR: &str = "/sys/devices/power";
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PowerEvent {
     /// The name of the power event, as reported by the sysfs. This corresponds to a RAPL **domain name**, like "pkg".
     pub name: String,
@@ -125,8 +126,8 @@ pub fn all_power_events() -> Result<Vec<PowerEvent>> {
     }
 
     // Find all the events
-    let powercap_dir = "/sys/devices/power/events";
-    for e in fs::read_dir(powercap_dir).with_context(|| format!("Could not read {powercap_dir}. {ADVICE}"))? {
+    let power_event_dir = "/sys/devices/power/events";
+    for e in fs::read_dir(power_event_dir).with_context(|| format!("Could not read {power_event_dir}. {ADVICE}"))? {
         let entry = e?;
         let path = entry.path();
         let file_name = path.file_name().unwrap().to_string_lossy();

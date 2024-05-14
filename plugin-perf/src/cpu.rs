@@ -1,6 +1,8 @@
 //! Detection of online CPUs.
 use std::num::ParseIntError;
 
+use anyhow::Context;
+
 fn parse_cpu_list(cpulist: &str) -> anyhow::Result<Vec<u32>> {
     // handles "n" or "start-end"
     fn parse_cpulist_item(item: &str) -> anyhow::Result<Vec<u32>> {
@@ -30,7 +32,8 @@ fn parse_cpu_list(cpulist: &str) -> anyhow::Result<Vec<u32>> {
 }
 
 pub fn online_cpus() -> anyhow::Result<Vec<u32>> {
-    let list = std::fs::read_to_string("/sys/devices/system/cpu/online")?;
+    let path = "/sys/devices/system/cpu/online";
+    let list = std::fs::read_to_string(path).with_context(|| format!("Failed to parse {path}"))?;
     parse_cpu_list(&list)
 }
 
