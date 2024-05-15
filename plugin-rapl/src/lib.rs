@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
 use alumet::{
     pipeline::{trigger, Source},
@@ -190,6 +190,10 @@ fn setup_perf_events_probe(
     metric: alumet::metrics::TypedMetricId<f64>,
     available_domains: &SafeSubset,
 ) -> Result<Box<dyn Source>, anyhow::Error> {
+    fn resolve_application_path() -> std::io::Result<PathBuf> {
+        std::env::current_exe()?.canonicalize()
+    }
+
     // Get cpu info (this can fail in some weird circumstances, let's be robust).
     let all_cpus = cpus::online_cpus()?;
     let socket_cpus = cpus::cpus_to_monitor_with_perf()
@@ -214,13 +218,17 @@ fn setup_perf_events_probe(
         Err(e) => {
             // perf_events failed, log an error and try powercap instead
             log::warn!("I could not use perf_events to read RAPL energy counters: {e}");
-            let msg = indoc! {"
+            let app_path = resolve_application_path()
+                .ok()
+                .and_then(|p| p.to_str().map(|s| s.to_owned()))
+                .unwrap_or(String::from("path/to/agent"));
+            let msg = indoc::formatdoc! {"
                     I will fallback to the powercap sysfs, but perf_events is more efficient (see https://hal.science/hal-04420527).
                     
                     This warning is probably caused by insufficient privileges.
                     To fix this, you have 3 possibilities:
                     1. Grant the CAP_PERFMON (CAP_SYS_ADMIN on Linux < 5.8) capability to the agent binary.
-                        sudo setcap cap_perfmon=ep $(readlink -f path/to/alumet-agent)
+                        sudo setcap cap_perfmon=ep \"{app_path}\"
                     
                     2. Change a kernel setting to allow every process to read the perf_events.
                         sudo sysctl -w kernel.perf_event_paranoid=0
