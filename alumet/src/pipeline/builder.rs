@@ -412,7 +412,10 @@ impl PipelineBuilder {
                                         
                                         To fix this, you have two possibilities:
                                         1. Grant the SYS_NICE capability to the agent binary.
-                                            sudo setcap CAP_SYS_NICE+ep \"{app_path}\"
+                                             sudo setcap cap_sys_nice+ep \"{app_path}\"
+                                        
+                                           Note: to grant multiple capabilities to the binary, you must put all the capabilities in the same command.
+                                             sudo setcap \"cap_sys_nice+ep cap_perfmon=ep\" \"{app_path}\"
                                         
                                         2. Run the agent as root (not recommended).
                                     "}

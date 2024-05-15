@@ -228,7 +228,10 @@ fn setup_perf_events_probe(
                     This warning is probably caused by insufficient privileges.
                     To fix this, you have 3 possibilities:
                     1. Grant the CAP_PERFMON (CAP_SYS_ADMIN on Linux < 5.8) capability to the agent binary.
-                        sudo setcap cap_perfmon=ep \"{app_path}\"
+                         sudo setcap cap_perfmon=ep \"{app_path}\"
+                        
+                       Note: to grant multiple capabilities to the binary, you must put all the capabilities in the same command.
+                         sudo setcap \"cap_sys_nice+ep cap_perfmon=ep\" \"{app_path}\" 
                     
                     2. Change a kernel setting to allow every process to read the perf_events.
                         sudo sysctl -w kernel.perf_event_paranoid=0
