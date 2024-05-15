@@ -195,7 +195,7 @@ impl fmt::Display for PipelineBuildError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             PipelineBuildError::Invalid(reason) => write!(f, "invalid pipeline configuration: {reason}"),
-            PipelineBuildError::Io(err) => write!(f, "unable to build the pipeline: {err}"),
+            PipelineBuildError::Io(err) => write!(f, "IO error while building the pipeline: {err}"),
             PipelineBuildError::ElementBuild(err, typ, plugin) => write!(
                 f,
                 "error while building an element of the pipeline ({typ:?} added by plugin {plugin}): {err:?}"
@@ -261,7 +261,7 @@ impl PipelineBuilder {
 
         // Create the normal runtime, the priority one is initialized on demand.
         let rt_normal: Runtime = self.build_normal_runtime()?;
-        let rt_priority: Option<Runtime> = self.build_priority_runtime().ok().flatten();
+        let rt_priority: Option<Runtime> = self.build_priority_runtime()?;
 
         // Channel: source -> transforms.
         let (in_tx, in_rx) = mpsc::channel::<MeasurementBuffer>(256);
@@ -457,8 +457,8 @@ impl PipelineBuilder {
             });
 
             // If the worker threads failed to start, don't use this runtime.
-            if let Some(e) = THREAD_START_FAILURE.lock().unwrap().take() {
-                return Err(e);
+            if THREAD_START_FAILURE.lock().unwrap().take().is_some() {
+                return Ok(None);
             }
             Ok(Some(runtime))
         } else {
