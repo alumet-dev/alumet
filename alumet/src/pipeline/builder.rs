@@ -1,8 +1,11 @@
 use core::fmt;
 use std::collections::HashMap;
 use std::future::Future;
-use std::io;
+use std::io::{self, ErrorKind};
+use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 
 use anyhow::Context;
 
@@ -256,7 +259,7 @@ impl PipelineBuilder {
             return Err(PipelineBuildError::Invalid(InvalidReason::NoSource));
         }
 
-        // Create the runtimes.
+        // Create the normal runtime, the priority one is initialized on demand.
         let rt_normal: Runtime = self.build_normal_runtime()?;
         let rt_priority: Option<Runtime> = self.build_priority_runtime()?;
 
@@ -278,7 +281,7 @@ impl PipelineBuilder {
                 let pending = PendingPipelineContext {
                     to_output: &out_tx,
                     rt_handle: if trigger.realtime_priority {
-                        rt_priority.as_ref().unwrap().handle()
+                        rt_priority.as_ref().unwrap_or(&rt_normal).handle()
                     } else {
                         rt_normal.handle()
                     },
@@ -361,7 +364,11 @@ impl PipelineBuilder {
 
     fn build_normal_runtime(&self) -> io::Result<Runtime> {
         let mut builder = tokio::runtime::Builder::new_multi_thread();
-        builder.enable_all().thread_name("normal-worker");
+        builder.enable_all().thread_name_fn(|| {
+            static ATOMIC_ID: AtomicUsize = AtomicUsize::new(0);
+            let id = ATOMIC_ID.fetch_add(1, Ordering::SeqCst);
+            format!("normal-worker-{id}")
+        });
         if let Some(n) = self.normal_worker_threads {
             builder.worker_threads(n);
         }
@@ -369,19 +376,70 @@ impl PipelineBuilder {
     }
 
     fn build_priority_runtime(&self) -> io::Result<Option<Runtime>> {
-        if self.sources.iter().any(|s| s.trigger.realtime_priority) {
+        fn resolve_application_path() -> io::Result<PathBuf> {
+            std::env::current_exe()?.canonicalize()
+        }
+
+        // Count how many sources require a "realtime priority" runtime
+        let n_rt_sources = self
+            .sources
+            .iter()
+            .filter(|builder| builder.trigger.realtime_priority)
+            .count();
+
+        if n_rt_sources > 0 {
+            // If `on_thread_start` fails, `builder.build()` will still return a runtime,
+            // but it will be unusable. To avoid that, we store the error here and don't return Some(runtime).
+            static THREAD_START_FAILURE: Mutex<Option<io::Error>> = Mutex::new(None);
+
             let mut builder = tokio::runtime::Builder::new_multi_thread();
             builder
                 .enable_all()
+                .worker_threads(n_rt_sources)
                 .on_thread_start(|| {
-                    super::threading::increase_thread_priority()
-                        .expect("failed to create high-priority thread for worker")
+                    if let Err(e) = super::threading::increase_thread_priority() {
+                        let mut failure = THREAD_START_FAILURE.lock().unwrap();
+                        if failure.is_none() {
+                            let hint =
+                                if e.kind() == ErrorKind::PermissionDenied {
+                                    let app_path = resolve_application_path()
+                                        .ok()
+                                        .and_then(|p| p.to_str().map(|s| s.to_owned()))
+                                        .unwrap_or(String::from("path/to/agent"));
+
+                                    indoc::formatdoc! {"
+                                        This is probably caused by insufficient privileges.
+                                        
+                                        To fix this, you have two possibilities:
+                                        1. Grant the SYS_NICE capability to the agent binary.
+                                            sudo setcap CAP_SYS_NICE+ep \"{app_path}\"
+                                        
+                                        2. Run the agent as root (not recommended).
+                                    "}
+                                } else {
+                                    String::from("This does not seem to be caused by insufficient privileges. Please report an issue on the GitHub repository.")
+                                };
+                            log::error!("I tried to increase the scheduling priority of the thread in order to improve the accuracy of the measurement timing, but I failed: {e}\n{hint}");
+                            log::warn!("Alumet will still work, but the time between two measurements may differ from the configuration.");
+                            *failure = Some(e);
+                        }
+                        let current_thread = std::thread::current();
+                        let thread_name = current_thread.name().unwrap_or("<unnamed>");
+                        log::warn!("Unable to increase the scheduling priority of thread {thread_name}.");
+                    };
                 })
-                .thread_name("priority-worker");
-            if let Some(n) = self.priority_worker_threads {
-                builder.worker_threads(n);
+                .thread_name_fn(|| {
+                    static ATOMIC_ID: AtomicUsize = AtomicUsize::new(0);
+                    let id = ATOMIC_ID.fetch_add(1, Ordering::SeqCst);
+                    format!("priority-worker-{id}")
+                });
+            let n_threads = self.priority_worker_threads.unwrap_or(n_rt_sources);
+            builder.worker_threads(n_threads);
+            let runtime = builder.build()?;
+            if let Some(e) = THREAD_START_FAILURE.lock().unwrap().take() {
+                return Err(e);
             }
-            Ok(Some(builder.build()?))
+            Ok(Some(runtime))
         } else {
             Ok(None)
         }

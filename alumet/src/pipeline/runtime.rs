@@ -209,7 +209,7 @@ impl IdlePipeline {
         for src in self.sources {
             let data_tx = in_tx.clone();
             let runtime = match src.trigger_provider.realtime_priority {
-                true => self.rt_priority.as_ref().unwrap(),
+                true => self.rt_priority.as_ref().unwrap_or(&self.rt_normal),
                 false => &self.rt_normal,
             };
             let (command_tx, command_rx) = watch::channel(SourceCmd::SetTrigger(Some(src.trigger_provider)));
