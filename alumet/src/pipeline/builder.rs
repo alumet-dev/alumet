@@ -261,7 +261,7 @@ impl PipelineBuilder {
 
         // Create the normal runtime, the priority one is initialized on demand.
         let rt_normal: Runtime = self.build_normal_runtime()?;
-        let rt_priority: Option<Runtime> = self.build_priority_runtime()?;
+        let rt_priority: Option<Runtime> = self.build_priority_runtime().ok().flatten();
 
         // Channel: source -> transforms.
         let (in_tx, in_rx) = mpsc::channel::<MeasurementBuffer>(256);
@@ -281,7 +281,13 @@ impl PipelineBuilder {
                 let pending = PendingPipelineContext {
                     to_output: &out_tx,
                     rt_handle: if trigger.realtime_priority {
-                        rt_priority.as_ref().unwrap_or(&rt_normal).handle()
+                        rt_priority
+                            .as_ref()
+                            .unwrap_or_else(|| {
+                                log::warn!("Could not provide a \"realtime priority\" runtime for source {name}, using the normal runtime (see previous warnings).");
+                                &rt_normal
+                            })
+                            .handle()
                     } else {
                         rt_normal.handle()
                     },
@@ -438,7 +444,19 @@ impl PipelineBuilder {
                 });
             let n_threads = self.priority_worker_threads.unwrap_or(n_rt_sources);
             builder.worker_threads(n_threads);
+
+            // Build the runtime.
             let runtime = builder.build()?;
+
+            // Try to spawn a task to ensure that the worker threads have started properly.
+            // Otherwise, builder.build() may return and the threads may fail after the failure check.
+            runtime.block_on(async {
+                let _ = runtime
+                    .spawn(tokio::time::sleep(tokio::time::Duration::from_millis(1)))
+                    .await;
+            });
+
+            // If the worker threads failed to start, don't use this runtime.
             if let Some(e) = THREAD_START_FAILURE.lock().unwrap().take() {
                 return Err(e);
             }
