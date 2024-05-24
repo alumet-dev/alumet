@@ -9,7 +9,16 @@ use anyhow::anyhow;
 /// A unit of measurement.
 ///
 /// Some common units of the SI are provided as plain enum variants, such as `Unit::Second`.
-#[derive(PartialEq, Eq, Clone)]
+/// Use [`PrefixedUnit`] to create a standard multiple of a unit.
+/// 
+/// ## Example
+/// ```
+/// use alumet::units::{Unit, PrefixedUnit};
+/// 
+/// let seconds = Unit::Second;
+/// let kilobytes = PrefixedUnit::kilo(Unit::Byte);
+/// ```
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum Unit {
     /// Indicates a dimensionless value. This is suitable for counters.
     Unity,
@@ -40,6 +49,9 @@ pub enum Unit {
 
     /// Energy in Watt-hour (1 W⋅h = 3.6 kiloJoule = 3.6 × 10^3 Joules)
     WattHour,
+    
+    /// Amount of information (1 byte = 8 bits).
+    Byte,
 
     /// A custom unit
     Custom {
@@ -92,6 +104,7 @@ impl Unit {
             Unit::DegreeCelsius => "Cel",
             Unit::DegreeFahrenheit => "[degF]",
             Unit::WattHour => "W.h",
+            Unit::Byte => "By",
             Unit::Custom {
                 unique_name,
                 display_name: _,
@@ -114,6 +127,7 @@ impl Unit {
             Unit::DegreeCelsius => "°C",
             Unit::DegreeFahrenheit => "°F",
             Unit::WattHour => "Wh",
+            Unit::Byte => "B",
             Unit::Custom {
                 unique_name: _,
                 display_name,
@@ -129,26 +143,6 @@ impl Unit {
     }
 }
 
-impl Debug for Unit {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Unity => write!(f, "Unity"),
-            Self::Second => write!(f, "Second"),
-            Self::Watt => write!(f, "Watt"),
-            Self::Joule => write!(f, "Joule"),
-            Self::Volt => write!(f, "Volt"),
-            Self::Ampere => write!(f, "Ampere"),
-            Self::Hertz => write!(f, "Hertz"),
-            Self::DegreeCelsius => write!(f, "DegreeCelsius"),
-            Self::DegreeFahrenheit => write!(f, "DegreeFahrenheit"),
-            Self::WattHour => write!(f, "WattHour"),
-            Self::Custom {
-                unique_name,
-                display_name: _,
-            } => write!(f, "Custom({})", unique_name),
-        }
-    }
-}
 impl Display for Unit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.display_name())
@@ -171,7 +165,8 @@ impl FromStr for Unit {
             "Cel" => Unit::DegreeCelsius,
             "[degF]" => Unit::DegreeFahrenheit,
             "W.h" => Unit::WattHour,
-            _ => return Err(anyhow!("Unknown or non standard Unit")),
+            "B" => Unit::Byte,
+            _ => return Err(anyhow!("Unknown or non standard Unit {s}")),
         };
         Ok(res)
     }
