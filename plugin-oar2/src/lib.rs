@@ -13,7 +13,10 @@ use anyhow::Context;
 use notify::{Event, EventHandler, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::{
-    ffi::OsStr, fs::{self, File}, io::{Read, Seek}, path::PathBuf, time::Duration
+    fs::{self, File},
+    io::{Read, Seek},
+    path::PathBuf,
+    time::Duration,
 };
 
 #[derive(Debug)]
@@ -88,16 +91,15 @@ impl AlumetPlugin for Oar2Plugin {
         let cgroup_cpu_path = self.config.path.join("cpuacct/oar");
         let cgroup_memory_path = self.config.path.join("memory/oar");
 
-
         // Scanning to check if there are jobs already running
-        for entry in
-            fs::read_dir(&cgroup_cpu_path).with_context(|| format!("cgroup cpu path is, my_var={cgroup_cpu_path:?}"))?
+        for entry in fs::read_dir(&cgroup_cpu_path)
+            .with_context(|| format!("Invalid oar cpuacct cgroup path, {cgroup_cpu_path:?}"))?
         {
             let entry = entry?;
 
             let job_name = entry.file_name();
             let job_name = job_name.into_string().unwrap();
-        
+
             if entry.file_type()?.is_dir() && job_name.chars().any(|c| c.is_numeric()) {
                 let job_separated = job_name.split_once("_");
                 let job_id = job_separated.context("Invalid oar cgroup.")?.1.parse()?;
@@ -164,10 +166,12 @@ impl AlumetPlugin for Oar2Plugin {
                             if job_name.chars().any(|c| c.is_numeric()) {
                                 let job_separated = job_name.split_once("_");
                                 let job_id = job_separated.context("Invalid oar cgroup").unwrap().1.parse().unwrap();
+
                                 let cpu_path = self.config_path.join("cpuacct/oar").join(&job_name);
                                 log::debug!("CPU path {cpu_path:?}");
                                 let memory_path = self.config_path.join("memory/oar").join(&job_name);
                                 log::debug!("Memory path {memory_path:?}");
+
                                 let cpu_file_path = cpu_path.join("cpuacct.usage");
                                 log::debug!("CPU file path {cpu_file_path:?}");
                                 let memory_file_path = memory_path.join("memory.usage_in_bytes");
@@ -252,8 +256,6 @@ impl Source for OarJobSource {
         let cpu_usage_u64 = cpu_usage.trim().parse::<u64>()?;
         let memory_usage_u64 = memory_usage.trim().parse::<u64>()?;
 
-        //Resource consumer: whole path to the job
-
         measurements.push(
             MeasurementPoint::new(
                 timestamp,
@@ -267,14 +269,15 @@ impl Source for OarJobSource {
             .with_attr("oar_job_id", self.job_id),
         );
 
-        measurements.push(MeasurementPoint::new(
-            timestamp,
-            self.memory_metric,
-            Resource::LocalMachine,
-            ResourceConsumer::ControlGroup {
-                path: (self.memory_file_path.to_str().unwrap().to_owned().into()),
-            },
-            memory_usage_u64,
+        measurements.push(
+            MeasurementPoint::new(
+                timestamp,
+                self.memory_metric,
+                Resource::LocalMachine,
+                ResourceConsumer::ControlGroup {
+                    path: (self.memory_file_path.to_str().unwrap().to_owned().into()),
+                },
+                memory_usage_u64,
             )
             .with_attr("oar_job_id", self.job_id),
         );
