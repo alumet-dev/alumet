@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 alumet = { version = "0.4.1", path = "../alumet" }
 anyhow = "1.0.86"
-notify = { version = "6.1.1", default-features = false, features = ["macos_kqueue"] }
+notify = { version = "6.1.1", default-features = false, features = ["macos_fsevent"] }
 serde = { version = "1.0.202", features = ["derive"] }
 humantime-serde = "1.1"
 serde_derive = "1.0"
