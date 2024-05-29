@@ -234,7 +234,7 @@ impl AlumetPlugin for Oar2Plugin {
 impl Default for Config {
     fn default() -> Self {
         let mut path = PathBuf::new();
-        path.push("/Users/sofiaduquegomez/Desktop/UGA-Ensimag/M1MoSig/Second Semester/Research Internship/testing");
+        path.push("/sys/fs/cgroup");
         Self {
             path,
             poll_interval: Duration::from_secs(1),
