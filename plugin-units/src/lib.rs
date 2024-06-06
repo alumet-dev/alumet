@@ -53,10 +53,11 @@ impl Transform for TestTransform {
             };
             res
         }
-        let copy: Vec<_> = measurements.iter().map(copy_and_change_to_float).collect();
-        for m in copy {
-            measurements.push(m);
+        // let copy: Vec<_> = measurements.iter().map(copy_and_change_to_float).collect();
+        for value in &mut measurements.iter_mut() {
+            *value = copy_and_change_to_float(value);
         }
+
         Ok(())
     }
 }
