@@ -17,6 +17,7 @@ plugin-csv = { version = "0.2.0", path = "../plugin-csv" }
 plugin-perf = { version = "0.1.0", path = "../plugin-perf" }
 plugin-rapl = { version = "0.3.0", path = "../plugin-rapl" }
 plugin-socket-control = { version = "0.1.0", path = "../plugin-socket-control" }
+plugin-units = { version = "0.1.0", path = "../plugin-units" }
 serde = { version = "1.0.198", features = ["derive"] }
 toml = "0.8.12"
 

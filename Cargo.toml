@@ -16,4 +16,5 @@ members = [
     "plugin-socket-control",
     "test-dynamic-plugin-rust",
     "test-dynamic-plugins",
+    "plugin-units",
 ]
