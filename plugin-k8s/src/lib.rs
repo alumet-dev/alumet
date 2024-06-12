@@ -151,11 +151,10 @@ impl AlumetPlugin for K8sPlugin {
 
 impl Default for Config {
     fn default() -> Self {
-        let mut root_path = PathBuf::new();
-        root_path.push("/sys/fs/cgroup/kubepods.slice/");
+        let root_path = PathBuf::from("/sys/fs/cgroup/kubepods.slice/");
         Self {
             path: root_path,
-            poll_interval: Duration::from_millis(1), // 1Hz
+            poll_interval: Duration::from_secs(1), // 1Hz
         }
     }
 }
