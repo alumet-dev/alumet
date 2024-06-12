@@ -13,7 +13,6 @@ use anyhow::Result;
 use crate::cgroup_v2::{self, CgroupV2MetricFile};
 use crate::parsing_cgroupv2::CgroupV2Metric;
 
-/// Energy probe based on perf_event for intel RAPL.
 pub struct K8SProbe {
     pub cgroup_v2_metric_file: CgroupV2MetricFile,
     pub time_tot: CounterDiff, 

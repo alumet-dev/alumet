@@ -70,7 +70,7 @@ fn list_metric_file_in_dir(root_directory_path: &Path) -> anyhow::Result<Vec<Cgr
 /// This function list all k8s pods availables, using sub-directories to look in:
 /// For each subdirectory, we look in if there is a directory/ies about pods and we add it
 /// to a vector. All subdirectory are visited with the help of <list_metric_file_in_dir> function.
-pub fn list_all_k8s_pods_file(root_directory_path: &PathBuf) -> anyhow::Result<Vec<CgroupV2MetricFile>> {
+pub fn list_all_k8s_pods_file(root_directory_path: &Path) -> anyhow::Result<Vec<CgroupV2MetricFile>> {
     let mut final_li_metric_file: Vec<CgroupV2MetricFile> = Vec::new();
     if !root_directory_path.exists() {
         return Ok(final_li_metric_file);

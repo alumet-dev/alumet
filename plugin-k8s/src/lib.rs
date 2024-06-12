@@ -86,25 +86,16 @@ impl AlumetPlugin for K8sPlugin {
         // let metrics = self.metrics.clone().unwrap();
         let metrics = self.metrics.clone().unwrap();
         let poll_interval = self.config.poll_interval;
-
         struct PodDetector {
             plugin_name: String,
             metrics: Metrics,
             control_handle: ControlHandle,
             poll_interval: Duration,
         }
-        // struct JobDetector {
-        //     config_path: PathBuf,
-        //     time_spend_tot: TypedMetricId<u64>,
-        //     time_spend_usr: TypedMetricId<u64>,
-        //     time_spend_sys: TypedMetricId<u64>,
-        //     control_handle: ControlHandle,
-        //     plugin_name: String,
-        //     poll_interval: Duration,
-        // }
 
         impl EventHandler for PodDetector {
             fn handle_event(&mut self, event: Result<Event, notify::Error>) {
+                // The events look like the following
                 // Handle_Event: Ok(Event { kind: Create(Folder), paths: ["/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/TESTTTTT"], attr:tracker: None, attr:flag: None, attr:info: None, attr:source: None })
                 // Handle_Event: Ok(Event { kind: Remove(Folder), paths: ["/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/TESTTTTT"], attr:tracker: None, attr:flag: None, attr:info: None, attr:source: None })
                 log::debug!("Handle event function");
@@ -137,15 +128,7 @@ impl AlumetPlugin for K8sPlugin {
                         }
 
                     }
-                } else if let Ok(Event {
-                    kind: EventKind::Remove(notify::event::RemoveKind::Folder),
-                    paths,
-                    ..
-                }) = event
-                {
-                    println!("suppression, path: {paths:?}");
-                }
-                
+                }                 
             }
         }
         let handler = PodDetector {
@@ -172,7 +155,7 @@ impl Default for Config {
         root_path.push("/sys/fs/cgroup/kubepods.slice/");
         Self {
             path: root_path,
-            poll_interval: Duration::from_secs(1), // 1Hz
+            poll_interval: Duration::from_millis(1), // 1Hz
         }
     }
 }
