@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context};
+use left_right::{Absorb, ReadHandle, WriteHandle};
 
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
@@ -26,9 +27,9 @@ use crate::{
     pipeline::{Output, Source},
 };
 
-use super::builder;
 use super::builder::{ConfiguredTransform, ElementType};
 use super::trigger::{Trigger, TriggerSpec};
+use super::{builder, control};
 use super::{OutputContext, PollError, TransformError, WriteError};
 
 /// A measurement pipeline that has not been started yet.
@@ -54,20 +55,6 @@ pub struct IdlePipeline {
 
     /// Broadcast queue to outputs
     pub(super) to_outputs: broadcast::Sender<OutputMsg>,
-}
-
-/// A message to control the pipeline.
-enum ControlMessage {
-    Shutdown,
-    AddSource {
-        requested_name: String,
-        plugin_name: String,
-        source: Box<dyn Source>,
-        trigger: TriggerSpec,
-    },
-    ModifySource(ElementCommand<SourceCmd>),
-    ModifyTransform(ElementCommand<TransformCmd>),
-    ModifyOutput(ElementCommand<OutputCmd>),
 }
 
 /// A command sent to one or multiple elements of the pipeline.
@@ -98,52 +85,7 @@ pub struct RunningPipeline {
     shutdown_task_handle: Option<JoinHandle<()>>,
 
     /// Controls the pipeline.
-    control_handle: ControlHandle,
-}
-
-struct PipelineControllerState {
-    /// Send a message to this channel in order to shutdown the entire pipeline.
-    global_shutdown_send: UnboundedSender<()>,
-
-    // Senders to keep the receivers alive and to send commands.
-    source_command_senders_by_plugin: HashMap<String, Vec<watch::Sender<SourceCmd>>>,
-    output_command_senders_by_plugin: HashMap<String, Vec<watch::Sender<OutputCmd>>>,
-
-    /// Currently active transforms.
-    /// Note: it could be generalized to support more than 64 values,
-    /// either with a crate like arc-swap, or by using multiple Vec of transforms, each with an AtomicU64.
-    active_transforms: Arc<AtomicU64>,
-    transforms_mask_by_plugin: HashMap<String, u64>,
-
-    // Allows to shut the autonomous sources down.
-    autonomous_shutdown_token: CancellationToken,
-
-    /// State useful for modifying the pipeline.
-    modifier: PipelineModifierState,
-}
-
-/// Things necessary for modifying the pipeline at runtime,
-/// that is, adding or removing pipeline elements.
-struct PipelineModifierState {
-    /// Name generator for the new sources.
-    namegen: builder::ElementNameGenerator,
-
-    /// All the JoinSets of the running pipeline.
-    join_sets: ElementJoinSets,
-
-    /// Sends measurements from Sources.
-    in_tx: mpsc::Sender<MeasurementBuffer>,
-
-    /// Handle to the tokio runtime with "normal" threads.
-    rt_normal: tokio::runtime::Handle,
-}
-
-#[derive(Clone)]
-pub struct ControlHandle {
-    /// Send a message to this channel to control the pipeline.
-    ///
-    /// Closed when the pipeline shuts down.
-    tx: mpsc::Sender<ControlMessage>,
+    control_handle: control::ControlHandle,
 }
 
 impl IdlePipeline {
@@ -246,7 +188,7 @@ impl IdlePipeline {
 
         // Spawn a task to control the pipeline and orchestrate its shutdown.
         // Most of the state (command senders, mask of the active transforms, etc.) is moved to this task.
-        let (control_tx, control_rx) = mpsc::channel::<ControlMessage>(256);
+        let (control_tx, control_rx) = mpsc::channel::<control::ControlMessage>(256);
         let controller_state = PipelineControllerState {
             global_shutdown_send,
             source_command_senders_by_plugin,
@@ -261,7 +203,7 @@ impl IdlePipeline {
                 rt_normal: self.rt_normal.handle().clone(),
             },
         };
-        let control_handle = ControlHandle { tx: control_tx };
+        let control_handle = control::ControlHandle { tx: control_tx };
         let control_task_handle = self.rt_normal.spawn(pipeline_control_task(
             global_shutdown_recv,
             control_rx,
@@ -285,366 +227,16 @@ struct ElementJoinSets {
     output_set: JoinSet<anyhow::Result<()>>,
 }
 
-#[derive(Clone, Debug)]
-pub enum SourceCmd {
-    Run,
-    Pause,
-    Stop,
-    SetTrigger(Option<TriggerSpec>),
+mod source {
+
 }
 
-async fn run_source(
-    source_name: String,
-    mut source: Box<dyn Source>,
-    tx: mpsc::Sender<MeasurementBuffer>,
-    mut commands: watch::Receiver<SourceCmd>,
-) -> anyhow::Result<()> {
-    /// Takes the [`Trigger`] from the option and initializes it.
-    fn init_trigger(
-        trigger_spec: &mut Option<TriggerSpec>,
-        interrupt_signal: watch::Receiver<SourceCmd>,
-    ) -> Result<Trigger, std::io::Error> {
-        let spec = trigger_spec
-            .take()
-            .expect("invalid empty trigger in message Init(trigger)");
-        Trigger::new(spec, interrupt_signal)
-    }
+mod transform {
 
-    // the first command must be "init"
-    let mut trigger: Trigger = {
-        let signal = commands.clone();
-        let init_cmd = commands
-            .wait_for(|c| matches!(c, SourceCmd::SetTrigger(_)))
-            .await
-            .expect("watch channel must stay open during run_source");
-
-        // cloning required to borrow opt as mut below
-        match init_cmd.clone() {
-            SourceCmd::SetTrigger(mut opt) => {
-                init_trigger(&mut opt, signal).with_context(|| format!("init_trigger failed for {source_name}"))?
-            }
-            _ => unreachable!(),
-        }
-    };
-
-    // Store measurements in this buffer, and replace it every `flush_rounds` rounds.
-    // For now, we don't know how many measurements the source will produce, so we allocate 1 per round.
-    let mut buffer = MeasurementBuffer::with_capacity(trigger.config.flush_rounds);
-
-    // main loop
-    let mut i = 1usize;
-    'run: loop {
-        // Wait for the trigger. It can return for two reasons:
-        // - "normal case": the underlying mechanism (e.g. timer) triggers <- this is the most likely case
-        // - "interrupt case": the underlying mechanism was idle (e.g. sleeping) but a new command arrived
-        let reason = trigger.next().await.with_context(|| source_name.clone())?;
-
-        let update = match reason {
-            TriggerReason::Triggered => {
-                // poll the source
-                let timestamp = Timestamp::now();
-                match source.poll(&mut buffer.as_accumulator(), timestamp) {
-                    Ok(()) => (),
-                    Err(PollError::CanRetry(e)) => {
-                        log::error!("Non-fatal error when polling {source_name} (will retry): {e:#}");
-                    }
-                    Err(PollError::Fatal(e)) => {
-                        log::error!("Fatal error when polling {source_name} (will stop running): {e:?}");
-                        return Err(e.context(format!("fatal error when polling {source_name}")));
-                    }
-                };
-
-                // Flush the measurements, not on every round for performance reasons.
-                // This is done _after_ polling, to ensure that we poll at least once before flushing, even if flush_rounds is 1.
-                if i % trigger.config.flush_rounds == 0 {
-                    // flush and create a new buffer
-
-                    // Hint for the new buffer capacity, great if the number of measurements per flush doesn't change much,
-                    // which is often the case.
-                    let prev_length = buffer.len();
-
-                    buffer = match tx.try_send(buffer) {
-                        Ok(()) => {
-                            // buffer has been sent, create a new one
-                            log::debug!("{source_name} flushed {prev_length} measurements");
-                            MeasurementBuffer::with_capacity(prev_length)
-                        }
-                        Err(TrySendError::Closed(_buf)) => {
-                            // the channel Receiver has been closed
-                            panic!("source channel should stay open");
-                        }
-                        Err(TrySendError::Full(_buf)) => {
-                            // the channel's buffer is full! reduce the measurement frequency
-                            // TODO it would be better to choose which source to slow down based
-                            // on its frequency and number of measurements per poll.
-                            // buf
-                            todo!("buffer is full")
-                        }
-                    };
-                }
-
-                // only update on some rounds, for performance reasons.
-                let update = (i % trigger.config.update_rounds) == 0;
-
-                // increase i
-                i = i.wrapping_add(1);
-
-                update
-            }
-            TriggerReason::Interrupted => {
-                // interrupted because of a new command, forcibly update the command (see below)
-                true
-            }
-        };
-
-        if update {
-            // update state based on the latest command
-            let current_command: Option<SourceCmd> = {
-                // restrict the scope of cmd_ref, otherwise it causes lifetime problems
-                let cmd_ref = commands.borrow_and_update();
-                if cmd_ref.has_changed() {
-                    Some(cmd_ref.clone())
-                } else {
-                    None
-                }
-            };
-
-            if let Some(cmd) = current_command {
-                let mut cmd = cmd;
-                let mut paused = false;
-                'pause: loop {
-                    log::trace!("{source_name} received {cmd:?}");
-                    match cmd {
-                        SourceCmd::Run => break 'pause,
-                        SourceCmd::Pause => paused = true,
-                        SourceCmd::Stop => {
-                            // flush now, then stop
-                            if !buffer.is_empty() {
-                                tx.try_send(buffer)
-                                    .expect("failed to flush measurements after receiving SourceCmd::Stop");
-                            }
-                            break 'run;
-                        }
-                        SourceCmd::SetTrigger(mut opt) => {
-                            let prev_flush_rounds = trigger.config.flush_rounds;
-
-                            // update the trigger
-                            let signal = commands.clone();
-                            trigger = init_trigger(&mut opt, signal).unwrap();
-
-                            // don't reset the round count
-                            // i = 1;
-
-                            // estimate the required buffer capacity and allocate it
-                            let prev_length = buffer.len();
-                            let remaining_rounds = trigger.config.flush_rounds;
-                            let hint_additional_elems = remaining_rounds * prev_length / prev_flush_rounds;
-                            buffer.reserve(hint_additional_elems);
-
-                            // don't be stuck here
-                            if !paused {
-                                break 'pause;
-                            }
-                        }
-                    }
-                    commands
-                        .changed()
-                        .await
-                        .expect("command channel of paused source should remain open");
-                    cmd = commands.borrow().clone();
-                }
-            }
-        }
-    }
-    Ok(())
 }
 
-#[derive(Debug)]
-pub enum TransformCmd {
-    Enable,
-    Disable,
-}
+mod output {
 
-async fn run_transforms(
-    mut transforms: Vec<ConfiguredTransform>,
-    mut rx: mpsc::Receiver<MeasurementBuffer>,
-    tx: broadcast::Sender<OutputMsg>,
-    active_flags: Arc<AtomicU64>,
-) -> anyhow::Result<()> {
-    loop {
-        if let Some(mut measurements) = rx.recv().await {
-            // Update the list of active transforms (the PipelineController can update the flags).
-            let current_flags = active_flags.load(Ordering::Relaxed);
-
-            // Run the enabled transforms. If one of them fails, the ability to continue running depends on the error type.
-            for (i, t) in &mut transforms.iter_mut().enumerate() {
-                let t_flag = 1 << i;
-                if current_flags & t_flag != 0 {
-                    match t.transform.apply(&mut measurements) {
-                        Ok(()) => (),
-                        Err(TransformError::UnexpectedInput(e)) => {
-                            log::error!("Transform function {} received unexpected measurements: {e:#}", t.name);
-                        }
-                        Err(TransformError::Fatal(e)) => {
-                            log::error!(
-                                "Fatal error in transform {} (this breaks the transform task!): {e:?}",
-                                t.name
-                            );
-                            return Err(e.context(format!("fatal error in transform {}", t.name)));
-                        }
-                    }
-                }
-            }
-
-            // Send the results to the outputs.
-            tx.send(OutputMsg::WriteMeasurements(measurements))
-                .context("could not send the measurements from transforms to the outputs")?;
-        } else {
-            log::debug!("The channel connected to the transform step has been closed, the transforms will stop.");
-            break;
-        }
-    }
-    Ok(())
-}
-
-/// A command for an output.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum OutputCmd {
-    Run,
-    Pause,
-    Stop,
-}
-
-#[derive(Debug, Clone)]
-pub enum OutputMsg {
-    WriteMeasurements(MeasurementBuffer),
-    RegisterMetrics {
-        metrics: Vec<Metric>,
-        source_name: String,
-        reply_to: tokio::sync::mpsc::Sender<Vec<RawMetricId>>,
-    },
-}
-
-async fn run_output_from_broadcast(
-    output_name: String,
-    mut output: Box<dyn Output>,
-    mut rx: broadcast::Receiver<OutputMsg>,
-    mut commands: watch::Receiver<OutputCmd>,
-    mut ctx: OutputContext,
-) -> anyhow::Result<()> {
-    // Two possible designs:
-    // A) Use one mpsc channel + one shared variable that contains the current command,
-    // - when a message is received, check the command and act accordingly
-    // - to change the command, update the variable and send a special message through the channel
-    // In this alternative design, each Output would have one mpsc channel, and the Transform step would call send() or try_send() on each of them.
-    //
-    // B) use a broadcast + watch, where the broadcast discards old values when a receiver (output) lags behind,
-    // instead of either (with option A):
-    // - preventing the transform from running (mpsc channel's send() blocks when the queue is full).
-    // - losing the most recent messages in transform, for one output. Other outputs that are not lagging behind will receive all messages fine, since try_send() does not block.
-    //     The problem is: what to do with messages that could not be sent, when try_send() fails?
-    //
-    // We have chosen option (B).
-
-    async fn handle_message(
-        received_msg: OutputMsg,
-        output_name: &str,
-        output: &mut dyn Output,
-        ctx: &mut OutputContext,
-    ) -> anyhow::Result<()> {
-        match received_msg {
-            OutputMsg::WriteMeasurements(measurements) => {
-                // output.write() is blocking, do it in a dedicated thread.
-
-                // Output is not Sync, we could move the value to the future and back (idem for ctx),
-                // but that would likely introduce a needless copy, and would be cumbersome to work with.
-                // Instead, we use the `scoped` module.
-                let res =
-                    scoped::spawn_blocking_with_output(output, ctx, move |out, ctx| out.write(&measurements, ctx))
-                        .await;
-                match res {
-                    Ok(write_res) => {
-                        match write_res {
-                            Ok(_) => Ok(()),
-                            Err(WriteError::CanRetry(e)) => {
-                                log::error!("Non-fatal error in output {output_name} (in a future version of Alumet, this means that the Output will try to write the same measurements later): {e:#}");
-                                // TODO retry with the same measurements
-                                Ok(())
-                            }
-                            Err(WriteError::Fatal(e)) => {
-                                log::error!("Fatal error in output {output_name} (it will stop running): {e:?}");
-                                Err(e.context(format!("fatal error in output {output_name}")))
-                            }
-                        }
-                    }
-                    Err(await_err) => {
-                        if await_err.is_panic() {
-                            Err(anyhow!(
-                                "A blocking writing task panicked, there is a bug somewhere! Details: {}",
-                                await_err
-                            ))
-                        } else {
-                            todo!("unhandled error");
-                        }
-                    }
-                }
-            }
-            OutputMsg::RegisterMetrics {
-                metrics,
-                source_name,
-                reply_to,
-            } => {
-                let metric_ids = ctx.metrics.extend_infallible(metrics, &source_name);
-                reply_to.send(metric_ids).await?;
-                Ok(())
-            }
-        }
-    }
-
-    loop {
-        tokio::select! {
-            received_cmd = commands.changed() => {
-                // Process new command, clone it to quickly end the borrow (which releases the internal lock as suggested by the doc)
-                match received_cmd.map(|_| commands.borrow().clone()) {
-                    Ok(OutputCmd::Run) => (), // continue running
-                    Ok(OutputCmd::Pause) => {
-                        // wait for the command to change
-                        match commands.wait_for(|cmd| cmd != &OutputCmd::Pause).await {
-                            Ok(new_cmd) => {
-                                log::trace!("{output_name} received {new_cmd:?}");
-                                match *new_cmd {
-                                    OutputCmd::Run => (), // exit the wait
-                                    OutputCmd::Stop => break, // stop the loop,
-                                    OutputCmd::Pause => unreachable!(),
-                                }
-                            },
-                            Err(_) => todo!("watch channel closed"),
-                        };
-                    },
-                    Ok(OutputCmd::Stop) => {
-                        log::trace!("{output_name} received OutputCmd::Stop");
-                        break // stop the loop
-                    },
-                    Err(_) => todo!("watch channel closed")
-                }
-            },
-            received_msg = rx.recv() => {
-                match received_msg {
-                    Ok(msg) => {
-                        handle_message(msg, &output_name, output.as_mut(), &mut ctx).await?;
-                    },
-                    Err(broadcast::error::RecvError::Lagged(n)) => {
-                        log::warn!("Output {output_name} is too slow, it lost the oldest {n} messages.");
-                    },
-                    Err(broadcast::error::RecvError::Closed) => {
-                        log::warn!("The channel connected to output was closed, it will now stop.");
-                        break;
-                    }
-                }
-            }
-        }
-    }
-    Ok(())
 }
 
 #[derive(Debug)]
@@ -689,212 +281,6 @@ impl From<WriteError> for PipelineError {
     }
 }
 
-/// Task that controls the pipeline.
-///
-/// It handles [`ControlMessage`]s received by `message_rx`, as well as the shutdown
-/// of the pipeline triggered by `global_shutdown_recv` or [`tokio::signal::ctrl_c`].
-///
-/// ## Pipeline shutdown
-///
-/// On shutdown, the `state` is dropped, including the `watch::Sender`s
-/// of the commands. Thus, `watch::Receiver::changed()` will return an error.
-/// That is why the pipeline control task sends `SourceCmd::Stop` to every source,
-/// and wait for the sources to terminate.
-async fn pipeline_control_task(
-    mut global_shutdown_recv: UnboundedReceiver<()>,
-    mut message_rx: mpsc::Receiver<ControlMessage>,
-    mut state: PipelineControllerState,
-) {
-    // Function for handling errors in tasks.
-    fn handle_task_result(type_str: &str, result: Result<anyhow::Result<()>, JoinError>) {
-        match result {
-            Ok(Ok(())) => (), // task completed successfully
-            Ok(Err(err)) => {
-                // task completed with error
-                log::error!("A {type_str} task in the measurement pipeline returned an error: {err:?}");
-            }
-            Err(err) => {
-                // task panicked or was cancelled
-                if err.is_panic() {
-                    log::error!("A {type_str} task in the pipeline has panicked! {err:?}");
-                } else if err.is_cancelled() {
-                    log::error!("A {type_str} task in the pipeline has been unexpectedly cancelled. {err:?}");
-                }
-            }
-        }
-    }
-
-    async fn join_next_source(
-        source_set: &mut JoinSet<anyhow::Result<()>>,
-    ) -> Option<Result<anyhow::Result<()>, JoinError>> {
-        match timeout(Duration::from_secs(3), source_set.join_next()).await {
-            Ok(res) => res,
-            Err(_) => {
-                log::error!("Timeout expired: sources did not stop on time.\nThis may be a bug in a plugin's autonomous source.");
-                panic!("Timeout expired: sources did not stop on time");
-            }
-        }
-    }
-
-    // Pipeline control loop.
-    loop {
-        tokio::select! {
-            biased; // no need for fairness/randomness here
-
-            res = tokio::signal::ctrl_c() => {
-                // Graceful shutdown on Ctrl+C (SIGTERM).
-                res.expect("failed to listen for signal event");
-                log::info!("Termination signal received, shutting down...");
-                break;
-            },
-            _ = global_shutdown_recv.recv() => {
-                // Graceful shutdown on shutdown order.
-                log::debug!("Internal shutdown order received, shutting down...");
-                break;
-            }
-            incoming_message = message_rx.recv() => {
-                if let Some(message) = incoming_message {
-                    // New message received
-                    handle_control_message(&mut state, message);
-                } else {
-                    // Channel closed, shut down.
-                    break;
-                }
-            }
-        }
-    }
-    // End of the loop = shutdown phase.
-    // At this point we no longer accept new messages.
-
-    let mut join_sets: ElementJoinSets = state.modifier.join_sets;
-    let source_command_senders: Vec<watch::Sender<SourceCmd>> = state
-        .source_command_senders_by_plugin
-        .values()
-        .flatten()
-        .cloned()
-        .collect();
-    let output_command_senders: Vec<watch::Sender<OutputCmd>> = state
-        .output_command_senders_by_plugin
-        .values()
-        .flatten()
-        .cloned()
-        .collect();
-
-    // Stop the sources first, and wait for them to send their last measurements to the transforms.
-    log::debug!("Stopping sources...");
-    for source_cs in &source_command_senders {
-        source_cs.send_replace(SourceCmd::Stop);
-    }
-    state.autonomous_shutdown_token.cancel();
-    while let Some(task_res) = join_next_source(&mut join_sets.source_set).await {
-        handle_task_result("source", task_res);
-    }
-
-    // Ensure that all the `channel::Sender` that are connected to the transform task are dropped.
-    // Note that autonomous sources have to take care of that themselves (but the automatic drop at the end of the task should be enough).
-    drop(source_command_senders);
-    drop(state.modifier.in_tx);
-
-    // The transform task will stop because the sending half of the channel is now closed.
-    // Stop the transforms, and wait for them to send their last measurements to the outputs.
-    log::debug!("Waiting for transforms...");
-    while let Some(task_res) = join_sets.transform_set.join_next().await {
-        handle_task_result("transform", task_res);
-    }
-
-    // Stop the outputs, and wait for them to write their last measurements.
-    log::debug!("Stopping outputs...");
-    for output_cs in &output_command_senders {
-        output_cs.send_replace(OutputCmd::Stop);
-    }
-    while let Some(task_res) = join_sets.output_set.join_next().await {
-        handle_task_result("output", task_res);
-    }
-}
-
-/// Processes a message received by the PipelineController.
-///
-/// This function uses the `state` to modify the pipeline according to the `message`.
-fn handle_control_message(state: &mut PipelineControllerState, message: ControlMessage) {
-    match message {
-        ControlMessage::Shutdown => {
-            state
-                .global_shutdown_send
-                .send(())
-                .expect("failed to send shutdown message");
-        }
-        ControlMessage::AddSource {
-            requested_name,
-            plugin_name: plugin,
-            source,
-            trigger,
-        } => {
-            log::debug!("Adding new source {requested_name}");
-
-            // prepare the source name, channels, etc.
-            let modif = &mut state.modifier;
-            let source_name = modif.namegen.deduplicate(format!("{plugin}/{requested_name}"), false);
-            let in_tx = modif.in_tx.clone();
-            let (command_tx, command_rx) = watch::channel(SourceCmd::SetTrigger(Some(trigger)));
-
-            // save the command sender so that we can control the source task
-            state
-                .source_command_senders_by_plugin
-                .entry(plugin)
-                .or_default()
-                .push(command_tx);
-
-            // submit the task to the tokio Runtime, unless we are shutting down
-            let task = run_source(source_name, source, in_tx, command_rx);
-            modif.join_sets.source_set.spawn_on(task, &modif.rt_normal);
-        }
-
-        ControlMessage::ModifySource(ElementCommand {
-            destination,
-            command: message,
-        }) => match destination {
-            MessageDestination::Plugin(plugin) => {
-                for s in state.source_command_senders_by_plugin.get(&plugin).unwrap() {
-                    s.send(message.clone()).unwrap();
-                }
-            }
-            MessageDestination::All => {
-                for senders in state.source_command_senders_by_plugin.values() {
-                    for s in senders {
-                        s.send(message.clone()).unwrap();
-                    }
-                }
-            }
-        },
-
-        ControlMessage::ModifyOutput(ElementCommand { destination, command }) => match destination {
-            MessageDestination::Plugin(plugin) => {
-                for s in state.output_command_senders_by_plugin.get(&plugin).unwrap() {
-                    s.send(command.clone()).unwrap();
-                }
-            }
-            MessageDestination::All => {
-                for senders in state.output_command_senders_by_plugin.values() {
-                    for s in senders {
-                        s.send(command.clone()).unwrap();
-                    }
-                }
-            }
-        },
-
-        ControlMessage::ModifyTransform(ElementCommand { destination, command }) => {
-            let mask: u64 = match destination {
-                MessageDestination::All => u64::MAX,
-                MessageDestination::Plugin(plugin) => *state.transforms_mask_by_plugin.get(&plugin).unwrap(),
-            };
-            match command {
-                TransformCmd::Enable => state.active_transforms.fetch_or(mask, Ordering::Relaxed),
-                TransformCmd::Disable => state.active_transforms.fetch_nand(mask, Ordering::Relaxed),
-            };
-        }
-    }
-}
-
 impl RunningPipeline {
     /// Blocks the current thread until all tasks in the pipeline finish.
     ///
@@ -919,7 +305,7 @@ impl RunningPipeline {
 
     /// Returns a [`ControlHandle`], which allows to change the configuration
     /// of the pipeline while it is running.
-    pub fn control_handle(&mut self) -> ControlHandle {
+    pub fn control_handle(&mut self) -> control::ControlHandle {
         self.control_handle.clone()
     }
 }
