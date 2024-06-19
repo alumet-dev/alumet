@@ -29,7 +29,7 @@ use core::fmt;
 use fxhash::FxBuildHasher;
 use smallvec::SmallVec;
 use std::borrow::Cow;
-use std::time::UNIX_EPOCH;
+use std::time::{Duration, SystemTimeError, UNIX_EPOCH};
 use std::{collections::HashMap, fmt::Display, time::SystemTime};
 
 use crate::metrics::def::{RawMetricId, TypedMetricId};
@@ -176,6 +176,10 @@ impl Timestamp {
     pub fn to_unix_timestamp(&self) -> (u64, u32) {
         let t = self.0.duration_since(UNIX_EPOCH).unwrap();
         (t.as_secs(), t.subsec_nanos())
+    }
+
+    pub fn duration_since(&self, earlier: Timestamp) -> Result<Duration, SystemTimeError> {
+        self.0.duration_since(earlier.0)
     }
 }
 
