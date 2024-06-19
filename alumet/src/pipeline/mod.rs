@@ -4,11 +4,12 @@ use std::fmt;
 
 use crate::{measurement::{MeasurementAccumulator, MeasurementBuffer, Timestamp}, metrics::MetricRegistry};
 
-pub mod runtime;
-pub mod builder;
-mod threading;
-mod scoped;
+// pub mod runtime;
+// pub mod builder;
 pub mod trigger;
+// mod threading;
+// mod scoped;
+mod control;
 
 /// Produces measurements related to some metrics.
 pub trait Source: Send {
