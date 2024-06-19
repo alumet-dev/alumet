@@ -12,6 +12,7 @@ use alumet::{
 use clap::{Args, Parser, Subcommand};
 use env_logger::Env;
 
+use plugin_aggregation::AggregationPlugin;
 use plugin_csv::CsvPlugin;
 use plugin_perf::PerfPlugin;
 use plugin_rapl::RaplPlugin;
@@ -28,7 +29,7 @@ fn main() {
     let args = Cli::parse();
 
     // Specifies the plugins that we want to load.
-    let plugins = static_plugins![RaplPlugin, CsvPlugin, SocketControlPlugin, PerfPlugin];
+    let plugins = static_plugins![RaplPlugin, CsvPlugin, SocketControlPlugin, PerfPlugin, AggregationPlugin];
 
     // Build the measurement agent.
     let mut agent = AgentBuilder::new(plugins)

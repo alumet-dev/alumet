@@ -29,7 +29,7 @@ use core::fmt;
 use std::borrow::Cow;
 use fxhash::FxBuildHasher;
 use smallvec::SmallVec;
-use std::{collections::HashMap, fmt::Display, time::SystemTime};
+use std::{collections::HashMap, fmt::Display, time::{SystemTime, Duration, SystemTimeError}};
 
 use crate::resources::ResourceConsumer;
 
@@ -164,6 +164,13 @@ impl Timestamp {
     /// Returns a `Timestamp` representing the current system time.
     pub fn now() -> Self {
         Self(SystemTime::now())
+    }
+
+    pub fn duration_since(
+        &self,
+        earlier: Timestamp
+    ) -> Result<Duration, SystemTimeError> {
+        self.0.duration_since(earlier.0)
     }
 }
 
