@@ -67,12 +67,11 @@ fn list_metric_file_in_dir(root_directory_path: &Path) -> anyhow::Result<Vec<Cgr
     return Ok(vec_file_metric);
 }
 
-/// This function list all k8s pods availables, using 3 sub-directory to look in:
+/// This function list all k8s pods availables, using sub-directories to look in:
 /// For each subdirectory, we look in if there is a directory/ies about pods and we add it
 /// to a vector. All subdirectory are visited with the help of <list_metric_file_in_dir> function.
-pub fn list_all_k8s_pods_file(root_directory_str: &str) -> anyhow::Result<Vec<CgroupV2MetricFile>> {
+pub fn list_all_k8s_pods_file(root_directory_path: &Path) -> anyhow::Result<Vec<CgroupV2MetricFile>> {
     let mut final_li_metric_file: Vec<CgroupV2MetricFile> = Vec::new();
-    let root_directory_path = Path::new(root_directory_str);
     if !root_directory_path.exists() {
         return Ok(final_li_metric_file);
     }
@@ -80,7 +79,7 @@ pub fn list_all_k8s_pods_file(root_directory_str: &str) -> anyhow::Result<Vec<Cg
     let mut all_sub_dir: Vec<PathBuf>  = vec![root_directory_path.to_owned()];
     // Iterate in the root directory and add to the vec all folder ending with "".slice"
     // On unix, folders are files, files are files and peripherals are also files
-    for file in fs::read_dir(root_directory_str)?{
+    for file in fs::read_dir(root_directory_path)?{
         let path = file?.path();
         let file_name = path.file_name().unwrap().to_str().with_context(|| format!("filename is not valid UTF-8: {path:?}"))?;
         if path.is_dir() && file_name.ends_with(".slice"){

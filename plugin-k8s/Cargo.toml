@@ -13,3 +13,4 @@ reqwest = { version = "0.12", features = ["json"] }
 tokio = "1.37.0"
 serde = { version = "1.0.198", features = ["derive"] }
 humantime-serde = "1.1.1"
+notify = "6.1.1"
