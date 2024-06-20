@@ -15,6 +15,7 @@ humantime-serde = "1.1.1"
 log = "0.4.20"
 plugin-csv = { version = "0.2.0", path = "../plugin-csv" }
 plugin-perf = { version = "0.1.0", path = "../plugin-perf" }
+plugin-prometheus-exporter = { version = "0.1.0", path = "../plugin-prometheus-exporter" }
 plugin-rapl = { version = "0.3.0", path = "../plugin-rapl" }
 plugin-socket-control = { version = "0.1.0", path = "../plugin-socket-control" }
 serde = { version = "1.0.198", features = ["derive"] }

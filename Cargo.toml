@@ -11,6 +11,7 @@ members = [
     "plugin-influxdb",
     "plugin-nvidia",
     "plugin-perf",
+    "plugin-prometheus-exporter",
     "plugin-rapl",
     "plugin-relay",
     "plugin-socket-control",

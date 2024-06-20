@@ -1,0 +1,8 @@
+[package]
+name = "plugin-prometheus-exporter"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alumet = { path = "../alumet" }
+anyhow = "1.0.86"

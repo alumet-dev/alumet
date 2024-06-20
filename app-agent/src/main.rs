@@ -28,7 +28,7 @@ fn main() {
     let args = Cli::parse();
 
     // Specifies the plugins that we want to load.
-    let plugins = static_plugins![RaplPlugin, CsvPlugin, SocketControlPlugin, PerfPlugin];
+    let plugins = static_plugins![RaplPlugin, CsvPlugin, SocketControlPlugin, PerfPlugin, plugin_prometheus_exporter::PrometheusPlugin];
 
     // Build the measurement agent.
     let mut agent = AgentBuilder::new(plugins)
