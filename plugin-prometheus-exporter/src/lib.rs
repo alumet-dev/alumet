@@ -1,4 +1,8 @@
-use alumet::{measurement::WrappedMeasurementValue, metrics::MetricId, pipeline::Output, plugin::rust::AlumetPlugin};
+use std::net::SocketAddr;
+
+use alumet::plugin::rust::AlumetPlugin;
+
+mod output;
 
 pub struct PrometheusPlugin {}
 
@@ -16,42 +20,21 @@ impl AlumetPlugin for PrometheusPlugin {
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
-        alumet.add_output(Box::new(PrometheusOutput {}));
+        let addr = SocketAddr::from(([127, 0, 0, 1], 8001));
+
+        alumet.add_output_builder(move |pipeline| {
+            // Get the tokio's runtime used by Alumet for this output
+            // and start the HTTP server on it.
+            let rt = pipeline.async_runtime_handle();
+            rt.spawn(output::run_http_server(addr));
+            
+            Ok(Box::new(output::PrometheusOutput {}))
+        });
         Ok(())
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
-        Ok(())
-    }
-}
-
-struct PrometheusOutput {}
-
-impl Output for PrometheusOutput {
-    fn write(
-        &mut self,
-        measurements: &alumet::measurement::MeasurementBuffer,
-        ctx: &alumet::pipeline::OutputContext,
-    ) -> Result<(), alumet::pipeline::WriteError> {
-        // Example output (to replace by the computation of Prometheus metrics that will be exposed through an HTTP server running in the background)
-        
-        for m in measurements {
-            let metric_id = m.metric;
-            let metric_name = metric_id.name(ctx);
-            // let full_metric = ctx.metrics.with_id(&metric_id).unwrap();
-            let value = &m.value;
-            let timestamp = m.timestamp;
-            let value_str = match &value {
-                WrappedMeasurementValue::F64(float) => float.to_string(),
-                WrappedMeasurementValue::U64(integer) => integer.to_string(),
-            };
-            let attributes_str = m
-                .attributes()
-                .map(|(key, value)| format!("{key}={value}"))
-                .collect::<Vec<_>>()
-                .join(" ");
-            println!("{timestamp:?} {metric_name}={value_str}; {attributes_str}");
-        }
+        // TODO make sure that the http server stops
         Ok(())
     }
 }
