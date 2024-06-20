@@ -7,6 +7,7 @@ members = [
     "app-agent",
     "plugin-csv",
     "plugin-cgroupv2",
+    "plugin-energy-attribution",
     "plugin-influxdb",
     "plugin-nvidia",
     "plugin-oar2",
