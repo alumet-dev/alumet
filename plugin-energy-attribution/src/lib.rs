@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use alumet::{
-    measurement::MeasurementPoint, metrics::{RawMetricId, TypedMetricId}, pipeline::runtime::IdlePipeline, plugin::rust::AlumetPlugin, units::{PrefixedUnit, Unit}
+    metrics::{RawMetricId, TypedMetricId}, pipeline::runtime::IdlePipeline, plugin::rust::AlumetPlugin, units::{PrefixedUnit, Unit}
 };
 use anyhow::Context;
 use transform::EnergyAttributionTransform;
@@ -23,7 +23,7 @@ struct Metrics {
     // that is why they are Options.
     cpu_usage_per_pod: Option<RawMetricId>,
     rapl_consumed_energy: Option<RawMetricId>,
-    pod_attributed_energy: Option<TypedMetricId<u64>>, // or f64?
+    pod_attributed_energy: Option<TypedMetricId<f64>>, // or f64?
 }
 
 impl AlumetPlugin for EnergyAttributionPlugin {
@@ -35,7 +35,7 @@ impl AlumetPlugin for EnergyAttributionPlugin {
         env!("CARGO_PKG_VERSION")
     }
 
-    fn init(config: alumet::plugin::ConfigTable) -> anyhow::Result<Box<Self>> {
+    fn init(_: alumet::plugin::ConfigTable) -> anyhow::Result<Box<Self>> {
         // TODO config
         Ok(Box::new(EnergyAttributionPlugin {
             metrics: Arc::new(Mutex::new(Metrics::default())),
@@ -51,12 +51,7 @@ impl AlumetPlugin for EnergyAttributionPlugin {
         )?);
         
         // Add the transform now but fill its metrics later.
-        alumet.add_transform(Box::new(EnergyAttributionTransform {
-            metrics: self.metrics.clone(),
-            buffer_pod: Vec::<MeasurementPoint>::new(),
-            buffer_rapl: Vec::<MeasurementPoint>::new(),
-            buffer_sched_pol: Vec::<MeasurementPoint>::new(),
-        }));
+        alumet.add_transform(Box::new(EnergyAttributionTransform::new(self.metrics.clone())));
         Ok(())
     }
 

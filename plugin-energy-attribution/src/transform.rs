@@ -1,12 +1,19 @@
-use std::{string, sync::{Arc, Mutex}};
+use std::{collections::HashMap, sync::{Arc, Mutex}};
 
-use alumet::{measurement::{AttributeValue, MeasurementPoint}, pipeline::Transform, resources::Resource};
+use alumet::{measurement::{MeasurementPoint, WrappedMeasurementValue}, pipeline::Transform, resources::Resource};
 
 pub struct EnergyAttributionTransform {
     pub metrics: Arc<Mutex<super::Metrics>>,
-    pub buffer_pod: Vec<MeasurementPoint>,
-    pub buffer_rapl: Vec<MeasurementPoint>,
-    pub buffer_sched_pol: Vec<MeasurementPoint>,
+    buffer_pod: HashMap<u64, Vec<MeasurementPoint>>,
+}
+
+impl EnergyAttributionTransform {
+    pub fn new(metrics: Arc<Mutex<super::Metrics>>) -> Self {
+        Self { 
+            metrics,
+            buffer_pod: HashMap::<u64, Vec<MeasurementPoint>>::new()
+        }
+    }
 }
 
 impl Transform for EnergyAttributionTransform {
@@ -26,38 +33,48 @@ impl Transform for EnergyAttributionTransform {
             if m.metric.as_u64() == rapl_id {
                 match m.resource {
                     Resource::CpuPackage{ id: _ }=> {
-                        self.buffer_rapl.push(m.clone());
+                        // self.buffer_rapl.push(m.clone());
+
+                        let id = m.timestamp.get_sec();
+
+                        let length = self.buffer_pod.get(&id).unwrap().len();
+
+                        for point in self.buffer_pod.remove(&id).unwrap().iter() {
+                            let new_m = MeasurementPoint::new(
+                                m.timestamp, 
+                                self.metrics.lock().unwrap().pod_attributed_energy.unwrap(), 
+                                point.resource.clone(),
+                                point.consumer.clone(),
+                                match m.value {
+                                    WrappedMeasurementValue::F64(fx) => fx / (length as f64),
+                                    WrappedMeasurementValue::U64(ux) => (ux / (length as u64)) as f64,
+                                });
+                            // for (key, value) in point.attributes() {
+                            //     new_m.with_attr(key, value.clone());
+                            // }
+
+                            measurements.push(new_m.clone());
+                        }
                     },
                     _ => continue,
                 }
             } else if m.metric.as_u64() == pod_id.as_u64() {
                 for (_, value) in m.attributes() {
                     if value.to_string() != besteffort && value.to_string() != burstable {
-                            self.buffer_pod.push(m.clone());
+                            // self.buffer_pod.push(m.clone());
+                            let id = m.timestamp.get_sec();
+                            match self.buffer_pod.get_mut(&id) {
+                                Some(vec_points) => {
+                                    vec_points.push(m.clone());
+                                }
+                                None => {
+                                    self.buffer_pod.insert(id.clone(), vec![m.clone()]);
+                                }
+                            }
                     }
                 }
             }
         }
-        println!("pod_id value: {pod_id:?}");
-        println!("rapl_id value: {rapl_id:?}");
-
-
-        // clear the buffer
-        measurements.clear();
-
-
-        // fill it again
-
-        for m in self.buffer_pod.iter() {
-            measurements.push(m.clone());
-        }
-        
-        for m in self.buffer_rapl.iter() {
-            measurements.push(m.clone());
-        }
-
-        self.buffer_pod.clear();
-        self.buffer_rapl.clear();
 
         // on regarde temps ecoulé total CPU tc2-tc1 -> tcpu (buffer_pod.last - buffer_pod.first)
         // on regarde temps ecoulé total rapl tr2-tr1 -> trapl (buffer_rapl.last - buffer_rapl.first)

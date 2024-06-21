@@ -27,6 +27,7 @@
 
 use core::fmt;
 use std::borrow::Cow;
+use std::time::UNIX_EPOCH;
 use fxhash::FxBuildHasher;
 use smallvec::SmallVec;
 use std::{collections::HashMap, fmt::Display, time::SystemTime};
@@ -164,6 +165,10 @@ impl Timestamp {
     /// Returns a `Timestamp` representing the current system time.
     pub fn now() -> Self {
         Self(SystemTime::now())
+    }
+
+    pub fn get_sec(&self) -> u64 {
+        self.0.duration_since(UNIX_EPOCH).unwrap().as_secs()
     }
 }
 
