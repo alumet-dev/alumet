@@ -46,7 +46,7 @@ impl AlumetPlugin for EnergyAttributionPlugin {
         let mut metrics = self.metrics.lock().unwrap();
         metrics.pod_attributed_energy = Some(alumet.create_metric(
             "pod_attributed_energy",
-            PrefixedUnit::micro(Unit::Watt), //TODO micro ? WATT for energy ???
+            Unit::Joule,
             "Energy consumption attributed to the pod",
         )?);
         
