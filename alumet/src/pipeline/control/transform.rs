@@ -16,7 +16,7 @@ use tokio::{
 
 use crate::{
     measurement::MeasurementBuffer,
-    pipeline::{Transform, TransformError},
+    pipeline::{registry::SharedRegistryReader, Transform, TransformContext, TransformError},
 };
 
 /// Controls the transforms of a measurement pipeline.
@@ -44,6 +44,11 @@ impl TransformControl {
             }
         }
         self.active_bitset.store(bitset, Ordering::Relaxed);
+    }
+    
+    pub fn shutdown(self) {
+        // Nothing to do for the moment: the transform task will naturally
+        // stop when the input channel is closed.
     }
 }
 
@@ -90,18 +95,24 @@ async fn run_all_in_order(
     mut rx: mpsc::Receiver<MeasurementBuffer>,
     tx: broadcast::Sender<MeasurementBuffer>,
     active_flags: Arc<AtomicU64>,
+    metrics_reader: SharedRegistryReader,
 ) -> anyhow::Result<()> {
     loop {
         if let Some(mut measurements) = rx.recv().await {
             // Update the list of active transforms.
             let current_flags = active_flags.load(Ordering::Relaxed);
 
+            // Build the transform context.
+            // This will block the publication of any modification to the MetricRegistry until the context is dropped.
+            let metrics = &metrics_reader.read();
+            let ctx = TransformContext { metrics };
+
             // Run the enabled transforms. If one of them fails, the ability to continue running depends on the error type.
             for (i, t) in &mut transforms.iter_mut().enumerate() {
                 let t_flag = 1 << i;
                 if current_flags & t_flag != 0 {
                     let (name, transform) = t;
-                    match transform.apply(&mut measurements) {
+                    match transform.apply(&mut measurements, &ctx) {
                         Ok(()) => (),
                         Err(TransformError::UnexpectedInput(e)) => {
                             log::error!("Transform {name} received unexpected measurements: {e:#}");

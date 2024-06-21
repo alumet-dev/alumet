@@ -10,6 +10,8 @@ pub mod trigger;
 // mod threading;
 // mod scoped;
 mod control;
+mod registry;
+mod pipeline;
 
 /// Produces measurements related to some metrics.
 pub trait Source: Send {
@@ -20,7 +22,7 @@ pub trait Source: Send {
 /// Transforms measurements.
 pub trait Transform: Send {
     /// Applies the transform on the measurements.
-    fn apply(&mut self, measurements: &mut MeasurementBuffer) -> Result<(), TransformError>;
+    fn apply(&mut self, measurements: &mut MeasurementBuffer, ctx: &TransformContext) -> Result<(), TransformError>;
 }
 
 /// Exports measurements to an external entity, like a file or a database.
@@ -29,8 +31,14 @@ pub trait Output: Send {
     fn write(&mut self, measurements: &MeasurementBuffer, ctx: &OutputContext) -> Result<(), WriteError>;
 }
 
-pub struct OutputContext {
-    pub metrics: MetricRegistry,
+/// Shared data that can be accessed by transforms.
+pub struct TransformContext<'a> {
+    pub metrics: &'a MetricRegistry,
+}
+
+/// Shared data that can be accessed by outputs.
+pub struct OutputContext<'a> {
+    pub metrics: &'a MetricRegistry,
 }
 
 // ====== Errors ======

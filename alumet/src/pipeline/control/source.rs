@@ -12,9 +12,9 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 use crate::measurement::{MeasurementBuffer, Timestamp};
+use crate::pipeline::trigger::{Trigger, TriggerConstraints, TriggerReason, TriggerSpec};
 use crate::pipeline::PollError;
 use crate::pipeline::Source;
-use crate::pipeline::trigger::{Trigger, TriggerConstraints, TriggerReason, TriggerSpec};
 
 use super::versioned::Versioned;
 
@@ -36,6 +36,7 @@ pub struct SourceControl {
     /// Sends measurements from Sources.
     ///
     /// This is used for creating new sources.
+    /// It also keeps the transform task running.
     in_tx: mpsc::Sender<MeasurementBuffer>,
 
     /// Constraints to apply to the new source triggers.
@@ -93,11 +94,32 @@ impl SourceControl {
         }
     }
 
-    pub fn handle_message(&mut self, msg: ControlMessage, rt_normal: &Handle, rt_priority: &Handle) {
+    pub fn handle_message(&mut self, msg: ControlMessage, rt_normal: &Handle, rt_priority: &Option<Handle>) {
         match msg {
             ControlMessage::Configure(msg) => self.handle_configure(msg),
             ControlMessage::Create(msg) => self.handle_create(msg, rt_normal),
         }
+    }
+
+    pub fn shutdown(mut self) {
+        // NOTE: self.autonomous_shutdown has already been cancelled by the parent
+        // CancellationToken, therefore we don't cancel it here.
+        // This cancellation has requested all the autonomous sources to stop.
+
+        // Send a stop message to all managed sources.
+        let stop_msg = ConfigureMessage {
+            selector: SourceSelector::All,
+            command: SourceCommand::Stop,
+        };
+        self.handle_configure(stop_msg);
+        
+        // Wait for managed and autonomous sources to stop.
+
+        // self.source_tasks.abort_all()
+        todo!()
+
+        // At the end of the method, `in_tx` is dropped,
+        // which allows the channel to close when all sources finish.
     }
 }
 
@@ -112,14 +134,14 @@ pub enum ControlMessage {
     Create(CreateMessage),
 }
 
-struct ConfigureMessage {
-    selector: SourceSelector,
-    command: SourceCommand,
+pub struct ConfigureMessage {
+    pub selector: SourceSelector,
+    pub command: SourceCommand,
 }
 
-struct CreateMessage {
-    name: SourceName,
-    source: SourceSpec,
+pub struct CreateMessage {
+    pub name: SourceName,
+    pub source: SourceSpec,
 }
 
 enum SourceSpec {
