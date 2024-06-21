@@ -1,10 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use alumet::{
-    metrics::{RawMetricId, TypedMetricId},
-    pipeline::runtime::IdlePipeline,
-    plugin::rust::AlumetPlugin,
-    units::{PrefixedUnit, Unit},
+    measurement::MeasurementPoint, metrics::{RawMetricId, TypedMetricId}, pipeline::runtime::IdlePipeline, plugin::rust::AlumetPlugin, units::{PrefixedUnit, Unit}
 };
 use anyhow::Context;
 use transform::EnergyAttributionTransform;
@@ -49,13 +46,16 @@ impl AlumetPlugin for EnergyAttributionPlugin {
         let mut metrics = self.metrics.lock().unwrap();
         metrics.pod_attributed_energy = Some(alumet.create_metric(
             "pod_attributed_energy",
-            PrefixedUnit::micro(Unit::Watt),
+            PrefixedUnit::micro(Unit::Watt), //TODO micro ? WATT for energy ???
             "Energy consumption attributed to the pod",
         )?);
         
         // Add the transform now but fill its metrics later.
         alumet.add_transform(Box::new(EnergyAttributionTransform {
             metrics: self.metrics.clone(),
+            buffer_pod: Vec::<MeasurementPoint>::new(),
+            buffer_rapl: Vec::<MeasurementPoint>::new(),
+            buffer_sched_pol: Vec::<MeasurementPoint>::new(),
         }));
         Ok(())
     }

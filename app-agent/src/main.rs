@@ -15,6 +15,8 @@ use env_logger::Env;
 use plugin_csv::CsvPlugin;
 use plugin_perf::PerfPlugin;
 use plugin_rapl::RaplPlugin;
+use plugin_k8s::K8sPlugin;
+use plugin_energy_attribution::EnergyAttributionPlugin;
 use plugin_socket_control::SocketControlPlugin;
 use serde::{Deserialize, Serialize};
 
@@ -28,7 +30,7 @@ fn main() {
     let args = Cli::parse();
 
     // Specifies the plugins that we want to load.
-    let plugins = static_plugins![RaplPlugin, CsvPlugin, SocketControlPlugin, PerfPlugin];
+    let plugins = static_plugins![RaplPlugin, CsvPlugin, SocketControlPlugin, PerfPlugin, K8sPlugin, EnergyAttributionPlugin];
 
     // Build the measurement agent.
     let mut agent = AgentBuilder::new(plugins)
