@@ -1,3 +1,5 @@
+use anyhow::*;
+use serde_json::Value;
 use std::{
     fs::{self, File},
     io::{Read, Seek},
@@ -7,7 +9,6 @@ use std::{
     vec,
 };
 
-use anyhow::*;
 
 use crate::parsing_cgroupv2::CgroupV2Metric;
 
@@ -22,15 +23,21 @@ pub struct CgroupV2MetricFile {
     pub path: PathBuf,
     /// Opened file descriptor.
     pub file: File,
+    /// UID of the pod.
+    pub uid: String,
+    /// Namespace of the pod.
+    pub namespace: String,
 }
 
 impl CgroupV2MetricFile {
     /// Create a new CgroupV2MetricFile structure from a name, a path and a File
-    fn new(name: String, path_entry: PathBuf, file: File) -> CgroupV2MetricFile {
+    fn new(name: String, path_entry: PathBuf, file: File, uid: String, namespace: String) -> CgroupV2MetricFile {
         CgroupV2MetricFile {
             name: name,
             path: path_entry,
             file: file,
+            uid: uid,
+            namespace: namespace,
         }
     }
 }
@@ -49,18 +56,23 @@ fn list_metric_file_in_dir(root_directory_path: &Path) -> anyhow::Result<Vec<Cgr
         let path = entry?.path();
         let mut path_cloned = path.clone();
         if path.is_dir() {
-            let dir_name = path.file_name().unwrap().to_str().with_context(|| format!("filename is not valid UTF-8: {path:?}"))?;
-            let dir_name_mod = dir_name.strip_suffix(".slice").unwrap_or(&dir_name);
+            let path_mf = path_cloned.clone();
+            let dir_uid = path.file_name().unwrap().to_str().with_context(|| format!("filename is not valid UTF-8: {path:?}"))?;
+            let dir_uid_mod = dir_uid.strip_suffix(".slice").unwrap_or(&dir_uid);
             let truncated_prefix = root_directory_path.file_name().unwrap().to_str().with_context(|| format!("filename is not valid UTF-8: {path:?}"))?;
             let mut new_prefix = truncated_prefix.strip_suffix(".slice").unwrap_or(&truncated_prefix).to_owned();
             new_prefix.push_str("-");            
-            let name = dir_name_mod.strip_prefix(&new_prefix).unwrap_or(&dir_name_mod);
+            let uid = dir_uid_mod.strip_prefix(&new_prefix).unwrap_or(&dir_uid_mod);
             path_cloned.push("cpu.stat");
+            let name_to_seek = uid.strip_prefix("pod").unwrap_or(uid);
+            let (name, ns) = get_pod_name(name_to_seek.to_owned());
             let file = File::open(&path_cloned).with_context(|| format!("failed to open file {}", path_cloned.display()))?;
             vec_file_metric.push(CgroupV2MetricFile {
                 name: name.to_owned(),
-                path: path,
+                path: path_mf,
                 file: file,
+                uid: uid.to_owned(),
+                namespace: ns,
             });
         }
     }
@@ -104,8 +116,53 @@ pub fn gather_value(file: &mut CgroupV2MetricFile, content_buffer: &mut String) 
     let mut new_metric =
         CgroupV2Metric::from_str(&content_buffer).with_context(|| format!("failed to parse {}", file.name))?;
     new_metric.name = file.name.clone();
+    new_metric.namespace = file.namespace.clone();
+    new_metric.uid = file.uid.clone();
     Ok(new_metric)
 }
+
+//Read files in a filesystem to associate a cgroup of a poduid to a kubernetes pod name
+pub fn get_pod_name(uid: String) -> (String, String) {
+    let mut root_directory: PathBuf = PathBuf::from("/run/containers/storage/overlay-containers/");
+
+    // Iterate over each sub-directory of root_directory
+    if let Ok(entries) = fs::read_dir(root_directory) {
+        for entry in entries {
+            if let Ok(entry) = entry {
+                let subdir_path = entry.path();
+                let config_path = subdir_path.join("userdata/config.json");
+                // check if config.json exist
+                if config_path.exists() {
+                    if let Ok(file_content) = fs::read_to_string(config_path) {
+                        if let Ok(json_value) = serde_json::from_str::<Value>(&file_content) {
+                            if let Some(annotations) = json_value.get("annotations") {
+                                if let Some(field1_value) = annotations.get("io.kubernetes.pod.uid") {
+                                    if field1_value.as_str() == Some(uid.as_str()) {
+                                        let mut pod_name_tu: String = String::from("");
+                                        let mut pod_ns_tu: String = String::from("");
+                                        if let Some(pod_name_tmp) = annotations.get("io.kubernetes.pod.name") {
+                                            if let Some(pod_name_some) = pod_name_tmp.as_str(){
+                                                 pod_name_tu = pod_name_some.to_string();
+                                            }
+                                        }
+                                        if let Some(pod_namespace) = annotations.get("io.kubernetes.pod.namespace"){
+                                            if let Some(pod_ns_some) = pod_namespace.as_str(){
+                                                pod_ns_tu = pod_ns_some.to_string();
+                                           }
+                                        }
+                                        return (pod_name_tu, pod_ns_tu)
+                                    }                              
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    ("".to_string(),"".to_string())
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -206,7 +263,7 @@ mod tests {
         };
 
         let mut my_cgroup_test_file: CgroupV2MetricFile =
-            CgroupV2MetricFile::new("testing_pod".to_string(), path_file, file);
+            CgroupV2MetricFile::new("testing_pod".to_string(), path_file, file, "uid_test".to_string(), "namespace_test".to_string());
         let mut content_file = String::new();
         let res_metric = gather_value(&mut my_cgroup_test_file, &mut content_file);
         if let Ok(CgroupV2Metric {
