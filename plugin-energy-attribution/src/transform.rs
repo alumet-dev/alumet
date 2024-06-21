@@ -38,7 +38,11 @@ impl Transform for EnergyAttributionTransform {
 
                         let id = m.timestamp.get_sec();
 
-                        let length = self.buffer_pod.get(&id).unwrap_or(&Vec::<MeasurementPoint>::new()).len();
+                        if !self.buffer_pod.contains_key(&id) {
+                            continue;
+                        }
+
+                        let length = self.buffer_pod.get(&id).unwrap().len();
 
                         for point in self.buffer_pod.remove(&id).unwrap().iter() {
                             let new_m = MeasurementPoint::new(
