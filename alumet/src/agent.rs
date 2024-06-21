@@ -5,15 +5,8 @@ use std::{
     time::Duration,
 };
 
-use crate::{
-    pipeline::{
-        self,
-        builder::PipelineBuilder,
-        runtime::{IdlePipeline, RunningPipeline},
-        trigger::TriggerConstraints,
-    },
-    plugin::{AlumetStart, ConfigTable, Plugin, PluginMetadata},
-};
+use crate::pipeline::{self, trigger::TriggerConstraints};
+use crate::plugin::{AlumetStart, ConfigTable, Plugin, PluginMetadata};
 
 /// Easy-to-use skeleton for building a measurement application based on
 /// the core of Alumet, aka an "agent".
@@ -63,7 +56,7 @@ pub struct Agent {
 
 /// An Agent that has been started.
 pub struct RunningAgent {
-    pub pipeline: RunningPipeline,
+    pub pipeline: pipeline::MeasurementPipeline,
     initialized_plugins: Vec<Box<dyn Plugin>>,
 }
 
@@ -73,9 +66,8 @@ pub struct AgentBuilder {
     config: Option<AgentConfigSource>,
     default_app_config: toml::Table,
     f_after_plugin_init: fn(&mut Vec<Box<dyn Plugin>>),
-    f_after_plugin_start: fn(&PipelineBuilder),
-    f_before_operation_begin: fn(&IdlePipeline),
-    f_after_operation_begin: fn(&mut RunningPipeline),
+    f_after_plugin_start: fn(&pipeline::Builder),
+    f_after_operation_begin: fn(&mut pipeline::MeasurementPipeline),
     allow_no_metrics: bool,
     source_constraints: TriggerConstraints,
 }
@@ -201,9 +193,7 @@ impl Agent {
 
         // Start-up phase.
         log::info!("Starting the plugins...");
-        let mut pipeline_builder = pipeline::builder::PipelineBuilder::new();
-        pipeline_builder.source_constraints = self.settings.source_constraints;
-        pipeline_builder.allow_no_metrics = self.settings.allow_no_metrics;
+        let mut pipeline_builder = pipeline::Builder::new(self.settings.source_constraints);
 
         for plugin in initialized_plugins.iter_mut() {
             log::debug!("Starting plugin {} v{}", plugin.name(), plugin.version());
@@ -218,24 +208,9 @@ impl Agent {
         print_stats(&pipeline_builder, &initialized_plugins);
         (self.settings.f_after_plugin_start)(&pipeline_builder);
 
-        // Pre-Operation: pipeline building.
-        log::info!("Building the measurement pipeline...");
-        let pipeline = pipeline_builder.build().context("Pipeline failed to build")?;
-        for plugin in initialized_plugins.iter_mut() {
-            plugin.pre_pipeline_start(&pipeline).with_context(|| {
-                format!(
-                    "Plugin pre_pipeline_start failed: {} v{}",
-                    plugin.name(),
-                    plugin.version()
-                )
-            })?;
-        }
-        (self.settings.f_before_operation_begin)(&pipeline);
-
-        log::info!("Starting the measurement pipeline...");
-        let mut pipeline = pipeline.start();
-
         // Operation: the pipeline is running.
+        log::info!("Starting the measurement pipeline...");
+        let pipeline = pipeline_builder.build().context("Pipeline failed to build")?;
         for plugin in initialized_plugins.iter_mut() {
             plugin.post_pipeline_start(&mut pipeline).with_context(|| {
                 format!(
@@ -394,7 +369,7 @@ fn initialize_with_config(agent_config: &mut AgentConfig, plugin: PluginMetadata
 }
 
 /// Prints some statistics after the plugin start-up phase.
-fn print_stats(pipeline_builder: &PipelineBuilder, plugins: &[Box<dyn Plugin>]) {
+fn print_stats(pipeline_builder: &pipeline::Builder, plugins: &[Box<dyn Plugin>]) {
     // plugins
     let plugins_list = plugins
         .iter()

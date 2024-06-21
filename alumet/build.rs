@@ -31,19 +31,19 @@ fn main() {
 
     // Generate the bindings
 
-    let bindings = with_rustc_bootstrap(|| {
-        cbindgen::Builder::new()
-            .with_crate(crate_dir)
-            .with_config(cbindgen_config)
-            .generate()
-            .expect("Unable to generate C bindings for the plugin API")
-    });
+    // let bindings = with_rustc_bootstrap(|| {
+    //     cbindgen::Builder::new()
+    //         .with_crate(crate_dir)
+    //         .with_config(cbindgen_config)
+    //         .generate()
+    //         .expect("Unable to generate C bindings for the plugin API")
+    // });
 
-    // Write the list of symbols for the linker (useful during the compilation of `app-agent`)
-    bindings.generate_symfile(sym_file_path);
+    // // Write the list of symbols for the linker (useful during the compilation of `app-agent`)
+    // bindings.generate_symfile(sym_file_path);
 
-    // Write the C bindings.
-    bindings.write_to_file(out_file_path);
+    // // Write the C bindings.
+    // bindings.write_to_file(out_file_path);
 
     println!("C-compatible API generated");
 }

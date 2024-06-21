@@ -6,10 +6,7 @@ use std::{
     path::Path,
 };
 
-use crate::{
-    pipeline::runtime::{IdlePipeline, RunningPipeline},
-    plugin::version::Version,
-};
+use crate::plugin::version::Version;
 use libc::c_void;
 use libloading::{Library, Symbol};
 
@@ -45,11 +42,6 @@ impl Plugin for DylibPlugin {
 
     fn stop(&mut self) -> anyhow::Result<()> {
         (self.stop_fn)(self.instance); // TODO error handling for ffi
-        Ok(())
-    }
-
-    fn pre_pipeline_start(&mut self, _pipeline: &IdlePipeline) -> anyhow::Result<()> {
-        // TODO
         Ok(())
     }
 
