@@ -25,6 +25,7 @@ impl Transform for EnergyAttributionTransform {
 
         let pod_id = metrics.cpu_usage_per_pod.unwrap();
         let rapl_id = metrics.rapl_consumed_energy.unwrap().as_u64();
+        let metric_id = metrics.pod_attributed_energy.unwrap();
         
         let besteffort = "besteffort".to_string();
         let burstable = "burstable".to_string();
@@ -37,12 +38,12 @@ impl Transform for EnergyAttributionTransform {
 
                         let id = m.timestamp.get_sec();
 
-                        let length = self.buffer_pod.get(&id).unwrap().len();
+                        let length = self.buffer_pod.get(&id).unwrap_or(&Vec::<MeasurementPoint>::new()).len();
 
                         for point in self.buffer_pod.remove(&id).unwrap().iter() {
                             let new_m = MeasurementPoint::new(
                                 m.timestamp, 
-                                self.metrics.lock().unwrap().pod_attributed_energy.unwrap(), 
+                                metric_id,
                                 point.resource.clone(),
                                 point.consumer.clone(),
                                 match m.value {
