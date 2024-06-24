@@ -111,7 +111,12 @@ impl AlumetPlugin for K8sPlugin {
                             // We open a File Descriptor to the newly created file
                             let mut path_cpu = path.clone();
                             let name_to_seek = pod_uid.strip_prefix("pod").unwrap_or(pod_uid);
-                            let (name, ns) = cgroup_v2::get_pod_name(name_to_seek.to_owned());
+                            // let (name, ns) = cgroup_v2::get_pod_name(name_to_seek.to_owned());
+                            let rt = tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                            .unwrap();
+                            let (name, ns) = rt.block_on(async { cgroup_v2::get_pod_name(name_to_seek.to_owned()).await });
                             path_cpu.push("cpu.stat");
                             let file = File::open(&path_cpu).with_context(|| format!("failed to open file {}", path_cpu.display())).unwrap();
                             let metric_file = CgroupV2MetricFile {
