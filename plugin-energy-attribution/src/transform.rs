@@ -42,21 +42,24 @@ impl Transform for EnergyAttributionTransform {
                             continue;
                         }
 
-                        let length = self.buffer_pod.get(&id).unwrap().len();
+                        let length = self.buffer_pod.get(&id).unwrap().len() as f64;
+                        let mut new_m: MeasurementPoint;
 
                         for point in self.buffer_pod.remove(&id).unwrap().iter() {
-                            let new_m = MeasurementPoint::new(
+                            new_m = MeasurementPoint::new(
                                 m.timestamp, 
                                 metric_id,
                                 point.resource.clone(),
                                 point.consumer.clone(),
                                 match m.value {
-                                    WrappedMeasurementValue::F64(fx) => fx / (length as f64),
-                                    WrappedMeasurementValue::U64(ux) => (ux / (length as u64)) as f64,
-                                });
-                            // for (key, value) in point.attributes() {
-                            //     new_m.with_attr(key, value.clone());
-                            // }
+                                    WrappedMeasurementValue::F64(fx) => fx / length,
+                                    WrappedMeasurementValue::U64(ux) => (ux as f64) / length,
+                                }
+                            );
+
+                            for (key, value) in point.clone().attributes() {
+                                new_m = new_m.with_attr(format!("{key}"), value.clone());
+                            }
 
                             measurements.push(new_m.clone());
                         }
