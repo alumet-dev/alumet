@@ -130,6 +130,7 @@ pub fn gather_value(file: &mut CgroupV2MetricFile, content_buffer: &mut String) 
 
 //Read files in a filesystem to associate a cgroup of a poduid to a kubernetes pod name
 pub async fn get_pod_name(uid: String) -> (String, String) {
+    let new_uid = uid.replace("_", "-");
     let output = Command::new("kubectl")
         .args(&["create", "token", "alumet-reader"])
         .output()
@@ -158,12 +159,23 @@ pub async fn get_pod_name(uid: String) -> (String, String) {
         for item in items.as_array().unwrap_or(&vec![]) {
             let metadata = item.get("metadata").unwrap_or(&Value::Null);
             let annotations = metadata.get("annotations").unwrap_or(&Value::Null);
-            let config_hash = annotations
+            let mut config_hash = annotations
                 .get("kubernetes.io/config.hash")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-
-            if config_hash == uid {
+            if config_hash == "" {
+                match metadata {
+                    Value::Null => {
+                        continue;
+                    }
+                    _ => {
+                        config_hash = metadata.get("uid")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    }
+                }
+            }
+            if config_hash == new_uid {
                 let pod_name = metadata.get("name").and_then(|v| v.as_str()).unwrap_or("");
                 let pod_namespace = metadata.get("namespace").and_then(|v| v.as_str()).unwrap_or("");
                 log::debug!("Found matching pod: {} in namespace {}", pod_name, pod_namespace);
@@ -171,7 +183,7 @@ pub async fn get_pod_name(uid: String) -> (String, String) {
             }
         }
     } else {
-        println!("No items found in the JSON response.");
+        log::debug!("No items found in the JSON response.");
     }
     ("".to_string(),"".to_string())
 }
