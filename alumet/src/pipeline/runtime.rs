@@ -898,7 +898,7 @@ fn handle_control_message(state: &mut PipelineControllerState, message: ControlM
 impl RunningPipeline {
     /// Blocks the current thread until all tasks in the pipeline finish.
     ///
-    /// If a task returns an error or panicks, `wait_for_all` returns an error without waiting
+    /// If a task returns an error or panics, `wait_for_all` returns an error without waiting
     /// for the other tasks.
     pub fn wait_for_shutdown(mut self) -> anyhow::Result<()> {
         let handle = self.shutdown_task_handle.take().unwrap(); // cannot be called twice, unwrap should never panic

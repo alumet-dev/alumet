@@ -48,13 +48,13 @@ impl CgroupV2MetricFile {
     }
 }
 
-/// Check if a specific file is a dir. Used to know if cgroupv2 are used
+/// Check if a specific file is a dir. Used to know if cgroup V2 are used
 pub fn is_accessible_dir(path: &Path) -> bool {
     path.is_dir()
 }
 
 
-/// Returns a Vector of CgroupV2MetricFile associated to pods availables under a given directory.
+/// Returns a Vector of CgroupV2MetricFile associated to pods available under a given directory.
 fn list_metric_file_in_dir(root_directory_path: &Path) -> anyhow::Result<Vec<CgroupV2MetricFile>> {
     let mut vec_file_metric: Vec<CgroupV2MetricFile> = Vec::new();
     let entries = fs::read_dir(root_directory_path)?;
@@ -91,7 +91,7 @@ fn list_metric_file_in_dir(root_directory_path: &Path) -> anyhow::Result<Vec<Cgr
     return Ok(vec_file_metric);
 }
 
-/// This function list all k8s pods availables, using sub-directories to look in:
+/// This function list all k8s pods available, using sub-directories to look in:
 /// For each subdirectory, we look in if there is a directory/ies about pods and we add it
 /// to a vector. All subdirectory are visited with the help of <list_metric_file_in_dir> function.
 pub fn list_all_k8s_pods_file(root_directory_path: &Path) -> anyhow::Result<Vec<CgroupV2MetricFile>> {
@@ -134,7 +134,7 @@ pub fn gather_value(file: &mut CgroupV2MetricFile, content_buffer: &mut String) 
     Ok(new_metric)
 }
 
-//Read files in a filesystem to associate a cgroup of a poduid to a kubernetes pod name
+//Read files in a filesystem to associate a cgroup of a pod uid to a kubernetes pod name
 pub async fn get_pod_name(uid: String) -> (String, String, String) {
     let new_uid = uid.replace("_", "-");
     let output = Command::new("kubectl")

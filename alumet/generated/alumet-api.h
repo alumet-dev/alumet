@@ -18,7 +18,7 @@ typedef enum WrappedMeasurementType {
 /**
  * Structure passed to plugins for the start-up phase.
  *
- * It allows the plugins to perform some actions before starting the measurment pipeline,
+ * It allows the plugins to perform some actions before starting the measurement pipeline,
  * such as registering new measurement sources.
  *
  * ## Note for applications

@@ -1,0 +1,68 @@
+{
+    "version": "0.2",
+    "ignorePaths": [],
+    "ignoreWords": [],
+    "import": [
+        "@cspell/dict-rust/cspell-ext.json"
+    ],
+    "useGitignore": true,
+    "caseSensitive": false,
+    "language": "en",
+    "languageSettings": [
+        {
+            "languageId": "rust",
+            "includeRegExpList": [
+                "comments"
+            ],
+            "ignoreRegExpList": [
+                "`.*`"
+            ],
+            "dictionaries": [
+                "rust",
+                "makefile",
+                "en-gb",
+                "cpp",
+                "cpp-legacy",
+                "cpp-refined",
+                "networking-terms",
+                "python",
+                "scala"
+            ]
+        }
+    ],
+    "patterns": [
+        {
+            "name": "comment-single-line",
+            "pattern": "//.*"
+        },
+        {
+            "name": "comment-multi-line",
+            "pattern": "/(?:\\/\\*[\\s\\S]*?\\*\\/)/g"
+        },
+        {
+            "name": "comments",
+            "pattern": [
+                "comment-single-line",
+                "comment-multi-line"
+            ]
+        }
+    ],
+    "words": [
+        "Alumet",
+        "astring",
+        "cbindgen",
+        "cdylib",
+        "hwmon",
+        "nvml",
+        "powercap",
+        "psys",
+        "rapl",
+        "subconfig",
+        "subtable",
+        "subtables",
+        "sysfs",
+        "timerfd",
+        "UCUM",
+        "uncore"
+    ]
+}
