@@ -5,7 +5,7 @@ use alumet::{
     pipeline::Output,
     plugin::rust::{deserialize_config, serialize_config, AlumetPlugin},
 };
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use serde::{Deserialize, Serialize};
 
 use crate::influxdb2::LineProtocolData;
@@ -84,8 +84,12 @@ impl Output for InfluxDbOutput {
     ) -> Result<(), alumet::pipeline::WriteError> {
         // Build the data to send to InfluxDB.
         let mut builder = LineProtocolData::builder();
+        if measurements.is_empty() {
+            return Ok(());
+        }
         for m in measurements {
             let metric = ctx.metrics.with_id(&m.metric).unwrap();
+
             builder.measurement(&metric.name);
 
             // Resources and consumers are translated to tags.
@@ -159,9 +163,9 @@ impl Output for InfluxDbOutput {
 
         // Do the writing on the tokio Runtime.
         let handle = tokio::runtime::Handle::current();
-        handle
-            .block_on(self.client.write(&self.org, &self.bucket, data))
-            .context("failed to write measurements to InfluxDB")?;
+        let _ = handle
+            .block_on(self.client.write(&self.org, &self.bucket, data));
+        //     .context("failed to write measurements to InfluxDB");
         Ok(())
     }
 }
