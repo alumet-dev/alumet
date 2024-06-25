@@ -29,17 +29,21 @@ pub struct CgroupV2MetricFile {
     pub uid: String,
     /// Namespace of the pod.
     pub namespace: String,
+
+    /// Node of the pod.
+    pub node: String,
 }
 
 impl CgroupV2MetricFile {
     /// Create a new CgroupV2MetricFile structure from a name, a path and a File
-    fn new(name: String, path_entry: PathBuf, file: File, uid: String, namespace: String) -> CgroupV2MetricFile {
+    fn new(name: String, path_entry: PathBuf, file: File, uid: String, namespace: String, node: String) -> CgroupV2MetricFile {
         CgroupV2MetricFile {
-            name: name,
+            name,
             path: path_entry,
-            file: file,
-            uid: uid,
-            namespace: namespace,
+            file,
+            uid,
+            namespace,
+            node
         }
     }
 }
@@ -72,7 +76,7 @@ fn list_metric_file_in_dir(root_directory_path: &Path) -> anyhow::Result<Vec<Cgr
             .enable_all()
             .build()
             .unwrap();
-            let (name, ns) = rt.block_on(async { get_pod_name(name_to_seek.to_owned()).await });
+            let (name, ns, nd) = rt.block_on(async { get_pod_name(name_to_seek.to_owned()).await });
             let file = File::open(&path_cloned).with_context(|| format!("failed to open file {}", path_cloned.display()))?;
             vec_file_metric.push(CgroupV2MetricFile {
                 name: name.to_owned(),
@@ -80,6 +84,7 @@ fn list_metric_file_in_dir(root_directory_path: &Path) -> anyhow::Result<Vec<Cgr
                 file: file,
                 uid: uid.to_owned(),
                 namespace: ns,
+                node: nd,
             });
         }
     }
@@ -125,11 +130,12 @@ pub fn gather_value(file: &mut CgroupV2MetricFile, content_buffer: &mut String) 
     new_metric.name = file.name.clone();
     new_metric.namespace = file.namespace.clone();
     new_metric.uid = file.uid.clone();
+    new_metric.node = file.node.clone();
     Ok(new_metric)
 }
 
 //Read files in a filesystem to associate a cgroup of a poduid to a kubernetes pod name
-pub async fn get_pod_name(uid: String) -> (String, String) {
+pub async fn get_pod_name(uid: String) -> (String, String, String) {
     let new_uid = uid.replace("_", "-");
     let output = Command::new("kubectl")
         .args(&["create", "token", "alumet-reader"])
@@ -158,6 +164,7 @@ pub async fn get_pod_name(uid: String) -> (String, String) {
     if let Some(items) = data.get("items") {
         for item in items.as_array().unwrap_or(&vec![]) {
             let metadata = item.get("metadata").unwrap_or(&Value::Null);
+            let spec = item.get("spec").unwrap_or(&Value::Null);
             let annotations = metadata.get("annotations").unwrap_or(&Value::Null);
             let mut config_hash = annotations
                 .get("kubernetes.io/config.hash")
@@ -178,14 +185,15 @@ pub async fn get_pod_name(uid: String) -> (String, String) {
             if config_hash == new_uid {
                 let pod_name = metadata.get("name").and_then(|v| v.as_str()).unwrap_or("");
                 let pod_namespace = metadata.get("namespace").and_then(|v| v.as_str()).unwrap_or("");
+                let pod_node = spec.get("nodeName").and_then(|v| v.as_str()).unwrap_or("");
                 log::debug!("Found matching pod: {} in namespace {}", pod_name, pod_namespace);
-                return (pod_name.to_owned(), pod_namespace.to_owned());
+                return (pod_name.to_owned(), pod_namespace.to_owned(), pod_node.to_owned());
             }
         }
     } else {
         log::debug!("No items found in the JSON response.");
     }
-    ("".to_string(),"".to_string())
+    ("".to_string(),"".to_string(),"".to_string())
 }
 
 
@@ -288,7 +296,7 @@ mod tests {
         };
 
         let mut my_cgroup_test_file: CgroupV2MetricFile =
-            CgroupV2MetricFile::new("testing_pod".to_string(), path_file, file, "uid_test".to_string(), "namespace_test".to_string());
+            CgroupV2MetricFile::new("testing_pod".to_string(), path_file, file, "uid_test".to_string(), "namespace_test".to_string(), "node_test".to_owned());
         let mut content_file = String::new();
         let res_metric = gather_value(&mut my_cgroup_test_file, &mut content_file);
         if let Ok(CgroupV2Metric {
@@ -298,6 +306,7 @@ mod tests {
             time_used_system_mode,
             uid,
             namespace,
+            node,
         }) = res_metric
         {
             assert_eq!(name, "testing_pod".to_owned());
