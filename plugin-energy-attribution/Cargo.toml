@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 alumet = { path = "../alumet" }
 anyhow = "1.0.79"
+log = "*"
