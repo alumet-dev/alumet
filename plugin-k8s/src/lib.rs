@@ -116,7 +116,7 @@ impl AlumetPlugin for K8sPlugin {
                             .enable_all()
                             .build()
                             .unwrap();
-                            let (name, ns) = rt.block_on(async { cgroup_v2::get_pod_name(name_to_seek.to_owned()).await });
+                            let (name, ns, nd) = rt.block_on(async { cgroup_v2::get_pod_name(name_to_seek.to_owned()).await });
                             path_cpu.push("cpu.stat");
                             let file = File::open(&path_cpu).with_context(|| format!("failed to open file {}", path_cpu.display())).unwrap();
                             let metric_file = CgroupV2MetricFile {
@@ -125,6 +125,7 @@ impl AlumetPlugin for K8sPlugin {
                                 file: file,
                                 uid: pod_uid.to_owned(),
                                 namespace: ns.to_owned(),
+                                node: nd.to_owned(),
                             };
 
                             let counter_tmp_tot: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
