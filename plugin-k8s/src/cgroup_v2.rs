@@ -70,7 +70,8 @@ fn list_metric_file_in_dir(root_directory_path: &Path) -> anyhow::Result<Vec<Cgr
             new_prefix.push_str("-");            
             let uid = dir_uid_mod.strip_prefix(&new_prefix).unwrap_or(&dir_uid_mod);
             path_cloned.push("cpu.stat");
-            let name_to_seek = uid.strip_prefix("pod").unwrap_or(uid);
+            let name_to_seek_raw = uid.strip_prefix("pod").unwrap_or(uid);
+            let name_to_seek = name_to_seek_raw.replace("_", "-");
             // let (name, ns) = get_pod_name(name_to_seek.to_owned());
             let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
