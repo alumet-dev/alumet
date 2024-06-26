@@ -1,8 +1,12 @@
 use std::sync::{Arc, Mutex};
 
 use alumet::{
-    metrics::{RawMetricId, TypedMetricId}, pipeline::runtime::IdlePipeline, plugin::rust::AlumetPlugin, units::{PrefixedUnit, Unit}
+    metrics::{RawMetricId, TypedMetricId},
+    pipeline::runtime::IdlePipeline,
+    plugin::rust::AlumetPlugin,
+    units::Unit,
 };
+
 use anyhow::Context;
 use transform::EnergyAttributionTransform;
 
@@ -23,7 +27,7 @@ struct Metrics {
     // that is why they are Options.
     cpu_usage_per_pod: Option<RawMetricId>,
     rapl_consumed_energy: Option<RawMetricId>,
-    pod_attributed_energy: Option<TypedMetricId<f64>>, // or f64?
+    pod_attributed_energy: Option<TypedMetricId<f64>>,
 }
 
 impl AlumetPlugin for EnergyAttributionPlugin {
@@ -49,7 +53,7 @@ impl AlumetPlugin for EnergyAttributionPlugin {
             Unit::Joule,
             "Energy consumption attributed to the pod",
         )?);
-        
+
         // Add the transform now but fill its metrics later.
         alumet.add_transform(Box::new(EnergyAttributionTransform::new(self.metrics.clone())));
         Ok(())
