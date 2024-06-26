@@ -70,7 +70,8 @@ fn list_metric_file_in_dir(root_directory_path: &Path) -> anyhow::Result<Vec<Cgr
             new_prefix.push_str("-");            
             let uid = dir_uid_mod.strip_prefix(&new_prefix).unwrap_or(&dir_uid_mod);
             path_cloned.push("cpu.stat");
-            let name_to_seek = uid.strip_prefix("pod").unwrap_or(uid);
+            let name_to_seek_raw = uid.strip_prefix("pod").unwrap_or(uid);
+            let name_to_seek = name_to_seek_raw.replace("_", "-");
             // let (name, ns) = get_pod_name(name_to_seek.to_owned());
             let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -139,10 +140,18 @@ pub async fn get_pod_name(uid: String) -> (String, String, String) {
     let new_uid = uid.replace("_", "-");
     let output = Command::new("kubectl")
         .args(&["create", "token", "alumet-reader"])
-        .output()
-        .expect("Error when executing command");
+        .output();
+    
+    let output_unwraped = match output {
+        Err(_) => {
+            return ("".to_string(),"".to_string(),"".to_string());
+        },
+        Ok(output_tmp) => {
+            output_tmp
+        }
+    };
 
-    let token = String::from_utf8_lossy(&output.stdout);
+    let token = String::from_utf8_lossy(&output_unwraped.stdout);
     let token = token.trim();
     let api_url = "https://10.22.80.14:6443/api/v1/pods/";
     let mut headers = header::HeaderMap::new();
@@ -156,9 +165,18 @@ pub async fn get_pod_name(uid: String) -> (String, String, String) {
         .danger_accept_invalid_certs(true) 
         .default_headers(headers)
         .build().unwrap();
-    let response = client.get(api_url).send().await;
+    let response_raw = client.get(api_url).send().await;
 
-    let data: Value = response.unwrap().json().await.expect("Error parsing JSON");
+    let response = match response_raw {
+        Ok(resp) => {
+            resp
+        },
+        Err(_) => {
+            return ("".to_string(),"".to_string(),"".to_string());
+        }
+    };
+
+    let data: Value = response.json().await.expect("Error parsing JSON");
 
     // Iterate over each item
     if let Some(items) = data.get("items") {
@@ -250,8 +268,8 @@ mod tests {
             Ok(unwrap_li) => {
                 assert_eq!(unwrap_li.len(), 4);
                 for pod in unwrap_li {
-                    if !list_pod_name.contains(&pod.name.as_str()) {
-                        log::error!("Pod name not in the list: {}", pod.name);
+                    if !list_pod_name.contains(&pod.uid.as_str()) {
+                        log::error!("Pod name not in the list: {}", pod.uid);
                         assert!(false);
                     }
                 }

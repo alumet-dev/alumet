@@ -98,19 +98,37 @@ impl AlumetPlugin for K8sPlugin {
                 // The events look like the following
                 // Handle_Event: Ok(Event { kind: Create(Folder), paths: ["/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/TESTTTTT"], attr:tracker: None, attr:flag: None, attr:info: None, attr:source: None })
                 // Handle_Event: Ok(Event { kind: Remove(Folder), paths: ["/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/TESTTTTT"], attr:tracker: None, attr:flag: None, attr:info: None, attr:source: None })
-                log::debug!("Handle event function");
                 if let Ok(Event {
                     kind: EventKind::Create(notify::event::CreateKind::Folder),
                     paths,
                     ..
                 }) = event
                 {
-                    for path in paths {
+                    for mut path in paths {                  
+                        match path.extension() {
+                            None => {
+                                // Case of no extension found --> I will not find cpu.stat file
+                                return;
+                            },
+                            Some(os_str) => match os_str.to_str() {
+                                Some("slice") => {
+                                    // Case of .slice found --> I will find cpu.stat file
+                                    log::debug!(".slice extension found, will continue");
+                                },
+                                _ => {
+                                    // Case of an other extension than .slice is found --> I will not find cpu.stat file
+                                    return;
+                                }
+                            },
+                        };                        
                         if let Some(pod_uid) = path.file_name() {
                             let pod_uid = pod_uid.to_str().unwrap();
                             // We open a File Descriptor to the newly created file
                             let mut path_cpu = path.clone();
-                            let name_to_seek = pod_uid.strip_prefix("pod").unwrap_or(pod_uid);
+                            let full_name_to_seek = pod_uid.strip_suffix(".slice").unwrap_or(&pod_uid);
+                            let parts: Vec<&str> = full_name_to_seek.split("pod").collect();
+                            let name_to_seek_raw = *(parts.last().unwrap_or(&full_name_to_seek));
+                            let name_to_seek = name_to_seek_raw.replace("_", "-");
                             // let (name, ns) = cgroup_v2::get_pod_name(name_to_seek.to_owned());
                             let rt = tokio::runtime::Builder::new_current_thread()
                             .enable_all()
