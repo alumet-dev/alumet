@@ -251,8 +251,8 @@ mod tests {
             Ok(unwrap_li) => {
                 assert_eq!(unwrap_li.len(), 4);
                 for pod in unwrap_li {
-                    if !list_pod_name.contains(&pod.name.as_str()) {
-                        log::error!("Pod name not in the list: {}", pod.name);
+                    if !list_pod_name.contains(&pod.uid.as_str()) {
+                        log::error!("Pod name not in the list: {}", pod.uid);
                         assert!(false);
                     }
                 }
