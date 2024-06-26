@@ -4,10 +4,10 @@ use std::time::Duration;
 use std::{fmt, time};
 use std::{future::Future, pin::Pin};
 
-use anyhow::Context;
-use tokio::sync::watch;
+use super::elements::source;
+use super::util::versioned::Versioned;
 
-use super::runtime::SourceCmd;
+// use super::runtime::SourceCmd;
 
 /// A boxed future, from the `futures` crate.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -26,11 +26,13 @@ pub struct TriggerSpec {
     config: TriggerConfig,
 }
 
+pub(crate) type InterruptSignal = Versioned<source::TaskConfig>;
+
 /// Controls when the [`Source`](super::Source) is polled for measurements.
 pub(crate) struct Trigger {
     pub config: TriggerConfig,
     mechanism: TriggerMechanism,
-    interrupt_signal: Option<watch::Receiver<SourceCmd>>,
+    interrupt_signal: Option<InterruptSignal>,
 }
 
 #[derive(Debug, Clone)]
@@ -270,7 +272,7 @@ pub(crate) enum TriggerReason {
 }
 
 impl Trigger {
-    pub fn new(spec: TriggerSpec, interrupt_signal: watch::Receiver<SourceCmd>) -> Result<Self, std::io::Error> {
+    pub fn new(spec: TriggerSpec, interrupt_signal: InterruptSignal) -> Result<Self, std::io::Error> {
         Ok(Self {
             config: spec.config,
             mechanism: TriggerMechanism::try_from(spec.mechanism)?,
@@ -302,9 +304,7 @@ impl Trigger {
                     res?;
                     Ok(TriggerReason::Triggered)
                 }
-                res = signal.changed() => {
-                    // changed() returns an Error if the watch::Sender has been dropped, which should not happen.
-                    res.context("watch::Sender dropped, which interrupted the Trigger")?;
+                _ = signal.changed() => {
                     Ok(TriggerReason::Interrupted)
                 }
             }

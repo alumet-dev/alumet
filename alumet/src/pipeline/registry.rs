@@ -40,13 +40,20 @@ impl Absorb<RegistryOp> for MetricRegistry {
     }
 }
 
+pub fn new_shared(registry: MetricRegistry) -> (SharedRegistryWriter, SharedRegistryReader) {
+    let (w, r) = left_right::new_from_empty(registry);
+    (SharedRegistryWriter(w), SharedRegistryReader(r))
+}
+
 #[derive(Clone)]
 pub struct SharedRegistryReader(ReadHandle<MetricRegistry>);
 
 pub struct SharedRegistryWriter(WriteHandle<MetricRegistry, RegistryOp>);
 
+pub type RegistryGuard<'a> = ReadGuard<'a, MetricRegistry>;
+
 impl SharedRegistryReader {
-    pub fn read(&self) -> ReadGuard<MetricRegistry> {
+    pub fn read(&self) -> RegistryGuard {
         self.0
             .enter()
             .expect("WriteHandle<MetricRegistry> should not be dropped before the pipeline tasks")
@@ -54,6 +61,18 @@ impl SharedRegistryReader {
 }
 
 impl SharedRegistryWriter {
+    pub fn read(&self) -> RegistryGuard {
+        self.0.enter().unwrap()
+    }
+
+    pub async fn register(
+        &mut self,
+        metric: Metric,
+        on_duplicate: OnDuplicateMetric,
+    ) -> Result<Vec<RawMetricId>, MetricCreationError> {
+        self.register_multiple(vec![metric], on_duplicate).await
+    }
+
     pub async fn register_multiple(
         &mut self,
         metrics: Vec<Metric>,
@@ -61,13 +80,13 @@ impl SharedRegistryWriter {
     ) -> Result<Vec<RawMetricId>, MetricCreationError> {
         // Use a oneshot channel to asynchronously get the result of the operation.
         let (tx, rx) = oneshot::channel();
-        
+
         // Add the changes to the left_right internal queue.
         self.0.append(RegistryOp::Register(metrics, on_duplicate, Some(tx)));
 
         // Apply the changes and swap the left_right to make them visible to readers.
         self.0.publish();
-        
+
         // Get the result of the metric registration.
         rx.await.unwrap()
     }

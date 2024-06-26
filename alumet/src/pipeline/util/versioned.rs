@@ -1,14 +1,11 @@
 //! A thread-safe versioned value with mutable access.
 
 use std::{
-    future::Future,
     ops,
     sync::{Arc, Mutex, MutexGuard},
 };
 
-use tokio::sync::{futures::Notified, Notify};
-
-use crate::pipeline::Output;
+use tokio::sync::Notify;
 
 pub struct Versioned<T> {
     /// Thread-safe shared state.
@@ -55,22 +52,34 @@ impl Version {
 
 impl<T> Versioned<T> {
     pub fn new(initial_value: T) -> Self {
-        Self::new_with_notified(|_| initial_value)
-    }
-
-    pub fn new_with_notified<F: FnOnce(Notified<'_>) -> T>(f: F) -> Self {
-        let notify = Notify::new();
-        Self {
-            shared: Arc::new(Shared {
-                state: Mutex::new(State {
-                    value: f(notify.notified()),
-                    version: Version::initial(),
+        {
+            let notify = Notify::new();
+            Self {
+                shared: Arc::new(Shared {
+                    state: Mutex::new(State {
+                        value: initial_value,
+                        version: Version::initial(),
+                    }),
+                    notify,
                 }),
-                notify,
-            }),
-            local_version: Version::initial(),
+                local_version: Version::initial(),
+            }
         }
     }
+
+    // pub fn new_with_notified<F: FnOnce(Notified<'_>) -> T>(f: F) -> Self {
+    //     let notify = Notify::new();
+    //     Self {
+    //         shared: Arc::new(Shared {
+    //             state: Mutex::new(State {
+    //                 value: f(notify.notified()),
+    //                 version: Version::initial(),
+    //             }),
+    //             notify,
+    //         }),
+    //         local_version: Version::initial(),
+    //     }
+    // }
 
     pub fn clone_unseen(&self) -> Self {
         let state = self.shared.state.lock().unwrap();
@@ -116,12 +125,12 @@ impl<T> Versioned<T> {
     }
 
     /// Returns a future that is waken up when the version is incremented.
-    pub fn change_notif<'a>(&'a self) -> impl Future + 'a {
-        self.shared.notify.notified()
+    pub async fn changed(&self) {
+        self.shared.notify.notified().await
     }
 
     pub async fn read_changed(&mut self) -> Ref<T> {
-        self.change_notif().await;
+        self.changed().await;
         self.read()
     }
 
@@ -248,5 +257,18 @@ impl<'a, T> ops::DerefMut for RefMut<'a, T> {
         self.guard.version = new_version;
         *self.local_version = new_version;
         &mut self.guard.value
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::pipeline::util;
+
+    use super::Versioned;
+
+    #[test]
+    fn test() {
+        util::assert_send::<Versioned<i32>>();
+        util::assert_sync::<Versioned<i32>>();
     }
 }

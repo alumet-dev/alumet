@@ -1,38 +1,70 @@
 //! Implementation and control of transform tasks.
 
-use std::{
-    fmt,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
-};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use anyhow::Context;
 use tokio::{
+    runtime,
     sync::{broadcast, mpsc},
-    task::JoinSet,
+    task::JoinHandle,
 };
 
-use crate::{
-    measurement::MeasurementBuffer,
-    pipeline::{registry::SharedRegistryReader, Transform, TransformContext, TransformError},
-};
+use super::error::TransformError;
+use crate::pipeline::util::naming::TransformName;
+use crate::{measurement::MeasurementBuffer, metrics::MetricRegistry, pipeline::registry::SharedRegistryReader};
+
+/// Transforms measurements.
+pub trait Transform: Send {
+    /// Applies the transform on the measurements.
+    fn apply(&mut self, measurements: &mut MeasurementBuffer, ctx: &TransformContext) -> Result<(), TransformError>;
+}
+
+/// Shared data that can be accessed by transforms.
+pub struct TransformContext<'a> {
+    pub metrics: &'a MetricRegistry,
+}
 
 /// Controls the transforms of a measurement pipeline.
 ///
 /// There can be a maximum of 64 transforms for the moment.
 pub struct TransformControl {
-    tasks: JoinSet<anyhow::Result<()>>,
+    task_handle: JoinHandle<anyhow::Result<()>>,
     active_bitset: Arc<AtomicU64>,
     names_by_bitset_position: Vec<TransformName>,
 }
 
 impl TransformControl {
+    pub fn create_transforms(
+        transforms: Vec<(TransformName, Box<dyn Transform>)>,
+        metrics_r: SharedRegistryReader,
+        rx: mpsc::Receiver<MeasurementBuffer>,
+        tx: broadcast::Sender<MeasurementBuffer>,
+        rt_normal: &runtime::Handle,
+    ) -> Self {
+        let mut active_bitset: u64 = 0;
+        let mut names_by_bitset_position = Vec::with_capacity(transforms.len());
+
+        for (i, (name, _)) in transforms.iter().enumerate() {
+            active_bitset |= 1 << i;
+            names_by_bitset_position.push(name.clone());
+        }
+
+        // Start the transforms task.
+        let active_bitset = Arc::new(AtomicU64::new(active_bitset));
+        let task = run_all_in_order(transforms, rx, tx, active_bitset.clone(), metrics_r);
+        let task_handle = rt_normal.spawn(task);
+        Self {
+            task_handle,
+            active_bitset,
+            names_by_bitset_position,
+        }
+    }
+
     pub fn handle_message(&mut self, msg: ControlMessage) {
         let mut bitset = self.active_bitset.load(Ordering::Relaxed);
         for (i, name) in self.names_by_bitset_position.iter().enumerate() {
-            if name.matches(&msg.selector) {
+            if msg.selector.matches(name) {
                 match msg.new_state {
                     TransformState::Enabled => {
                         bitset |= 1 << i;
@@ -45,32 +77,10 @@ impl TransformControl {
         }
         self.active_bitset.store(bitset, Ordering::Relaxed);
     }
-    
+
     pub fn shutdown(self) {
         // Nothing to do for the moment: the transform task will naturally
         // stop when the input channel is closed.
-    }
-}
-
-#[derive(PartialEq, Eq)]
-pub struct TransformName {
-    plugin: String,
-    transform: String,
-}
-
-impl TransformName {
-    pub fn matches(&self, selector: &TransformSelector) -> bool {
-        match selector {
-            TransformSelector::Single(full_name) => self == full_name,
-            TransformSelector::Plugin(plugin_name) => &self.plugin == plugin_name,
-            TransformSelector::All => true,
-        }
-    }
-}
-
-impl fmt::Display for TransformName {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}/{}", self.plugin, self.transform)
     }
 }
 
@@ -78,6 +88,16 @@ pub enum TransformSelector {
     Single(TransformName),
     Plugin(String),
     All,
+}
+
+impl TransformSelector {
+    pub fn matches(&self, name: &TransformName) -> bool {
+        match self {
+            TransformSelector::Single(full_name) => name == full_name,
+            TransformSelector::Plugin(plugin_name) => &name.plugin == plugin_name,
+            TransformSelector::All => true,
+        }
+    }
 }
 
 pub struct ControlMessage {
