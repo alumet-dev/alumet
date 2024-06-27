@@ -79,8 +79,8 @@ impl AlumetPlugin for Oar2Plugin {
         )?;
         let memory_metric = alumet.create_metric::<u64>(
             "memory_usage",
-            Unit::Unity,
-            "Total memory usage by the cgroup (in bytes).",
+            Unit::Byte,
+            "Total memory usage by the cgroup.",
         )?;
 
         self.metrics = Some(Metrics {
