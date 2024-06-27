@@ -104,7 +104,7 @@ impl AlumetPlugin for K8sPlugin {
                     ..
                 }) = event
                 {
-                    for mut path in paths {                  
+                    for path in paths {                  
                         match path.extension() {
                             None => {
                                 // Case of no extension found --> I will not find cpu.stat file
