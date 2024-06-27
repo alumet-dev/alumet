@@ -1,5 +1,6 @@
 use alumet::{
-    pipeline::{runtime::ControlHandle, trigger::TriggerSpec}, plugin::{
+    pipeline::{runtime::ControlHandle, trigger::TriggerSpec},
+    plugin::{
         rust::{deserialize_config, serialize_config, AlumetPlugin},
         util::CounterDiff,
         ConfigTable, Plugin,
@@ -50,7 +51,11 @@ impl AlumetPlugin for K8sPlugin {
 
     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
         let config = deserialize_config(config).context("invalid config")?;
-        Ok(Box::new(K8sPlugin { config: config, watcher: None, metrics: None }))
+        Ok(Box::new(K8sPlugin {
+            config: config,
+            watcher: None,
+            metrics: None,
+        }))
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
@@ -68,7 +73,13 @@ impl AlumetPlugin for K8sPlugin {
             let counter_tmp_tot: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
             let counter_tmp_usr: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
             let counter_tmp_sys: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
-            let probe = K8SProbe::new(metrics.clone(), metric_file, counter_tmp_tot, counter_tmp_sys, counter_tmp_usr)?;
+            let probe = K8SProbe::new(
+                metrics.clone(),
+                metric_file,
+                counter_tmp_tot,
+                counter_tmp_sys,
+                counter_tmp_usr,
+            )?;
             alumet.add_source(Box::new(probe), TriggerSpec::at_interval(self.config.poll_interval));
         }
 
@@ -84,7 +95,7 @@ impl AlumetPlugin for K8sPlugin {
         let plugin_name = self.name().to_owned();
 
         // let metrics = self.metrics.clone().unwrap();
-        let metrics = self.metrics.clone().unwrap();
+        let metrics = self.metrics.clone().with_context(|| "Metrics is not available")?;
         let poll_interval = self.config.poll_interval;
         struct PodDetector {
             plugin_name: String,
@@ -104,44 +115,71 @@ impl AlumetPlugin for K8sPlugin {
                     ..
                 }) = event
                 {
-                    for mut path in paths {                  
+                    for path in paths {
                         match path.extension() {
                             None => {
                                 // Case of no extension found --> I will not find cpu.stat file
                                 return;
-                            },
+                            }
                             Some(os_str) => match os_str.to_str() {
                                 Some("slice") => {
                                     // Case of .slice found --> I will find cpu.stat file
                                     log::debug!(".slice extension found, will continue");
-                                },
+                                }
                                 _ => {
                                     // Case of an other extension than .slice is found --> I will not find cpu.stat file
                                     return;
                                 }
                             },
-                        };                        
+                        };
                         if let Some(pod_uid) = path.file_name() {
-                            let pod_uid = pod_uid.to_str().unwrap();
+                            let pod_uid = match pod_uid.to_str() {
+                                Some(uid_str) => uid_str,
+                                None => {
+                                    log::error!("Unable to transform to str");
+                                    return;
+                                }
+                            };
                             // We open a File Descriptor to the newly created file
                             let mut path_cpu = path.clone();
                             let full_name_to_seek = pod_uid.strip_suffix(".slice").unwrap_or(&pod_uid);
                             let parts: Vec<&str> = full_name_to_seek.split("pod").collect();
                             let name_to_seek_raw = *(parts.last().unwrap_or(&full_name_to_seek));
+                            let uid_raw = parts.last().unwrap_or(&"No UID found");
+                            let uid = format!("pod{}", uid_raw);
                             let name_to_seek = name_to_seek_raw.replace("_", "-");
                             // let (name, ns) = cgroup_v2::get_pod_name(name_to_seek.to_owned());
-                            let rt = tokio::runtime::Builder::new_current_thread()
-                            .enable_all()
-                            .build()
-                            .unwrap();
-                            let (name, ns, nd) = rt.block_on(async { cgroup_v2::get_pod_name(name_to_seek.to_owned()).await });
+                            let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                                Ok(rt_ok) => rt_ok,
+                                Err(err) => {
+                                    log::error!("Runtime failed to build and returned an error: {}", err);
+                                    return;
+                                }
+                            };
+                            let (name, ns, nd) =
+                                match rt.block_on(async { cgroup_v2::get_pod_name(name_to_seek.to_owned()).await }) {
+                                    Ok(tuple_found) => tuple_found,
+                                    Err(err) => {
+                                        log::error!("Block on failed returned an error: {}", err);
+                                        return;
+                                    }
+                                };
+
                             path_cpu.push("cpu.stat");
-                            let file = File::open(&path_cpu).with_context(|| format!("failed to open file {}", path_cpu.display())).unwrap();
+                            let file = match File::open(&path_cpu)
+                                .with_context(|| format!("failed to open file {}", path_cpu.display()))
+                            {
+                                Ok(file_opened) => file_opened,
+                                Err(err) => {
+                                    log::error!("Failed to open file at {:?}, it returned an error: {}", path_cpu, err);
+                                    return;
+                                }
+                            };
                             let metric_file = CgroupV2MetricFile {
                                 name: name.to_owned(),
                                 path: path_cpu,
                                 file: file,
-                                uid: pod_uid.to_owned(),
+                                uid: uid.to_owned(),
                                 namespace: ns.to_owned(),
                                 node: nd.to_owned(),
                             };
@@ -149,14 +187,30 @@ impl AlumetPlugin for K8sPlugin {
                             let counter_tmp_tot: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
                             let counter_tmp_usr: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
                             let counter_tmp_sys: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
-                            let probe: K8SProbe = K8SProbe::new(self.metrics.clone(), metric_file, counter_tmp_tot, counter_tmp_sys, counter_tmp_usr).unwrap();
-                            
-                            // Add the probe to the sources
-                            self.control_handle.add_source(self.plugin_name.clone(), pod_uid.to_string(), Box::new(probe), TriggerSpec::at_interval(self.poll_interval));
-                        }
+                            let probe: K8SProbe = match K8SProbe::new(
+                                self.metrics.clone(),
+                                metric_file,
+                                counter_tmp_tot,
+                                counter_tmp_sys,
+                                counter_tmp_usr,
+                            ) {
+                                Ok(new_prob) => new_prob,
+                                Err(err) => {
+                                    log::error!("Failed to create a K8S probe, it returned an error: {}", err);
+                                    return;
+                                }
+                            };
 
+                            // Add the probe to the sources
+                            self.control_handle.add_source(
+                                self.plugin_name.clone(),
+                                pod_uid.to_string(),
+                                Box::new(probe),
+                                TriggerSpec::at_interval(self.poll_interval),
+                            );
+                        }
                     }
-                }                 
+                }
             }
         }
         let handler = PodDetector {
@@ -171,10 +225,8 @@ impl AlumetPlugin for K8sPlugin {
 
         self.watcher = Some(watcher);
 
-     
         Ok(())
     }
-
 }
 
 impl Default for Config {
