@@ -75,7 +75,7 @@ impl AlumetPlugin for Oar2Plugin {
         let cpu_metric = alumet.create_metric::<u64>(
             "cpu_time",
             PrefixedUnit::nano(Unit::Second),
-            "Total CPU time consumed by the cgroup (in nanoseconds).",
+            "Total CPU time consumed by the cgroup.",
         )?;
         let memory_metric = alumet.create_metric::<u64>(
             "memory_usage",
