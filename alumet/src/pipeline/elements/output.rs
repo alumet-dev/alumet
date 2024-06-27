@@ -1,15 +1,17 @@
 //! Implementation and control of output tasks.
 
+use std::collections::HashMap;
 use std::ops::ControlFlow;
 use std::sync::{Arc, Mutex};
 
 use tokio::runtime;
 use tokio::{sync::broadcast, task::JoinSet};
 
+use crate::measurement::MeasurementBuffer;
 use crate::metrics::MetricRegistry;
 use crate::pipeline::builder::context::OutputBuildContext;
-use crate::pipeline::util::naming::OutputName;
-use crate::{measurement::MeasurementBuffer, pipeline::registry::SharedRegistryReader};
+use crate::pipeline::util::naming::{NameGenerator, OutputName};
+use crate::pipeline::{builder, PluginName};
 
 use super::super::builder::elements::OutputBuilder;
 use super::super::registry;
@@ -32,27 +34,43 @@ pub struct OutputControl {
     configs: Vec<(OutputName, Versioned<TaskConfig>)>,
 
     tx: broadcast::Sender<MeasurementBuffer>,
+
+    /// Handle of the "normal" async runtime. Used for creating new outputs.
     rt_normal: runtime::Handle,
-    metrics: registry::SharedRegistryReader,
+
+    /// Generates deduplicated names for new outputs.
+    namegen_by_plugin: HashMap<PluginName, NameGenerator>,
+
+    /// Read-only access to the metrics.
+    metrics: registry::MetricReader,
 }
 
 impl OutputControl {
     pub fn new(
         tx: broadcast::Sender<MeasurementBuffer>,
         rt_normal: runtime::Handle,
-        metrics: registry::SharedRegistryReader,
+        metrics: registry::MetricReader,
     ) -> Self {
         Self {
             tasks: JoinSet::new(),
             configs: Vec::with_capacity(4),
             tx,
             rt_normal,
+            namegen_by_plugin: HashMap::new(),
             metrics,
         }
     }
 
-    pub fn create_output(&mut self, ctx: &mut dyn OutputBuildContext, builder: Box<dyn OutputBuilder>) {
-        let reg = builder(ctx);
+    pub fn create_output(&mut self, plugin: PluginName, builder: Box<dyn OutputBuilder>) {
+        let metrics = self.metrics.blocking_read(); // TODO how to pass this to create_output?
+        let mut ctx = BuildContext {
+            metrics: &metrics,
+            namegen: self
+                .namegen_by_plugin
+                .entry(plugin.clone())
+                .or_insert_with(|| NameGenerator::new(plugin)),
+        };
+        let reg = builder(&mut ctx);
         let rx = self.tx.subscribe();
         let config = Versioned::new(TaskConfig {
             state: OutputState::Run,
@@ -80,6 +98,21 @@ impl OutputControl {
             new_state: OutputState::Stop,
         };
         self.handle_message(stop_msg);
+    }
+}
+
+struct BuildContext<'a> {
+    metrics: &'a MetricRegistry,
+    namegen: &'a mut NameGenerator,
+}
+
+impl builder::context::OutputBuildContext for BuildContext<'_> {
+    fn metric_by_name(&self, name: &str) -> Option<(crate::metrics::RawMetricId, &crate::metrics::Metric)> {
+        self.metrics.by_name(name)
+    }
+
+    fn output_name(&mut self, name: &str) -> OutputName {
+        self.namegen.output_name(name)
     }
 }
 
@@ -121,19 +154,19 @@ async fn run_output(
     guarded_output: Arc<Mutex<Box<dyn Output>>>,
     mut rx: broadcast::Receiver<MeasurementBuffer>,
     mut versioned_config: Versioned<TaskConfig>,
-    metrics_reader: SharedRegistryReader,
+    metrics_reader: registry::MetricReader,
 ) -> anyhow::Result<()> {
     async fn write_measurements(
         name: &OutputName,
         output: Arc<Mutex<Box<dyn Output>>>,
-        metrics_r: SharedRegistryReader,
+        metrics_r: registry::MetricReader,
         m: Result<MeasurementBuffer, broadcast::error::RecvError>,
     ) -> anyhow::Result<ControlFlow<()>> {
         match m {
             Ok(measurements) => {
                 let res = tokio::task::spawn_blocking(move || {
                     let ctx = OutputContext {
-                        metrics: &metrics_r.read(),
+                        metrics: &metrics_r.blocking_read(),
                     };
                     output.lock().unwrap().write(&measurements, &ctx)
                 })

@@ -1,93 +1,159 @@
 //! Registry of metrics common to the whole pipeline.
 
-use left_right::{Absorb, ReadGuard, ReadHandle, WriteHandle};
-use tokio::sync::oneshot;
+use std::sync::Arc;
+
+use tokio::{
+    runtime,
+    sync::{
+        mpsc::{self, Receiver},
+        oneshot, RwLock, RwLockReadGuard,
+    },
+    task::JoinHandle,
+};
+use tokio_util::sync::CancellationToken;
 
 use crate::metrics::{Metric, MetricCreationError, MetricRegistry, RawMetricId};
 
-enum RegistryOp {
+pub enum ControlMessage {
     Register(
         Vec<Metric>,
-        OnDuplicateMetric,
+        DuplicateStrategy,
         Option<oneshot::Sender<Result<Vec<RawMetricId>, MetricCreationError>>>,
     ),
 }
 
-pub enum OnDuplicateMetric {
+pub enum DuplicateStrategy {
     Error,
     Rename { suffix: String },
 }
 
-impl Absorb<RegistryOp> for MetricRegistry {
-    fn absorb_first(&mut self, operation: &mut RegistryOp, _other: &Self) {
-        match operation {
-            RegistryOp::Register(metrics, on_duplicate, result_tx) => {
-                let res = match on_duplicate {
-                    OnDuplicateMetric::Error => self.extend(metrics.clone()),
-                    OnDuplicateMetric::Rename { suffix } => Ok(self.extend_infallible(metrics.clone(), suffix)),
+pub(crate) struct MetricRegistryControl {
+    registry: Arc<RwLock<MetricRegistry>>,
+}
+
+impl MetricRegistryControl {
+    pub fn new(registry: MetricRegistry) -> Self {
+        Self {
+            registry: Arc::new(RwLock::new(registry)),
+        }
+    }
+
+    pub fn start(
+        self,
+        shutdown: CancellationToken,
+        on: &runtime::Handle,
+    ) -> (MetricSender, MetricAccess, JoinHandle<()>) {
+        let (tx, rx) = mpsc::channel(256);
+        let reader = MetricAccess {
+            inner: self.registry.clone(),
+        };
+        let sender = MetricSender(tx);
+        let task = self.run(shutdown.clone(), rx);
+        let task_handle = on.spawn(task);
+        (sender, reader, task_handle)
+    }
+
+    async fn handle_message(&mut self, msg: ControlMessage) {
+        match msg {
+            ControlMessage::Register(metrics, dup, reply_to) => {
+                // Use an RCU (Read, Copy, Update) scheme to modify the registry with the minimal
+                // amount of blocking for readers and writers.
+                //
+                // NOTE: Since we don't take the write lock, we must ensure that only one thread
+                // is performing the copy and the update (otherwise we would end up with multiple
+                // desynchronized copies). This is achieved by handling all the messages in one
+                // task, thus making their processing sequential.
+
+                // read and copy
+                let mut copy = (*self.registry.read().await).clone();
+                // modify the copy
+                let res = match dup {
+                    DuplicateStrategy::Error => copy.extend(metrics),
+                    DuplicateStrategy::Rename { suffix } => Ok(copy.extend_infallible(metrics, &suffix)),
+                    // TODO return Vec<Result<Id, Error>> instead of Result<Vec<Id>, Error>
                 };
-                // Leave the option empty because we only want to send the message once.
-                if let Some(tx) = result_tx.take() {
-                    tx.send(res).unwrap();
+                // update
+                *self.registry.write().await = copy;
+
+                // send reply
+                if let Some(tx) = reply_to {
+                    tx.send(res).expect("failed to send reply");
                 }
             }
         }
     }
 
-    fn sync_with(&mut self, first: &Self) {
-        self.metrics_by_id = first.metrics_by_id.clone();
-        self.metrics_by_name = first.metrics_by_name.clone();
+    pub async fn run(mut self, shutdown: CancellationToken, mut rx: Receiver<ControlMessage>) {
+        loop {
+            tokio::select! {
+                _ = shutdown.cancelled() => {
+                    break;
+                },
+                message = rx.recv() => {
+                    match message {
+                        Some(msg) => self.handle_message(msg).await,
+                        None => todo!("registry_control_loop#rx chnanel closed")
+                    }
+                }
+            }
+        }
     }
-}
-
-pub fn new_shared(registry: MetricRegistry) -> (SharedRegistryWriter, SharedRegistryReader) {
-    let (w, r) = left_right::new_from_empty(registry);
-    (SharedRegistryWriter(w), SharedRegistryReader(r))
 }
 
 #[derive(Clone)]
-pub struct SharedRegistryReader(ReadHandle<MetricRegistry>);
+pub struct MetricAccess {
+    pub(crate) inner: Arc<RwLock<MetricRegistry>>,
+}
 
-pub struct SharedRegistryWriter(WriteHandle<MetricRegistry, RegistryOp>);
+#[derive(Clone)]
+pub struct MetricReader(MetricAccess);
 
-pub type RegistryGuard<'a> = ReadGuard<'a, MetricRegistry>;
+#[derive(Clone)]
+pub struct MetricSender(mpsc::Sender<ControlMessage>);
 
-impl SharedRegistryReader {
-    pub fn read(&self) -> RegistryGuard {
-        self.0
-            .enter()
-            .expect("WriteHandle<MetricRegistry> should not be dropped before the pipeline tasks")
+pub enum ControlError {
+    ChannelFull(ControlMessage),
+    Shutdown,
+}
+
+impl MetricAccess {
+    pub async fn read(&self) -> RwLockReadGuard<MetricRegistry> {
+        self.inner.read().await
+    }
+    
+    pub fn blocking_read(&self) -> RwLockReadGuard<MetricRegistry> {
+        self.inner.blocking_read()
+    }
+
+    pub async fn write(&self) -> tokio::sync::RwLockWriteGuard<MetricRegistry> {
+        self.inner.write().await
+    }
+
+    pub fn into_read_only(self) -> MetricReader {
+        MetricReader(self)
     }
 }
 
-impl SharedRegistryWriter {
-    pub fn read(&self) -> RegistryGuard {
-        self.0.enter().unwrap()
+impl MetricReader {
+    pub async fn read(&self) -> RwLockReadGuard<MetricRegistry> {
+        self.0.read().await
+    }
+    
+    pub fn blocking_read(&self) -> RwLockReadGuard<MetricRegistry> {
+        self.0.blocking_read()
+    }
+}
+
+impl MetricSender {
+    pub async fn send(&mut self, message: ControlMessage) -> Result<(), ControlError> {
+        self.0.send(message).await.map_err(|_| ControlError::Shutdown)
     }
 
-    pub async fn register(
-        &mut self,
-        metric: Metric,
-        on_duplicate: OnDuplicateMetric,
-    ) -> Result<Vec<RawMetricId>, MetricCreationError> {
-        self.register_multiple(vec![metric], on_duplicate).await
-    }
-
-    pub async fn register_multiple(
-        &mut self,
-        metrics: Vec<Metric>,
-        on_duplicate: OnDuplicateMetric,
-    ) -> Result<Vec<RawMetricId>, MetricCreationError> {
-        // Use a oneshot channel to asynchronously get the result of the operation.
-        let (tx, rx) = oneshot::channel();
-
-        // Add the changes to the left_right internal queue.
-        self.0.append(RegistryOp::Register(metrics, on_duplicate, Some(tx)));
-
-        // Apply the changes and swap the left_right to make them visible to readers.
-        self.0.publish();
-
-        // Get the result of the metric registration.
-        rx.await.unwrap()
+    pub fn try_send(&mut self, message: ControlMessage) -> Result<(), ControlError> {
+        match self.0.try_send(message) {
+            Ok(_) => Ok(()),
+            Err(mpsc::error::TrySendError::Full(m)) => Err(ControlError::ChannelFull(m)),
+            Err(mpsc::error::TrySendError::Closed(_)) => Err(ControlError::Shutdown),
+        }
     }
 }

@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 
 use super::elements::{output, source, transform};
-use crate::{measurement::MeasurementBuffer, metrics::MetricRegistry, pipeline::registry};
+use super::registry::{MetricReader, MetricSender};
+use crate::pipeline::registry::MetricRegistryControl;
+use crate::{measurement::MeasurementBuffer, metrics::MetricRegistry};
 
 use super::util::naming::{NameGenerator, PluginName};
 use super::{
     control::{ControlHandle, PipelineControl},
-    registry::{SharedRegistryReader, SharedRegistryWriter},
     trigger::TriggerConstraints,
     util,
 };
@@ -22,8 +23,9 @@ pub struct MeasurementPipeline {
     rt_normal: Runtime,
     rt_priority: Option<Runtime>,
     control_handle: ControlHandle,
-    metrics: (SharedRegistryWriter, SharedRegistryReader),
+    metrics: (MetricSender, MetricReader),
     pipeline_control_task: JoinHandle<()>,
+    metrics_control_task: JoinHandle<()>,
 }
 
 /// Constructs measurement pipelines.
@@ -238,8 +240,12 @@ impl Builder {
         // Token to shutdown the pipeline.
         let pipeline_shutdown = CancellationToken::new();
 
-        // Shared metric registry.
-        let (metrics_w, metrics_r) = registry::new_shared(self.metrics);
+        // Metric registry, global but we can modify it without sending a message
+        // thanks to MetricAccess::write().
+        let registry_control = MetricRegistryControl::new(self.metrics);
+        let (metrics_tx, metrics_rw, metrics_join) =
+            registry_control.start(pipeline_shutdown.child_token(), rt_normal.handle());
+        let metrics_r = metrics_rw.into_read_only();
 
         // Create pipeline elements, sources last in order not to loose
         // any measurement if they start polling right away.
@@ -252,21 +258,17 @@ impl Builder {
         // Outputs
         let mut output_control =
             output::OutputControl::new(out_tx.clone(), rt_normal.handle().clone(), metrics_r.clone());
-        {
-            let metrics = metrics_r.read();
-            for (plugin, builder) in self.outputs {
-                let namegen = namegen_for(&mut self.namegen_outputs, plugin);
-                let mut ctx = context::BuilderContext::new(&metrics, namegen);
-                output_control.create_output(&mut ctx, builder);
-            }
+        for (plugin, builder) in self.outputs {
+            output_control.create_output(plugin, builder);
         }
 
         // Transforms
         let transforms = {
-            let metrics = metrics_r.read();
+            let metrics = metrics_r.blocking_read();
             self.transforms
                 .into_iter()
                 .map(|(plugin, builder)| {
+                    // TODO move this context into the transform module, like sources and outputs.
                     let namegen = namegen_for(&mut self.namegen_transforms, plugin);
                     let mut ctx = context::BuilderContext::new(&metrics, namegen);
                     let reg = builder(&mut ctx);
@@ -299,15 +301,16 @@ impl Builder {
 
         // Pipeline control
         let control = PipelineControl::new(source_control, transform_control, output_control);
-        let (control_handle, join_handle) = control.start(pipeline_shutdown, rt_normal.handle());
+        let (control_handle, control_join) = control.start(pipeline_shutdown, rt_normal.handle());
 
         // Done!
         Ok(MeasurementPipeline {
             rt_normal,
             rt_priority,
             control_handle,
-            metrics: (metrics_w, metrics_r),
-            pipeline_control_task: join_handle,
+            metrics: (metrics_tx, metrics_r),
+            pipeline_control_task: control_join,
+            metrics_control_task: metrics_join,
         })
     }
 }
@@ -316,15 +319,7 @@ impl MeasurementPipeline {
     pub fn control_handle(&self, plugin: PluginName) -> ControlHandle {
         self.control_handle.clone_with_plugin(plugin)
     }
-    
-    pub fn metrics_read(&self) -> &SharedRegistryReader {
-        &self.metrics.1
-    }
-    
-    pub fn metrics_write(&mut self) -> &mut SharedRegistryWriter {
-        &mut self.metrics.0
-    }
-    
+
     pub fn async_runtime(&self) -> &tokio::runtime::Handle {
         self.rt_normal.handle()
     }

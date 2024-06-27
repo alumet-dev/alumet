@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use crate::metrics::MetricRegistry;
 use crate::pipeline::builder::{self, MeasurementPipeline};
 use crate::pipeline::builder::context::OutputBuildContext;
 use crate::pipeline::builder::elements::{

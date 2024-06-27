@@ -12,7 +12,7 @@ use tokio::{
 
 use super::error::TransformError;
 use crate::pipeline::util::naming::TransformName;
-use crate::{measurement::MeasurementBuffer, metrics::MetricRegistry, pipeline::registry::SharedRegistryReader};
+use crate::{measurement::MeasurementBuffer, metrics::MetricRegistry, pipeline::registry::MetricReader};
 
 /// Transforms measurements.
 pub trait Transform: Send {
@@ -37,7 +37,7 @@ pub struct TransformControl {
 impl TransformControl {
     pub fn create_transforms(
         transforms: Vec<(TransformName, Box<dyn Transform>)>,
-        metrics_r: SharedRegistryReader,
+        metrics_r: MetricReader,
         rx: mpsc::Receiver<MeasurementBuffer>,
         tx: broadcast::Sender<MeasurementBuffer>,
         rt_normal: &runtime::Handle,
@@ -115,7 +115,7 @@ async fn run_all_in_order(
     mut rx: mpsc::Receiver<MeasurementBuffer>,
     tx: broadcast::Sender<MeasurementBuffer>,
     active_flags: Arc<AtomicU64>,
-    metrics_reader: SharedRegistryReader,
+    metrics_reader: MetricReader,
 ) -> anyhow::Result<()> {
     loop {
         if let Some(mut measurements) = rx.recv().await {
@@ -124,7 +124,7 @@ async fn run_all_in_order(
 
             // Build the transform context.
             // This will block the publication of any modification to the MetricRegistry until the context is dropped.
-            let metrics = &metrics_reader.read();
+            let metrics = &metrics_reader.read().await;
             let ctx = TransformContext { metrics };
 
             // Run the enabled transforms. If one of them fails, the ability to continue running depends on the error type.

@@ -13,6 +13,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::error::PollError;
 use crate::measurement::{MeasurementAccumulator, MeasurementBuffer, Timestamp};
+use crate::metrics::MetricRegistry;
 use crate::pipeline::{builder, registry};
 use crate::pipeline::trigger::{Trigger, TriggerConstraints, TriggerReason, TriggerSpec};
 use crate::pipeline::util::naming::{NameGenerator, PluginName, SourceName};
@@ -59,7 +60,7 @@ pub struct SourceControl {
     rt_priority: runtime::Handle,
 
     /// Read-only access to the metrics.
-    metrics: registry::SharedRegistryReader,
+    metrics: registry::MetricReader,
 }
 
 impl SourceControl {
@@ -69,7 +70,7 @@ impl SourceControl {
         in_tx: mpsc::Sender<MeasurementBuffer>,
         rt_normal: runtime::Handle,
         rt_priority: runtime::Handle,
-        metrics: registry::SharedRegistryReader,
+        metrics: registry::MetricReader,
     ) -> Self {
         Self {
             tasks: JoinSet::new(),
@@ -88,8 +89,9 @@ impl SourceControl {
         use builder::elements::SourceBuilder;
 
         // We cannot build RuntimeControlBuildContext outside of this method because it borrows self.
-        let mut ctx = RuntimeControlBuildContext {
-            metrics: self.metrics.read(),
+        let metrics = self.metrics.blocking_read(); // TODO how to pass this to create_source?
+        let mut ctx = BuildContext {
+            metrics: &metrics,
             namegen: self
                 .namegen_by_plugin
                 .entry(plugin.clone())
@@ -192,17 +194,12 @@ impl SourceControl {
     }
 }
 
-enum BuildContext<'a> {
-    FromBuilder(builder::context::BuilderContext<'a>),
-    FromControl(PluginName),
-}
-
-struct RuntimeControlBuildContext<'a> {
-    metrics: registry::RegistryGuard<'a>,
+struct BuildContext<'a> {
+    metrics: &'a MetricRegistry,
     namegen: &'a mut NameGenerator,
 }
 
-impl builder::context::SourceBuildContext for RuntimeControlBuildContext<'_> {
+impl builder::context::SourceBuildContext for BuildContext<'_> {
     fn metric_by_name(&self, name: &str) -> Option<(crate::metrics::RawMetricId, &crate::metrics::Metric)> {
         self.metrics.by_name(name)
     }

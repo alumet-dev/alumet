@@ -83,27 +83,19 @@
 //!
 //! WIP
 //!
-use std::future::Future;
-use std::marker::PhantomData;
-
-use tokio_util::sync::CancellationToken;
-
-use crate::measurement::{MeasurementBuffer, MeasurementType, WrappedMeasurementType};
-use crate::metrics::{Metric, MetricCreationError, RawMetricId, TypedMetricId};
-use crate::pipeline::trigger::TriggerSpec;
-use crate::pipeline::{self, Output, Source, Transform};
-use crate::units::PrefixedUnit;
-
 use self::rust::AlumetPlugin;
 
 #[cfg(feature = "dynamic")]
 pub mod dynload;
 
 pub mod event;
+mod phases;
 pub mod rust;
 pub mod util;
 pub(crate) mod version;
-mod phases;
+
+pub use phases::AlumetPostStart;
+pub use phases::AlumetStart;
 
 /// Plugin metadata, and a function that allows to initialize the plugin.
 pub struct PluginMetadata {
@@ -197,5 +189,5 @@ pub trait Plugin {
     ///
     /// It can be used, for instance, to obtain a [`ControlHandle`](crate::pipeline::runtime::ControlHandle)
     /// of the pipeline.
-    fn post_pipeline_start(&mut self, pipeline: &mut RunningPipeline) -> anyhow::Result<()>;
+    fn post_pipeline_start(&mut self, alumet: &mut AlumetPostStart) -> anyhow::Result<()>;
 }
