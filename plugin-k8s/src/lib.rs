@@ -98,24 +98,52 @@ impl AlumetPlugin for K8sPlugin {
                 // The events look like the following
                 // Handle_Event: Ok(Event { kind: Create(Folder), paths: ["/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/TESTTTTT"], attr:tracker: None, attr:flag: None, attr:info: None, attr:source: None })
                 // Handle_Event: Ok(Event { kind: Remove(Folder), paths: ["/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/TESTTTTT"], attr:tracker: None, attr:flag: None, attr:info: None, attr:source: None })
-                log::debug!("Handle event function");
                 if let Ok(Event {
                     kind: EventKind::Create(notify::event::CreateKind::Folder),
                     paths,
                     ..
                 }) = event
                 {
-                    for path in paths {
-                        if let Some(pod_name) = path.file_name() {
-                            let pod_name = pod_name.to_str().unwrap();
+                    for path in paths {                  
+                        match path.extension() {
+                            None => {
+                                // Case of no extension found --> I will not find cpu.stat file
+                                return;
+                            },
+                            Some(os_str) => match os_str.to_str() {
+                                Some("slice") => {
+                                    // Case of .slice found --> I will find cpu.stat file
+                                    log::debug!(".slice extension found, will continue");
+                                },
+                                _ => {
+                                    // Case of an other extension than .slice is found --> I will not find cpu.stat file
+                                    return;
+                                }
+                            },
+                        };                        
+                        if let Some(pod_uid) = path.file_name() {
+                            let pod_uid = pod_uid.to_str().unwrap();
                             // We open a File Descriptor to the newly created file
                             let mut path_cpu = path.clone();
+                            let full_name_to_seek = pod_uid.strip_suffix(".slice").unwrap_or(&pod_uid);
+                            let parts: Vec<&str> = full_name_to_seek.split("pod").collect();
+                            let name_to_seek_raw = *(parts.last().unwrap_or(&full_name_to_seek));
+                            let name_to_seek = name_to_seek_raw.replace("_", "-");
+                            // let (name, ns) = cgroup_v2::get_pod_name(name_to_seek.to_owned());
+                            let rt = tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                            .unwrap();
+                            let (name, ns, nd) = rt.block_on(async { cgroup_v2::get_pod_name(name_to_seek.to_owned()).await });
                             path_cpu.push("cpu.stat");
                             let file = File::open(&path_cpu).with_context(|| format!("failed to open file {}", path_cpu.display())).unwrap();
                             let metric_file = CgroupV2MetricFile {
-                                name: pod_name.to_owned(),
+                                name: name.to_owned(),
                                 path: path_cpu,
                                 file: file,
+                                uid: pod_uid.to_owned(),
+                                namespace: ns.to_owned(),
+                                node: nd.to_owned(),
                             };
 
                             let counter_tmp_tot: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
@@ -124,7 +152,7 @@ impl AlumetPlugin for K8sPlugin {
                             let probe: K8SProbe = K8SProbe::new(self.metrics.clone(), metric_file, counter_tmp_tot, counter_tmp_sys, counter_tmp_usr).unwrap();
                             
                             // Add the probe to the sources
-                            self.control_handle.add_source(self.plugin_name.clone(), pod_name.to_string(), Box::new(probe), TriggerSpec::at_interval(self.poll_interval));
+                            self.control_handle.add_source(self.plugin_name.clone(), pod_uid.to_string(), Box::new(probe), TriggerSpec::at_interval(self.poll_interval));
                         }
 
                     }

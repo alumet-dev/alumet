@@ -3,6 +3,9 @@ use std::{str::FromStr, string::String};
 #[derive(Debug, PartialEq, Clone)]
 pub struct CgroupV2Metric {
     pub name: String,
+    pub uid: String,
+    pub namespace: String,
+    pub node: String,
     pub time_used_tot: u64,
     pub time_used_user_mode: u64,
     pub time_used_system_mode: u64,
@@ -14,6 +17,9 @@ impl FromStr for CgroupV2Metric {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut cgroup_struc_to_ret = CgroupV2Metric {
             name: "".to_owned(),
+            uid: "".to_owned(),
+            namespace: "".to_owned(),
+            node: "".to_owned(),
             time_used_tot: 0,
             time_used_user_mode: 0,
             time_used_system_mode: 0,

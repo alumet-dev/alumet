@@ -77,7 +77,10 @@ impl alumet::pipeline::Source for K8SProbe {
                 consumer.clone(),
                 value_tot as u64,
             )
-            .with_attr("pod", AttributeValue::String(metrics.name.clone()));
+            .with_attr("uid", AttributeValue::String(metrics.uid.clone()))
+            .with_attr("name", AttributeValue::String(metrics.name.clone()))
+            .with_attr("namespace", AttributeValue::String(metrics.namespace.clone()))
+            .with_attr("node", AttributeValue::String(metrics.node.clone()));
             measurements.push(p_tot);
         }
         if let Some(value_usr) = diff_usr {
@@ -88,7 +91,10 @@ impl alumet::pipeline::Source for K8SProbe {
                 consumer.clone(),
                 value_usr as u64,
             )
-            .with_attr("pod", AttributeValue::String(metrics.name.clone()));
+            .with_attr("uid", AttributeValue::String(metrics.uid.clone()))
+            .with_attr("name", AttributeValue::String(metrics.name.clone()))
+            .with_attr("namespace", AttributeValue::String(metrics.namespace.clone()))
+            .with_attr("node", AttributeValue::String(metrics.node.clone()));
             measurements.push(p_usr);
         }
         if let Some(value_sys) = diff_sys {
@@ -99,7 +105,11 @@ impl alumet::pipeline::Source for K8SProbe {
                 consumer.clone(),
                 value_sys as u64,
             )
-            .with_attr("pod", AttributeValue::String(metrics.name.clone()));
+            .with_attr("uid", AttributeValue::String(metrics.uid.clone()))
+            .with_attr("name", AttributeValue::String(metrics.name.clone()))
+            .with_attr("namespace", AttributeValue::String(metrics.namespace.clone()))
+            .with_attr("node", AttributeValue::String(metrics.node.clone()));
+            
             measurements.push(p_sys);
         }
         Ok(())
