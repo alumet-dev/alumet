@@ -2,14 +2,7 @@ use anyhow::*;
 use reqwest::{self, header};
 use serde_json::Value;
 use std::{
-    env,
-    fs::{self, File},
-    io::{Read, Seek},
-    path::{Path, PathBuf},
-    process::Command,
-    result::Result::Ok,
-    str::FromStr,
-    vec,
+    collections::HashMap, fs::{self, File}, io::{Read, Seek}, path::{Path, PathBuf}, process::Command, result::Result::Ok, str::FromStr, vec
 };
 
 use crate::parsing_cgroupv2::CgroupV2Metric;
@@ -58,6 +51,11 @@ pub fn is_accessible_dir(path: &Path) -> bool {
 fn list_metric_file_in_dir(root_directory_path: &Path) -> anyhow::Result<Vec<CgroupV2MetricFile>> {
     let mut vec_file_metric: Vec<CgroupV2MetricFile> = Vec::new();
     let entries = fs::read_dir(root_directory_path)?;
+    let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+    let main_hash_map: HashMap<String, (String,String,String)> = rt.block_on(async { get_existing_pods().await });
     for entry in entries {
         let path = entry?.path();
         let mut path_cloned = path.clone();
@@ -70,21 +68,23 @@ fn list_metric_file_in_dir(root_directory_path: &Path) -> anyhow::Result<Vec<Cgr
             new_prefix.push_str("-");            
             let uid = dir_uid_mod.strip_prefix(&new_prefix).unwrap_or(&dir_uid_mod);
             path_cloned.push("cpu.stat");
-            let name_to_seek = uid.strip_prefix("pod").unwrap_or(uid);
-            // let (name, ns) = get_pod_name(name_to_seek.to_owned());
-            let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-            let (name, ns, nd) = rt.block_on(async { get_pod_name(name_to_seek.to_owned()).await });
+            let name_to_seek_raw = uid.strip_prefix("pod").unwrap_or(uid);
+            let name_to_seek = name_to_seek_raw.replace("_", "-");
+            let (name, ns, nd) = match main_hash_map.get(&name_to_seek.to_owned()) {
+                Some(tuple_pod) => {
+                    let (name, ns, nd) = tuple_pod;
+                    (name.to_owned(), ns.to_owned(), nd.to_owned())
+                },
+                None => ("".to_owned(), "".to_owned(), "".to_owned()),
+            };
             let file = File::open(&path_cloned).with_context(|| format!("failed to open file {}", path_cloned.display()))?;
             vec_file_metric.push(CgroupV2MetricFile {
-                name: name.to_owned(),
+                name: name.clone(),
                 path: path_mf,
                 file: file,
                 uid: uid.to_owned(),
-                namespace: ns,
-                node: nd,
+                namespace: ns.clone(),
+                node: nd.clone(),
             });
         }
     }
@@ -134,15 +134,22 @@ pub fn gather_value(file: &mut CgroupV2MetricFile, content_buffer: &mut String) 
     Ok(new_metric)
 }
 
-//Read files in a filesystem to associate a cgroup of a pod uid to a kubernetes pod name
-pub async fn get_pod_name(uid: String) -> (String, String, String) {
-    let new_uid = uid.replace("_", "-");
+// This function return a hashmap where the key is the uid used and the value is a tuple containing it's name, namespace and node
+pub async fn get_existing_pods() -> HashMap<String, (String, String, String)> {
     let output = Command::new("kubectl")
         .args(&["create", "token", "alumet-reader"])
-        .output()
-        .expect("Error when executing command");
+        .output();
+    
+    let output_unwraped = match output {
+        Err(_) => {
+            return HashMap::new();
+        },
+        Ok(output_tmp) => {
+            output_tmp
+        }
+    };
 
-    let token = String::from_utf8_lossy(&output.stdout);
+    let token = String::from_utf8_lossy(&output_unwraped.stdout);
     let token = token.trim();
     let api_url = "https://10.22.80.14:6443/api/v1/pods/";
     let mut headers = header::HeaderMap::new();
@@ -156,9 +163,99 @@ pub async fn get_pod_name(uid: String) -> (String, String, String) {
         .danger_accept_invalid_certs(true) 
         .default_headers(headers)
         .build().unwrap();
-    let response = client.get(api_url).send().await;
+    let response_raw = client.get(api_url).send().await;
 
-    let data: Value = response.unwrap().json().await.expect("Error parsing JSON");
+    let response = match response_raw {
+        Ok(resp) => {
+            resp
+        },
+        Err(_) => {
+            return HashMap::new();
+        }
+    };
+
+    let data: Value = response.json().await.expect("Error parsing JSON");
+    let mut hash_map_to_ret = HashMap::new();
+
+    if let Some(items) = data.get("items") {
+        for item in items.as_array().unwrap_or(&vec![]) {
+            let metadata = item.get("metadata").unwrap_or(&Value::Null);
+            let spec = item.get("spec").unwrap_or(&Value::Null);
+            let annotations = metadata.get("annotations").unwrap_or(&Value::Null);
+            let mut config_hash = annotations
+                .get("kubernetes.io/config.hash")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if config_hash == "" {
+                match metadata {
+                    Value::Null => {
+                        continue;
+                    }
+                    _ => {
+                        config_hash = metadata.get("uid")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    }
+                }
+            }
+           
+            let pod_name = metadata.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let pod_namespace = metadata.get("namespace").and_then(|v| v.as_str()).unwrap_or("");
+            let pod_node = spec.get("nodeName").and_then(|v| v.as_str()).unwrap_or("");
+            log::debug!("Found matching pod: {} in namespace {}", pod_name, pod_namespace);
+            hash_map_to_ret.entry(String::from(config_hash)).or_insert((pod_name.to_owned(), pod_namespace.to_owned(), pod_node.to_owned()));
+            
+        }
+    } else {
+        log::debug!("No items found in the JSON response.");
+    }
+
+    return hash_map_to_ret;
+}
+
+
+//Read files in a filesystem to associate a cgroup of a poduid to a kubernetes pod name
+pub async fn get_pod_name(uid: String) -> (String, String, String) {
+    let new_uid = uid.replace("_", "-");
+    let output = Command::new("kubectl")
+        .args(&["create", "token", "alumet-reader"])
+        .output();
+    
+    let output_unwraped = match output {
+        Err(_) => {
+            return ("".to_string(),"".to_string(),"".to_string());
+        },
+        Ok(output_tmp) => {
+            output_tmp
+        }
+    };
+
+    let token = String::from_utf8_lossy(&output_unwraped.stdout);
+    let token = token.trim();
+    let api_url = "https://10.22.80.14:6443/api/v1/pods/";
+    let mut headers = header::HeaderMap::new();
+    headers.insert(
+        header::AUTHORIZATION,
+        format!("Bearer {}", token)
+            .parse()
+            .expect("Can't parse formatted token into a HeaderName"),
+    );
+    let client = reqwest::Client::builder()
+        .danger_accept_invalid_certs(true) 
+        .default_headers(headers)
+        .build().unwrap();
+    let response_raw = client.get(api_url).send().await;
+
+    let response = match response_raw {
+        Ok(resp) => {
+            resp
+        },
+        Err(_) => {
+            return ("".to_string(),"".to_string(),"".to_string());
+        }
+    };
+
+    let data: Value = response.json().await.expect("Error parsing JSON");
 
     // Iterate over each item
     if let Some(items) = data.get("items") {
@@ -250,8 +347,8 @@ mod tests {
             Ok(unwrap_li) => {
                 assert_eq!(unwrap_li.len(), 4);
                 for pod in unwrap_li {
-                    if !list_pod_name.contains(&pod.name.as_str()) {
-                        log::error!("Pod name not in the list: {}", pod.name);
+                    if !list_pod_name.contains(&pod.uid.as_str()) {
+                        log::error!("Pod name not in the list: {}", pod.uid);
                         assert!(false);
                     }
                 }
@@ -304,9 +401,9 @@ mod tests {
             time_used_tot,
             time_used_user_mode,
             time_used_system_mode,
-            uid,
-            namespace,
-            node,
+            uid: _uid,
+            namespace: _ns,
+            node: _nd,
         }) = res_metric
         {
             assert_eq!(name, "testing_pod".to_owned());
