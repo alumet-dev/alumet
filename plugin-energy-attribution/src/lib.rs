@@ -40,7 +40,6 @@ impl AlumetPlugin for EnergyAttributionPlugin {
     }
 
     fn init(_: alumet::plugin::ConfigTable) -> anyhow::Result<Box<Self>> {
-        // TODO config
         Ok(Box::new(EnergyAttributionPlugin {
             metrics: Arc::new(Mutex::new(Metrics::default())),
         }))
@@ -48,6 +47,9 @@ impl AlumetPlugin for EnergyAttributionPlugin {
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
         let mut metrics = self.metrics.lock().unwrap();
+
+        // Create the energy attribution metric and add its id to the
+        // transform plugin metrics' list.
         metrics.pod_attributed_energy = Some(alumet.create_metric(
             "pod_attributed_energy",
             Unit::Joule,
@@ -60,6 +62,8 @@ impl AlumetPlugin for EnergyAttributionPlugin {
     }
 
     fn pre_pipeline_start(&mut self, pipeline: &IdlePipeline) -> anyhow::Result<()> {
+        /// Finds the RawMetricId with the name of the metric.
+        /// Will only run once, just before the pipeline starts.
         fn find_metric_by_name(pipeline: &IdlePipeline, name: &str) -> anyhow::Result<RawMetricId> {
             let (id, _metric) = pipeline
                 .metric_iter()
@@ -68,6 +72,7 @@ impl AlumetPlugin for EnergyAttributionPlugin {
             Ok(id.to_owned())
         }
 
+        // Lock the metrics mutex to apply its modifications.
         let mut metrics = self.metrics.lock().unwrap();
 
         metrics.rapl_consumed_energy = Some(find_metric_by_name(pipeline, "rapl_consumed_energy")?);
