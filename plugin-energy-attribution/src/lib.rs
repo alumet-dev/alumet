@@ -1,8 +1,12 @@
 use std::sync::{Arc, Mutex};
 
 use alumet::{
-    metrics::{RawMetricId, TypedMetricId}, pipeline::runtime::IdlePipeline, plugin::rust::AlumetPlugin, units::{PrefixedUnit, Unit}
+    metrics::{RawMetricId, TypedMetricId},
+    pipeline::runtime::IdlePipeline,
+    plugin::rust::AlumetPlugin,
+    units::Unit,
 };
+
 use anyhow::Context;
 use transform::EnergyAttributionTransform;
 
@@ -23,7 +27,7 @@ struct Metrics {
     // that is why they are Options.
     cpu_usage_per_pod: Option<RawMetricId>,
     rapl_consumed_energy: Option<RawMetricId>,
-    pod_attributed_energy: Option<TypedMetricId<f64>>, // or f64?
+    pod_attributed_energy: Option<TypedMetricId<f64>>,
 }
 
 impl AlumetPlugin for EnergyAttributionPlugin {
@@ -36,7 +40,6 @@ impl AlumetPlugin for EnergyAttributionPlugin {
     }
 
     fn init(_: alumet::plugin::ConfigTable) -> anyhow::Result<Box<Self>> {
-        // TODO config
         Ok(Box::new(EnergyAttributionPlugin {
             metrics: Arc::new(Mutex::new(Metrics::default())),
         }))
@@ -44,18 +47,23 @@ impl AlumetPlugin for EnergyAttributionPlugin {
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
         let mut metrics = self.metrics.lock().unwrap();
+
+        // Create the energy attribution metric and add its id to the
+        // transform plugin metrics' list.
         metrics.pod_attributed_energy = Some(alumet.create_metric(
             "pod_attributed_energy",
             Unit::Joule,
             "Energy consumption attributed to the pod",
         )?);
-        
+
         // Add the transform now but fill its metrics later.
         alumet.add_transform(Box::new(EnergyAttributionTransform::new(self.metrics.clone())));
         Ok(())
     }
 
     fn pre_pipeline_start(&mut self, pipeline: &IdlePipeline) -> anyhow::Result<()> {
+        /// Finds the RawMetricId with the name of the metric.
+        /// Will only run once, just before the pipeline starts.
         fn find_metric_by_name(pipeline: &IdlePipeline, name: &str) -> anyhow::Result<RawMetricId> {
             let (id, _metric) = pipeline
                 .metric_iter()
@@ -64,6 +72,7 @@ impl AlumetPlugin for EnergyAttributionPlugin {
             Ok(id.to_owned())
         }
 
+        // Lock the metrics mutex to apply its modifications.
         let mut metrics = self.metrics.lock().unwrap();
 
         metrics.rapl_consumed_energy = Some(find_metric_by_name(pipeline, "rapl_consumed_energy")?);
