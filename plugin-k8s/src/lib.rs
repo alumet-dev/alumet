@@ -73,11 +73,11 @@ impl AlumetPlugin for K8sPlugin {
             .context("Invalid UTF-8 in Hostname")?
             .to_string();
 
-        let final_li_metric_file: Vec<CgroupV2MetricFile> =
+        let final_list_metric_file: Vec<CgroupV2MetricFile> =
             cgroup_v2::list_all_k8s_pods_file(&self.config.path, hostname)?;
 
         //Add as a source each pod already present
-        for metric_file in final_li_metric_file {
+        for metric_file in final_list_metric_file {
             let counter_tmp_tot: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
             let counter_tmp_usr: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
             let counter_tmp_sys: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
@@ -170,7 +170,7 @@ impl AlumetPlugin for K8sPlugin {
                                     return;
                                 }
                             };
-                            let (name, ns, nd) = match rt
+                            let (name, namespace, node) = match rt
                                 .block_on(async { cgroup_v2::get_pod_name(name_to_seek.to_owned(), hostname).await })
                             {
                                 Ok(tuple_found) => tuple_found,
@@ -195,8 +195,8 @@ impl AlumetPlugin for K8sPlugin {
                                 path: path_cpu,
                                 file: file,
                                 uid: uid.to_owned(),
-                                namespace: ns.to_owned(),
-                                node: nd.to_owned(),
+                                namespace: namespace.to_owned(),
+                                node: node.to_owned(),
                             };
 
                             let counter_tmp_tot: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
