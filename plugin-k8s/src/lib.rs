@@ -7,6 +7,7 @@ use alumet::{
     },
 };
 use anyhow::Context;
+use gethostname::gethostname;
 use k8s_probe::Metrics;
 use notify::{Event, EventHandler, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -66,7 +67,14 @@ impl AlumetPlugin for K8sPlugin {
         let metrics_result = Metrics::new(alumet);
         let metrics = metrics_result?;
         self.metrics = Some(metrics.clone());
-        let final_li_metric_file: Vec<CgroupV2MetricFile> = cgroup_v2::list_all_k8s_pods_file(&self.config.path)?;
+        let hostname_ostring = gethostname();
+        let hostname = hostname_ostring
+            .to_str()
+            .context("Invalid UTF-8 in Hostname")?
+            .to_string();
+
+        let final_li_metric_file: Vec<CgroupV2MetricFile> =
+            cgroup_v2::list_all_k8s_pods_file(&self.config.path, hostname)?;
 
         //Add as a source each pod already present
         for metric_file in final_li_metric_file {
@@ -149,6 +157,12 @@ impl AlumetPlugin for K8sPlugin {
                             let uid = format!("pod{}", uid_raw);
                             let name_to_seek = name_to_seek_raw.replace("_", "-");
                             // let (name, ns) = cgroup_v2::get_pod_name(name_to_seek.to_owned());
+                            let hostname_ostring = gethostname();
+                            let hostname = hostname_ostring
+                                .to_str()
+                                .context("Invalid UTF-8 in Hostname")
+                                .unwrap_or("")
+                                .to_string();
                             let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
                                 Ok(rt_ok) => rt_ok,
                                 Err(err) => {
@@ -156,14 +170,15 @@ impl AlumetPlugin for K8sPlugin {
                                     return;
                                 }
                             };
-                            let (name, ns, nd) =
-                                match rt.block_on(async { cgroup_v2::get_pod_name(name_to_seek.to_owned()).await }) {
-                                    Ok(tuple_found) => tuple_found,
-                                    Err(err) => {
-                                        log::error!("Block on failed returned an error: {}", err);
-                                        return;
-                                    }
-                                };
+                            let (name, ns, nd) = match rt
+                                .block_on(async { cgroup_v2::get_pod_name(name_to_seek.to_owned(), hostname).await })
+                            {
+                                Ok(tuple_found) => tuple_found,
+                                Err(err) => {
+                                    log::error!("Block on failed returned an error: {}", err);
+                                    return;
+                                }
+                            };
 
                             path_cpu.push("cpu.stat");
                             let file = match File::open(&path_cpu)
