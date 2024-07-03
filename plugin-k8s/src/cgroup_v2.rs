@@ -59,14 +59,18 @@ pub fn is_accessible_dir(path: &Path) -> bool {
     path.is_dir()
 }
 
-/// Returns a Vector of CgroupV2MetricFile associated to pods availables under a given directory.
-fn list_metric_file_in_dir(root_directory_path: &Path, hostname: String) -> anyhow::Result<Vec<CgroupV2MetricFile>> {
+/// Returns a Vector of CgroupV2MetricFile associated to pods available under a given directory.
+fn list_metric_file_in_dir(
+    root_directory_path: &Path,
+    hostname: String,
+    kubernetes_api_url: String,
+) -> anyhow::Result<Vec<CgroupV2MetricFile>> {
     let mut vec_file_metric: Vec<CgroupV2MetricFile> = Vec::new();
     let entries = fs::read_dir(root_directory_path)?;
-    // Let's create a runtime to await async function and fullfill hashmap
+    // Let's create a runtime to await async function and fill hashmap
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
     let main_hash_map: HashMap<String, (String, String, String)> =
-        rt.block_on(async { get_existing_pods(hostname).await })?;
+        rt.block_on(async { get_existing_pods(hostname, kubernetes_api_url).await })?;
 
     // For each File in the root path
     for entry in entries {
@@ -123,10 +127,13 @@ fn list_metric_file_in_dir(root_directory_path: &Path, hostname: String) -> anyh
     return Ok(vec_file_metric);
 }
 
-/// This function list all k8s pods availables, using sub-directories to look in:
-/// For each subdirectory, we look in if there is a directory/ies about pods and we add it
-/// to a vector. All subdirectory are visited with the help of <list_metric_file_in_dir> function.
-pub fn list_all_k8s_pods_file(root_directory_path: &Path, hostname: String) -> anyhow::Result<Vec<CgroupV2MetricFile>> {
+/// This function list all k8s pods available, using sub-directories to look in
+/// All subdirectory are visited with the help of <list_metric_file_in_dir> function.
+pub fn list_all_k8s_pods_file(
+    root_directory_path: &Path,
+    hostname: String,
+    kubernetes_api_url: String,
+) -> anyhow::Result<Vec<CgroupV2MetricFile>> {
     let mut final_li_metric_file: Vec<CgroupV2MetricFile> = Vec::new();
     if !root_directory_path.exists() {
         return Ok(final_li_metric_file);
@@ -148,7 +155,7 @@ pub fn list_all_k8s_pods_file(root_directory_path: &Path, hostname: String) -> a
     }
 
     for prefix in all_sub_dir {
-        let mut result_vec = list_metric_file_in_dir(&prefix.to_owned(), hostname.clone())?;
+        let mut result_vec = list_metric_file_in_dir(&prefix.to_owned(), hostname.clone(), kubernetes_api_url.clone())?;
         final_li_metric_file.append(&mut result_vec);
     }
     return Ok(final_li_metric_file);
@@ -171,7 +178,10 @@ pub fn gather_value(file: &mut CgroupV2MetricFile, content_buffer: &mut String) 
 }
 
 /// Returns a HashMap where the key is the uid used and the value is a tuple containing it's name, namespace and node
-pub async fn get_existing_pods(node: String) -> anyhow::Result<HashMap<String, (String, String, String)>> {
+pub async fn get_existing_pods(
+    node: String,
+    kubernetes_api_url: String,
+) -> anyhow::Result<HashMap<String, (String, String, String)>> {
     let Ok(output) = Command::new("kubectl")
         .args(&["create", "token", "alumet-reader"])
         .output()
@@ -181,11 +191,17 @@ pub async fn get_existing_pods(node: String) -> anyhow::Result<HashMap<String, (
 
     let token = String::from_utf8_lossy(&output.stdout);
     let token = token.trim();
-    let api_url_root = "https://10.22.80.14:6443/api/v1/pods/";
+    if kubernetes_api_url == "" {
+        return Ok(HashMap::new());
+    }
+    let mut api_url_root = kubernetes_api_url.clone();
+    api_url_root.push_str("/api/v1/pods/");
+    let mut selector = false;
     let api_url = if node == "" {
         api_url_root.to_owned()
     } else {
         let tmp = format!("{}?fieldSelector=spec.nodeName={}", api_url_root, node);
+        selector = true;
         tmp
     };
     let mut headers = header::HeaderMap::new();
@@ -210,7 +226,7 @@ pub async fn get_existing_pods(node: String) -> anyhow::Result<HashMap<String, (
     // let's check if the items' part contain pods to look at
     if let Some(items) = data.get("items") {
         let size = items.as_array().unwrap_or(&vec![]).len(); // If the node was not found i.e. no item in the response, we call the API again with all nodes
-        if size == 0 {
+        if size == 0 && selector {
             // Ask again the api, with all nodes
             let Ok(response) = client.get(api_url_root).send().await else {
                 return Ok(HashMap::new());
@@ -265,7 +281,11 @@ pub async fn get_existing_pods(node: String) -> anyhow::Result<HashMap<String, (
 }
 
 /// Reads files in a filesystem to associate a cgroup of a poduid to a kubernetes pod name
-pub async fn get_pod_name(uid: String, node: String) -> anyhow::Result<(String, String, String)> {
+pub async fn get_pod_name(
+    uid: String,
+    node: String,
+    kubernetes_api_url: String,
+) -> anyhow::Result<(String, String, String)> {
     let new_uid = uid.replace("_", "-");
     let Ok(output) = Command::new("kubectl")
         .args(&["create", "token", "alumet-reader"])
@@ -276,11 +296,17 @@ pub async fn get_pod_name(uid: String, node: String) -> anyhow::Result<(String, 
 
     let token = String::from_utf8_lossy(&output.stdout);
     let token = token.trim();
-    let api_url_root = "https://10.22.80.14:6443/api/v1/pods/";
+    if kubernetes_api_url == "" {
+        return Ok(("".to_string(), "".to_string(), "".to_string()));
+    }
+    let mut api_url_root = kubernetes_api_url.clone();
+    api_url_root.push_str("/api/v1/pods/");
+    let mut selector = false;
     let api_url = if node == "" {
         api_url_root.to_owned()
     } else {
         let tmp = format!("{}?fieldSelector=spec.nodeName={}", api_url_root, node);
+        selector = true;
         tmp
     };
     let mut headers = header::HeaderMap::new();
@@ -305,7 +331,7 @@ pub async fn get_pod_name(uid: String, node: String) -> anyhow::Result<(String, 
     // let's check if the items' part contain pods to look at
     if let Some(items) = data.get("items") {
         let size = items.as_array().unwrap_or(&vec![]).len(); // If the node was not found i.e. no item in the response, we call the API again with all nodes
-        if size == 0 {
+        if size == 0 && selector {
             // Ask again the api, with all nodes
             let Ok(response) = client.get(api_url_root).send().await else {
                 return Ok(("".to_string(), "".to_string(), "".to_string()));
@@ -398,7 +424,7 @@ mod tests {
         std::fs::write(c.join("cpu.stat"), "sv").unwrap();
         std::fs::write(d.join("cpu.stat"), "ne").unwrap();
         let li_met_file: anyhow::Result<Vec<CgroupV2MetricFile>> =
-            list_metric_file_in_dir(&burstable_dir, "".to_string());
+            list_metric_file_in_dir(&burstable_dir, "".to_string(), "".to_string());
         let list_pod_name = [
             "pod32a1942cb9a81912549c152a49b5f9b1",
             "podd9209de2b4b526361248c9dcf3e702c0",

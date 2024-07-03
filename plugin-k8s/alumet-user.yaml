@@ -1,7 +1,6 @@
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  annotations:
   name: alumet_cluster_role
 rules:
 - apiGroups:
@@ -30,7 +29,7 @@ metadata:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: alumet-cluster_role_binding
+  name: alumet_cluster_role_binding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole

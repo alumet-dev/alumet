@@ -33,9 +33,31 @@ If it doesn't detect the use of cgroupv2, the plugin will not start.
 In this version of the plugin, to gather some data about pods and nodes, the plugin use kubectl. So make sure that kubectl is installed and usable.
 [How to install kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/)
 
+Thanks to kubectl, you can get the kubernetes API URL.
+Use:
+
+```bash
+kubectl config view -o jsonpath='{"Cluster name\tServer\n"}{range .clusters[*]}{.name}{"\t"}{.cluster.server}{"\n"}{end}'
+```
+
+And note the URL corresponding to the kubernetes you want interact with.
+
+Example:
+
+```bash
+Cluster name    Server
+kubernetes      https://1.2.3.4:6443
+```
+
+I get the kubernetes part and I wrote the result in the **alumet-config.toml** file.
+Under the section: **[plugins.k8s]** I add the following:
+> **kubernetes_api_url = "https://1.2.3.4:6443"**
+
+By default the value **kubernetes_api_url** will be set at: **https://127.0.0.1:8080**
+
 ## alumet-reader
 
-To use the Kubernetes API an user is needed. It's the alumet-reader user. Make sur the user exist and have the good rights.
+To use the Kubernetes API an user is needed. It's the **alumet-reader** user. Make sur the user exist and have the good rights.
 You can use the yaml file: [alumet-user.yaml](./alumet-user.yaml) to create this user.
 Run:
 
