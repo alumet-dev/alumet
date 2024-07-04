@@ -33,9 +33,7 @@ fn main() {
         CsvPlugin,
         SocketControlPlugin,
         PerfPlugin,
-        plugin_influxdb::InfluxDbPlugin,
-        plugin_nvidia::NvidiaPlugin,
-        plugin_k8s::K8sPlugin
+        plugin_influxdb::InfluxDbPlugin
     ];
 
     // Build the measurement agent.
