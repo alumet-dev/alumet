@@ -2,7 +2,7 @@ use super::builder::elements::{
     AutonomousSourceBuilder, ManagedSourceBuilder, ManagedSourceRegistration, SendSourceBuilder,
 };
 use super::elements::{output, source, transform};
-use super::{builder, registry, trigger, PluginName, Source};
+use super::{builder, trigger, PluginName, Source};
 use tokio::runtime;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::task::JoinHandle;

@@ -111,16 +111,22 @@ pub struct MetricReader(MetricAccess);
 #[derive(Clone)]
 pub struct MetricSender(mpsc::Sender<ControlMessage>);
 
-pub enum ControlError {
+pub enum SendError {
     ChannelFull(ControlMessage),
     Shutdown,
+}
+
+pub enum CreateError {
+    Send(SendError),
+    Recv(oneshot::error::RecvError),
+    Metric(MetricCreationError),
 }
 
 impl MetricAccess {
     pub async fn read(&self) -> RwLockReadGuard<MetricRegistry> {
         self.inner.read().await
     }
-    
+
     pub fn blocking_read(&self) -> RwLockReadGuard<MetricRegistry> {
         self.inner.blocking_read()
     }
@@ -138,22 +144,34 @@ impl MetricReader {
     pub async fn read(&self) -> RwLockReadGuard<MetricRegistry> {
         self.0.read().await
     }
-    
+
     pub fn blocking_read(&self) -> RwLockReadGuard<MetricRegistry> {
         self.0.blocking_read()
     }
 }
 
 impl MetricSender {
-    pub async fn send(&mut self, message: ControlMessage) -> Result<(), ControlError> {
-        self.0.send(message).await.map_err(|_| ControlError::Shutdown)
+    pub async fn send(&mut self, message: ControlMessage) -> Result<(), SendError> {
+        self.0.send(message).await.map_err(|_| SendError::Shutdown)
     }
 
-    pub fn try_send(&mut self, message: ControlMessage) -> Result<(), ControlError> {
+    pub fn try_send(&mut self, message: ControlMessage) -> Result<(), SendError> {
         match self.0.try_send(message) {
             Ok(_) => Ok(()),
-            Err(mpsc::error::TrySendError::Full(m)) => Err(ControlError::ChannelFull(m)),
-            Err(mpsc::error::TrySendError::Closed(_)) => Err(ControlError::Shutdown),
+            Err(mpsc::error::TrySendError::Full(m)) => Err(SendError::ChannelFull(m)),
+            Err(mpsc::error::TrySendError::Closed(_)) => Err(SendError::Shutdown),
         }
+    }
+
+    pub async fn create_metrics(
+        &mut self,
+        metrics: Vec<Metric>,
+        on_duplicate: DuplicateStrategy,
+    ) -> Result<Vec<RawMetricId>, CreateError> {
+        let (tx, rx) = oneshot::channel();
+        let message = ControlMessage::Register(metrics, on_duplicate, Some(tx));
+        self.send(message).await.map_err(|e| CreateError::Send(e))?;
+        let result = rx.await.map_err(|e| CreateError::Recv(e))?;
+        result.map_err(|e| CreateError::Metric(e))
     }
 }

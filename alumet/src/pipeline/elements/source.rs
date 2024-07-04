@@ -1,6 +1,5 @@
 //! Implementation and control of source tasks.
 
-use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 
@@ -14,9 +13,10 @@ use tokio_util::sync::CancellationToken;
 use super::error::PollError;
 use crate::measurement::{MeasurementAccumulator, MeasurementBuffer, Timestamp};
 use crate::metrics::MetricRegistry;
-use crate::pipeline::{builder, registry};
+use crate::pipeline::builder::elements::SourceBuilder;
 use crate::pipeline::trigger::{Trigger, TriggerConstraints, TriggerReason, TriggerSpec};
-use crate::pipeline::util::naming::{NameGenerator, PluginName, SourceName};
+use crate::pipeline::util::naming::{NameGenerator, PluginName, ScopedNameGenerator, SourceName};
+use crate::pipeline::{builder, registry};
 
 use super::super::util::versioned::Versioned;
 
@@ -30,8 +30,17 @@ pub trait Source: Send {
 
 /// Controls the sources of a measurement pipeline.
 pub struct SourceControl {
+    /// Manages source tasks. Separated from `names` and `metrics` for borrow-checking reasons.
+    tasks: TaskManager,
+    /// Generates unique names for source tasks.
+    names: NameGenerator,
+    /// Read-only access to the metrics.
+    metrics: registry::MetricReader,
+}
+
+struct TaskManager {
     /// Collection of managed and autonomous source tasks.
-    tasks: JoinSet<anyhow::Result<()>>,
+    spawned_tasks: JoinSet<anyhow::Result<()>>,
 
     /// Controllers for each source, by name.
     controllers: Vec<(SourceName, SingleSourceController)>,
@@ -50,17 +59,16 @@ pub struct SourceControl {
     /// It also keeps the transform task running.
     in_tx: mpsc::Sender<MeasurementBuffer>,
 
-    /// Generates deduplicated names for new sources.
-    namegen_by_plugin: HashMap<PluginName, NameGenerator>,
-
     /// Handle of the "normal" async runtime. Used for creating new sources.
     rt_normal: runtime::Handle,
 
     /// Handle of the "priority" async runtime. Used for creating new sources.
     rt_priority: runtime::Handle,
+}
 
-    /// Read-only access to the metrics.
-    metrics: registry::MetricReader,
+struct BuildContext<'a> {
+    metrics: &'a MetricRegistry,
+    namegen: &'a mut ScopedNameGenerator,
 }
 
 impl SourceControl {
@@ -73,33 +81,74 @@ impl SourceControl {
         metrics: registry::MetricReader,
     ) -> Self {
         Self {
-            tasks: JoinSet::new(),
-            controllers: Vec::new(),
-            shutdown_token,
-            trigger_constraints,
-            in_tx,
-            namegen_by_plugin: HashMap::new(),
-            rt_normal,
-            rt_priority,
+            tasks: TaskManager {
+                spawned_tasks: JoinSet::new(),
+                controllers: Vec::new(),
+                shutdown_token,
+                trigger_constraints,
+                in_tx,
+                rt_normal,
+                rt_priority,
+            },
+            names: NameGenerator::new(),
             metrics,
         }
     }
 
-    pub fn create_source(&mut self, plugin: PluginName, builder: builder::elements::SourceBuilder) {
-        use builder::elements::SourceBuilder;
+    pub fn create_sources(&mut self, sources: Vec<(PluginName, SourceBuilder)>) {
+        let metrics = self.metrics.blocking_read();
+        for (plugin, builder) in sources {
+            let mut ctx = BuildContext {
+                metrics: &metrics,
+                namegen: self.names.namegen_for_scope(&plugin),
+            };
+            self.tasks.create_source(&mut ctx, builder);
+        }
+    }
 
-        // We cannot build RuntimeControlBuildContext outside of this method because it borrows self.
-        let metrics = self.metrics.blocking_read(); // TODO how to pass this to create_source?
+    pub fn create_source(&mut self, plugin: PluginName, builder: SourceBuilder) {
+        let metrics = self.metrics.blocking_read();
         let mut ctx = BuildContext {
             metrics: &metrics,
-            namegen: self
-                .namegen_by_plugin
-                .entry(plugin.clone())
-                .or_insert_with(|| NameGenerator::new(plugin)),
+            namegen: self.names.namegen_for_scope(&plugin),
         };
+        self.tasks.create_source(&mut ctx, builder);
+    }
+
+    pub fn handle_message(&mut self, msg: ControlMessage) {
+        match msg {
+            ControlMessage::Configure(msg) => self.tasks.reconfigure(msg),
+            ControlMessage::Create(msg) => self.create_source(msg.plugin, msg.builder.into()),
+        }
+    }
+
+    pub fn shutdown(mut self) {
+        // NOTE: self.autonomous_shutdown has already been cancelled by the parent
+        // CancellationToken, therefore we don't cancel it here.
+        // This cancellation has requested all the autonomous sources to stop.
+
+        // Send a stop message to all managed sources.
+        let stop_msg = ConfigureMessage {
+            selector: SourceSelector::All,
+            command: SourceCommand::Stop,
+        };
+        self.tasks.reconfigure(stop_msg);
+
+        // Wait for managed and autonomous sources to stop.
+
+        // self.source_tasks.abort_all()
+        todo!()
+
+        // At the end of the method, `in_tx` is dropped,
+        // which allows the channel to close when all sources finish.
+    }
+}
+
+impl TaskManager {
+    fn create_source(&mut self, ctx: &mut BuildContext, builder: SourceBuilder) {
         match builder {
-            SourceBuilder::Managed(builder) => {
-                let mut reg = builder(&mut ctx);
+            SourceBuilder::Managed(build) => {
+                let mut reg = build(ctx);
                 reg.trigger.constrain(&self.trigger_constraints);
                 // TODO make TriggerSpec tell us if it requests a higher thread priority
 
@@ -115,17 +164,17 @@ impl SourceControl {
                 let source_task = run_managed(reg.name.clone(), reg.source, self.in_tx.clone(), config.clone_unseen());
                 let controller = SingleSourceController::Managed(config);
                 self.controllers.push((reg.name, controller));
-                self.tasks.spawn_on(source_task, &self.rt_normal);
+                self.spawned_tasks.spawn_on(source_task, &self.rt_normal);
             }
-            SourceBuilder::Autonomous(builder) => {
+            SourceBuilder::Autonomous(build) => {
                 let token = self.shutdown_token.child_token();
                 let tx = self.in_tx.clone();
-                let reg = builder(&mut ctx, token.clone(), tx);
+                let reg = build(ctx, token.clone(), tx);
 
                 let source_task = run_autonomous(reg.name.clone(), reg.source);
                 let controller = SingleSourceController::Autonomous(token);
                 self.controllers.push((reg.name, controller));
-                self.tasks.spawn_on(source_task, &self.rt_normal);
+                self.spawned_tasks.spawn_on(source_task, &self.rt_normal);
             }
         };
     }
@@ -135,12 +184,12 @@ impl SourceControl {
 
         // Simplifies the command and applies trigger constraints if needed.
         let command = match msg.command {
-            SourceCommand::Pause => ResolvedCommand::SetState(TaskState::Pause),
-            SourceCommand::Resume => ResolvedCommand::SetState(TaskState::Run),
-            SourceCommand::Stop => ResolvedCommand::SetState(TaskState::Stop),
+            SourceCommand::Pause => Reconfiguration::SetState(TaskState::Pause),
+            SourceCommand::Resume => Reconfiguration::SetState(TaskState::Run),
+            SourceCommand::Stop => Reconfiguration::SetState(TaskState::Stop),
             SourceCommand::SetTrigger(mut spec) => {
                 spec.constrain(&self.trigger_constraints);
-                ResolvedCommand::SetTrigger(spec)
+                Reconfiguration::SetTrigger(spec)
             }
         };
 
@@ -148,14 +197,14 @@ impl SourceControl {
             if selector.matches(name) {
                 match source_controller {
                     SingleSourceController::Managed(source_config) => match &command {
-                        ResolvedCommand::SetState(s) => source_config.borrow_mut().state = *s,
-                        ResolvedCommand::SetTrigger(spec) => {
+                        Reconfiguration::SetState(s) => source_config.borrow_mut().state = *s,
+                        Reconfiguration::SetTrigger(spec) => {
                             let trigger = Trigger::new(spec.clone(), source_config.clone()).unwrap();
                             source_config.borrow_mut().new_trigger = Some(trigger);
                         }
                     },
                     SingleSourceController::Autonomous(shutdown_token) => match &command {
-                        ResolvedCommand::SetState(TaskState::Stop) => {
+                        Reconfiguration::SetState(TaskState::Stop) => {
                             shutdown_token.cancel();
                         }
                         _ => todo!("invalid command for autonomous source"),
@@ -164,39 +213,6 @@ impl SourceControl {
             }
         }
     }
-
-    pub fn handle_message(&mut self, msg: ControlMessage) {
-        match msg {
-            ControlMessage::Configure(msg) => self.reconfigure(msg),
-            ControlMessage::Create(msg) => self.create_source(msg.plugin, msg.builder.into()),
-        }
-    }
-
-    pub fn shutdown(mut self) {
-        // NOTE: self.autonomous_shutdown has already been cancelled by the parent
-        // CancellationToken, therefore we don't cancel it here.
-        // This cancellation has requested all the autonomous sources to stop.
-
-        // Send a stop message to all managed sources.
-        let stop_msg = ConfigureMessage {
-            selector: SourceSelector::All,
-            command: SourceCommand::Stop,
-        };
-        self.reconfigure(stop_msg);
-
-        // Wait for managed and autonomous sources to stop.
-
-        // self.source_tasks.abort_all()
-        todo!()
-
-        // At the end of the method, `in_tx` is dropped,
-        // which allows the channel to close when all sources finish.
-    }
-}
-
-struct BuildContext<'a> {
-    metrics: &'a MetricRegistry,
-    namegen: &'a mut NameGenerator,
 }
 
 impl builder::context::SourceBuildContext for BuildContext<'_> {
@@ -252,7 +268,7 @@ pub enum SourceCommand {
     SetTrigger(TriggerSpec),
 }
 
-enum ResolvedCommand {
+enum Reconfiguration {
     SetState(TaskState),
     SetTrigger(TriggerSpec),
 }

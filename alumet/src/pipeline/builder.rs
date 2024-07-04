@@ -1,11 +1,9 @@
-use std::collections::HashMap;
-
 use super::elements::{output, source, transform};
 use super::registry::{MetricReader, MetricSender};
 use crate::pipeline::registry::MetricRegistryControl;
 use crate::{measurement::MeasurementBuffer, metrics::MetricRegistry};
 
-use super::util::naming::{NameGenerator, PluginName};
+use super::util::naming::PluginName;
 use super::{
     control::{ControlHandle, PipelineControl},
     trigger::TriggerConstraints,
@@ -30,9 +28,6 @@ pub struct MeasurementPipeline {
 
 /// Constructs measurement pipelines.
 pub struct Builder {
-    namegen_transforms: HashMap<PluginName, NameGenerator>,
-    namegen_outputs: HashMap<PluginName, NameGenerator>,
-
     sources: Vec<(PluginName, elements::SourceBuilder)>,
     transforms: Vec<(PluginName, Box<dyn elements::TransformBuilder>)>,
     outputs: Vec<(PluginName, Box<dyn elements::OutputBuilder>)>,
@@ -135,7 +130,7 @@ pub mod elements {
 pub mod context {
     use crate::{
         metrics::{Metric, MetricRegistry, RawMetricId},
-        pipeline::util::naming::{NameGenerator, OutputName, SourceName, TransformName},
+        pipeline::util::naming::{OutputName, ScopedNameGenerator, SourceName, TransformName},
     };
 
     pub trait SourceBuildContext {
@@ -155,11 +150,11 @@ pub mod context {
 
     pub(crate) struct BuilderContext<'a> {
         metrics: &'a MetricRegistry,
-        namegen: &'a mut NameGenerator,
+        namegen: &'a mut ScopedNameGenerator,
     }
 
     impl<'a> BuilderContext<'a> {
-        pub(crate) fn new(metrics: &'a MetricRegistry, namegen: &'a mut NameGenerator) -> Self {
+        pub(crate) fn new(metrics: &'a MetricRegistry, namegen: &'a mut ScopedNameGenerator) -> Self {
             Self { metrics, namegen }
         }
     }
@@ -198,8 +193,6 @@ pub mod context {
 impl Builder {
     pub fn new(trigger_constraints: TriggerConstraints) -> Self {
         Self {
-            namegen_transforms: HashMap::new(),
-            namegen_outputs: HashMap::new(),
             sources: Vec::new(),
             transforms: Vec::new(),
             outputs: Vec::new(),
@@ -223,7 +216,7 @@ impl Builder {
     /// Builds the measurement pipeline.
     ///
     /// The new pipeline is immediately started.
-    pub fn build(mut self) -> anyhow::Result<MeasurementPipeline> {
+    pub fn build(self) -> anyhow::Result<MeasurementPipeline> {
         let rt_priority: Option<Runtime> = util::threading::build_priority_runtime(None).ok();
         let rt_normal: Runtime = {
             let normal_workers = if rt_priority.is_some() { Some(2) } else { None };
@@ -250,34 +243,14 @@ impl Builder {
         // Create pipeline elements, sources last in order not to loose
         // any measurement if they start polling right away.
 
-        fn namegen_for(map: &mut HashMap<PluginName, NameGenerator>, plugin: PluginName) -> &mut NameGenerator {
-            map.entry(plugin.clone())
-                .or_insert_with_key(|p| NameGenerator::new(p.clone()))
-        }
-
         // Outputs
         let mut output_control =
             output::OutputControl::new(out_tx.clone(), rt_normal.handle().clone(), metrics_r.clone());
-        for (plugin, builder) in self.outputs {
-            output_control.create_output(plugin, builder);
-        }
+        output_control.create_outputs(self.outputs);
 
         // Transforms
-        let transforms = {
-            let metrics = metrics_r.blocking_read();
-            self.transforms
-                .into_iter()
-                .map(|(plugin, builder)| {
-                    // TODO move this context into the transform module, like sources and outputs.
-                    let namegen = namegen_for(&mut self.namegen_transforms, plugin);
-                    let mut ctx = context::BuilderContext::new(&metrics, namegen);
-                    let reg = builder(&mut ctx);
-                    (reg.name, reg.transform)
-                })
-                .collect()
-        };
-        let transform_control = transform::TransformControl::create_transforms(
-            transforms,
+        let transform_control = transform::TransformControl::with_transforms(
+            self.transforms,
             metrics_r.clone(),
             in_rx,
             out_tx,
@@ -293,15 +266,13 @@ impl Builder {
             rt_normal.handle().clone(),
             metrics_r.clone(),
         );
-        {
-            for (plugin, builder) in self.sources {
-                source_control.create_source(plugin, builder);
-            }
-        }
+        source_control.create_sources(self.sources);
 
         // Pipeline control
         let control = PipelineControl::new(source_control, transform_control, output_control);
         let (control_handle, control_join) = control.start(pipeline_shutdown, rt_normal.handle());
+
+        // TODO poll the tasks somewhere to print errors that occur in pipeline elements.
 
         // Done!
         Ok(MeasurementPipeline {
@@ -318,6 +289,10 @@ impl Builder {
 impl MeasurementPipeline {
     pub fn control_handle(&self, plugin: PluginName) -> ControlHandle {
         self.control_handle.clone_with_plugin(plugin)
+    }
+    
+    pub fn metrics_sender(&self) -> MetricSender {
+        self.metrics.0.clone()
     }
 
     pub fn async_runtime(&self) -> &tokio::runtime::Handle {

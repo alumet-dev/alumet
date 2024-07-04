@@ -11,7 +11,9 @@ use tokio::{
 };
 
 use super::error::TransformError;
-use crate::pipeline::util::naming::TransformName;
+use crate::pipeline::builder::elements::{TransformBuilder, TransformRegistration};
+use crate::pipeline::util::naming::{NameGenerator, ScopedNameGenerator, TransformName};
+use crate::pipeline::{builder, PluginName};
 use crate::{measurement::MeasurementBuffer, metrics::MetricRegistry, pipeline::registry::MetricReader};
 
 /// Transforms measurements.
@@ -29,14 +31,60 @@ pub struct TransformContext<'a> {
 ///
 /// There can be a maximum of 64 transforms for the moment.
 pub struct TransformControl {
+    tasks: TaskManager,
+    metrics: MetricReader,
+}
+
+struct TaskManager {
     task_handle: JoinHandle<anyhow::Result<()>>,
     active_bitset: Arc<AtomicU64>,
     names_by_bitset_position: Vec<TransformName>,
 }
 
+struct BuildContext<'a> {
+    metrics: &'a MetricRegistry,
+    namegen: &'a mut ScopedNameGenerator,
+}
+
 impl TransformControl {
-    pub fn create_transforms(
-        transforms: Vec<(TransformName, Box<dyn Transform>)>,
+    pub fn with_transforms(
+        transforms: Vec<(PluginName, Box<dyn TransformBuilder>)>,
+        metrics: MetricReader,
+        rx: mpsc::Receiver<MeasurementBuffer>,
+        tx: broadcast::Sender<MeasurementBuffer>,
+        rt_normal: &runtime::Handle,
+    ) -> Self {
+        let built: Vec<TransformRegistration> = {
+            let metrics_r = metrics.blocking_read();
+            let mut namegen = NameGenerator::new();
+            transforms
+                .into_iter()
+                .map(|(plugin, builder)| {
+                    let mut ctx = BuildContext {
+                        metrics: &metrics_r,
+                        namegen: namegen.namegen_for_scope(&plugin),
+                    };
+                    builder(&mut ctx)
+                })
+                .collect()
+        };
+        let tasks = TaskManager::spawn(built, metrics.clone(), rx, tx, rt_normal);
+        Self { tasks, metrics }
+    }
+
+    pub fn handle_message(&mut self, msg: ControlMessage) {
+        self.tasks.reconfigure(msg);
+    }
+
+    pub fn shutdown(self) {
+        // Nothing to do for the moment: the transform task will naturally
+        // stop when the input channel is closed.
+    }
+}
+
+impl TaskManager {
+    pub fn spawn(
+        transforms: Vec<TransformRegistration>,
         metrics_r: MetricReader,
         rx: mpsc::Receiver<MeasurementBuffer>,
         tx: broadcast::Sender<MeasurementBuffer>,
@@ -45,9 +93,9 @@ impl TransformControl {
         let mut active_bitset: u64 = 0;
         let mut names_by_bitset_position = Vec::with_capacity(transforms.len());
 
-        for (i, (name, _)) in transforms.iter().enumerate() {
+        for (i, reg) in transforms.iter().enumerate() {
             active_bitset |= 1 << i;
-            names_by_bitset_position.push(name.clone());
+            names_by_bitset_position.push(reg.name.clone());
         }
 
         // Start the transforms task.
@@ -61,7 +109,7 @@ impl TransformControl {
         }
     }
 
-    pub fn handle_message(&mut self, msg: ControlMessage) {
+    fn reconfigure(&mut self, msg: ControlMessage) {
         let mut bitset = self.active_bitset.load(Ordering::Relaxed);
         for (i, name) in self.names_by_bitset_position.iter().enumerate() {
             if msg.selector.matches(name) {
@@ -77,10 +125,15 @@ impl TransformControl {
         }
         self.active_bitset.store(bitset, Ordering::Relaxed);
     }
+}
 
-    pub fn shutdown(self) {
-        // Nothing to do for the moment: the transform task will naturally
-        // stop when the input channel is closed.
+impl builder::context::TransformBuildContext for BuildContext<'_> {
+    fn metric_by_name(&self, name: &str) -> Option<(crate::metrics::RawMetricId, &crate::metrics::Metric)> {
+        self.metrics.by_name(name)
+    }
+
+    fn transform_name(&mut self, name: &str) -> TransformName {
+        self.namegen.transform_name(name)
     }
 }
 
@@ -111,7 +164,7 @@ pub enum TransformState {
 }
 
 async fn run_all_in_order(
-    mut transforms: Vec<(TransformName, Box<dyn Transform>)>,
+    mut transforms: Vec<TransformRegistration>,
     mut rx: mpsc::Receiver<MeasurementBuffer>,
     tx: broadcast::Sender<MeasurementBuffer>,
     active_flags: Arc<AtomicU64>,
@@ -131,7 +184,7 @@ async fn run_all_in_order(
             for (i, t) in &mut transforms.iter_mut().enumerate() {
                 let t_flag = 1 << i;
                 if current_flags & t_flag != 0 {
-                    let (name, transform) = t;
+                    let TransformRegistration { name, transform } = t;
                     match transform.apply(&mut measurements, &ctx) {
                         Ok(()) => (),
                         Err(TransformError::UnexpectedInput(e)) => {

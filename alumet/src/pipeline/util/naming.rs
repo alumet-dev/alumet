@@ -40,12 +40,12 @@ impl Default for NameDeduplicator {
 }
 
 /// Generates names for the pipeline elements.
-pub struct NameGenerator {
+pub struct ScopedNameGenerator {
     dedup: NameDeduplicator,
     plugin: PluginName,
 }
 
-impl NameGenerator {
+impl ScopedNameGenerator {
     pub fn new(plugin: PluginName) -> Self {
         Self {
             dedup: NameDeduplicator::new(),
@@ -70,6 +70,24 @@ impl NameGenerator {
     }
     pub fn output_name(&mut self, name: &str) -> OutputName {
         self.element_name("output", name)
+    }
+}
+
+pub struct NameGenerator {
+    namegen_by_plugin: HashMap<PluginName, ScopedNameGenerator>,
+}
+
+impl NameGenerator {
+    pub fn new() -> Self {
+        Self {
+            namegen_by_plugin: HashMap::new(),
+        }
+    }
+
+    pub fn namegen_for_scope(&mut self, plugin: &PluginName) -> &mut ScopedNameGenerator {
+        self.namegen_by_plugin
+            .entry(plugin.clone())
+            .or_insert_with(|| ScopedNameGenerator::new(plugin.clone()))
     }
 }
 

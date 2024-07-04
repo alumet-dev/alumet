@@ -1,6 +1,5 @@
 //! Implementation and control of output tasks.
 
-use std::collections::HashMap;
 use std::ops::ControlFlow;
 use std::sync::{Arc, Mutex};
 
@@ -9,8 +8,7 @@ use tokio::{sync::broadcast, task::JoinSet};
 
 use crate::measurement::MeasurementBuffer;
 use crate::metrics::MetricRegistry;
-use crate::pipeline::builder::context::OutputBuildContext;
-use crate::pipeline::util::naming::{NameGenerator, OutputName};
+use crate::pipeline::util::naming::{NameGenerator, OutputName, ScopedNameGenerator};
 use crate::pipeline::{builder, PluginName};
 
 use super::super::builder::elements::OutputBuilder;
@@ -30,7 +28,14 @@ pub struct OutputContext<'a> {
 }
 
 pub struct OutputControl {
-    tasks: JoinSet<anyhow::Result<()>>,
+    tasks: TaskManager,
+    names: NameGenerator,
+    /// Read-only access to the metrics.
+    metrics: registry::MetricReader,
+}
+
+struct TaskManager {
+    spawned_tasks: JoinSet<anyhow::Result<()>>,
     configs: Vec<(OutputName, Versioned<TaskConfig>)>,
 
     tx: broadcast::Sender<MeasurementBuffer>,
@@ -38,11 +43,12 @@ pub struct OutputControl {
     /// Handle of the "normal" async runtime. Used for creating new outputs.
     rt_normal: runtime::Handle,
 
-    /// Generates deduplicated names for new outputs.
-    namegen_by_plugin: HashMap<PluginName, NameGenerator>,
-
-    /// Read-only access to the metrics.
     metrics: registry::MetricReader,
+}
+
+struct BuildContext<'a> {
+    metrics: &'a MetricRegistry,
+    namegen: &'a mut ScopedNameGenerator,
 }
 
 impl OutputControl {
@@ -52,41 +58,40 @@ impl OutputControl {
         metrics: registry::MetricReader,
     ) -> Self {
         Self {
-            tasks: JoinSet::new(),
-            configs: Vec::with_capacity(4),
-            tx,
-            rt_normal,
-            namegen_by_plugin: HashMap::new(),
+            tasks: TaskManager {
+                spawned_tasks: JoinSet::new(),
+                configs: Vec::new(),
+                tx,
+                rt_normal,
+                metrics: metrics.clone(),
+            },
+            names: NameGenerator::new(),
             metrics,
         }
     }
 
+    pub fn create_outputs(&mut self, outputs: Vec<(PluginName, Box<dyn OutputBuilder>)>) {
+        let metrics = self.metrics.blocking_read();
+        for (plugin, builder) in outputs {
+            let mut ctx = BuildContext {
+                metrics: &metrics,
+                namegen: self.names.namegen_for_scope(&plugin),
+            };
+            self.tasks.create_output(&mut ctx, builder);
+        }
+    }
+
     pub fn create_output(&mut self, plugin: PluginName, builder: Box<dyn OutputBuilder>) {
-        let metrics = self.metrics.blocking_read(); // TODO how to pass this to create_output?
+        let metrics = self.metrics.blocking_read();
         let mut ctx = BuildContext {
             metrics: &metrics,
-            namegen: self
-                .namegen_by_plugin
-                .entry(plugin.clone())
-                .or_insert_with(|| NameGenerator::new(plugin)),
+            namegen: self.names.namegen_for_scope(&plugin),
         };
-        let reg = builder(&mut ctx);
-        let rx = self.tx.subscribe();
-        let config = Versioned::new(TaskConfig {
-            state: OutputState::Run,
-        });
-        let metrics = self.metrics.clone();
-        let guarded_output = Arc::new(Mutex::new(reg.output));
-        let task = run_output(reg.name, guarded_output, rx, config, metrics);
-        self.tasks.spawn_on(task, &self.rt_normal);
+        self.tasks.create_output(&mut ctx, builder);
     }
 
     pub fn handle_message(&mut self, msg: ControlMessage) {
-        for (name, output_config) in &mut self.configs {
-            if msg.selector.matches(name) {
-                output_config.update(|config| config.state = msg.new_state);
-            }
-        }
+        self.tasks.reconfigure(msg);
     }
 
     pub fn shutdown(mut self) {
@@ -101,9 +106,26 @@ impl OutputControl {
     }
 }
 
-struct BuildContext<'a> {
-    metrics: &'a MetricRegistry,
-    namegen: &'a mut NameGenerator,
+impl TaskManager {
+    fn create_output(&mut self, ctx: &mut BuildContext, builder: Box<dyn OutputBuilder>) {
+        let reg = builder(ctx);
+        let rx = self.tx.subscribe();
+        let config = Versioned::new(TaskConfig {
+            state: OutputState::Run,
+        });
+        let metrics = self.metrics.clone();
+        let guarded_output = Arc::new(Mutex::new(reg.output));
+        let task = run_output(reg.name, guarded_output, rx, config, metrics);
+        self.spawned_tasks.spawn_on(task, &self.rt_normal);
+    }
+
+    fn reconfigure(&mut self, msg: ControlMessage) {
+        for (name, output_config) in &mut self.configs {
+            if msg.selector.matches(name) {
+                output_config.update(|config| config.state = msg.new_state);
+            }
+        }
+    }
 }
 
 impl builder::context::OutputBuildContext for BuildContext<'_> {

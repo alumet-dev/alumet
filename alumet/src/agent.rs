@@ -199,7 +199,7 @@ impl Agent {
             log::debug!("Starting plugin {} v{}", plugin.name(), plugin.version());
             let mut start_struct = AlumetStart {
                 pipeline_builder: &mut pipeline_builder,
-                current_plugin_name: plugin.name().to_owned(),
+                current_plugin: pipeline::PluginName(plugin.name().to_owned()),
             };
             plugin
                 .start(&mut start_struct)
@@ -481,14 +481,6 @@ impl AgentBuilder {
     /// If a function has already been defined, it is replaced.
     pub fn after_plugin_start(mut self, f: fn(&PipelineBuilder)) -> Self {
         self.f_after_plugin_start = f;
-        self
-    }
-
-    /// Defines a function to run just after the measurement pipeline has started.
-    ///
-    /// If a function has already been defined, it is replaced.
-    pub fn before_operation_begin(mut self, f: fn(&IdlePipeline)) -> Self {
-        self.f_before_operation_begin = f;
         self
     }
 
