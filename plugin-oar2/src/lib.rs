@@ -98,7 +98,7 @@ impl AlumetPlugin for Oar2Plugin {
             let entry = entry?;
 
             let job_name = entry.file_name();
-            let job_name = job_name.into_string().unwrap();
+            let job_name = job_name.into_string().ok().with_context(|| format!("Invalid oar username and job id."))?;
 
             if entry.file_type()?.is_dir() && job_name.chars().any(|c| c.is_numeric()) {
                 let job_separated = job_name.split_once("_");
@@ -203,7 +203,7 @@ impl AlumetPlugin for Oar2Plugin {
                         }
                     }
                 } else if let Err(e) = event {
-                    eprintln!("watch error: {:?}", e);
+                    log::error!("watch error: {:?}", e);
                 }
             }
         }
