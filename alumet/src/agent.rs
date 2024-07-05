@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::pipeline::{self, trigger::TriggerConstraints};
-use crate::plugin::{AlumetStart, ConfigTable, Plugin, PluginMetadata};
+use crate::plugin::{AlumetPostStart, AlumetStart, ConfigTable, Plugin, PluginMetadata};
 
 /// Easy-to-use skeleton for building a measurement application based on
 /// the core of Alumet, aka an "agent".
@@ -195,14 +195,15 @@ impl Agent {
         log::info!("Starting the plugins...");
         let mut pipeline_builder = pipeline::Builder::new(self.settings.source_constraints);
 
+        // Call start(AlumetStart) on each plugin.
         for plugin in initialized_plugins.iter_mut() {
             log::debug!("Starting plugin {} v{}", plugin.name(), plugin.version());
-            let mut start_struct = AlumetStart {
+            let mut start_context = AlumetStart {
                 pipeline_builder: &mut pipeline_builder,
                 current_plugin: pipeline::PluginName(plugin.name().to_owned()),
             };
             plugin
-                .start(&mut start_struct)
+                .start(&mut start_context)
                 .with_context(|| format!("Plugin failed to start: {} v{}", plugin.name(), plugin.version()))?;
         }
         print_stats(&pipeline_builder, &initialized_plugins);
@@ -210,9 +211,16 @@ impl Agent {
 
         // Operation: the pipeline is running.
         log::info!("Starting the measurement pipeline...");
-        let pipeline = pipeline_builder.build().context("Pipeline failed to build")?;
+        let mut pipeline = pipeline_builder.build().context("Pipeline failed to build")?;
+
+        // Call post_pipeline_start(AlumetPostStart) on each plugin.
         for plugin in initialized_plugins.iter_mut() {
-            plugin.post_pipeline_start(&mut pipeline).with_context(|| {
+            let mut post_start_context = AlumetPostStart {
+                pipeline: &mut pipeline,
+                current_plugin: pipeline::PluginName(plugin.name().to_owned()),
+            };
+
+            plugin.post_pipeline_start(&mut post_start_context).with_context(|| {
                 format!(
                     "Plugin post_pipeline_start failed: {} v{}",
                     plugin.name(),
@@ -278,7 +286,7 @@ impl RunningAgent {
         // Also, **drop** the pipeline before stopping the plugin, because Plugin::stop expects
         // the sources, transforms and outputs to be stopped and dropped before it is called.
         // All tokio tasks that have not finished yet will abort.
-        if let Err(err) = self.pipeline.wait_for_shutdown() {
+        if let Err(err) = self.pipeline.blocking_wait_for_shutdown() {
             log::error!("Error in the measurement pipeline: {err}");
             n_errors += 1;
         }
@@ -393,19 +401,21 @@ fn print_stats(pipeline_builder: &pipeline::Builder, plugins: &[Box<dyn Plugin>]
             .join("\n")
     };
 
-    let n_sources = pipeline_builder.source_count();
-    let n_transforms = pipeline_builder.transform_count();
-    let n_output = pipeline_builder.output_count();
-    let str_source = if n_sources > 1 { "sources" } else { "source" };
-    let str_transform = if n_sources > 1 { "transforms" } else { "transform" };
-    let str_output = if n_sources > 1 { "outputs" } else { "output" };
+    let stats = pipeline_builder.stats();
+    let str_source = if stats.sources > 1 { "sources" } else { "source" };
+    let str_transform = if stats.transforms > 1 {
+        "transforms"
+    } else {
+        "transform"
+    };
+    let str_output = if stats.outputs > 1 { "outputs" } else { "output" };
     let pipeline_elements = format!(
         "📥 {} {str_source}, 🔀 {} {str_transform} and 📝 {} {str_output} registered.",
-        n_sources, n_transforms, n_output,
+        stats.sources, stats.transforms, stats.outputs,
     );
 
     let n_plugins = plugins.len();
-    let n_metrics = pipeline_builder.metric_count();
+    let n_metrics = stats.metrics;
     let str_plugin = if n_plugins > 1 { "plugins" } else { "plugin" };
     let str_metric = if n_metrics > 1 { "metrics" } else { "metric" };
     log::info!("Plugin startup complete.\n🧩 {n_plugins} {str_plugin} started:\n{plugins_list}\n📏 {n_metrics} {str_metric} registered:\n{metrics_list}\n{pipeline_elements}");
@@ -425,7 +435,6 @@ impl AgentBuilder {
             default_app_config: toml::Table::new(),
             f_after_plugin_init: |_| (),
             f_after_plugin_start: |_| (),
-            f_before_operation_begin: |_| (),
             f_after_operation_begin: |_| (),
             allow_no_metrics: false,
             source_constraints: TriggerConstraints::default(),
@@ -479,7 +488,7 @@ impl AgentBuilder {
     /// Defines a function to run after the plugin start-up phase.
     ///
     /// If a function has already been defined, it is replaced.
-    pub fn after_plugin_start(mut self, f: fn(&PipelineBuilder)) -> Self {
+    pub fn after_plugin_start(mut self, f: fn(&pipeline::Builder)) -> Self {
         self.f_after_plugin_start = f;
         self
     }
@@ -487,7 +496,7 @@ impl AgentBuilder {
     /// Defines a function to run just after the measurement pipeline has started.
     ///
     /// If a function has already been defined, it is replaced.
-    pub fn after_operation_begin(mut self, f: fn(&mut RunningPipeline)) -> Self {
+    pub fn after_operation_begin(mut self, f: fn(&mut pipeline::MeasurementPipeline)) -> Self {
         self.f_after_operation_begin = f;
         self
     }

@@ -194,8 +194,8 @@ impl<'a> AlumetStart<'a> {
 }
 
 pub struct AlumetPostStart<'a> {
-    current_plugin: PluginName,
-    pipeline: &'a mut MeasurementPipeline,
+    pub(crate) current_plugin: PluginName,
+    pub(crate) pipeline: &'a mut MeasurementPipeline,
 }
 
 impl<'a> AlumetPostStart<'a> {

@@ -272,8 +272,6 @@ impl Builder {
         let control = PipelineControl::new(source_control, transform_control, output_control);
         let (control_handle, control_join) = control.start(pipeline_shutdown, rt_normal.handle());
 
-        // TODO poll the tasks somewhere to print errors that occur in pipeline elements.
-
         // Done!
         Ok(MeasurementPipeline {
             rt_normal,
@@ -284,18 +282,45 @@ impl Builder {
             metrics_control_task: metrics_join,
         })
     }
+
+    pub fn stats(&self) -> BuilderStats {
+        BuilderStats {
+            sources: self.sources.len(),
+            transforms: self.transforms.len(),
+            outputs: self.outputs.len(),
+            metrics: self.metrics.len(),
+        }
+    }
+}
+
+pub struct BuilderStats {
+    pub sources: usize,
+    pub transforms: usize,
+    pub outputs: usize,
+    pub metrics: usize,
 }
 
 impl MeasurementPipeline {
     pub fn control_handle(&self, plugin: PluginName) -> ControlHandle {
         self.control_handle.clone_with_plugin(plugin)
     }
-    
+
     pub fn metrics_sender(&self) -> MetricSender {
         self.metrics.0.clone()
     }
 
     pub fn async_runtime(&self) -> &tokio::runtime::Handle {
         self.rt_normal.handle()
+    }
+
+    pub async fn wait_for_shutdown(self) -> Result<(), tokio::task::JoinError> {
+        self.pipeline_control_task.await?;
+        self.metrics_control_task.await?;
+        Ok(())
+    }
+
+    pub fn blocking_wait_for_shutdown(self) -> Result<(), tokio::task::JoinError> {
+        let rt = self.async_runtime().clone();
+        rt.block_on(self.wait_for_shutdown())
     }
 }
