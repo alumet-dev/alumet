@@ -244,7 +244,6 @@ impl Default for Config {
 
 impl Source for OarJobSource {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
-        // log::debug!("OarJobSource::poll at {timestamp:?}");
         let cpu_usage_file = &mut self.cgroup_cpu_file;
         cpu_usage_file.rewind()?;
         let mut cpu_usage = String::new();
