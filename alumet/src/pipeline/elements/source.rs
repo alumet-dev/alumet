@@ -29,7 +29,7 @@ pub trait Source: Send {
 }
 
 /// Controls the sources of a measurement pipeline.
-pub struct SourceControl {
+pub(crate) struct SourceControl {
     /// Manages source tasks. Separated from `names` and `metrics` for borrow-checking reasons.
     tasks: TaskManager,
     /// Generates unique names for source tasks.
@@ -230,7 +230,7 @@ impl builder::context::SourceBuildContext for BuildContext<'_> {
 }
 
 /// A controller for a single source.
-pub enum SingleSourceController {
+pub(crate) enum SingleSourceController {
     /// Dynamic configuration of a managed source.
     ///
     /// This is more flexible than the token of autonomous sources.
@@ -303,7 +303,7 @@ enum TaskState {
     Stop,
 }
 
-pub async fn run_managed(
+pub(crate) async fn run_managed(
     source_name: SourceName,
     mut source: Box<dyn Source>,
     tx: mpsc::Sender<MeasurementBuffer>,

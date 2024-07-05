@@ -51,7 +51,7 @@ pub(crate) struct TriggerConfig {
 }
 
 /// Constraints that can be applied to a [`TriggerSpec`] after its construction.
-pub(crate) struct TriggerConstraints {
+pub struct TriggerConstraints {
     pub max_update_interval: time::Duration,
 }
 

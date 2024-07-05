@@ -9,9 +9,14 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 #[derive(Clone)]
-pub struct ControlHandle {
+pub struct AnonymousControlHandle {
     tx: Sender<ControlMessage>,
     shutdown: CancellationToken,
+}
+
+#[derive(Clone)]
+pub struct ScopedControlHandle {
+    inner: AnonymousControlHandle,
     plugin: PluginName,
 }
 
@@ -32,15 +37,7 @@ pub enum ControlError {
     Shutdown,
 }
 
-impl ControlHandle {
-    pub fn clone_with_plugin(&self, plugin: PluginName) -> ControlHandle {
-        ControlHandle {
-            tx: self.tx.clone(),
-            shutdown: self.shutdown.clone(),
-            plugin,
-        }
-    }
-
+impl AnonymousControlHandle {
     pub async fn send(&mut self, message: ControlMessage) -> Result<(), ControlError> {
         self.tx.send(message).await.map_err(|_| ControlError::Shutdown)
     }
@@ -51,6 +48,30 @@ impl ControlHandle {
             Err(mpsc::error::TrySendError::Full(m)) => Err(ControlError::ChannelFull(m)),
             Err(mpsc::error::TrySendError::Closed(_)) => Err(ControlError::Shutdown),
         }
+    }
+
+    pub fn shutdown(&mut self) {
+        self.shutdown.cancel()
+    }
+
+    pub fn scoped(&self, plugin: PluginName) -> ScopedControlHandle {
+        ScopedControlHandle {
+            inner: self.clone(),
+            plugin,
+        }
+    }
+}
+
+impl ScopedControlHandle {
+    pub fn change_plugin_scope(&self, plugin: PluginName) -> ScopedControlHandle {
+        ScopedControlHandle {
+            inner: self.inner.clone(),
+            plugin,
+        }
+    }
+
+    pub fn anonymous(&mut self) -> &mut AnonymousControlHandle {
+        &mut self.inner
     }
 
     pub fn add_source(
@@ -76,7 +97,7 @@ impl ControlHandle {
             plugin: self.plugin.clone(),
             builder: SendSourceBuilder::Managed(Box::new(builder)),
         }));
-        self.try_send(message)
+        self.inner.try_send(message)
     }
 
     pub fn add_autonomous_source_builder<F: AutonomousSourceBuilder + Send + 'static>(
@@ -87,7 +108,7 @@ impl ControlHandle {
             plugin: self.plugin.clone(),
             builder: SendSourceBuilder::Autonomous(Box::new(builder)),
         }));
-        self.try_send(message)
+        self.inner.try_send(message)
     }
 }
 
@@ -104,13 +125,12 @@ impl PipelineControl {
         }
     }
 
-    pub fn start(self, shutdown: CancellationToken, on: &runtime::Handle) -> (ControlHandle, JoinHandle<()>) {
+    pub fn start(self, shutdown: CancellationToken, on: &runtime::Handle) -> (AnonymousControlHandle, JoinHandle<()>) {
         let (tx, rx) = mpsc::channel(256);
         let task = self.run(shutdown.clone(), rx);
-        let control_handle = ControlHandle {
+        let control_handle = AnonymousControlHandle {
             tx,
             shutdown,
-            plugin: PluginName(String::from("")),
         };
         let task_handle = on.spawn(task);
         (control_handle, task_handle)

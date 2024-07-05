@@ -28,7 +28,7 @@ pub struct OutputContext<'a> {
     pub metrics: &'a MetricRegistry,
 }
 
-pub struct OutputControl {
+pub(crate) struct OutputControl {
     tasks: TaskManager,
     names: NameGenerator,
     /// Read-only access to the metrics.

@@ -31,9 +31,8 @@ pub struct TransformContext<'a> {
 /// Controls the transforms of a measurement pipeline.
 ///
 /// There can be a maximum of 64 transforms for the moment.
-pub struct TransformControl {
+pub(crate) struct TransformControl {
     tasks: TaskManager,
-    metrics: MetricReader,
 }
 
 struct TaskManager {
@@ -70,7 +69,7 @@ impl TransformControl {
                 .collect()
         };
         let tasks = TaskManager::spawn(built, metrics.clone(), rx, tx, rt_normal);
-        Self { tasks, metrics }
+        Self { tasks }
     }
 
     pub fn handle_message(&mut self, msg: ControlMessage) {

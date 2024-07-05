@@ -91,8 +91,7 @@ fn main() {
             log::info!("Child process exited with status {status}, Alumet will now stop.");
 
             // Stop the pipeline.
-            let control_handle = running_agent.pipeline.control_handle();
-            control_handle.shutdown();
+            running_agent.pipeline.control_handle().shutdown();
             running_agent.wait_for_shutdown().unwrap();
         }
         Commands::RegenConfig => unreachable!(),

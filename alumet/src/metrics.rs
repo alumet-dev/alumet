@@ -352,8 +352,8 @@ mod tests {
             .unwrap();
         assert_eq!(metrics.len(), 2);
 
-        let (id, metric) = metrics.by_name("metric").expect("metrics.with_name failed");
-        let (id2, metric2) = metrics.by_name("metric2").expect("metrics.with_name failed");
+        let (_id, metric) = metrics.by_name("metric").expect("metrics.with_name failed");
+        let (_id2, metric2) = metrics.by_name("metric2").expect("metrics.with_name failed");
         assert_eq!("metric", metric.name);
         assert_eq!("metric2", metric2.name);
 

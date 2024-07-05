@@ -5,7 +5,7 @@ use crate::{measurement::MeasurementBuffer, metrics::MetricRegistry};
 
 use super::util::naming::PluginName;
 use super::{
-    control::{ControlHandle, PipelineControl},
+    control::{AnonymousControlHandle, PipelineControl},
     trigger::TriggerConstraints,
     util,
 };
@@ -20,7 +20,7 @@ use tokio_util::sync::CancellationToken;
 pub struct MeasurementPipeline {
     rt_normal: Runtime,
     rt_priority: Option<Runtime>,
-    control_handle: ControlHandle,
+    control_handle: AnonymousControlHandle,
     metrics: (MetricSender, MetricReader),
     pipeline_control_task: JoinHandle<()>,
     metrics_control_task: JoinHandle<()>,
@@ -86,12 +86,12 @@ pub mod elements {
     pub trait OutputBuilder: FnOnce(&mut dyn OutputBuildContext) -> OutputRegistration {}
     impl<F> OutputBuilder for F where F: FnOnce(&mut dyn OutputBuildContext) -> OutputRegistration {}
 
-    pub(crate) enum SourceBuilder {
+    pub enum SourceBuilder {
         Managed(Box<dyn ManagedSourceBuilder>),
         Autonomous(Box<dyn AutonomousSourceBuilder>),
     }
 
-    pub(crate) enum SendSourceBuilder {
+    pub enum SendSourceBuilder {
         Managed(Box<dyn ManagedSourceBuilder + Send>),
         Autonomous(Box<dyn AutonomousSourceBuilder + Send>),
     }
@@ -129,8 +129,8 @@ pub mod elements {
 
 pub mod context {
     use crate::{
-        metrics::{Metric, MetricRegistry, RawMetricId},
-        pipeline::util::naming::{OutputName, ScopedNameGenerator, SourceName, TransformName},
+        metrics::{Metric, RawMetricId},
+        pipeline::util::naming::{OutputName, SourceName, TransformName},
     };
 
     pub trait SourceBuildContext {
@@ -146,47 +146,6 @@ pub mod context {
     pub trait OutputBuildContext {
         fn metric_by_name(&self, name: &str) -> Option<(RawMetricId, &Metric)>;
         fn output_name(&mut self, name: &str) -> OutputName;
-    }
-
-    pub(crate) struct BuilderContext<'a> {
-        metrics: &'a MetricRegistry,
-        namegen: &'a mut ScopedNameGenerator,
-    }
-
-    impl<'a> BuilderContext<'a> {
-        pub(crate) fn new(metrics: &'a MetricRegistry, namegen: &'a mut ScopedNameGenerator) -> Self {
-            Self { metrics, namegen }
-        }
-    }
-
-    impl SourceBuildContext for BuilderContext<'_> {
-        fn metric_by_name(&self, name: &str) -> Option<(RawMetricId, &Metric)> {
-            self.metrics.by_name(name)
-        }
-
-        fn source_name(&mut self, name: &str) -> SourceName {
-            self.namegen.source_name(name)
-        }
-    }
-
-    impl TransformBuildContext for BuilderContext<'_> {
-        fn metric_by_name(&self, name: &str) -> Option<(RawMetricId, &Metric)> {
-            SourceBuildContext::metric_by_name(self, name)
-        }
-
-        fn transform_name(&mut self, name: &str) -> TransformName {
-            self.namegen.transform_name(name)
-        }
-    }
-
-    impl OutputBuildContext for BuilderContext<'_> {
-        fn metric_by_name(&self, name: &str) -> Option<(RawMetricId, &Metric)> {
-            SourceBuildContext::metric_by_name(self, name)
-        }
-
-        fn output_name(&mut self, name: &str) -> TransformName {
-            self.namegen.output_name(name)
-        }
     }
 }
 
@@ -301,8 +260,8 @@ pub struct BuilderStats {
 }
 
 impl MeasurementPipeline {
-    pub fn control_handle(&self, plugin: PluginName) -> ControlHandle {
-        self.control_handle.clone_with_plugin(plugin)
+    pub fn control_handle(&self) -> AnonymousControlHandle {
+        self.control_handle.clone()
     }
 
     pub fn metrics_sender(&self) -> MetricSender {

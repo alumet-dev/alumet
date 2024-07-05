@@ -19,7 +19,8 @@
 use libc::c_void;
 
 use crate::measurement::{MeasurementAccumulator, MeasurementBuffer};
-use crate::pipeline::OutputContext;
+use crate::pipeline::elements::output::OutputContext;
+use crate::pipeline::elements::transform::TransformContext;
 use crate::plugin::AlumetStart;
 use time::Timestamp;
 
@@ -43,12 +44,17 @@ pub type DropFn = unsafe extern "C" fn(instance: *mut c_void);
 pub type NullableDropFn = Option<unsafe extern "C" fn(instance: *mut c_void)>;
 
 pub type SourcePollFn = extern "C" fn(instance: *mut c_void, buffer: *mut MeasurementAccumulator, timestamp: Timestamp);
-pub type TransformApplyFn = extern "C" fn(instance: *mut c_void, buffer: *mut MeasurementBuffer);
+pub type TransformApplyFn = extern "C" fn(instance: *mut c_void, buffer: *mut MeasurementBuffer, ctx: *const FfiTransformContext);
 pub type OutputWriteFn = extern "C" fn(instance: *mut c_void, buffer: *const MeasurementBuffer, ctx: *const FfiOutputContext);
 
 // ====== OutputContext ======
 
 #[repr(C)]
-pub struct FfiOutputContext {
-    inner: *const OutputContext
+pub struct FfiOutputContext<'a> {
+    inner: *const OutputContext<'a>
+}
+
+#[repr(C)]
+pub struct FfiTransformContext<'a> {
+    inner: *const TransformContext<'a>
 }

@@ -199,11 +199,16 @@ pub struct AlumetPostStart<'a> {
 }
 
 impl<'a> AlumetPostStart<'a> {
-    fn pipeline_control(&self) -> pipeline::control::ControlHandle {
-        self.pipeline.control_handle(self.current_plugin.clone())
+    /// Returns the name of the plugin that has started.
+    pub fn current_plugin_name(&self) -> PluginName {
+        self.current_plugin.clone()
     }
 
-    fn async_runtime(&self) -> tokio::runtime::Handle {
+    pub fn pipeline_control(&self) -> pipeline::control::ScopedControlHandle {
+        self.pipeline.control_handle().scoped(self.current_plugin.clone())
+    }
+
+    pub fn async_runtime(&self) -> tokio::runtime::Handle {
         self.pipeline.async_runtime().clone()
     }
 }
