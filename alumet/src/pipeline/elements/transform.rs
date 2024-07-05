@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use anyhow::Context;
+use tokio::task::JoinError;
 use tokio::{
     runtime,
     sync::{broadcast, mpsc},
@@ -74,6 +75,10 @@ impl TransformControl {
 
     pub fn handle_message(&mut self, msg: ControlMessage) {
         self.tasks.reconfigure(msg);
+    }
+
+    pub async fn join_next_task(&mut self) -> Option<Result<anyhow::Result<()>, JoinError>> {
+        Some((&mut self.tasks.task_handle).await)
     }
 
     pub fn shutdown(self) {

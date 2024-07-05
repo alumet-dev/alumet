@@ -125,20 +125,48 @@ impl PipelineControl {
     }
 
     async fn run(mut self, shutdown: CancellationToken, mut rx: Receiver<ControlMessage>) {
+        fn task_finished(res: Option<Result<anyhow::Result<()>, tokio::task::JoinError>>, kind: &str) {
+            if let Some(res) = res {
+                match res {
+                    Ok(Ok(())) => log::debug!("One {kind} task finished without error."),
+                    Ok(Err(e_normal)) => log::debug!("One {kind} task finished with error: {e_normal}"),
+                    Err(e_panic) => log::error!("One {kind} task panicked with error: {e_panic:?}"),
+                }
+            }
+        }
+
         loop {
             tokio::select! {
                 _ = shutdown.cancelled() => {
+                    // The main way to shutdown the pipeline is to cancel the `shutdown` token.
+                    // Stop the control loop and shut every element down.
                     break;
                 },
                 _ = tokio::signal::ctrl_c() => {
-                    // The token has child tokens, therefore we need to cancel it.
+                    // Another way to shutdown the pipeline is to send SIGTERM, usually with Ctrl+C.
+                    // Tokio's ctrl_c() also handles Ctrl+C on Windows.
+
+                    // The token can have child tokens, therefore we need to cancel it instead of simply breaking.
                     shutdown.cancel();
                 },
                 message = rx.recv() => {
+                    // A control message has been received, or the channel has been closed (should not happen).
                     match message {
                         Some(msg) => self.handle_message(msg),
                         None => todo!("pipeline_control_loop#rx channel closed"),
                     }
+                },
+
+                // Below we asynchronously poll the source, transform and output tasks, in order to detect
+                // when one of them finishes before the entire pipeline is shut down.
+                source_res = self.sources.join_next_task() => {
+                    task_finished(source_res, "source");
+                },
+                transf_res = self.transforms.join_next_task() => {
+                    task_finished(transf_res, "transform");
+                }
+                output_res = self.outputs.join_next_task() => {
+                    task_finished(output_res, "output");
                 }
             }
         }

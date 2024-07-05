@@ -7,7 +7,7 @@ use anyhow::Context;
 use tokio::runtime;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
-use tokio::task::JoinSet;
+use tokio::task::{JoinError, JoinSet};
 use tokio_util::sync::CancellationToken;
 
 use super::error::PollError;
@@ -120,6 +120,10 @@ impl SourceControl {
             ControlMessage::Configure(msg) => self.tasks.reconfigure(msg),
             ControlMessage::Create(msg) => self.create_source(msg.plugin, msg.builder.into()),
         }
+    }
+    
+    pub async fn join_next_task(&mut self) -> Option<Result<anyhow::Result<()>, JoinError>> {
+        self.tasks.spawned_tasks.join_next().await
     }
 
     pub fn shutdown(mut self) {

@@ -4,6 +4,7 @@ use std::ops::ControlFlow;
 use std::sync::{Arc, Mutex};
 
 use tokio::runtime;
+use tokio::task::JoinError;
 use tokio::{sync::broadcast, task::JoinSet};
 
 use crate::measurement::MeasurementBuffer;
@@ -92,6 +93,10 @@ impl OutputControl {
 
     pub fn handle_message(&mut self, msg: ControlMessage) {
         self.tasks.reconfigure(msg);
+    }
+    
+    pub async fn join_next_task(&mut self) -> Option<Result<anyhow::Result<()>, JoinError>> {
+        self.tasks.spawned_tasks.join_next().await
     }
 
     pub fn shutdown(mut self) {
