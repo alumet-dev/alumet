@@ -7,14 +7,14 @@ Allows to measure CPU-time used using the cgroup v2 sysfs.
 - [Kubernetes Plugin](#kubernetes-plugin)
   - [How to use](#how-to-use)
   - [Prepare your environment](#prepare-your-environment)
-    - [cgroupv2](#cgroupv2)
+    - [cgroup v2](#cgroup-v2)
     - [kubectl](#kubectl)
     - [alumet-reader](#alumet-reader)
   - [How it works](#how-it-works)
 - [OAR3 Plugin](#oar3-plugin)
   - [How to use](#how-to-use-1)
   - [Prepare your environment](#prepare-your-environment-1)
-    - [cgroupv2](#cgroupv2-1)
+    - [cgroup v2](#cgroup-v2-1)
   - [How it works](#how-it-works-1)
 
 ## Kubernetes Plugin
@@ -36,14 +36,14 @@ The binary created by the compilation will be found under the target repository.
 
 To work this plugin needs several things.
 
-1. cgroupv2
+1. cgroup v2
 2. kubectl
 3. alumet-reader user
 
-#### cgroupv2
+#### cgroup v2
 
-As the plugin use cgroupv2 to gather data, make sure to use this version of cgroup. In fact, a check is made by the plugin.
-If it doesn't detect the use of cgroupv2, the plugin will not start.
+As the plugin use cgroup v2 to gather data, make sure to use this version of cgroup. In fact, a check is made by the plugin.
+If it doesn't detect the use of cgroup v2, the plugin will not start.
 
 #### kubectl
 
@@ -107,12 +107,12 @@ The binary created by the compilation will be found under the target repository.
 
 To work this plugin needs several things.
 
-1. cgroupv2
+1. cgroup v2
 
-#### cgroupv2
+#### cgroup v2
 
-As the plugin uses cgroupv2 to gather data, make sure to use this version of cgroup. In fact, a check is made by the plugin.
-If it doesn't detect the use of cgroupv2, the plugin will not start.
+As the plugin uses cgroup v2 to gather data, make sure to use this version of cgroup. In fact, a check is made by the plugin.
+If it doesn't detect the use of cgroup v2, the plugin will not start.
 
 ### How it works
 

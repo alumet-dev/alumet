@@ -52,7 +52,7 @@ fn parse_cpu_list(cpulist: &str) -> anyhow::Result<Vec<u32>> {
         match *bounds.as_slice() {
             [start, end] => Ok((start..=end).collect()),
             [n] => Ok(vec![n]),
-            _ => Err(anyhow::anyhow!("invalid cpulist: {}", item)),
+            _ => Err(anyhow::anyhow!("invalid cpu_list: {}", item)),
         }
     }
 

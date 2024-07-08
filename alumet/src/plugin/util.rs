@@ -22,7 +22,7 @@
 /// match counter.update(v1) {
 ///     CounterDiffUpdate::FirstTime => unreachable!("unreachable in this example"),
 ///     CounterDiffUpdate::Difference(diff) => println!("v1 - v0 = {diff}"), // 122
-///     CounterDiffUpdate::CorrectedDifference(diff) => println!("overflow-corrected diffrence = {diff}")
+///     CounterDiffUpdate::CorrectedDifference(diff) => println!("overflow-corrected difference = {diff}")
 /// }
 /// ```
 pub struct CounterDiff {

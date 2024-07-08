@@ -21,7 +21,7 @@ The [`alumet-dev` organization](https://github.com/alumet-dev) contains addition
 
 ## What you can do
 
-There are several categories of tasks that can help the Alumet projet. You don't necessarily need to code in Rust!
+There are several categories of tasks that can help the Alumet project. You don't necessarily need to code in Rust!
 
 ### Report issues
 
@@ -45,7 +45,7 @@ If you are an external contributor, it works as follows:
 3. Create a new git branch to work on.
 4. On this branch, implement the fix or feature that you'd like Alumet to have.
 5. Document new functions and types. Write [unit tests](https://doc.rust-lang.org/rust-by-example/testing/unit_testing.html) and/or integration tests. Run the tests with `cargo test`.
-6. Format your code by running `cargo fmt` in the projet directory. We provide a `.rustfmt.toml` that will be automatically used by the formatting tool.
+6. Format your code by running `cargo fmt` in the project directory. We provide a `.rustfmt.toml` that will be automatically used by the formatting tool.
 7. When you are ready, submit your work by opening a [Pull Request (PR)](https://github.com/alumet-dev/alumet/pulls).
 
 If your goal is to optimize somethings, please run benchmarks and provide [flame graphs](https://github.com/killercup/cargo-flamegraph) or other metrics to show your improvements. For micro-benchmarks, we recommend the tool [Criterion](https://bheisler.github.io/criterion.rs/book/index.html).

@@ -1,0 +1,83 @@
+{
+    "version": "0.2",
+    "ignorePaths": [
+        "*.csv",
+        "*.c",
+        "*.txt",
+        "Makefile",
+        "tmp/*",
+        "*.toml",
+        "*.proto",
+        "*.h"
+    ],
+    "ignoreWords": [],
+    "import": [
+        "@cspell/dict-rust/cspell-ext.json"
+    ],
+    "useGitignore": true,
+    "caseSensitive": false,
+    "language": "en",
+    "languageSettings": [
+        {
+            "languageId": "rust",
+            "includeRegExpList": [
+                "comments",
+                "string"
+            ],
+            "ignoreRegExpList": [
+                "`.*`",
+                "\\/[\\w.\\-_]+",
+                "[\\w.\\-_]+\\/",
+                "pod[a-zA-Z0-9]+",
+                "\", .*\""
+            ]
+        },
+        {
+            "languageId": "markdown",
+            "ignoreRegExpList": [
+                "/^\\s*```[\\s\\S]*?^\\s*```/gm"
+            ]
+        }
+    ],
+    "dictionaryDefinitions": [
+        {
+            "name": "project-words",
+            "path": ".cspell/project-words.txt",
+            "description": "Words used in this project",
+            "addWords": true
+        }
+    ],
+    "dictionaries": [
+        "rust",
+        "project-words",
+        "makefile",
+        "en-gb",
+        "cpp",
+        "cpp-legacy",
+        "cpp-refined",
+        "networking-terms",
+        "python",
+        "scala"
+    ],
+    "patterns": [
+        {
+            "name": "comment-single-line",
+            "pattern": "//.*"
+        },
+        {
+            "name": "comment-multi-line",
+            "pattern": "/(?:\\/\\*[\\s\\S]*?\\*\\/)/g"
+        },
+        {
+            "name": "comments",
+            "pattern": [
+                "comment-single-line",
+                "comment-multi-line"
+            ]
+        },
+        {
+            "name": "string",
+            "pattern": "\".*\""
+        }
+    ]
+}
