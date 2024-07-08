@@ -1,0 +1,104 @@
+{
+    "version": "0.2",
+    "ignorePaths": [
+        "*.csv",
+        "*.c",
+        "*.txt",
+        "Makefile",
+        "tmp/*",
+        "*.toml",
+        "*.proto",
+        "*.h"
+    ],
+    "ignoreWords": [],
+    "import": [
+        "@cspell/dict-rust/cspell-ext.json"
+    ],
+    "useGitignore": true,
+    "caseSensitive": false,
+    "language": "en",
+    "languageSettings": [
+        {
+            "languageId": "rust",
+            "includeRegExpList": [
+                "comments",
+                "string"
+            ],
+            "ignoreRegExpList": [
+                "`.*`",
+                "\\/[\\w.\\-_]+",
+                "[\\w.\\-_]+\\/",
+                "pod[a-zA-Z0-9]+",
+                "\", .*\""
+            ]
+        },
+        {
+            "languageId": "markdown",
+            "ignoreRegExpList": [
+                "/^\\s*```[\\s\\S]*?^\\s*```/gm"
+            ]
+        }
+    ],
+    "dictionaries": [
+        "rust",
+        "makefile",
+        "en-gb",
+        "cpp",
+        "cpp-legacy",
+        "cpp-refined",
+        "networking-terms",
+        "python",
+        "scala"
+    ],
+    "patterns": [
+        {
+            "name": "comment-single-line",
+            "pattern": "//.*"
+        },
+        {
+            "name": "comment-multi-line",
+            "pattern": "/(?:\\/\\*[\\s\\S]*?\\*\\/)/g"
+        },
+        {
+            "name": "comments",
+            "pattern": [
+                "comment-single-line",
+                "comment-multi-line"
+            ]
+        },
+        {
+            "name": "string",
+            "pattern": "\".*\""
+        }
+    ],
+    "words": [
+        "alumet",
+        "astring",
+        "cbindgen",
+        "cdylib",
+        "CNRS",
+        "desugars",
+        "DTLB",
+        "giga",
+        "humantime",
+        "hwmon",
+        "ITLB",
+        "Mispredicted",
+        "monitorable",
+        "mpoint",
+        "nvml",
+        "perfmon",
+        "POWERCAP",
+        "psys",
+        "Raffin",
+        "rapl",
+        "subconfig",
+        "sublicensable",
+        "subtable",
+        "subtables",
+        "sysfs",
+        "timerfd",
+        "UCUM",
+        "uncore"
+    ]
+}

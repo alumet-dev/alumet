@@ -119,7 +119,7 @@ impl AlumetPlugin for RaplPlugin {
             (Err(perf_err), Err(power_err)) => {
                 log::error!("I could use neither perf_events nor powercap.\nperf_events error: {perf_err:?}\npowercap error: {power_err:?}");
                 Err(anyhow!(
-                    "Both perf_events and powercap failed, unable to read RAPL couters: {perf_err}\n{power_err}"
+                    "Both perf_events and powercap failed, unable to read RAPL counters: {perf_err}\n{power_err}"
                 ))?
             }
         };

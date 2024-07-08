@@ -11,7 +11,7 @@ pub enum CounterDiffUpdate {
     /// Normal counter update, gives the difference between the current and the previous value.
     Difference(u64),
     /// Counter update with overflow correction, gives the corrected difference.
-    /// It is impossible to know whether only one or more than one overflow occured.
+    /// It is impossible to know whether only one or more than one overflow occurred.
     CorrectedDifference(u64),
 }
 

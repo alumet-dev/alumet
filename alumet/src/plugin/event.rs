@@ -117,12 +117,12 @@ pub fn start_resource_measurement() -> &'static EventBus<StartResourceMeasuremen
     &GLOBAL_EVENT_BUSES.get_or_init(|| EventBuses::default()).start_resource_measurement
 }
 
-/// Event occuring when new [resource consumers](ResourceConsumer) are detected
+/// Event occurring when new [resource consumers](ResourceConsumer) are detected
 /// and should be measured.
 #[derive(Clone)]
 pub struct StartConsumerMeasurement(pub Vec<ResourceConsumer>);
 
-/// Event occuring when new [resources](Resource) are detected
+/// Event occurring when new [resources](Resource) are detected
 /// and should be measured.
 #[derive(Clone)]
 pub struct StartResourceMeasurement(pub Vec<Resource>);
