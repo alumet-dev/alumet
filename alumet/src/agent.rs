@@ -278,7 +278,7 @@ impl Agent {
 impl RunningAgent {
     /// Waits until the measurement pipeline stops, then stops the plugins.
     ///
-    /// If an element of the pipeline returns an error or panicks, the other elements are aborted and an error is returned.
+    /// If an element of the pipeline returns an error or panics, the other elements are aborted and an error is returned.
     pub fn wait_for_shutdown(self) -> anyhow::Result<()> {
         let mut n_errors = 0;
 
@@ -309,7 +309,7 @@ impl RunningAgent {
             Ok(())
         } else {
             let error_str = if n_errors == 1 { "error" } else { "errors" };
-            Err(anyhow!("{n_errors} {error_str} occured during the shutdown phase"))
+            Err(anyhow!("{n_errors} {error_str} occurred during the shutdown phase"))
         }
     }
 }

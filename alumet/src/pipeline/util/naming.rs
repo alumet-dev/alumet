@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt};
 
-/// Dedupliates names for the pipeline elements.
+/// Deduplicates names for the pipeline elements.
 pub(crate) struct NameDeduplicator {
     existing_names: HashMap<String, usize>,
 }

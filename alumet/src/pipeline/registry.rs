@@ -92,7 +92,7 @@ impl MetricRegistryControl {
                 message = rx.recv() => {
                     match message {
                         Some(msg) => self.handle_message(msg).await,
-                        None => todo!("registry_control_loop#rx chnanel closed")
+                        None => todo!("registry_control_loop#rx channel closed")
                     }
                 }
             }
