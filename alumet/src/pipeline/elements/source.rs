@@ -5,8 +5,8 @@ use std::pin::Pin;
 
 use anyhow::Context;
 use tokio::runtime;
-use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
+use tokio::sync::mpsc;
 use tokio::task::{JoinError, JoinSet};
 use tokio_util::sync::CancellationToken;
 
@@ -119,14 +119,18 @@ impl SourceControl {
         match msg {
             ControlMessage::Configure(msg) => self.tasks.reconfigure(msg),
             ControlMessage::Create(msg) => self.create_source(msg.plugin, msg.builder.into()),
+            ControlMessage::TriggerManually(msg) => self.tasks.trigger_manually(msg),
         }
     }
-    
+
     pub async fn join_next_task(&mut self) -> Option<Result<anyhow::Result<()>, JoinError>> {
         self.tasks.spawned_tasks.join_next().await
     }
 
-    pub async fn shutdown<F>(mut self, handle_task_result: F) where F: Fn(Result<anyhow::Result<()>, tokio::task::JoinError>) {
+    pub async fn shutdown<F>(mut self, handle_task_result: F)
+    where
+        F: Fn(Result<anyhow::Result<()>, tokio::task::JoinError>),
+    {
         // NOTE: self.autonomous_shutdown has already been cancelled by the parent
         // CancellationToken, therefore we don't cancel it here.
         // This cancellation has requested all the autonomous sources to stop.
@@ -155,23 +159,48 @@ impl TaskManager {
     fn create_source(&mut self, ctx: &mut BuildContext, builder: SourceBuilder) {
         match builder {
             SourceBuilder::Managed(build) => {
+                // Build the source
                 let mut reg = build(ctx);
-                reg.trigger.constrain(&self.trigger_constraints);
-                // TODO make TriggerSpec tell us if it requests a higher thread priority
 
+                // Apply constraints on the source trigger
+                reg.trigger.constrain(&self.trigger_constraints);
+
+                // Choose the right tokio runtime (i.e. thread pool)
+                let runtime = if reg.trigger.requests_realtime_priority() {
+                    &self.rt_priority
+                } else {
+                    &self.rt_normal
+                };
+
+                // Create the configuration of the source task and wrap it in Versioned
+                // to allow it to be modified in a thread-safe and efficient way.
                 let mut config = Versioned::new(TaskConfig {
-                    new_trigger: None,
+                    new_trigger: None, // no trigger for the moment
                     state: TaskState::Pause,
                 });
-                let trigger = Trigger::new(reg.trigger, config.clone_unseen()).unwrap();
+
+                // Create the source trigger, which may be interruptible by a config change (depending on the TriggerSpec).
+                let trigger = Trigger::new(reg.trigger, Some(config.clone_unseen())).unwrap();
+                let manual_trigger = trigger.manual_trigger();
+
+                // Update the configuration by setting the trigger.
                 config.update(|c| {
                     c.new_trigger = Some(trigger);
                     c.state = TaskState::Run
                 });
+
+                // Create the future (async task).
                 let source_task = run_managed(reg.name.clone(), reg.source, self.in_tx.clone(), config.clone_unseen());
-                let controller = SingleSourceController::Managed(config);
+
+                // Store a SingleSourceController to be able to control the async task.
+                let controller = SingleSourceController::Managed {
+                    source_config: config,
+                    manual_trigger,
+                };
                 self.controllers.push((reg.name, controller));
-                self.spawned_tasks.spawn_on(source_task, &self.rt_normal);
+
+                // Spawn the future (execute the async task on the thread pool)
+                self.spawned_tasks.spawn_on(source_task, runtime);
             }
             SourceBuilder::Autonomous(build) => {
                 let token = self.shutdown_token.child_token();
@@ -203,10 +232,13 @@ impl TaskManager {
         for (name, source_controller) in &mut self.controllers {
             if selector.matches(name) {
                 match source_controller {
-                    SingleSourceController::Managed(source_config) => match &command {
+                    SingleSourceController::Managed {
+                        source_config,
+                        manual_trigger: _,
+                    } => match &command {
                         Reconfiguration::SetState(s) => source_config.borrow_mut().state = *s,
                         Reconfiguration::SetTrigger(spec) => {
-                            let trigger = Trigger::new(spec.clone(), source_config.clone()).unwrap();
+                            let trigger = Trigger::new(spec.clone(), Some(source_config.clone())).unwrap();
                             source_config.borrow_mut().new_trigger = Some(trigger);
                         }
                     },
@@ -216,6 +248,24 @@ impl TaskManager {
                         }
                         _ => todo!("invalid command for autonomous source"),
                     },
+                }
+            }
+        }
+    }
+
+    fn trigger_manually(&mut self, msg: TriggerMessage) {
+        let selector = msg.selector;
+        for (name, source_controller) in &mut self.controllers {
+            if selector.matches(name) {
+                match source_controller {
+                    SingleSourceController::Managed {
+                        source_config: _,
+                        manual_trigger: Some(tx),
+                    } => {
+                        tx.send(())
+                            .expect("manual trigger channel should not be closed when handling the TriggerMessage");
+                    }
+                    _ => (),
                 }
             }
         }
@@ -234,10 +284,13 @@ impl builder::context::SourceBuildContext for BuildContext<'_> {
 
 /// A controller for a single source.
 pub(crate) enum SingleSourceController {
-    /// Dynamic configuration of a managed source.
+    /// Dynamic configuration of a managed source + manual trigger.
     ///
     /// This is more flexible than the token of autonomous sources.
-    Managed(Versioned<TaskConfig>),
+    Managed {
+        source_config: Versioned<TaskConfig>,
+        manual_trigger: Option<mpsc::UnboundedSender<()>>,
+    },
 
     /// When cancelled, shuts the autonomous source down.
     ///
@@ -249,6 +302,7 @@ pub(crate) enum SingleSourceController {
 pub enum ControlMessage {
     Configure(ConfigureMessage),
     Create(CreateMessage),
+    TriggerManually(TriggerMessage),
 }
 
 pub struct ConfigureMessage {
@@ -259,6 +313,10 @@ pub struct ConfigureMessage {
 pub struct CreateMessage {
     pub plugin: PluginName,
     pub builder: super::super::builder::elements::SendSourceBuilder,
+}
+
+pub struct TriggerMessage {
+    pub selector: SourceSelector,
 }
 
 pub enum SourceSelector {

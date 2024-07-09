@@ -4,6 +4,8 @@ use std::time::Duration;
 use std::{fmt, time};
 use std::{future::Future, pin::Pin};
 
+use tokio::sync::mpsc;
+
 use super::elements::source;
 use super::util::versioned::Versioned;
 
@@ -21,18 +23,25 @@ pub type SourceTriggerOutput = Result<(), std::io::Error>;
 #[derive(Debug, Clone)]
 pub struct TriggerSpec {
     mechanism: TriggerMechanismSpec,
-    interruptible: bool,
-    pub(crate) realtime_priority: bool,
+    interruptible_by_config: bool,
+    allow_manual_trigger: bool,
+    use_realtime_priority: bool,
     config: TriggerConfig,
 }
-
-pub(crate) type InterruptSignal = Versioned<source::TaskConfig>;
 
 /// Controls when the [`Source`](super::Source) is polled for measurements.
 pub(crate) struct Trigger {
     pub config: TriggerConfig,
-    mechanism: TriggerMechanism,
-    interrupt_signal: Option<InterruptSignal>,
+    inner: TriggerImpl,
+}
+
+enum TriggerImpl {
+    Simple(TriggerMechanism),
+    Multiple(
+        TriggerMechanism,
+        Option<Versioned<source::TaskConfig>>,
+        Option<(mpsc::UnboundedSender<()>, mpsc::UnboundedReceiver<()>)>,
+    ),
 }
 
 #[derive(Debug, Clone)]
@@ -53,6 +62,7 @@ pub(crate) struct TriggerConfig {
 /// Constraints that can be applied to a [`TriggerSpec`] after its construction.
 pub struct TriggerConstraints {
     pub max_update_interval: time::Duration,
+    pub allow_manual_trigger: bool,
 }
 
 /// Builder for source triggers.
@@ -95,6 +105,7 @@ pub mod builder {
         poll_interval: Duration,
         config: TriggerConfig,
         interruptible: bool,
+        manual_trigger: bool,
         realtime_priority: bool,
     }
 
@@ -125,6 +136,7 @@ pub mod builder {
                     update_rounds: 1,
                 },
                 interruptible: false,
+                manual_trigger: false,
                 realtime_priority: false,
             }
         }
@@ -189,6 +201,11 @@ pub mod builder {
             self
         }
 
+        pub fn allow_manual_trigger(mut self) -> Self {
+            self.manual_trigger = true;
+            self
+        }
+
         /// Builds the trigger.
         pub fn build(mut self) -> Result<TriggerSpec, Error> {
             if self.poll_interval.is_zero() {
@@ -201,8 +218,9 @@ pub mod builder {
 
             Ok(TriggerSpec {
                 mechanism: TriggerMechanismSpec::TimeInterval(self.start, self.poll_interval),
-                interruptible: self.interruptible,
-                realtime_priority: self.realtime_priority,
+                interruptible_by_config: self.interruptible,
+                allow_manual_trigger: self.manual_trigger,
+                use_realtime_priority: self.realtime_priority,
                 config: self.config,
             })
         }
@@ -218,7 +236,7 @@ impl TriggerSpec {
     }
 
     /// Creates a new builder for a trigger that polls the source at regular intervals.
-    /// 
+    ///
     /// This is equivalent to [`builder::time_interval`].
     pub fn builder(poll_interval: time::Duration) -> builder::TimeTriggerBuilder {
         builder::time_interval(poll_interval)
@@ -229,7 +247,10 @@ impl TriggerSpec {
     /// # Constraints
     /// - `max_update_interval`: maximum amount of time allowed between two command updates
     pub(crate) fn constrain(&mut self, constraints: &TriggerConstraints) {
-        if !self.interruptible {
+        if constraints.allow_manual_trigger {
+            self.allow_manual_trigger = constraints.allow_manual_trigger;
+        }
+        if !self.interruptible_by_config {
             let max_update_interval = constraints.max_update_interval;
 
             match self.mechanism {
@@ -242,7 +263,7 @@ impl TriggerSpec {
                         // The trigger mechanism needs to be interruptible to respect the max update time.
                         // See TimeTriggerBuilder::update_interval.
                         self.config.update_rounds = 1;
-                        self.interruptible = true;
+                        self.interruptible_by_config = true;
                     }
                     if update_interval > max_update_interval {
                         // Lower `update_rounds` to respect the max update time.
@@ -254,12 +275,17 @@ impl TriggerSpec {
             }
         }
     }
+
+    pub(crate) fn requests_realtime_priority(&self) -> bool {
+        self.use_realtime_priority
+    }
 }
 
 impl Default for TriggerConstraints {
     fn default() -> Self {
         Self {
             max_update_interval: Duration::MAX,
+            allow_manual_trigger: false,
         }
     }
 }
@@ -272,46 +298,80 @@ pub(crate) enum TriggerReason {
 }
 
 impl Trigger {
-    pub fn new(spec: TriggerSpec, interrupt_signal: InterruptSignal) -> Result<Self, std::io::Error> {
+    pub fn new(
+        spec: TriggerSpec,
+        config_interrupt: Option<Versioned<source::TaskConfig>>,
+    ) -> Result<Self, std::io::Error> {
+        let mechanism = TriggerMechanism::try_from(spec.mechanism)?;
+        let inner = if !(spec.interruptible_by_config && config_interrupt.is_some()) && !spec.allow_manual_trigger {
+            TriggerImpl::Simple(mechanism)
+        } else {
+            TriggerImpl::Multiple(
+                mechanism,
+                if spec.interruptible_by_config {
+                    config_interrupt
+                } else {
+                    None
+                },
+                if spec.allow_manual_trigger {
+                    Some(mpsc::unbounded_channel())
+                } else {
+                    None
+                },
+            )
+        };
         Ok(Self {
             config: spec.config,
-            mechanism: TriggerMechanism::try_from(spec.mechanism)?,
-            interrupt_signal: Some(interrupt_signal),
+            inner,
         })
     }
 
-    #[allow(unused)]
-    pub fn without_signal(spec: TriggerSpec) -> Result<Option<Self>, std::io::Error> {
-        if spec.interruptible {
-            Ok(None)
-        } else {
-            Ok(Some(Self {
-                config: spec.config,
-                mechanism: TriggerMechanism::try_from(spec.mechanism)?,
-                interrupt_signal: None,
-            }))
+    pub fn manual_trigger(&self) -> Option<mpsc::UnboundedSender<()>> {
+        match &self.inner {
+            TriggerImpl::Simple(_) => None,
+            TriggerImpl::Multiple(_, _, manual_trigger) => manual_trigger.as_ref().map(|(tx, _rx)| tx.clone()),
         }
     }
 
     /// Waits for the next tick of the trigger, or for an interruption.
     pub async fn next(&mut self) -> anyhow::Result<TriggerReason> {
-        if let Some(signal) = &mut self.interrupt_signal {
-            // Use select! to wake up on trigger _or_ signal, the first that occurs
-            tokio::select! {
-                biased; // don't choose the branch randomly (for performance)
+        async fn future_or_pending<F, O>(f: Option<F>) -> O
+        where
+            F: Future<Output = O>,
+        {
+            match f {
+                Some(future) => future.await,
+                None => std::future::pending().await,
+            }
+        }
 
-                res = self.mechanism.next() => {
-                    res?;
-                    Ok(TriggerReason::Triggered)
-                }
-                _ = signal.changed() => {
-                    Ok(TriggerReason::Interrupted)
+        match &mut self.inner {
+            TriggerImpl::Simple(mechanism) => {
+                // Simple case: wait for the trigger to wake up
+                mechanism.next().await?;
+                Ok(TriggerReason::Triggered)
+            }
+            TriggerImpl::Multiple(mechanism, config_interrupt, manual_trigger) => {
+                // Multiple case: wait for the first future to become ready among those three (some of them can be None)
+
+                let interrupted = future_or_pending(config_interrupt.as_mut().map(|conf| conf.changed()));
+                let manually_triggered = future_or_pending(manual_trigger.as_mut().map(|(_tx, rx)| rx.recv()));
+
+                tokio::select! {
+                    biased; // don't choose the branch randomly (for performance)
+
+                    res = mechanism.next() => {
+                        res?;
+                        Ok(TriggerReason::Triggered)
+                    },
+                    _ = interrupted => {
+                        Ok(TriggerReason::Interrupted)
+                    },
+                    _ = manually_triggered => {
+                        Ok(TriggerReason::Triggered)
+                    }
                 }
             }
-        } else {
-            // Simple case: simply wait for the trigger
-            self.mechanism.next().await?;
-            Ok(TriggerReason::Triggered)
         }
     }
 }
@@ -458,6 +518,7 @@ mod tests {
     fn trigger_constraints() {
         let constraints = TriggerConstraints {
             max_update_interval: Duration::from_secs(2),
+            allow_manual_trigger: false,
         };
 
         let mut trigger = builder::time_interval(Duration::from_secs(1)) // 1sec
@@ -507,7 +568,7 @@ mod tests {
             .unwrap();
         trigger.constrain(&constraints);
         assert!(matches!(trigger.mechanism, TriggerMechanismSpec::TimeInterval(_, d) if d == Duration::from_secs(3)));
-        assert!(trigger.interruptible);
+        assert!(trigger.interruptible_by_config);
         assert_eq!(trigger.config.flush_rounds, 5);
         assert_eq!(trigger.config.update_rounds, 1);
     }
