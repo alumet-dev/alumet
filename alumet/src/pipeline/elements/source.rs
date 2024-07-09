@@ -126,7 +126,7 @@ impl SourceControl {
         self.tasks.spawned_tasks.join_next().await
     }
 
-    pub fn shutdown(mut self) {
+    pub async fn shutdown<F>(mut self, handle_task_result: F) where F: Fn(Result<anyhow::Result<()>, tokio::task::JoinError>) {
         // NOTE: self.autonomous_shutdown has already been cancelled by the parent
         // CancellationToken, therefore we don't cancel it here.
         // This cancellation has requested all the autonomous sources to stop.
@@ -139,9 +139,12 @@ impl SourceControl {
         self.tasks.reconfigure(stop_msg);
 
         // Wait for managed and autonomous sources to stop.
-
-        // self.source_tasks.abort_all()
-        todo!()
+        loop {
+            match self.join_next_task().await {
+                Some(res) => handle_task_result(res),
+                None => break,
+            }
+        }
 
         // At the end of the method, `in_tx` is dropped,
         // which allows the channel to close when all sources finish.

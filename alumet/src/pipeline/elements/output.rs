@@ -99,7 +99,7 @@ impl OutputControl {
         self.tasks.spawned_tasks.join_next().await
     }
 
-    pub fn shutdown(mut self) {
+    pub async fn shutdown<F>(mut self, handle_task_result: F) where F: Fn(Result<anyhow::Result<()>, tokio::task::JoinError>) {
         // Outputs naturally close when the input channel is closed,
         // but that only works when the output is running.
         // If the output is paused, it needs to be stopped with a command.
@@ -108,6 +108,14 @@ impl OutputControl {
             new_state: OutputState::Stop,
         };
         self.handle_message(stop_msg);
+        
+        // Wait for all outputs to finish
+        loop {
+            match self.join_next_task().await {
+                Some(res) => handle_task_result(res),
+                None => break,
+            }
+        }
     }
 }
 

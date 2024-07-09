@@ -145,13 +145,11 @@ impl PipelineControl {
     }
 
     async fn run(mut self, shutdown: CancellationToken, mut rx: Receiver<ControlMessage>) {
-        fn task_finished(res: Option<Result<anyhow::Result<()>, tokio::task::JoinError>>, kind: &str) {
-            if let Some(res) = res {
-                match res {
-                    Ok(Ok(())) => log::debug!("One {kind} task finished without error."),
-                    Ok(Err(e_normal)) => log::debug!("One {kind} task finished with error: {e_normal}"),
-                    Err(e_panic) => log::error!("One {kind} task panicked with error: {e_panic:?}"),
-                }
+        fn task_finished(res: Result<anyhow::Result<()>, tokio::task::JoinError>, kind: &str) {
+            match res {
+                Ok(Ok(())) => log::debug!("One {kind} task finished without error."),
+                Ok(Err(e_normal)) => log::warn!("One {kind} task finished with error: {e_normal}"),
+                Err(e_panic) => log::error!("One {kind} task panicked with error: {e_panic:?}"),
             }
         }
 
@@ -180,24 +178,29 @@ impl PipelineControl {
                 // Below we asynchronously poll the source, transform and output tasks, in order to detect
                 // when one of them finishes before the entire pipeline is shut down.
                 source_res = self.sources.join_next_task() => {
-                    task_finished(source_res, "source");
+                    if let Some(res) = source_res {
+                        task_finished(res, "source");
+                    }
                 },
                 transf_res = self.transforms.join_next_task() => {
-                    task_finished(transf_res, "transform");
+                    if let Some(res) = transf_res {
+                        task_finished(res, "transform");
+                    }
                 }
                 output_res = self.outputs.join_next_task() => {
-                    task_finished(output_res, "output");
+                    if let Some(res) = output_res {
+                        task_finished(res, "output");
+                    }
                 }
             }
         }
-        self.shutdown();
+
+        // Stop the elements, waiting for each step of the pipeline to finish before stopping the next one.
+        self.sources.shutdown(|res| task_finished(res, "source")).await;
+        self.transforms.shutdown(|res| task_finished(res, "transform")).await;
+        self.outputs.shutdown(|res| task_finished(res, "output")).await;
     }
 
-    fn shutdown(self) {
-        self.sources.shutdown();
-        self.transforms.shutdown();
-        self.outputs.shutdown();
-    }
 }
 
 #[cfg(test)]

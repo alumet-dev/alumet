@@ -80,9 +80,17 @@ impl TransformControl {
         Some((&mut self.tasks.task_handle).await)
     }
 
-    pub fn shutdown(self) {
-        // Nothing to do for the moment: the transform task will naturally
+    pub async fn shutdown<F>(mut self, handle_task_result: F) where F: Fn(Result<anyhow::Result<()>, tokio::task::JoinError>) {
+        // Nothing to do to stop the tasks: the transform task will naturally
         // stop when the input channel is closed.
+        
+        // We simply wait for all transforms to finish.
+        loop {
+            match self.join_next_task().await {
+                Some(res) => handle_task_result(res),
+                None => break,
+            }
+        }
     }
 }
 
