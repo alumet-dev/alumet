@@ -138,7 +138,7 @@ impl SourceControl {
         // Send a stop message to all managed sources.
         let stop_msg = ConfigureMessage {
             selector: SourceSelector::All,
-            command: SourceCommand::Stop,
+            command: ConfigureCommand::Stop,
         };
         self.tasks.reconfigure(stop_msg);
 
@@ -220,10 +220,10 @@ impl TaskManager {
 
         // Simplifies the command and applies trigger constraints if needed.
         let command = match msg.command {
-            SourceCommand::Pause => Reconfiguration::SetState(TaskState::Pause),
-            SourceCommand::Resume => Reconfiguration::SetState(TaskState::Run),
-            SourceCommand::Stop => Reconfiguration::SetState(TaskState::Stop),
-            SourceCommand::SetTrigger(mut spec) => {
+            ConfigureCommand::Pause => Reconfiguration::SetState(TaskState::Pause),
+            ConfigureCommand::Resume => Reconfiguration::SetState(TaskState::Run),
+            ConfigureCommand::Stop => Reconfiguration::SetState(TaskState::Stop),
+            ConfigureCommand::SetTrigger(mut spec) => {
                 spec.constrain(&self.trigger_constraints);
                 Reconfiguration::SetTrigger(spec)
             }
@@ -307,7 +307,7 @@ pub enum ControlMessage {
 
 pub struct ConfigureMessage {
     pub selector: SourceSelector,
-    pub command: SourceCommand,
+    pub command: ConfigureCommand,
 }
 
 pub struct CreateMessage {
@@ -326,7 +326,7 @@ pub enum SourceSelector {
 }
 
 /// A command to send to a managed [`Source`].
-pub enum SourceCommand {
+pub enum ConfigureCommand {
     Pause,
     Resume,
     Stop,
