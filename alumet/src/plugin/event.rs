@@ -6,10 +6,10 @@
 //! ```no_run
 //! use alumet::plugin::event;
 //! use alumet::resources::ResourceConsumer;
-//! 
+//!
 //! /// Internal notification when a new process is detected.
 //! struct NewProcessNotif { pid: u32 }
-//! 
+//!
 //! /// Calls `f` every time a new process is detected.
 //! /// Replace this function by a detection mechanism of your choice.
 //! fn watch_new_processes(f: impl Fn(NewProcessNotif) + Send + 'static) {
@@ -17,7 +17,7 @@
 //! }
 //!
 //! // Send an event to the bus for each new process.
-//! let event_bus = event::start_consumer_measurement(); 
+//! let event_bus = event::start_consumer_measurement();
 //! watch_new_processes(|notif| {
 //!     let process = ResourceConsumer::Process { pid: notif.pid };
 //!     let event = event::StartConsumerMeasurement(vec![process]);
@@ -68,12 +68,12 @@ impl<E: Event> Default for EventBus<E> {
 }
 
 impl<E: Event> EventBus<E> {
-    /// Subscribes to the event bus.
+    /// Subscribe to the event bus.
     ///
     /// `listener` will be called on future events.
-    /// 
+    ///
     /// ## Performance caveats
-    /// 
+    ///
     /// Event listeners are called in same thread as the publisher, one after the other.
     /// Therefore, **each listener should only perform a minimal amount of work**.
     /// To execute large tasks in response to an event, consider sending a message
@@ -83,13 +83,37 @@ impl<E: Event> EventBus<E> {
         listeners.push(Box::new(listener));
     }
 
-    /// Publishes an event to the bus.
+    /// Publish an event to the bus.
     ///
     /// All the `listeners` will be called with the event.
     pub fn publish(&self, event: E) {
         for listener in self.listeners.lock().unwrap().deref() {
             if let Err(e) = listener(event.clone()) {
                 log::error!("Error in event handler: {e:?}")
+            }
+        }
+    }
+
+    /// If someone is listening for an event, create the event with the provided closure
+    /// and publish it to the bus.
+    ///
+    /// All the `listeners` will be called with the event.
+    pub fn publish_lazy(&self, create_event: impl FnOnce() -> E) {
+        let listeners = self.listeners.lock().unwrap();
+        match &listeners[..] {
+            [] => (),
+            [listener] => {
+                if let Err(e) = listener(create_event()) {
+                    log::error!("Error in event handler: {e:?}")
+                }
+            }
+            listeners => {
+                let event = create_event();
+                for listener in listeners {
+                    if let Err(e) = listener(event.clone()) {
+                        log::error!("Error in event handler: {e:?}")
+                    }
+                }
             }
         }
     }
@@ -109,12 +133,16 @@ static GLOBAL_EVENT_BUSES: OnceLock<EventBuses> = OnceLock::new();
 
 /// Returns the global event bus for the event [`StartConsumerMeasurement`].
 pub fn start_consumer_measurement() -> &'static EventBus<StartConsumerMeasurement> {
-    &GLOBAL_EVENT_BUSES.get_or_init(|| EventBuses::default()).start_consumer_measurement
+    &GLOBAL_EVENT_BUSES
+        .get_or_init(|| EventBuses::default())
+        .start_consumer_measurement
 }
 
 /// Returns the global event bus for the event [`StartResourceMeasurement`].
 pub fn start_resource_measurement() -> &'static EventBus<StartResourceMeasurement> {
-    &GLOBAL_EVENT_BUSES.get_or_init(|| EventBuses::default()).start_resource_measurement
+    &GLOBAL_EVENT_BUSES
+        .get_or_init(|| EventBuses::default())
+        .start_resource_measurement
 }
 
 /// Event occurring when new [resource consumers](ResourceConsumer) are detected
