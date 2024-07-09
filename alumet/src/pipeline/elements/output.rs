@@ -50,6 +50,7 @@ struct TaskManager {
 struct BuildContext<'a> {
     metrics: &'a MetricRegistry,
     namegen: &'a mut ScopedNameGenerator,
+    runtime: runtime::Handle,
 }
 
 impl OutputControl {
@@ -77,6 +78,7 @@ impl OutputControl {
             let mut ctx = BuildContext {
                 metrics: &metrics,
                 namegen: self.names.namegen_for_scope(&plugin),
+                runtime: self.tasks.rt_normal.clone(),
             };
             self.tasks.create_output(&mut ctx, builder);
         }
@@ -87,6 +89,7 @@ impl OutputControl {
         let mut ctx = BuildContext {
             metrics: &metrics,
             namegen: self.names.namegen_for_scope(&plugin),
+            runtime: self.tasks.rt_normal.clone(),
         };
         self.tasks.create_output(&mut ctx, builder);
     }
@@ -148,6 +151,10 @@ impl builder::context::OutputBuildContext for BuildContext<'_> {
 
     fn output_name(&mut self, name: &str) -> OutputName {
         self.namegen.output_name(name)
+    }
+    
+    fn async_runtime(&self) -> &tokio::runtime::Handle {
+        &self.runtime
     }
 }
 

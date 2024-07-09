@@ -147,6 +147,7 @@ pub mod context {
     pub trait OutputBuildContext {
         fn metric_by_name(&self, name: &str) -> Option<(RawMetricId, &Metric)>;
         fn output_name(&mut self, name: &str) -> OutputName;
+        fn async_runtime(&self) -> &tokio::runtime::Handle;
     }
 }
 
