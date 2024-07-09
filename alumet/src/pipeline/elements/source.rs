@@ -453,6 +453,10 @@ pub(crate) async fn run_managed(
                 let timestamp = Timestamp::now();
                 match source.poll(&mut buffer.as_accumulator(), timestamp) {
                     Ok(()) => (),
+                    Err(PollError::NormalStop) => {
+                        log::info!("Source {source_name} stopped itself.");
+                        return Ok(());
+                    }
                     Err(PollError::CanRetry(e)) => {
                         log::error!("Non-fatal error when polling {source_name} (will retry): {e:#}");
                     }

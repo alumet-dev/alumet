@@ -11,6 +11,12 @@ pub enum PollError {
     /// - The source polls an external entity that you know can fail from time to time.
     /// - And the source's `poll` method can be called again and work. Pay attention to the internal state of the source.
     CanRetry(anyhow::Error),
+    /// The source is no longer able to work and must be stopped, but this is expected.
+    /// 
+    /// Use this when the object that you measure disappears in an expected way.
+    /// For instance, a process can exit, which removes its associated files in the procfs,
+    /// making them unreadable with a `NotFound` error.
+    NormalStop,
 }
 
 /// Error which can occur during [`Transform::apply`].
@@ -42,6 +48,7 @@ impl fmt::Display for PollError {
         match self {
             PollError::Fatal(e) => write!(f, "fatal error in Source::poll: {e}"),
             PollError::CanRetry(e) => write!(f, "polling failed (but could work later): {e}"),
+            PollError::NormalStop => write!(f, "the source stopped in an expected way (it's fine)"),
         }
     }
 }
