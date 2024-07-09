@@ -222,7 +222,7 @@ impl Builder {
             pipeline_shutdown.clone(),
             in_tx,
             rt_normal.handle().clone(),
-            rt_normal.handle().clone(),
+            rt_priority.as_ref().unwrap_or(&rt_normal).handle().clone(),
             metrics_r.clone(),
         );
         source_control.create_sources(self.sources);
