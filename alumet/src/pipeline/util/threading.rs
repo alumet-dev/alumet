@@ -11,8 +11,8 @@ use std::{
 
 use tokio::runtime::Runtime;
 
-/// Increases the priority of the current thread.
-pub fn increase_thread_priority() -> std::io::Result<()> {
+/// Sets the scheduling priority of the current thread to be closer to "real time".
+pub fn use_realtime_scheduling() -> std::io::Result<()> {
     #[cfg(target_os = "linux")]
     {
         let priority = 55; // from table https://access.redhat.com/documentation/fr-fr/red_hat_enterprise_linux_for_real_time/8/html/optimizing_rhel_8_for_real_time_for_low_latency_operation/assembly_viewing-scheduling-priorities-of-running-threads_optimizing-rhel8-for-real-time-for-low-latency-operation
@@ -83,7 +83,7 @@ pub fn build_priority_runtime(worker_threads: Option<usize>) -> io::Result<Runti
                 format!("priority-worker-{id}")
             })
             .on_thread_start(|| {
-                if let Err(e) = super::threading::increase_thread_priority() {
+                if let Err(e) = super::threading::use_realtime_scheduling() {
                     let mut failure = THREAD_START_FAILURE.lock().unwrap();
                     if failure.is_none() {
                         let hint =
