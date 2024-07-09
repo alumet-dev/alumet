@@ -14,7 +14,7 @@ fn main() {
     let args = Args::parse();
 
     // Load the collector plugin, and the CSV plugin to have an output.
-    let plugins = static_plugins![plugin_relay::server::RelayServerPlugin, plugin_csv::CsvPlugin];
+    let plugins = static_plugins![plugin_relay::server::RelayServerPlugin, plugin_csv::CsvPlugin, plugin_influxdb::InfluxDbPlugin];
 
     // Build the collector
     let mut agent = AgentBuilder::new(plugins)
