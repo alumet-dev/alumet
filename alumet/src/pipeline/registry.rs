@@ -20,7 +20,7 @@ pub enum ControlMessage {
     RegisterMetrics(
         Vec<Metric>,
         DuplicateStrategy,
-        Option<oneshot::Sender<Result<Vec<RawMetricId>, MetricCreationError>>>,
+        Option<oneshot::Sender<Vec<Result<RawMetricId, MetricCreationError>>>>,
     ),
     /// Adds a new listener that will be notified on new metric registration.
     Subscribe(MetricListener),
@@ -34,7 +34,7 @@ pub enum DuplicateStrategy {
     Rename { suffix: String },
 }
 
-pub type MetricListener = Box<dyn Fn(Vec<RawMetricId>) + Send>;
+pub type MetricListener = Box<dyn Fn(Vec<(RawMetricId, Metric)>) + Send>;
 
 pub(crate) struct MetricRegistryControl {
     registry: Arc<RwLock<MetricRegistry>>,
@@ -79,22 +79,29 @@ impl MetricRegistryControl {
                 let mut copy = (*self.registry.read().await).clone();
                 // modify the copy
                 let res = match dup {
-                    DuplicateStrategy::Error => copy.extend(metrics),
-                    DuplicateStrategy::Rename { suffix } => Ok(copy.extend_infallible(metrics, &suffix)),
-                    // TODO return Vec<Result<Id, Error>> instead of Result<Vec<Id>, Error>?
+                    DuplicateStrategy::Error => copy.extend(metrics.clone()),
+                    DuplicateStrategy::Rename { suffix } => copy
+                        .extend_infallible(metrics.clone(), &suffix)
+                        .into_iter()
+                        .map(|res| Ok(res))
+                        .collect(),
                 };
                 // update
                 *self.registry.write().await = copy;
 
                 // call listeners
-                if let Ok(metric_ids) = &res {
-                    match &self.listeners[..] {
-                        [] => (),
-                        [listener] => listener(metric_ids.clone()),
-                        listeners => {
-                            for listener in listeners {
-                                listener(metric_ids.clone());
-                            }
+                let mut registered_metrics = Vec::with_capacity(res.len());
+                for (metric, maybe_id) in metrics.into_iter().zip(res.iter()) {
+                    if let Ok(id) = maybe_id {
+                        registered_metrics.push((*id, metric));
+                    }
+                }
+                match &self.listeners[..] {
+                    [] => (),
+                    [listener] => listener(registered_metrics),
+                    listeners => {
+                        for listener in listeners {
+                            listener(registered_metrics.clone());
                         }
                     }
                 }
@@ -154,18 +161,18 @@ pub enum SendError {
     Shutdown,
 }
 
-/// The metric(s) could not be created.
-pub enum CreateError {
+/// The message could not be sent, or its reply could not be obtained.
+pub enum SendWithReplyError {
     /// The message could not be sent.
     Send(SendError),
     /// The message was sent but it was impossible to get a response from the
     /// task that controls the registry.
     Recv(oneshot::error::RecvError),
-    /// The metric registry rejected the metric(s).
-    Metric(MetricCreationError),
 }
 
-fn make_listener<F: Fn(Vec<RawMetricId>) -> anyhow::Result<()> + Send + 'static>(listener: F) -> MetricListener {
+fn make_listener<F: Fn(Vec<(RawMetricId, Metric)>) -> anyhow::Result<()> + Send + 'static>(
+    listener: F,
+) -> MetricListener {
     Box::new(move |new_metrics| {
         if let Err(err) = listener(new_metrics) {
             log::error!("Error in metric registration listener: {err:?}");
@@ -218,22 +225,22 @@ impl MetricSender {
         &mut self,
         metrics: Vec<Metric>,
         on_duplicate: DuplicateStrategy,
-    ) -> Result<Vec<RawMetricId>, CreateError> {
+    ) -> Result<Vec<Result<RawMetricId, MetricCreationError>>, SendWithReplyError> {
         let (tx, rx) = oneshot::channel();
         let message = ControlMessage::RegisterMetrics(metrics, on_duplicate, Some(tx));
-        self.send(message).await.map_err(|e| CreateError::Send(e))?;
-        let result = rx.await.map_err(|e| CreateError::Recv(e))?;
-        result.map_err(|e| CreateError::Metric(e))
+        self.send(message).await.map_err(|e| SendWithReplyError::Send(e))?;
+        let result = rx.await.map_err(|e| SendWithReplyError::Recv(e))?;
+        Ok(result)
     }
 
-    pub fn try_subscribe<F: Fn(Vec<RawMetricId>) -> anyhow::Result<()> + Send + 'static>(
+    pub fn try_subscribe<F: Fn(Vec<(RawMetricId, Metric)>) -> anyhow::Result<()> + Send + 'static>(
         &mut self,
         listener: F,
     ) -> Result<(), SendError> {
         self.try_send(ControlMessage::Subscribe(make_listener(listener)))
     }
 
-    pub async fn subscribe<F: Fn(Vec<RawMetricId>) -> anyhow::Result<()> + Send + 'static>(
+    pub async fn subscribe<F: Fn(Vec<(RawMetricId, Metric)>) -> anyhow::Result<()> + Send + 'static>(
         &mut self,
         listener: F,
     ) -> Result<(), SendError> {

@@ -211,7 +211,7 @@ impl MetricRegistry {
         Ok(id)
     }
 
-    pub(crate) fn extend(&mut self, metrics: Vec<Metric>) -> Result<Vec<RawMetricId>, MetricCreationError> {
+    pub(crate) fn extend(&mut self, metrics: Vec<Metric>) -> Vec<Result<RawMetricId, MetricCreationError>> {
         metrics.into_iter().map(|m| self.register(m)).collect()
     }
 
