@@ -1,8 +1,8 @@
 mod common;
 
 use alumet::{
-    pipeline::builder::PipelineBuilder,
-    plugin::{AlumetStart, Plugin},
+    pipeline::{self, PluginName},
+    plugin::{AlumetPostStart, AlumetStart, Plugin},
 };
 use common::test_plugin::TestPlugin;
 
@@ -14,24 +14,25 @@ fn test_plugin_lifecycle() {
     // Each plugin will register 2 metrics, 1 source, 1 transform, 1 output.
     let mut plugins: Vec<Box<TestPlugin>> = vec![TestPlugin::init("plugin1", 98), TestPlugin::init("plugin2", 1000)];
 
-    let mut pipeline_builder = PipelineBuilder::new();
+    let mut pipeline_builder = pipeline::Builder::new();
 
     // Check that creating the PluginStarter does not actually start the plugins.
     assert!(plugins.iter().all(|p| p.state == State::Initialized));
 
     // Start the plugins
     for p in plugins.iter_mut() {
-        let mut handle = AlumetStart::new(&mut pipeline_builder, p.name().to_owned());
+        let mut handle = AlumetStart::new(&mut pipeline_builder, PluginName(p.name().to_owned()));
         p.start(&mut handle)
             .unwrap_or_else(|err| panic!("Plugin failed to start: {} v{} - {}", p.name(), p.version(), err));
     }
     assert!(plugins.iter().all(|p| p.state == State::Started));
 
     // Check the registration of metrics and pipeline elements
-    assert_eq!(4, pipeline_builder.metric_count());
-    assert_eq!(2, pipeline_builder.source_count());
-    assert_eq!(2, pipeline_builder.transform_count());
-    assert_eq!(2, pipeline_builder.output_count());
+    let stats = pipeline_builder.stats();
+    assert_eq!(4, stats.metrics);
+    assert_eq!(2, stats.sources);
+    assert_eq!(2, stats.transforms);
+    assert_eq!(2, stats.outputs);
 
     let expected_metrics = vec![
         "plugin1:energy-a",
@@ -41,27 +42,16 @@ fn test_plugin_lifecycle() {
     ];
     assert_eq!(
         sorted(expected_metrics),
-        sorted(pipeline_builder.metric_iter().map(|(_id, m)| &m.name).collect())
+        pipeline_builder.peek_metrics(|m| m.iter().map(|(_id, m)| m.name.clone()).collect::<Vec<_>>())
     );
 
-    // Execute pre-pipeline-start actions.
-    let pipeline = pipeline_builder.build().expect("pipeline should build");
-    for p in plugins.iter_mut() {
-        p.pre_pipeline_start(&pipeline).unwrap_or_else(|err| {
-            panic!(
-                "Plugin pre_pipeline_start failed: {} v {} - {}",
-                p.name(),
-                p.version(),
-                err
-            )
-        });
-    }
-    assert!(plugins.iter().all(|p| p.state == State::PrePipelineStart));
+    // Build and start the pipeline.
+    let mut pipeline = pipeline_builder.build().expect("pipeline should build");
 
     // Execute post-pipeline-start actions
-    let mut pipeline = pipeline.start();
     for p in plugins.iter_mut() {
-        p.post_pipeline_start(&mut pipeline).unwrap_or_else(|err| {
+        let mut alumet = AlumetPostStart::new(&mut pipeline, PluginName(p.name().to_owned()));
+        p.post_pipeline_start(&mut alumet).unwrap_or_else(|err| {
             panic!(
                 "Plugin post_pipeline_start failed: {} v {} - {}",
                 p.name(),

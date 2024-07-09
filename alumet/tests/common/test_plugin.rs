@@ -1,10 +1,12 @@
 use std::time::Duration;
 
 use alumet::measurement::{MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementValue};
-use alumet::metrics::{MetricId, TypedMetricId};
-use alumet::pipeline::trigger;
-use alumet::pipeline::{Output, OutputContext, PollError, Source, Transform, TransformError, WriteError};
-use alumet::plugin::{AlumetStart, Plugin};
+use alumet::metrics::TypedMetricId;
+use alumet::pipeline::elements::error::{PollError, TransformError, WriteError};
+use alumet::pipeline::elements::output::OutputContext;
+use alumet::pipeline::elements::transform::TransformContext;
+use alumet::pipeline::{trigger, Output, Source, Transform};
+use alumet::plugin::{AlumetPostStart, AlumetStart, Plugin};
 use alumet::resources::{ResourceConsumer, Resource};
 use alumet::units::Unit;
 
@@ -26,7 +28,6 @@ pub enum State {
     Initialized,
     Started,
     Stopped,
-    PrePipelineStart,
     PostPipelineStart,
 }
 
@@ -70,12 +71,7 @@ impl Plugin for TestPlugin {
         Ok(())
     }
 
-    fn pre_pipeline_start(&mut self, _: &alumet::pipeline::runtime::IdlePipeline) -> anyhow::Result<()> {
-        self.state = State::PrePipelineStart;
-        Ok(())
-    }
-
-    fn post_pipeline_start(&mut self, _: &mut alumet::pipeline::runtime::RunningPipeline) -> anyhow::Result<()> {
+    fn post_pipeline_start(&mut self, _: &mut AlumetPostStart) -> anyhow::Result<()> {
         self.state = State::PostPipelineStart;
         Ok(())
     }
@@ -117,7 +113,7 @@ impl Source for TestSource {
 }
 
 impl Transform for TestTransform {
-    fn apply(&mut self, measurements: &mut MeasurementBuffer) -> Result<(), TransformError> {
+    fn apply(&mut self, measurements: &mut MeasurementBuffer, ctx: &TransformContext) -> Result<(), TransformError> {
         fn copy_and_change_to_float(m: &MeasurementPoint) -> MeasurementPoint {
             let mut res = m.clone();
             res.value = match res.value {
@@ -140,7 +136,7 @@ impl Output for TestOutput {
             let ts = &m.timestamp;
             let res_kind = m.resource.kind();
             let res_id = m.resource.id_display();
-            let name = m.metric.name(ctx);
+            let name = ctx.metrics.by_id(&m.metric).unwrap().name.to_owned();
             let value = &m.value;
             println!(">> {ts:?} on {res_kind} {res_id} :{name} = {value:?}");
         }

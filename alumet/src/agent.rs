@@ -193,7 +193,8 @@ impl Agent {
 
         // Start-up phase.
         log::info!("Starting the plugins...");
-        let mut pipeline_builder = pipeline::Builder::new(self.settings.source_constraints);
+        let mut pipeline_builder = pipeline::Builder::new();
+        pipeline_builder.set_trigger_constraints(self.settings.source_constraints);
 
         // Call start(AlumetStart) on each plugin.
         for plugin in initialized_plugins.iter_mut() {

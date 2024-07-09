@@ -200,6 +200,14 @@ pub struct AlumetPostStart<'a> {
 }
 
 impl<'a> AlumetPostStart<'a> {
+    pub fn new(pipeline: &'a mut pipeline::MeasurementPipeline, plugin: PluginName) -> AlumetPostStart<'a> {
+        Self {
+            pipeline,
+            current_plugin: plugin,
+        }
+    }
+    
+    
     /// Returns the name of the plugin that has started.
     pub fn current_plugin_name(&self) -> PluginName {
         self.current_plugin.clone()

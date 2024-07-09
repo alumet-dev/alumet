@@ -36,7 +36,7 @@ pub struct Builder {
     trigger_constraints: TriggerConstraints,
 
     /// Metrics
-    pub metrics: MetricRegistry,
+    pub(crate) metrics: MetricRegistry,
     metric_listeners: Vec<registry::MetricListener>,
 }
 
@@ -151,15 +151,19 @@ pub mod context {
 }
 
 impl Builder {
-    pub fn new(trigger_constraints: TriggerConstraints) -> Self {
+    pub fn new() -> Self {
         Self {
             sources: Vec::new(),
             transforms: Vec::new(),
             outputs: Vec::new(),
-            trigger_constraints,
+            trigger_constraints: TriggerConstraints::default(),
             metrics: MetricRegistry::new(),
             metric_listeners: Vec::new(),
         }
+    }
+
+    pub fn set_trigger_constraints(&mut self, constraints: TriggerConstraints) {
+        self.trigger_constraints = constraints;
     }
 
     pub fn add_metric_listener(&mut self, listener: registry::MetricListener) {
@@ -255,6 +259,10 @@ impl Builder {
             outputs: self.outputs.len(),
             metrics: self.metrics.len(),
         }
+    }
+    
+    pub fn peek_metrics<F: FnOnce(&MetricRegistry) -> R, R>(&self, f: F) -> R {
+        f(&self.metrics)
     }
 }
 
