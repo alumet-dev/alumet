@@ -38,11 +38,11 @@ pub enum ControlError {
 }
 
 impl AnonymousControlHandle {
-    pub async fn send(&mut self, message: ControlMessage) -> Result<(), ControlError> {
+    pub async fn send(&self, message: ControlMessage) -> Result<(), ControlError> {
         self.tx.send(message).await.map_err(|_| ControlError::Shutdown)
     }
 
-    pub fn try_send(&mut self, message: ControlMessage) -> Result<(), ControlError> {
+    pub fn try_send(&self, message: ControlMessage) -> Result<(), ControlError> {
         match self.tx.try_send(message) {
             Ok(_) => Ok(()),
             Err(mpsc::error::TrySendError::Full(m)) => Err(ControlError::ChannelFull(m)),
@@ -50,7 +50,7 @@ impl AnonymousControlHandle {
         }
     }
 
-    pub fn shutdown(&mut self) {
+    pub fn shutdown(&self) {
         self.shutdown.cancel()
     }
 
@@ -70,12 +70,12 @@ impl ScopedControlHandle {
         }
     }
 
-    pub fn anonymous(&mut self) -> &mut AnonymousControlHandle {
-        &mut self.inner
+    pub fn anonymous(&self) -> &AnonymousControlHandle {
+        &self.inner
     }
 
     pub fn add_source(
-        &mut self,
+        &self,
         name: &str,
         source: Box<dyn Source>,
         trigger: trigger::TriggerSpec,
@@ -90,7 +90,7 @@ impl ScopedControlHandle {
     }
 
     pub fn add_source_builder<F: ManagedSourceBuilder + Send + 'static>(
-        &mut self,
+        &self,
         builder: F,
     ) -> Result<(), ControlError> {
         let message = ControlMessage::Source(source::ControlMessage::Create(source::CreateMessage {
@@ -101,7 +101,7 @@ impl ScopedControlHandle {
     }
 
     pub fn add_autonomous_source_builder<F: AutonomousSourceBuilder + Send + 'static>(
-        &mut self,
+        &self,
         builder: F,
     ) -> Result<(), ControlError> {
         let message = ControlMessage::Source(source::ControlMessage::Create(source::CreateMessage {
