@@ -70,7 +70,7 @@ impl MetricRegistryControl {
                 // Use an RCU (Read, Copy, Update) scheme to modify the registry with the minimal
                 // amount of blocking for readers and writers.
                 //
-                // NOTE: Since we don't take the write lock, we must ensure that only one thread
+                // NOTE: Since we don't take the write lock when copying, we must ensure that only one thread
                 // is performing the copy and the update (otherwise we would end up with multiple
                 // desynchronized copies). This is achieved by handling all the messages in one
                 // task, thus making their processing sequential.
