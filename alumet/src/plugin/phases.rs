@@ -1,11 +1,11 @@
 use std::marker::PhantomData;
 
-use crate::pipeline::builder::{self, MeasurementPipeline};
 use crate::pipeline::builder::context::OutputBuildContext;
 use crate::pipeline::builder::elements::{
     AutonomousSourceBuilder, ManagedSourceBuilder, ManagedSourceRegistration, OutputBuilder, OutputRegistration,
     SourceBuilder, TransformBuilder, TransformRegistration,
 };
+use crate::pipeline::builder;
 use crate::{
     measurement::{MeasurementType, WrappedMeasurementType},
     metrics::{Metric, MetricCreationError, RawMetricId, TypedMetricId},
@@ -193,9 +193,10 @@ impl<'a> AlumetStart<'a> {
     }
 }
 
+/// Structure passed to plugins for the post start-up phase.
 pub struct AlumetPostStart<'a> {
     pub(crate) current_plugin: PluginName,
-    pub(crate) pipeline: &'a mut MeasurementPipeline,
+    pub(crate) pipeline: &'a mut pipeline::MeasurementPipeline,
 }
 
 impl<'a> AlumetPostStart<'a> {
@@ -204,10 +205,24 @@ impl<'a> AlumetPostStart<'a> {
         self.current_plugin.clone()
     }
 
+    /// Returns a handle that allows to send commands to control the measurement pipeline
+    /// while it is running.
     pub fn pipeline_control(&self) -> pipeline::control::ScopedControlHandle {
         self.pipeline.control_handle().scoped(self.current_plugin.clone())
     }
 
+    /// Returns a handle that allows to register new metrics while the pipeline is running,
+    /// and to subscribe to new registrations.
+    pub fn metrics_sender(&self) -> pipeline::registry::MetricSender {
+        self.pipeline.metrics_sender()
+    }
+
+    /// Returns a read-only access to the [`MetricRegistry`].
+    pub fn metrics_reader(&self) -> pipeline::registry::MetricReader {
+        self.pipeline.metrics_reader()
+    }
+
+    /// Returns a handle to the main asynchronous runtime used by the pipeline.
     pub fn async_runtime(&self) -> tokio::runtime::Handle {
         self.pipeline.async_runtime().clone()
     }

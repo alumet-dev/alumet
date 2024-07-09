@@ -1,5 +1,5 @@
 use super::elements::{output, source, transform};
-use super::registry::{MetricReader, MetricSender};
+use super::registry::{self, MetricReader, MetricSender};
 use crate::pipeline::registry::MetricRegistryControl;
 use crate::{measurement::MeasurementBuffer, metrics::MetricRegistry};
 
@@ -37,6 +37,7 @@ pub struct Builder {
 
     /// Metrics
     pub metrics: MetricRegistry,
+    metric_listeners: Vec<registry::MetricListener>,
 }
 
 pub mod elements {
@@ -157,7 +158,12 @@ impl Builder {
             outputs: Vec::new(),
             trigger_constraints,
             metrics: MetricRegistry::new(),
+            metric_listeners: Vec::new(),
         }
+    }
+
+    pub fn add_metric_listener(&mut self, listener: registry::MetricListener) {
+        self.metric_listeners.push(listener)
     }
 
     pub fn add_source_builder(&mut self, plugin: PluginName, builder: elements::SourceBuilder) {
@@ -194,7 +200,7 @@ impl Builder {
 
         // Metric registry, global but we can modify it without sending a message
         // thanks to MetricAccess::write().
-        let registry_control = MetricRegistryControl::new(self.metrics);
+        let registry_control = MetricRegistryControl::new(self.metrics, self.metric_listeners);
         let (metrics_tx, metrics_rw, metrics_join) =
             registry_control.start(pipeline_shutdown.child_token(), rt_normal.handle());
         let metrics_r = metrics_rw.into_read_only();
@@ -262,6 +268,10 @@ pub struct BuilderStats {
 impl MeasurementPipeline {
     pub fn control_handle(&self) -> AnonymousControlHandle {
         self.control_handle.clone()
+    }
+
+    pub fn metrics_reader(&self) -> MetricReader {
+        self.metrics.1.clone()
     }
 
     pub fn metrics_sender(&self) -> MetricSender {

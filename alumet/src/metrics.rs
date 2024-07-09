@@ -47,12 +47,11 @@ use std::marker::PhantomData;
 use super::measurement::{MeasurementType, WrappedMeasurementType};
 use super::units::PrefixedUnit;
 
-/// The complete definition of a metric.
+/// The complete definition of a metric (except its id).
 ///
 /// To register new metrics from your plugin, use
 /// [`AlumetStart::create_metric`](crate::plugin::AlumetStart::create_metric)
 /// or [`AlumetStart::create_metric_untyped`](crate::plugin::AlumetStart::create_metric).
-/// Metrics can only be registered during the plugin startup phase.
 ///
 /// See the [module docs](self).
 #[derive(Debug, Clone)]
@@ -282,7 +281,7 @@ impl<'a> IntoIterator for &'a MetricRegistry {
 ///
 /// This error is returned when the metric cannot be registered because of a conflict,
 /// that is, another metric with the same name has already been registered.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MetricCreationError {
     pub key: String,
 }
