@@ -83,7 +83,7 @@ impl<'a> AlumetStart<'a> {
         let plugin = self.current_plugin_name();
         let builder = |ctx: &mut dyn builder::context::SourceBuildContext| ManagedSourceRegistration {
             name: ctx.source_name(""),
-            trigger,
+            trigger_spec: trigger,
             source,
         };
         self.pipeline_builder

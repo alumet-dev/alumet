@@ -1,9 +1,11 @@
 //! Implementation and control of output tasks.
 
 use std::ops::ControlFlow;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tokio::runtime;
+use tokio::sync::Notify;
 use tokio::task::JoinError;
 use tokio::{sync::broadcast, task::JoinSet};
 
@@ -14,7 +16,6 @@ use crate::pipeline::{builder, PluginName};
 
 use super::super::builder::elements::OutputBuilder;
 use super::super::registry;
-use super::super::util::versioned::Versioned;
 use super::error::WriteError;
 
 /// Exports measurements to an external entity, like a file or a database.
@@ -37,7 +38,7 @@ pub(crate) struct OutputControl {
 
 struct TaskManager {
     spawned_tasks: JoinSet<anyhow::Result<()>>,
-    configs: Vec<(OutputName, Versioned<TaskConfig>)>,
+    configs: Vec<(OutputName, Arc<SharedOutputConfig>)>,
 
     tx: broadcast::Sender<MeasurementBuffer>,
 
@@ -84,6 +85,7 @@ impl OutputControl {
         }
     }
 
+    #[allow(unused)]
     pub fn create_output(&mut self, plugin: PluginName, builder: Box<dyn OutputBuilder>) {
         let metrics = self.metrics.blocking_read();
         let mut ctx = BuildContext {
@@ -97,21 +99,24 @@ impl OutputControl {
     pub fn handle_message(&mut self, msg: ControlMessage) {
         self.tasks.reconfigure(msg);
     }
-    
+
     pub async fn join_next_task(&mut self) -> Option<Result<anyhow::Result<()>, JoinError>> {
         self.tasks.spawned_tasks.join_next().await
     }
 
-    pub async fn shutdown<F>(mut self, handle_task_result: F) where F: Fn(Result<anyhow::Result<()>, tokio::task::JoinError>) {
+    pub async fn shutdown<F>(mut self, handle_task_result: F)
+    where
+        F: Fn(Result<anyhow::Result<()>, tokio::task::JoinError>),
+    {
         // Outputs naturally close when the input channel is closed,
         // but that only works when the output is running.
         // If the output is paused, it needs to be stopped with a command.
         let stop_msg = ControlMessage {
             selector: OutputSelector::All,
-            new_state: OutputState::Stop,
+            new_state: TaskState::Stop,
         };
         self.handle_message(stop_msg);
-        
+
         // Wait for all outputs to finish
         loop {
             match self.join_next_task().await {
@@ -124,21 +129,29 @@ impl OutputControl {
 
 impl TaskManager {
     fn create_output(&mut self, ctx: &mut BuildContext, builder: Box<dyn OutputBuilder>) {
+        // Build the output
         let reg = builder(ctx);
-        let rx = self.tx.subscribe();
-        let config = Versioned::new(TaskConfig {
-            state: OutputState::Run,
-        });
-        let metrics = self.metrics.clone();
+
+        // Create the necessary context.
+        let rx = self.tx.subscribe(); // to receive measurements
+        let metrics = self.metrics.clone(); // to read metric definitions
+
+        // Create the task config.
+        let config = Arc::new(SharedOutputConfig::new());
+        self.configs.push((reg.name.clone(), config.clone()));
+
+        // Put the output in a Mutex to overcome the lack of tokio::spawn_scoped
         let guarded_output = Arc::new(Mutex::new(reg.output));
-        let task = run_output(reg.name, guarded_output, rx, config, metrics);
+
+        // Spawn the task on the runtime
+        let task = run_output(reg.name, guarded_output, rx, metrics, config);
         self.spawned_tasks.spawn_on(task, &self.rt_normal);
     }
 
     fn reconfigure(&mut self, msg: ControlMessage) {
         for (name, output_config) in &mut self.configs {
             if msg.selector.matches(name) {
-                output_config.update(|config| config.state = msg.new_state);
+                output_config.set_state(msg.new_state);
             }
         }
     }
@@ -152,7 +165,7 @@ impl builder::context::OutputBuildContext for BuildContext<'_> {
     fn output_name(&mut self, name: &str) -> OutputName {
         self.namegen.output_name(name)
     }
-    
+
     fn async_runtime(&self) -> &tokio::runtime::Handle {
         &self.runtime
     }
@@ -176,27 +189,56 @@ impl OutputSelector {
 
 pub struct ControlMessage {
     pub selector: OutputSelector,
-    pub new_state: OutputState,
-}
-
-struct TaskConfig {
-    state: OutputState,
+    pub new_state: TaskState,
 }
 
 /// State of a (managed) output task.
 #[derive(Clone, Debug, PartialEq, Eq, Copy)]
-pub enum OutputState {
+#[repr(u8)]
+pub enum TaskState {
     Run,
     Pause,
     Stop,
+}
+
+impl From<u8> for TaskState {
+    fn from(value: u8) -> Self {
+        const RUN: u8 = TaskState::Run as u8;
+        const PAUSE: u8 = TaskState::Pause as u8;
+
+        match value {
+            RUN => TaskState::Run,
+            PAUSE => TaskState::Pause,
+            _ => TaskState::Stop,
+        }
+    }
+}
+
+pub struct SharedOutputConfig {
+    pub change_notifier: Notify,
+    pub atomic_state: AtomicU8,
+}
+
+impl SharedOutputConfig {
+    pub fn new() -> Self {
+        Self {
+            change_notifier: Notify::new(),
+            atomic_state: AtomicU8::new(TaskState::Run as u8),
+        }
+    }
+
+    pub fn set_state(&self, state: TaskState) {
+        self.atomic_state.store(state as u8, Ordering::Relaxed);
+        self.change_notifier.notify_one();
+    }
 }
 
 async fn run_output(
     name: OutputName,
     guarded_output: Arc<Mutex<Box<dyn Output>>>,
     mut rx: broadcast::Receiver<MeasurementBuffer>,
-    mut versioned_config: Versioned<TaskConfig>,
     metrics_reader: registry::MetricReader,
+    config: Arc<SharedOutputConfig>,
 ) -> anyhow::Result<()> {
     async fn write_measurements(
         name: &OutputName,
@@ -236,21 +278,20 @@ async fn run_output(
         }
     }
 
+    let config_change = &config.change_notifier;
     let mut receive = true;
     loop {
         tokio::select! {
-            _ = versioned_config.changed() => {
-                // We cannot use read_changed() here because versioned::Ref cannot be help across await points
-                // (it uses a regular MutexGuard).
-                let new_config = versioned_config.read();
-                match new_config.state {
-                    OutputState::Run => {
+            _ = config_change.notified() => {
+                let new_state = config.atomic_state.load(Ordering::Relaxed);
+                match new_state.into() {
+                    TaskState::Run => {
                         receive = true;
                     }
-                    OutputState::Pause => {
+                    TaskState::Pause => {
                         receive = false;
                     }
-                    OutputState::Stop => {
+                    TaskState::Stop => {
                         break; // stop the output
                     }
                 }

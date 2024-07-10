@@ -83,7 +83,7 @@ impl ScopedControlHandle {
         let source_name = name.to_owned();
         let build = move |ctx: &mut dyn builder::context::SourceBuildContext| ManagedSourceRegistration {
             name: ctx.source_name(&source_name),
-            trigger,
+            trigger_spec: trigger,
             source,
         };
         self.add_source_builder(build)
@@ -194,10 +194,16 @@ impl PipelineControl {
                 }
             }
         }
+        log::debug!("Pipeline control task shutting down...");
 
         // Stop the elements, waiting for each step of the pipeline to finish before stopping the next one.
+        log::trace!("waiting for sources to finish");
         self.sources.shutdown(|res| task_finished(res, "source")).await;
+
+        log::trace!("waiting for transforms to finish");
         self.transforms.shutdown(|res| task_finished(res, "transform")).await;
+
+        log::trace!("waiting for outputs to finish");
         self.outputs.shutdown(|res| task_finished(res, "output")).await;
     }
 

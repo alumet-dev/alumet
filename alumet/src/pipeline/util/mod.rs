@@ -1,6 +1,5 @@
 pub mod naming;
 pub mod threading;
-pub mod versioned;
 pub mod scope;
 
 /// Check (at compile-time) that `T` is [`Send`].
