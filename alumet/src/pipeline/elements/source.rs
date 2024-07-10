@@ -9,7 +9,7 @@ use anyhow::Context;
 use tokio::runtime;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
-use tokio::task::JoinError;
+use tokio::task::{JoinError, JoinSet};
 use tokio_util::sync::CancellationToken;
 
 use super::error::PollError;
@@ -17,7 +17,6 @@ use crate::measurement::{MeasurementAccumulator, MeasurementBuffer, Timestamp};
 use crate::metrics::MetricRegistry;
 use crate::pipeline::builder::elements::SourceBuilder;
 use crate::pipeline::trigger::{Trigger, TriggerConstraints, TriggerReason, TriggerSpec};
-use crate::pipeline::util::join_set::JoinSet;
 use crate::pipeline::util::naming::{NameGenerator, PluginName, ScopedNameGenerator, SourceName};
 use crate::pipeline::{builder, registry};
 
@@ -123,9 +122,13 @@ impl SourceControl {
             ControlMessage::TriggerManually(msg) => self.tasks.trigger_manually(msg),
         }
     }
+    
+    pub fn has_task(&self) -> bool {
+        !self.tasks.spawned_tasks.is_empty()
+    }
 
     pub async fn join_next_task(&mut self) -> Result<anyhow::Result<()>, JoinError> {
-        self.tasks.spawned_tasks.join_next_completion().await
+        self.tasks.spawned_tasks.join_next().await.expect("should not be called when !has_task()")
     }
 
     pub async fn shutdown<F>(mut self, handle_task_result: F)

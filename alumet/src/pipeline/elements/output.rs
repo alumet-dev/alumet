@@ -6,12 +6,11 @@ use std::sync::{Arc, Mutex};
 
 use tokio::runtime;
 use tokio::sync::Notify;
-use tokio::task::JoinError;
+use tokio::task::{JoinError, JoinSet};
 
 use crate::measurement::MeasurementBuffer;
 use crate::metrics::MetricRegistry;
 use crate::pipeline::util::channel;
-use crate::pipeline::util::join_set::JoinSet;
 use crate::pipeline::util::naming::{NameGenerator, OutputName, ScopedNameGenerator};
 use crate::pipeline::{builder, PluginName};
 
@@ -100,9 +99,13 @@ impl OutputControl {
     pub fn handle_message(&mut self, msg: ControlMessage) {
         self.tasks.reconfigure(msg);
     }
+    
+    pub fn has_task(&self) -> bool {
+        !self.tasks.spawned_tasks.is_empty()
+    }
 
     pub async fn join_next_task(&mut self) -> Result<anyhow::Result<()>, JoinError> {
-        self.tasks.spawned_tasks.join_next_completion().await
+        self.tasks.spawned_tasks.join_next().await.expect("should not be called when !has_task()")
     }
 
     pub async fn shutdown<F>(mut self, handle_task_result: F)

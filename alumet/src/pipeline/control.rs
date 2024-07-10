@@ -172,13 +172,15 @@ impl PipelineControl {
 
                 // Below we asynchronously poll the source, transform and output tasks, in order to detect
                 // when one of them finishes before the entire pipeline is shut down.
-                source_res = self.sources.join_next_task() => {
+                //
+                // NOTE: it is important to call `join_next_task()` only if `has_task()`.
+                source_res = self.sources.join_next_task(), if self.sources.has_task() => {
                     task_finished(source_res, "source");
                 },
-                transf_res = self.transforms.join_next_task() => {
+                transf_res = self.transforms.join_next_task(), if self.transforms.has_task() => {
                     task_finished(transf_res, "transform");
                 }
-                output_res = self.outputs.join_next_task() => {
+                output_res = self.outputs.join_next_task(), if self.outputs.has_task() => {
                     task_finished(output_res, "output");
                 }
             }

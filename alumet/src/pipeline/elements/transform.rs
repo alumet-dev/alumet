@@ -81,11 +81,15 @@ impl TransformControl {
             tasks.reconfigure(msg);
         }
     }
+    
+    pub fn has_task(&self) -> bool {
+        self.tasks.is_some()
+    }
 
     pub async fn join_next_task(&mut self) -> Result<anyhow::Result<()>, JoinError> {
         match &mut self.tasks {
             Some(tasks) => (&mut tasks.task_handle).await,
-            None => std::future::pending().await,
+            None => panic!("join_next_task() should only be called if has_task()"),
         }
     }
 

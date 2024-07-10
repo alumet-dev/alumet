@@ -1,5 +1,4 @@
 pub mod channel;
-pub mod join_set;
 pub mod naming;
 pub mod scope;
 pub mod threading;
