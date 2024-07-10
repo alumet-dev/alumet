@@ -287,7 +287,7 @@ impl RunningAgent {
         // Also, **drop** the pipeline before stopping the plugin, because Plugin::stop expects
         // the sources, transforms and outputs to be stopped and dropped before it is called.
         // All tokio tasks that have not finished yet will abort.
-        if let Err(err) = self.pipeline.blocking_wait_for_shutdown() {
+        if let Err(err) = self.pipeline.wait_for_shutdown() {
             log::error!("Error in the measurement pipeline: {err}");
             n_errors += 1;
         }

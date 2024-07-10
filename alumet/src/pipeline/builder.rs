@@ -108,7 +108,7 @@ pub mod elements {
 
     pub struct ManagedSourceRegistration {
         pub name: SourceName,
-        pub trigger: trigger::TriggerSpec,
+        pub trigger_spec: trigger::TriggerSpec,
         pub source: Box<dyn source::Source>,
     }
 
@@ -291,14 +291,13 @@ impl MeasurementPipeline {
         self.rt_normal.handle()
     }
 
-    pub async fn wait_for_shutdown(self) -> Result<(), tokio::task::JoinError> {
-        self.pipeline_control_task.await?;
-        self.metrics_control_task.await?;
-        Ok(())
-    }
-
-    pub fn blocking_wait_for_shutdown(self) -> Result<(), tokio::task::JoinError> {
+    pub fn wait_for_shutdown(self) -> Result<(), tokio::task::JoinError> {
+        log::debug!("pipeline::wait_for_shutdown");
         let rt = self.async_runtime().clone();
-        rt.block_on(self.wait_for_shutdown())
+        rt.block_on(self.pipeline_control_task)?;
+        log::trace!("pipeline_control_task has ended, waiting for metrics_control_task");
+        rt.block_on(self.metrics_control_task)?;
+        log::trace!("metrics_control_task has ended, dropping the pipeline");
+        Ok(())
     }
 }
