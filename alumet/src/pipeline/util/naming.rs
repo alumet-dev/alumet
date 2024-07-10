@@ -54,7 +54,12 @@ impl ScopedNameGenerator {
     }
 
     fn element_name(&mut self, kind: &str, name: &str) -> ElementName {
-        let deduplicated = self.dedup.insert_deduplicate(format!("{kind}-{name}"), false);
+        let (full_name, add_suffix) = if name.is_empty() {
+            (kind.to_owned(), true)
+        } else {
+            (format!("{kind}-{name}"), false)
+        };
+        let deduplicated = self.dedup.insert_deduplicate(full_name, add_suffix);
         ElementName {
             plugin: self.plugin.0.clone(),
             element: deduplicated,
@@ -91,10 +96,10 @@ impl NameGenerator {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PluginName(pub String);
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ElementName {
     pub(crate) plugin: String,
     pub(crate) element: String,
