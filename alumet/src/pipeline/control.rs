@@ -89,10 +89,7 @@ impl ScopedControlHandle {
         self.add_source_builder(build)
     }
 
-    pub fn add_source_builder<F: ManagedSourceBuilder + Send + 'static>(
-        &self,
-        builder: F,
-    ) -> Result<(), ControlError> {
+    pub fn add_source_builder<F: ManagedSourceBuilder + Send + 'static>(&self, builder: F) -> Result<(), ControlError> {
         let message = ControlMessage::Source(source::ControlMessage::Create(source::CreateMessage {
             plugin: self.plugin.clone(),
             builder: SendSourceBuilder::Managed(Box::new(builder)),
@@ -128,10 +125,7 @@ impl PipelineControl {
     pub fn start(self, shutdown: CancellationToken, on: &runtime::Handle) -> (AnonymousControlHandle, JoinHandle<()>) {
         let (tx, rx) = mpsc::channel(256);
         let task = self.run(shutdown.clone(), rx);
-        let control_handle = AnonymousControlHandle {
-            tx,
-            shutdown,
-        };
+        let control_handle = AnonymousControlHandle { tx, shutdown };
         let task_handle = on.spawn(task);
         (control_handle, task_handle)
     }
@@ -163,6 +157,7 @@ impl PipelineControl {
                 _ = tokio::signal::ctrl_c() => {
                     // Another way to shutdown the pipeline is to send SIGTERM, usually with Ctrl+C.
                     // Tokio's ctrl_c() also handles Ctrl+C on Windows.
+                    log::info!("Ctrl+C received, shutting down...");
 
                     // The token can have child tokens, therefore we need to cancel it instead of simply breaking.
                     shutdown.cancel();
@@ -178,19 +173,13 @@ impl PipelineControl {
                 // Below we asynchronously poll the source, transform and output tasks, in order to detect
                 // when one of them finishes before the entire pipeline is shut down.
                 source_res = self.sources.join_next_task() => {
-                    if let Some(res) = source_res {
-                        task_finished(res, "source");
-                    }
+                    task_finished(source_res, "source");
                 },
                 transf_res = self.transforms.join_next_task() => {
-                    if let Some(res) = transf_res {
-                        task_finished(res, "transform");
-                    }
+                    task_finished(transf_res, "transform");
                 }
                 output_res = self.outputs.join_next_task() => {
-                    if let Some(res) = output_res {
-                        task_finished(res, "output");
-                    }
+                    task_finished(output_res, "output");
                 }
             }
         }
@@ -206,7 +195,6 @@ impl PipelineControl {
         log::trace!("waiting for outputs to finish");
         self.outputs.shutdown(|res| task_finished(res, "output")).await;
     }
-
 }
 
 #[cfg(test)]

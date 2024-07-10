@@ -1,6 +1,7 @@
 use super::elements::{output, source, transform};
 use super::registry::{self, MetricReader, MetricSender};
 use crate::pipeline::registry::MetricRegistryControl;
+use crate::pipeline::util::channel;
 use crate::{measurement::MeasurementBuffer, metrics::MetricRegistry};
 
 use super::util::naming::PluginName;
@@ -194,12 +195,6 @@ impl Builder {
                 .context("could not build the multithreaded Runtime")?
         };
 
-        // Channel: sources -> transforms.
-        let (in_tx, in_rx) = mpsc::channel::<MeasurementBuffer>(256);
-
-        // Broadcast queue: transforms -> outputs
-        let out_tx = broadcast::Sender::<MeasurementBuffer>::new(256);
-
         // Token to shutdown the pipeline.
         let pipeline_shutdown = CancellationToken::new();
 
@@ -210,24 +205,47 @@ impl Builder {
             registry_control.start(pipeline_shutdown.child_token(), rt_normal.handle());
         let metrics_r = metrics_rw.into_read_only();
 
-        // Create pipeline elements, sources last in order not to loose
-        // any measurement if they start polling right away.
+        // --- Build the pipeline elements and control loops, with some optimizations ---
+        const CHAN_BUF_SIZE: usize = 256;
 
-        // Outputs
-        let mut output_control =
-            output::OutputControl::new(out_tx.clone(), rt_normal.handle().clone(), metrics_r.clone());
-        output_control.create_outputs(self.outputs);
+        // Channel: sources -> transforms (or sources -> output in case of optimization).
+        let (in_tx, in_rx) = mpsc::channel::<MeasurementBuffer>(CHAN_BUF_SIZE);
 
-        // Transforms
-        let transform_control = transform::TransformControl::with_transforms(
-            self.transforms,
-            metrics_r.clone(),
-            in_rx,
-            out_tx,
-            rt_normal.handle(),
-        );
+        let mut output_control;
+        let transform_control;
 
-        // Sources
+        if self.outputs.len() == 1 && self.transforms.is_empty() {
+            // OPTIMIZATION: there is only one output and no transform,
+            // we can connect the inputs directly to the output.
+            log::info!("Only one output and no transform, using a simplified and optimized measurement pipeline.");
+
+            // Outputs
+            let out_rx_provider = channel::ReceiverProvider::from(in_rx);
+            output_control = output::OutputControl::new(out_rx_provider, rt_normal.handle().clone(), metrics_r.clone());
+            output_control.create_outputs(self.outputs);
+
+            // No transforms
+            transform_control = transform::TransformControl::empty();
+        } else {
+            // Broadcast queue: transforms -> outputs
+            let out_tx = broadcast::Sender::<MeasurementBuffer>::new(CHAN_BUF_SIZE);
+
+            // Outputs
+            let out_rx_provider = channel::ReceiverProvider::from(out_tx.clone());
+            output_control = output::OutputControl::new(out_rx_provider, rt_normal.handle().clone(), metrics_r.clone());
+            output_control.create_outputs(self.outputs);
+
+            // Transforms
+            transform_control = transform::TransformControl::with_transforms(
+                self.transforms,
+                metrics_r.clone(),
+                in_rx,
+                out_tx,
+                rt_normal.handle(),
+            );
+        };
+
+        // Sources, last in order not to loose any measurement if they start measuring right away.
         let mut source_control = source::SourceControl::new(
             self.trigger_constraints,
             pipeline_shutdown.clone(),
@@ -261,7 +279,7 @@ impl Builder {
             metrics: self.metrics.len(),
         }
     }
-    
+
     pub fn peek_metrics<F: FnOnce(&MetricRegistry) -> R, R>(&self, f: F) -> R {
         f(&self.metrics)
     }

@@ -9,7 +9,7 @@ use anyhow::Context;
 use tokio::runtime;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
-use tokio::task::{JoinError, JoinSet};
+use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 
 use super::error::PollError;
@@ -17,6 +17,7 @@ use crate::measurement::{MeasurementAccumulator, MeasurementBuffer, Timestamp};
 use crate::metrics::MetricRegistry;
 use crate::pipeline::builder::elements::SourceBuilder;
 use crate::pipeline::trigger::{Trigger, TriggerConstraints, TriggerReason, TriggerSpec};
+use crate::pipeline::util::join_set::JoinSet;
 use crate::pipeline::util::naming::{NameGenerator, PluginName, ScopedNameGenerator, SourceName};
 use crate::pipeline::{builder, registry};
 
@@ -123,8 +124,8 @@ impl SourceControl {
         }
     }
 
-    pub async fn join_next_task(&mut self) -> Option<Result<anyhow::Result<()>, JoinError>> {
-        self.tasks.spawned_tasks.join_next().await
+    pub async fn join_next_task(&mut self) -> Result<anyhow::Result<()>, JoinError> {
+        self.tasks.spawned_tasks.join_next_completion().await
     }
 
     pub async fn shutdown<F>(mut self, handle_task_result: F)
@@ -144,7 +145,7 @@ impl SourceControl {
 
         // Wait for managed and autonomous sources to stop.
         loop {
-            match self.join_next_task().await {
+            match self.tasks.spawned_tasks.join_next().await {
                 Some(res) => handle_task_result(res),
                 None => break,
             }

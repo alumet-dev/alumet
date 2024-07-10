@@ -7,10 +7,11 @@ use std::sync::{Arc, Mutex};
 use tokio::runtime;
 use tokio::sync::Notify;
 use tokio::task::JoinError;
-use tokio::{sync::broadcast, task::JoinSet};
 
 use crate::measurement::MeasurementBuffer;
 use crate::metrics::MetricRegistry;
+use crate::pipeline::util::channel;
+use crate::pipeline::util::join_set::JoinSet;
 use crate::pipeline::util::naming::{NameGenerator, OutputName, ScopedNameGenerator};
 use crate::pipeline::{builder, PluginName};
 
@@ -40,7 +41,7 @@ struct TaskManager {
     spawned_tasks: JoinSet<anyhow::Result<()>>,
     configs: Vec<(OutputName, Arc<SharedOutputConfig>)>,
 
-    tx: broadcast::Sender<MeasurementBuffer>,
+    rx_provider: channel::ReceiverProvider,
 
     /// Handle of the "normal" async runtime. Used for creating new outputs.
     rt_normal: runtime::Handle,
@@ -56,7 +57,7 @@ struct BuildContext<'a> {
 
 impl OutputControl {
     pub fn new(
-        tx: broadcast::Sender<MeasurementBuffer>,
+        rx_provider: channel::ReceiverProvider,
         rt_normal: runtime::Handle,
         metrics: registry::MetricReader,
     ) -> Self {
@@ -64,7 +65,7 @@ impl OutputControl {
             tasks: TaskManager {
                 spawned_tasks: JoinSet::new(),
                 configs: Vec::new(),
-                tx,
+                rx_provider,
                 rt_normal,
                 metrics: metrics.clone(),
             },
@@ -100,8 +101,8 @@ impl OutputControl {
         self.tasks.reconfigure(msg);
     }
 
-    pub async fn join_next_task(&mut self) -> Option<Result<anyhow::Result<()>, JoinError>> {
-        self.tasks.spawned_tasks.join_next().await
+    pub async fn join_next_task(&mut self) -> Result<anyhow::Result<()>, JoinError> {
+        self.tasks.spawned_tasks.join_next_completion().await
     }
 
     pub async fn shutdown<F>(mut self, handle_task_result: F)
@@ -119,7 +120,7 @@ impl OutputControl {
 
         // Wait for all outputs to finish
         loop {
-            match self.join_next_task().await {
+            match self.tasks.spawned_tasks.join_next().await {
                 Some(res) => handle_task_result(res),
                 None => break,
             }
@@ -129,23 +130,32 @@ impl OutputControl {
 
 impl TaskManager {
     fn create_output(&mut self, ctx: &mut BuildContext, builder: Box<dyn OutputBuilder>) {
-        // Build the output
+        // Build the output.
         let reg = builder(ctx);
 
         // Create the necessary context.
-        let rx = self.tx.subscribe(); // to receive measurements
+        let rx = self.rx_provider.get(); // to receive measurements
         let metrics = self.metrics.clone(); // to read metric definitions
 
         // Create the task config.
         let config = Arc::new(SharedOutputConfig::new());
         self.configs.push((reg.name.clone(), config.clone()));
 
-        // Put the output in a Mutex to overcome the lack of tokio::spawn_scoped
+        // Put the output in a Mutex to overcome the lack of tokio::spawn_scoped.
         let guarded_output = Arc::new(Mutex::new(reg.output));
 
-        // Spawn the task on the runtime
-        let task = run_output(reg.name, guarded_output, rx, metrics, config);
-        self.spawned_tasks.spawn_on(task, &self.rt_normal);
+        // Spawn the task on the runtime.
+        match rx {
+            // Specialize on the kind of receiver at compile-time (for performance).
+            channel::ReceiverEnum::Broadcast(rx) => {
+                let task = run_output(reg.name, guarded_output, rx, metrics, config);
+                self.spawned_tasks.spawn_on(task, &self.rt_normal);
+            }
+            channel::ReceiverEnum::Single(rx) => {
+                let task = run_output(reg.name, guarded_output, rx, metrics, config);
+                self.spawned_tasks.spawn_on(task, &self.rt_normal);
+            }
+        }
     }
 
     fn reconfigure(&mut self, msg: ControlMessage) {
@@ -233,20 +243,22 @@ impl SharedOutputConfig {
     }
 }
 
-async fn run_output(
+async fn run_output<Rx: channel::MeasurementReceiver>(
     name: OutputName,
     guarded_output: Arc<Mutex<Box<dyn Output>>>,
-    mut rx: broadcast::Receiver<MeasurementBuffer>,
+    mut rx: Rx,
     metrics_reader: registry::MetricReader,
     config: Arc<SharedOutputConfig>,
 ) -> anyhow::Result<()> {
+    /// If `measurements` is an `Ok`, build an [`OutputContext`] and call `output.write(&measurements, &ctx)`.
+    /// Otherwise, handle the error.
     async fn write_measurements(
         name: &OutputName,
         output: Arc<Mutex<Box<dyn Output>>>,
         metrics_r: registry::MetricReader,
-        m: Result<MeasurementBuffer, broadcast::error::RecvError>,
+        maybe_measurements: Result<MeasurementBuffer, channel::RecvError>,
     ) -> anyhow::Result<ControlFlow<()>> {
-        match m {
+        match maybe_measurements {
             Ok(measurements) => {
                 let res = tokio::task::spawn_blocking(move || {
                     let ctx = OutputContext {
@@ -267,12 +279,12 @@ async fn run_output(
                     }
                 }
             }
-            Err(broadcast::error::RecvError::Lagged(n)) => {
+            Err(channel::RecvError::Lagged(n)) => {
                 log::warn!("Output {name} is too slow, it lost the oldest {n} messages.");
                 Ok(ControlFlow::Continue(()))
             }
-            Err(broadcast::error::RecvError::Closed) => {
-                log::warn!("The channel connected to output {name} was closed, it will now stop.");
+            Err(channel::RecvError::Closed) => {
+                log::debug!("The channel connected to output {name} was closed, it will now stop.");
                 Ok(ControlFlow::Break(()))
             }
         }

@@ -32,7 +32,7 @@ pub struct TransformContext<'a> {
 ///
 /// There can be a maximum of 64 transforms for the moment.
 pub(crate) struct TransformControl {
-    tasks: TaskManager,
+    tasks: Option<TaskManager>,
 }
 
 struct TaskManager {
@@ -47,6 +47,10 @@ struct BuildContext<'a> {
 }
 
 impl TransformControl {
+    pub fn empty() -> Self {
+        Self { tasks: None }
+    }
+
     pub fn with_transforms(
         transforms: Vec<(PluginName, Box<dyn TransformBuilder>)>,
         metrics: MetricReader,
@@ -69,23 +73,34 @@ impl TransformControl {
                 .collect()
         };
         let tasks = TaskManager::spawn(built, metrics.clone(), rx, tx, rt_normal);
-        Self { tasks }
+        Self { tasks: Some(tasks) }
     }
 
     pub fn handle_message(&mut self, msg: ControlMessage) {
-        self.tasks.reconfigure(msg);
+        if let Some(tasks) = &mut self.tasks {
+            tasks.reconfigure(msg);
+        }
     }
 
-    pub async fn join_next_task(&mut self) -> Option<Result<anyhow::Result<()>, JoinError>> {
-        Some((&mut self.tasks.task_handle).await)
+    pub async fn join_next_task(&mut self) -> Result<anyhow::Result<()>, JoinError> {
+        match &mut self.tasks {
+            Some(tasks) => (&mut tasks.task_handle).await,
+            None => std::future::pending().await,
+        }
     }
 
-    pub async fn shutdown<F>(mut self, handle_task_result: F) where F: Fn(Result<anyhow::Result<()>, tokio::task::JoinError>) {
+    pub async fn shutdown<F>(self, handle_task_result: F)
+    where
+        F: Fn(Result<anyhow::Result<()>, tokio::task::JoinError>),
+    {
         // Nothing to do to stop the tasks: the transform task will naturally
         // stop when the input channel is closed.
-        
-        // We simply wait for all transforms to finish.
-        self.join_next_task().await.map(handle_task_result);
+
+        // We simply wait for the task to finish.
+        match self.tasks {
+            Some(tasks) => handle_task_result(tasks.task_handle.await),
+            None => (),
+        }
     }
 }
 
