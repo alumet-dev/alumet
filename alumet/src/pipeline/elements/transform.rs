@@ -85,12 +85,7 @@ impl TransformControl {
         // stop when the input channel is closed.
         
         // We simply wait for all transforms to finish.
-        loop {
-            match self.join_next_task().await {
-                Some(res) => handle_task_result(res),
-                None => break,
-            }
-        }
+        self.join_next_task().await.map(handle_task_result);
     }
 }
 
