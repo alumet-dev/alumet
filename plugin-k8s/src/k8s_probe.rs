@@ -10,8 +10,8 @@ use alumet::{
 };
 use anyhow::Result;
 
-use crate::cgroup_v2::{self, CgroupV2MetricFile};
-use crate::parsing_cgroupv2::CgroupV2Metric;
+use crate::{cgroupv2_utils::Metrics, k8s_cgroup_v2::{self, CgroupV2MetricFile}};
+use crate::cgroupv2_utils::CgroupV2Metric;
 
 pub struct K8SProbe {
     pub cgroup_v2_metric_file: CgroupV2MetricFile,
@@ -23,12 +23,6 @@ pub struct K8SProbe {
     pub time_used_system_mode: TypedMetricId<u64>,
 }
 
-#[derive(Clone)]
-pub struct Metrics {
-    pub time_used_tot: TypedMetricId<u64>,
-    pub time_used_user_mode: TypedMetricId<u64>,
-    pub time_used_system_mode: TypedMetricId<u64>,
-}
 
 impl K8SProbe {
     pub fn new(
@@ -57,7 +51,7 @@ impl alumet::pipeline::Source for K8SProbe {
         timestamp: Timestamp,
     ) -> Result<(), alumet::pipeline::PollError> {
         let mut file_buffer = String::new();
-        let metrics: CgroupV2Metric = cgroup_v2::gather_value(&mut self.cgroup_v2_metric_file, &mut file_buffer)?;
+        let metrics: CgroupV2Metric = k8s_cgroup_v2::gather_value(&mut self.cgroup_v2_metric_file, &mut file_buffer)?;
         let diff_tot = match self.time_tot.update(metrics.time_used_tot) {
             CounterDiffUpdate::FirstTime => None,
             CounterDiffUpdate::Difference(diff) | CounterDiffUpdate::CorrectedDifference(diff) => Some(diff),
@@ -122,25 +116,3 @@ impl alumet::pipeline::Source for K8SProbe {
     }
 }
 
-impl Metrics {
-    pub fn new(alumet: &mut AlumetStart) -> Result<Self, MetricCreationError> {
-        let usec: PrefixedUnit = PrefixedUnit::micro(Unit::Second);
-        Ok(Self {
-            time_used_tot: alumet.create_metric::<u64>(
-                "total_usage_usec",
-                usec.clone(),
-                "Total CPU usage time by the group",
-            )?,
-            time_used_user_mode: alumet.create_metric::<u64>(
-                "user_usage_usec",
-                usec.clone(),
-                "User CPU usage time by the group",
-            )?,
-            time_used_system_mode: alumet.create_metric::<u64>(
-                "system_usage_usec",
-                usec.clone(),
-                "System CPU usage time by the group",
-            )?,
-        })
-    }
-}

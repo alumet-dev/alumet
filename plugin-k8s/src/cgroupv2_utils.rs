@@ -1,3 +1,13 @@
+use alumet::{
+    measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp},
+    metrics::{MetricCreationError, TypedMetricId},
+    plugin::{
+        util::{CounterDiff, CounterDiffUpdate},
+        AlumetStart,
+    },
+    resources::{Resource, ResourceConsumer},
+    units::{PrefixedUnit, Unit},
+};
 use std::{str::FromStr, string::String};
 
 #[derive(Debug, PartialEq, Clone)]
@@ -42,6 +52,36 @@ impl FromStr for CgroupV2Metric {
             }
         }
         return Ok(cgroup_struc_to_ret);
+    }
+}
+
+#[derive(Clone)]
+pub struct Metrics {
+    pub time_used_tot: TypedMetricId<u64>,
+    pub time_used_user_mode: TypedMetricId<u64>,
+    pub time_used_system_mode: TypedMetricId<u64>,
+}
+
+impl Metrics {
+    pub fn new(alumet: &mut AlumetStart) -> Result<Self, MetricCreationError> {
+        let usec: PrefixedUnit = PrefixedUnit::micro(Unit::Second);
+        Ok(Self {
+            time_used_tot: alumet.create_metric::<u64>(
+                "total_usage_usec",
+                usec.clone(),
+                "Total CPU usage time by the group",
+            )?,
+            time_used_user_mode: alumet.create_metric::<u64>(
+                "user_usage_usec",
+                usec.clone(),
+                "User CPU usage time by the group",
+            )?,
+            time_used_system_mode: alumet.create_metric::<u64>(
+                "system_usage_usec",
+                usec.clone(),
+                "System CPU usage time by the group",
+            )?,
+        })
     }
 }
 
