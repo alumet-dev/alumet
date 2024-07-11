@@ -12,7 +12,7 @@ use std::{
     vec,
 };
 
-use crate::parsing_cgroupv2::CgroupV2Metric;
+use crate::cgroupv2::CgroupV2Metric;
 
 /// CgroupV2MetricFile represents a file containing cgroup v2 data about cpu usage.
 ///
@@ -39,7 +39,7 @@ pub fn is_accessible_dir(path: &Path) -> bool {
 }
 
 /// Returns a Vector of CgroupV2MetricFile associated to pods available under a given directory.
-fn list_metric_file_in_dir(
+fn kubernetes_list_metric_file_in_dir(
     root_directory_path: &Path,
     hostname: String,
     kubernetes_api_url: String,
@@ -49,7 +49,7 @@ fn list_metric_file_in_dir(
     // Let's create a runtime to await async function and fill hashmap
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
     let main_hash_map: HashMap<String, (String, String, String)> =
-        rt.block_on(async { get_existing_pods(hostname, kubernetes_api_url).await })?;
+        rt.block_on(async { kubernetes_get_existing_pods(hostname, kubernetes_api_url).await })?;
 
     // For each File in the root path
     for entry in entries {
@@ -107,7 +107,7 @@ fn list_metric_file_in_dir(
 }
 
 /// This function list all k8s pods available, using sub-directories to look in
-/// All subdirectory are visited with the help of <list_metric_file_in_dir> function.
+/// All subdirectory are visited with the help of <kubernetes_list_metric_file_in_dir> function.
 pub fn list_all_k8s_pods_file(
     root_directory_path: &Path,
     hostname: String,
@@ -134,7 +134,8 @@ pub fn list_all_k8s_pods_file(
     }
 
     for prefix in all_sub_dir {
-        let mut result_vec = list_metric_file_in_dir(&prefix.to_owned(), hostname.clone(), kubernetes_api_url.clone())?;
+        let mut result_vec =
+            kubernetes_list_metric_file_in_dir(&prefix.to_owned(), hostname.clone(), kubernetes_api_url.clone())?;
         final_li_metric_file.append(&mut result_vec);
     }
     Ok(final_li_metric_file)
@@ -157,7 +158,7 @@ pub fn gather_value(file: &mut CgroupV2MetricFile, content_buffer: &mut String) 
 }
 
 /// Returns a HashMap where the key is the uid used and the value is a tuple containing it's name, namespace and node
-pub async fn get_existing_pods(
+pub async fn kubernetes_get_existing_pods(
     node: String,
     kubernetes_api_url: String,
 ) -> anyhow::Result<HashMap<String, (String, String, String)>> {
@@ -381,7 +382,7 @@ mod tests {
     }
 
     #[test]
-    fn test_list_metric_file_in_dir() {
+    fn test_kubernetes_list_metric_file_in_dir() {
         let tmp = std::env::temp_dir();
         let root: std::path::PathBuf = tmp.join("test-alumet-plugin-k8s/kubepods-folder.slice/");
         if root.exists() {
@@ -403,7 +404,7 @@ mod tests {
         std::fs::write(c.join("cpu.stat"), "sv").unwrap();
         std::fs::write(d.join("cpu.stat"), "ne").unwrap();
         let li_met_file: anyhow::Result<Vec<CgroupV2MetricFile>> =
-            list_metric_file_in_dir(&burstable_dir, "".to_string(), "".to_string());
+            kubernetes_list_metric_file_in_dir(&burstable_dir, "".to_string(), "".to_string());
         let list_pod_name = [
             "pod32a1942cb9a81912549c152a49b5f9b1",
             "podd9209de2b4b526361248c9dcf3e702c0",
