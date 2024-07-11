@@ -15,7 +15,7 @@ use crate::parsing_cgroupv2::CgroupV2Metric;
 
 pub struct K8SProbe {
     pub cgroup_v2_metric_file: CgroupV2MetricFile,
-    pub time_tot: CounterDiff, 
+    pub time_tot: CounterDiff,
     pub time_usr: CounterDiff,
     pub time_sys: CounterDiff,
     pub time_used_tot: TypedMetricId<u64>,
@@ -31,7 +31,13 @@ pub struct Metrics {
 }
 
 impl K8SProbe {
-    pub fn new(metric: Metrics, metric_file: CgroupV2MetricFile, counter_tot: CounterDiff, counter_sys: CounterDiff, counter_usr: CounterDiff) -> anyhow::Result<K8SProbe> {
+    pub fn new(
+        metric: Metrics,
+        metric_file: CgroupV2MetricFile,
+        counter_tot: CounterDiff,
+        counter_sys: CounterDiff,
+        counter_usr: CounterDiff,
+    ) -> anyhow::Result<K8SProbe> {
         return Ok(K8SProbe {
             cgroup_v2_metric_file: metric_file,
             time_tot: counter_tot,
@@ -77,7 +83,10 @@ impl alumet::pipeline::Source for K8SProbe {
                 consumer.clone(),
                 value_tot as u64,
             )
-            .with_attr("pod", AttributeValue::String(metrics.name.clone()));
+            .with_attr("uid", AttributeValue::String(metrics.uid.clone()))
+            .with_attr("name", AttributeValue::String(metrics.name.clone()))
+            .with_attr("namespace", AttributeValue::String(metrics.namespace.clone()))
+            .with_attr("node", AttributeValue::String(metrics.node.clone()));
             measurements.push(p_tot);
         }
         if let Some(value_usr) = diff_usr {
@@ -88,7 +97,10 @@ impl alumet::pipeline::Source for K8SProbe {
                 consumer.clone(),
                 value_usr as u64,
             )
-            .with_attr("pod", AttributeValue::String(metrics.name.clone()));
+            .with_attr("uid", AttributeValue::String(metrics.uid.clone()))
+            .with_attr("name", AttributeValue::String(metrics.name.clone()))
+            .with_attr("namespace", AttributeValue::String(metrics.namespace.clone()))
+            .with_attr("node", AttributeValue::String(metrics.node.clone()));
             measurements.push(p_usr);
         }
         if let Some(value_sys) = diff_sys {
@@ -99,7 +111,11 @@ impl alumet::pipeline::Source for K8SProbe {
                 consumer.clone(),
                 value_sys as u64,
             )
-            .with_attr("pod", AttributeValue::String(metrics.name.clone()));
+            .with_attr("uid", AttributeValue::String(metrics.uid.clone()))
+            .with_attr("name", AttributeValue::String(metrics.name.clone()))
+            .with_attr("namespace", AttributeValue::String(metrics.namespace.clone()))
+            .with_attr("node", AttributeValue::String(metrics.node.clone()));
+
             measurements.push(p_sys);
         }
         Ok(())
