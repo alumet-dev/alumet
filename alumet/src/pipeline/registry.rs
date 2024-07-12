@@ -27,6 +27,7 @@ pub enum ControlMessage {
 }
 
 /// A strategy to handle duplicate metrics.
+#[derive(Debug)]
 pub enum DuplicateStrategy {
     /// Return an error immediately.
     Error,
@@ -170,7 +171,7 @@ pub enum SendWithReplyError {
     Recv(oneshot::error::RecvError),
 }
 
-fn make_listener<F: Fn(Vec<(RawMetricId, Metric)>) -> anyhow::Result<()> + Send + 'static>(
+pub(crate) fn make_listener<F: Fn(Vec<(RawMetricId, Metric)>) -> anyhow::Result<()> + Send + 'static>(
     listener: F,
 ) -> MetricListener {
     Box::new(move |new_metrics| {
@@ -209,11 +210,11 @@ impl MetricReader {
 }
 
 impl MetricSender {
-    pub async fn send(&mut self, message: ControlMessage) -> Result<(), SendError> {
+    pub async fn send(&self, message: ControlMessage) -> Result<(), SendError> {
         self.0.send(message).await.map_err(|_| SendError::Shutdown)
     }
 
-    pub fn try_send(&mut self, message: ControlMessage) -> Result<(), SendError> {
+    pub fn try_send(&self, message: ControlMessage) -> Result<(), SendError> {
         match self.0.try_send(message) {
             Ok(_) => Ok(()),
             Err(mpsc::error::TrySendError::Full(m)) => Err(SendError::ChannelFull(m)),
@@ -222,7 +223,7 @@ impl MetricSender {
     }
 
     pub async fn create_metrics(
-        &mut self,
+        &self,
         metrics: Vec<Metric>,
         on_duplicate: DuplicateStrategy,
     ) -> Result<Vec<Result<RawMetricId, MetricCreationError>>, SendWithReplyError> {
@@ -234,14 +235,14 @@ impl MetricSender {
     }
 
     pub fn try_subscribe<F: Fn(Vec<(RawMetricId, Metric)>) -> anyhow::Result<()> + Send + 'static>(
-        &mut self,
+        &self,
         listener: F,
     ) -> Result<(), SendError> {
         self.try_send(ControlMessage::Subscribe(make_listener(listener)))
     }
 
     pub async fn subscribe<F: Fn(Vec<(RawMetricId, Metric)>) -> anyhow::Result<()> + Send + 'static>(
-        &mut self,
+        &self,
         listener: F,
     ) -> Result<(), SendError> {
         self.send(ControlMessage::Subscribe(make_listener(listener))).await

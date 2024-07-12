@@ -58,8 +58,8 @@ impl TransformControl {
         rx: mpsc::Receiver<MeasurementBuffer>,
         tx: broadcast::Sender<MeasurementBuffer>,
         rt_normal: &runtime::Handle,
-    ) -> Self {
-        let built: Vec<TransformRegistration> = {
+    ) -> anyhow::Result<Self> {
+        let built: anyhow::Result<Vec<TransformRegistration>> = {
             let metrics_r = metrics.blocking_read();
             let mut namegen = NameGenerator::new();
             transforms
@@ -69,18 +69,19 @@ impl TransformControl {
                         metrics: &metrics_r,
                         namegen: namegen.namegen_for_scope(&plugin),
                     };
-                    builder(&mut ctx)
+                    builder(&mut ctx).context("transform creation failed")
                 })
                 .collect()
         };
-        let tasks = TaskManager::spawn(built, metrics.clone(), rx, tx, rt_normal);
-        Self { tasks: Some(tasks) }
+        let tasks = TaskManager::spawn(built?, metrics.clone(), rx, tx, rt_normal);
+        Ok(Self { tasks: Some(tasks) })
     }
 
-    pub fn handle_message(&mut self, msg: ControlMessage) {
+    pub fn handle_message(&mut self, msg: ControlMessage) -> anyhow::Result<()> {
         if let Some(tasks) = &mut self.tasks {
             tasks.reconfigure(msg);
         }
+        Ok(())
     }
 
     pub fn has_task(&self) -> bool {

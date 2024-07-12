@@ -62,31 +62,31 @@ pub mod elements {
     //     pub type ManagedSourceBuilder = dyn FnOnce(&mut dyn SourceBuildContext) -> ManagedSourceRegistration;
     //
     // Therefore, we define a subtrait that is automatically implemented for closures.
-    pub trait ManagedSourceBuilder: FnOnce(&mut dyn SourceBuildContext) -> ManagedSourceRegistration {}
-    impl<F> ManagedSourceBuilder for F where F: FnOnce(&mut dyn SourceBuildContext) -> ManagedSourceRegistration {}
+    pub trait ManagedSourceBuilder: FnOnce(&mut dyn SourceBuildContext) -> anyhow::Result<ManagedSourceRegistration> {}
+    impl<F> ManagedSourceBuilder for F where F: FnOnce(&mut dyn SourceBuildContext) -> anyhow::Result<ManagedSourceRegistration> {}
 
     pub trait AutonomousSourceBuilder:
         FnOnce(
-        &mut dyn SourceBuildContext,
+        &mut dyn AutonomousSourceBuildContext,
         CancellationToken,
         Sender<MeasurementBuffer>,
-    ) -> AutonomousSourceRegistration
+    ) -> anyhow::Result<AutonomousSourceRegistration>
     {
     }
     impl<F> AutonomousSourceBuilder for F where
         F: FnOnce(
-            &mut dyn SourceBuildContext,
+            &mut dyn AutonomousSourceBuildContext,
             CancellationToken,
             Sender<MeasurementBuffer>,
-        ) -> AutonomousSourceRegistration
+        ) -> anyhow::Result<AutonomousSourceRegistration>
     {
     }
 
-    pub trait TransformBuilder: FnOnce(&mut dyn TransformBuildContext) -> TransformRegistration {}
-    impl<F> TransformBuilder for F where F: FnOnce(&mut dyn TransformBuildContext) -> TransformRegistration {}
+    pub trait TransformBuilder: FnOnce(&mut dyn TransformBuildContext) -> anyhow::Result<TransformRegistration> {}
+    impl<F> TransformBuilder for F where F: FnOnce(&mut dyn TransformBuildContext) -> anyhow::Result<TransformRegistration> {}
 
-    pub trait OutputBuilder: FnOnce(&mut dyn OutputBuildContext) -> OutputRegistration {}
-    impl<F> OutputBuilder for F where F: FnOnce(&mut dyn OutputBuildContext) -> OutputRegistration {}
+    pub trait OutputBuilder: FnOnce(&mut dyn OutputBuildContext) -> anyhow::Result<OutputRegistration> {}
+    impl<F> OutputBuilder for F where F: FnOnce(&mut dyn OutputBuildContext) -> anyhow::Result<OutputRegistration> {}
 
     pub enum SourceBuilder {
         Managed(Box<dyn ManagedSourceBuilder>),
@@ -132,12 +132,20 @@ pub mod elements {
 pub mod context {
     use crate::{
         metrics::{Metric, RawMetricId},
-        pipeline::util::naming::{OutputName, SourceName, TransformName},
+        pipeline::{registry, util::naming::{OutputName, SourceName, TransformName}},
     };
 
     pub trait SourceBuildContext {
         fn metric_by_name(&self, name: &str) -> Option<(RawMetricId, &Metric)>;
         fn source_name(&mut self, name: &str) -> SourceName;
+    }
+    
+    pub trait AutonomousSourceBuildContext {
+        fn metric_by_name(&self, name: &str) -> Option<(RawMetricId, &Metric)>;
+        fn metrics_reader(&self) -> registry::MetricReader;
+        fn metrics_sender(&self) -> registry::MetricSender;
+        fn source_name(&mut self, name: &str) -> SourceName;
+        
     }
 
     pub trait TransformBuildContext {
@@ -242,7 +250,7 @@ impl Builder {
                 in_rx,
                 out_tx,
                 rt_normal.handle(),
-            );
+            )?;
         };
 
         // Sources, last in order not to loose any measurement if they start measuring right away.
@@ -252,9 +260,9 @@ impl Builder {
             in_tx,
             rt_normal.handle().clone(),
             rt_priority.as_ref().unwrap_or(&rt_normal).handle().clone(),
-            metrics_r.clone(),
+            (metrics_r.clone(), metrics_tx.clone()),
         );
-        source_control.create_sources(self.sources);
+        source_control.create_sources(self.sources).context("Could not create measurement sources")?;
 
         // Pipeline control
         let control = PipelineControl::new(source_control, transform_control, output_control);
@@ -277,6 +285,7 @@ impl Builder {
             transforms: self.transforms.len(),
             outputs: self.outputs.len(),
             metrics: self.metrics.len(),
+            metric_listeners: self.metric_listeners.len(),
         }
     }
 
@@ -290,6 +299,7 @@ pub struct BuilderStats {
     pub transforms: usize,
     pub outputs: usize,
     pub metrics: usize,
+    pub metric_listeners: usize,
 }
 
 impl MeasurementPipeline {

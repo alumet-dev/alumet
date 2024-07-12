@@ -1,155 +1,147 @@
 //! Command parsing.
 
+use std::str::FromStr;
+
+use alumet::pipeline::control::{AnonymousControlHandle, ControlError};
+use alumet::pipeline::matching::{ElementSelector, OutputSelector, SourceSelector, TransformSelector};
 use alumet::pipeline::{
-    runtime::{ControlHandle, OutputCmd, ScopedControlHandle, SourceCmd, TransformCmd},
+    control::ControlMessage,
+    elements::{output, source, transform},
     trigger,
 };
 use anyhow::{anyhow, Context};
-use std::time::Duration;
+use humantime::parse_duration;
 
-/// Parses a command from a string and executes it on the pipeline thanks to the ControlHandle.
-///
-/// ## Command Examples
-/// ```sh
-/// rapl:sources pause
-/// rapl:sources run
-/// rapl:sources trigger every 5s
-/// outputs pause
-/// ```
-///
-/// ## Command Syntax
-///
-/// ```bnf
-/// [plugin:]element command [options...]
-/// ```
-pub async fn parse_and_run(command: String, handle: &ControlHandle) -> anyhow::Result<()> {
-    fn parse_source_command(args: &[&str]) -> anyhow::Result<SourceCmd> {
-        match args {
-            ["pause"] => Ok(SourceCmd::Pause),
-            ["run"] => Ok(SourceCmd::Run),
-            ["stop"] => Ok(SourceCmd::Stop),
-            ["trigger", "every", interval_str] => {
-                let poll_interval = parse_duration(interval_str)?;
-                let flush_interval = poll_interval;
-                let trigger = trigger::builder::time_interval(poll_interval)
-                    .flush_interval(flush_interval)
-                    .build()
-                    .with_context(|| {
-                        format!("invalid trigger (poll every {poll_interval:?}, flush every {flush_interval:?})")
-                    })?;
-                Ok(SourceCmd::SetTrigger(Some(trigger)))
-            }
-            _ => Err(anyhow!("invalid arguments for source command: {args:?}")),
-        }
-    }
-
-    fn parse_transform_command(args: &[&str]) -> anyhow::Result<TransformCmd> {
-        match args {
-            ["enable"] => Ok(TransformCmd::Enable),
-            ["disable"] => Ok(TransformCmd::Disable),
-            _ => Err(anyhow!("invalid arguments for transform command: {args:?}")),
-        }
-    }
-
-    fn parse_output_command(args: &[&str]) -> anyhow::Result<OutputCmd> {
-        match args {
-            ["pause"] => Ok(OutputCmd::Pause),
-            ["run"] => Ok(OutputCmd::Run),
-            ["stop"] => Ok(OutputCmd::Stop),
-            _ => Err(anyhow!("invalid arguments for output command: {args:?}")),
-        }
-    }
-
-    async fn run_command(handle: ScopedControlHandle<'_>, element: &str, args: &[&str]) -> anyhow::Result<()> {
-        match element {
-            "source" | "sources" => handle.control_sources(parse_source_command(args)?).await,
-            "transform" | "transforms" => handle.control_transforms(parse_transform_command(args)?).await,
-            "output" | "outputs" => handle.control_outputs(parse_output_command(args)?).await,
-            _ => {
-                return Err(anyhow!(
-                    "invalid element \"{element}\", it should be source, transform or output"
-                ))
-            }
-        }
-        Ok(())
-    }
-
-    let parts: Vec<&str> = command.trim().split(' ').map(|s| s.trim()).collect();
-    let scope: Vec<&str> = parts.first().context("missing scope")?.split(':').collect();
-    let args: &[&str] = &parts[1..];
-    match scope[..] {
-        [plugin_name, element] => {
-            let handle = handle.plugin(plugin_name);
-            run_command(handle, element, args).await?;
-        }
-        [element] => {
-            let handle = handle.all();
-            run_command(handle, element, args).await?;
-        }
-        _ => {
-            return Err(anyhow!(
-                "invalid scope {}, expected something like plugin_name:element or element",
-                parts[0]
-            ))
-        }
-    };
-    Ok(())
+pub enum Command {
+    Control(Vec<ControlMessage>),
+    Shutdown,
 }
 
-/// Minimal duration parsing. Accepts inputs like `"2min"`, `"5s"`, `"5.17s"` and `"100ms"`.
-fn parse_duration(d: &str) -> anyhow::Result<Duration> {
-    fn parse_f64(number: &str) -> anyhow::Result<f64> {
-        number.parse().with_context(|| format!("invalid float \"{number}\""))
+impl Command {
+    pub async fn run(self, handle: &AnonymousControlHandle) -> Result<(), ControlError> {
+        match self {
+            Command::Control(messages) => {
+                for msg in messages {
+                    handle.send(msg).await?;
+                }
+                Ok(())
+            }
+            Command::Shutdown => {
+                handle.shutdown();
+                Ok(())
+            }
+        }
     }
-    fn parse_u64(number: &str) -> anyhow::Result<u64> {
-        number.parse().with_context(|| format!("invalid integer \"{number}\""))
+}
+
+/// Parses a command from a string.
+///
+/// ## Available commands
+///
+/// - `shutdown` or `stop`: shutdowns the measurement pipeline
+/// - `control <SELECTOR> [ARGS...]`: reconfigures a part of the pipeline (see below)
+///
+/// ### Control arguments
+///
+/// The available options for `control` depend on the kind of element that the selector targets.
+///
+/// Options available on any element (sources, transforms and outputs):
+///     - `pause` or `disable`: pauses a source, transform or output
+///     - `resume` or `enable`: resumes a source, transform or output
+///
+/// Options available on sources and outputs (not transforms):
+///     - `stop`: stops and destroys the source or output
+///
+/// Options available on sources only:
+///     - `set-period <Duration>`: changes the time period between two measurements (only works if the source is a "managed" source)
+///     - `trigger-now`: requests Alumet to poll the source (only works if the source enables manual trigger)
+///
+pub fn parse(command: &str) -> anyhow::Result<Command> {
+    fn parse_control_args(selector: ElementSelector, args: &[&str]) -> anyhow::Result<Vec<ControlMessage>> {
+        fn msg_config_source(selector: SourceSelector, command: source::ConfigureCommand) -> ControlMessage {
+            ControlMessage::Source(source::ControlMessage::Configure(source::ConfigureMessage {
+                selector,
+                command,
+            }))
+        }
+
+        fn msg_config_transform(selector: TransformSelector, new_state: transform::TaskState) -> ControlMessage {
+            ControlMessage::Transform(transform::ControlMessage { selector, new_state })
+        }
+
+        fn msg_config_output(selector: OutputSelector, new_state: output::TaskState) -> ControlMessage {
+            ControlMessage::Output(output::ControlMessage { selector, new_state })
+        }
+
+        match args {
+            [] => Err(anyhow!("missing arguments after the selector")),
+            ["pause"] | ["disable"] => match selector {
+                ElementSelector::Source(sel) => Ok(vec![msg_config_source(sel, source::ConfigureCommand::Pause)]),
+                ElementSelector::Transform(sel) => Ok(vec![msg_config_transform(sel, transform::TaskState::Disabled)]),
+                ElementSelector::Output(sel) => Ok(vec![msg_config_output(sel, output::TaskState::Pause)]),
+                ElementSelector::Any(sel) => {
+                    let for_sources = msg_config_source(sel.clone().into(), source::ConfigureCommand::Pause);
+                    let for_transforms = msg_config_transform(sel.clone().into(), transform::TaskState::Disabled);
+                    let for_outputs = msg_config_output(sel.into(), output::TaskState::Pause);
+                    Ok(vec![for_sources, for_transforms, for_outputs])
+                }
+            },
+            ["resume"] | ["enable"] => match selector {
+                ElementSelector::Source(sel) => Ok(vec![msg_config_source(sel, source::ConfigureCommand::Resume)]),
+                ElementSelector::Transform(sel) => Ok(vec![msg_config_transform(sel, transform::TaskState::Enabled)]),
+                ElementSelector::Output(sel) => Ok(vec![msg_config_output(sel, output::TaskState::Run)]),
+                ElementSelector::Any(sel) => {
+                    let for_sources = msg_config_source(sel.clone().into(), source::ConfigureCommand::Resume);
+                    let for_transforms = msg_config_transform(sel.clone().into(), transform::TaskState::Enabled);
+                    let for_outputs = msg_config_output(sel.into(), output::TaskState::Run);
+                    Ok(vec![for_sources, for_transforms, for_outputs])
+                }
+            },
+            ["stop"] => match selector {
+                ElementSelector::Source(sel) => Ok(vec![msg_config_source(sel, source::ConfigureCommand::Stop)]),
+                ElementSelector::Output(sel) => Ok(vec![msg_config_output(sel, output::TaskState::Stop)]),
+                _ => Err(anyhow!(
+                    "invalid control 'stop': it can only be applied to sources and outputs"
+                )),
+            },
+            ["set-period", period] | ["set-poll-interval", period] => match selector {
+                ElementSelector::Source(sel) => {
+                    let poll_interval = parse_duration(period)?;
+                    let spec = trigger::TriggerSpec::at_interval(poll_interval);
+                    Ok(vec![msg_config_source(sel, source::ConfigureCommand::SetTrigger(spec))])
+                }
+                _ => Err(anyhow!(
+                    "invalid control 'set-period': it can only be applied to sources"
+                )),
+            },
+            ["trigger-now"] => match selector {
+                ElementSelector::Source(sel) => {
+                    let msg = source::ControlMessage::TriggerManually(source::TriggerMessage { selector: sel });
+                    Ok(vec![ControlMessage::Source(msg)])
+                }
+                _ => Err(anyhow!(
+                    "invalid control 'trigger-now': it can only be applied to sources"
+                )),
+            },
+            _ => Err(anyhow!("invalid command")),
+        }
     }
 
-    let is_number_char = |c: char| c.is_ascii_digit() || c == '.';
-    let split_i = d
-        .find(|c| !is_number_char(c))
-        .with_context(|| format!("invalid duration \"{d}\", try something like \"5.2s\" or \"100ms\""))?;
-
-    let (number, unit) = d.split_at(split_i);
-    match unit {
-        "s" | "sec" | "seconds" => {
-            let secs = parse_f64(number)?;
-            Ok(Duration::try_from_secs_f64(secs)?)
-        }
-        "ms" | "millis" => {
-            let ms = parse_u64(number)?;
-            Ok(Duration::from_millis(ms))
-        }
-        "mn" | "min" | "minutes" => {
-            let min = parse_u64(number)?;
-            let secs = min
-                .checked_mul(60)
-                .with_context(|| format!("{min} minutes is too big"))?;
-            Ok(Duration::from_secs(secs))
+    let parts: Vec<&str> = command.split_ascii_whitespace().collect();
+    match parts[0] {
+        "shutdown" | "stop" => Ok(Command::Shutdown),
+        "control" => {
+            let selector = ElementSelector::from_str(
+                parts
+                    .get(1)
+                    .context("invalid command 'control': missing argument 'selector'")?,
+            )?;
+            let messages =
+                parse_control_args(selector, &parts[2..]).with_context(|| format!("invalid command '{command}'"))?;
+            Ok(Command::Control(messages))
         }
         _ => Err(anyhow!(
-            "Invalid duration unit \"{unit}\", try something like \"5.2s\" or \"100ms\"."
+            "unknown command '{command}'; available commands are 'shutdown' or 'control'"
         )),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::time::Duration;
-
-    use super::parse_duration;
-
-    #[test]
-    fn duration_parsing() {
-        assert_eq!(parse_duration("5s").unwrap(), Duration::from_secs(5));
-        assert_eq!(parse_duration("5.782s").unwrap(), Duration::from_millis(5782));
-        assert_eq!(parse_duration("0.1s").unwrap(), Duration::from_millis(100));
-        assert_eq!(parse_duration("5ms").unwrap(), Duration::from_millis(5));
-        assert_eq!(parse_duration("5mn").unwrap(), Duration::from_secs(60 * 5));
-
-        assert!(parse_duration("5").is_err());
-        assert!(parse_duration("1abcd").is_err());
-        assert!(parse_duration("sec").is_err());
-        assert!(parse_duration("100000000000000000000000min").is_err());
     }
 }

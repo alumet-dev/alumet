@@ -8,8 +8,8 @@ use std::{
 use alumet::{
     measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
-    pipeline::PollError,
-    plugin::AlumetStart,
+    pipeline::elements::error::PollError,
+    plugin::AlumetPluginStart,
     resources::{Resource, ResourceConsumer},
     units::{PrefixedUnit, Unit},
 };
@@ -73,7 +73,7 @@ pub struct OpenedInaMetric {
 }
 
 impl JetsonInaSource {
-    pub fn open_sensors(sensors: Vec<InaSensor>, alumet: &mut AlumetStart) -> anyhow::Result<JetsonInaSource> {
+    pub fn open_sensors(sensors: Vec<InaSensor>, alumet: &mut AlumetPluginStart) -> anyhow::Result<JetsonInaSource> {
         if sensors.is_empty() {
             return Err(anyhow!("Cannot construct a JetsonInaSource without any sensor."));
         }

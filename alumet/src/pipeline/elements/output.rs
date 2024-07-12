@@ -4,6 +4,7 @@ use std::ops::ControlFlow;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
+use anyhow::Context;
 use tokio::runtime;
 use tokio::sync::Notify;
 use tokio::task::{JoinError, JoinSet};
@@ -97,8 +98,9 @@ impl OutputControl {
         self.tasks.create_output(&mut ctx, builder);
     }
 
-    pub fn handle_message(&mut self, msg: ControlMessage) {
+    pub fn handle_message(&mut self, msg: ControlMessage) -> anyhow::Result<()> {
         self.tasks.reconfigure(msg);
+        Ok(())
     }
 
     pub fn has_task(&self) -> bool {
@@ -137,9 +139,9 @@ impl OutputControl {
 }
 
 impl TaskManager {
-    fn create_output(&mut self, ctx: &mut BuildContext, builder: Box<dyn OutputBuilder>) {
+    fn create_output(&mut self, ctx: &mut BuildContext, builder: Box<dyn OutputBuilder>) -> anyhow::Result<()> {
         // Build the output.
-        let reg = builder(ctx);
+        let reg = builder(ctx).context("output creation failed")?;
 
         // Create the necessary context.
         let rx = self.rx_provider.get(); // to receive measurements
@@ -164,6 +166,8 @@ impl TaskManager {
                 self.spawned_tasks.spawn_on(task, &self.rt_normal);
             }
         }
+        
+        Ok(())
     }
 
     fn reconfigure(&mut self, msg: ControlMessage) {

@@ -8,10 +8,12 @@ use crate::protocol::{self, RegisterReply};
 use alumet::measurement::{
     AttributeValue, MeasurementBuffer, MeasurementPoint, WrappedMeasurementType, WrappedMeasurementValue,
 };
-use alumet::pipeline::runtime::IdlePipeline;
-use alumet::pipeline::OutputContext;
+use alumet::metrics::MetricRegistry;
+use alumet::pipeline::builder::elements::OutputRegistration;
+use alumet::pipeline::elements::error::WriteError;
+use alumet::pipeline::elements::output::OutputContext;
 use alumet::plugin::rust::{deserialize_config, serialize_config, AlumetPlugin};
-use alumet::plugin::ConfigTable;
+use alumet::plugin::{AlumetPluginStart, AlumetPreStart, ConfigTable};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use tonic::transport::Channel;
@@ -82,19 +84,19 @@ impl AlumetPlugin for RelayClientPlugin {
         }))
     }
 
-    fn start(&mut self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
+    fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         let collector_uri = self.collector_uri.clone();
         let client_name = self.client_name.clone();
         let metric_ids = self.metric_ids.clone();
 
         // The output cannot be created right now: we need the tokio Runtime (see below).
-        alumet.add_output_builder(move |pipeline| {
+        alumet.add_output_builder(move |ctx| {
             log::info!("Connecting to gRPC server {collector_uri}...");
 
             // Connect to gRPC server, using the tokio runtime in which Alumet will trigger the output.
             // We also store the runtime handle, for use in `pre_pipeline_start`.
             // This is important because a Tonic gRPC client can only be used from the runtime that it has been initialized with.
-            let rt = pipeline.async_runtime_handle();
+            let rt = ctx.async_runtime();
 
             let grpc_client = rt
                 .block_on(MetricCollectorClient::connect(collector_uri))
@@ -106,13 +108,16 @@ impl AlumetPlugin for RelayClientPlugin {
                 metric_ids,
             };
             log::info!("Connected successfully.");
-
-            Ok(Box::new(RelayOutput { client }))
+            let output = Box::new(RelayOutput { client });
+            Ok(OutputRegistration {
+                name: ctx.output_name("grpc"),
+                output,
+            })
         });
         Ok(())
     }
 
-    fn pre_pipeline_start(&mut self, pipeline: &IdlePipeline) -> anyhow::Result<()> {
+    fn pre_pipeline_start(&mut self, alumet: &mut AlumetPreStart) -> anyhow::Result<()> {
         // The plugins have registered their metrics, send them to the server.
         // TODO get notified of late metric registration?
 
@@ -131,7 +136,7 @@ impl AlumetPlugin for RelayClientPlugin {
             client_name,
             metric_ids,
         };
-        rt.block_on(client.register_metrics(pipeline))?;
+        rt.block_on(client.register_metrics(alumet.metrics()))?;
         Ok(())
     }
 
@@ -145,11 +150,7 @@ struct RelayOutput {
 }
 
 impl alumet::pipeline::Output for RelayOutput {
-    fn write(
-        &mut self,
-        measurements: &MeasurementBuffer,
-        _ctx: &OutputContext,
-    ) -> Result<(), alumet::pipeline::WriteError> {
+    fn write(&mut self, measurements: &MeasurementBuffer, _ctx: &OutputContext) -> Result<(), WriteError> {
         // Acquire the client.
         let client = &mut self.client;
         // Get a handle to the current tokio runtime. This works because Alumet outputs are executed inside of a tokio runtime.
@@ -245,9 +246,9 @@ impl RelayClient {
         Ok(())
     }
 
-    async fn register_metrics(&mut self, pipeline: &IdlePipeline) -> anyhow::Result<()> {
-        let definitions: Vec<protocol::metric_definitions::MetricDef> = pipeline
-            .metric_iter()
+    async fn register_metrics(&mut self, metrics: &MetricRegistry) -> anyhow::Result<()> {
+        let definitions: Vec<protocol::metric_definitions::MetricDef> = metrics
+            .iter()
             .map(|(id, metric)| protocol::metric_definitions::MetricDef {
                 id_for_agent: id.as_u64(),
                 name: metric.name.clone(),

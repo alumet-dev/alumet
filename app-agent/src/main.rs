@@ -15,7 +15,7 @@ use env_logger::Env;
 use plugin_csv::CsvPlugin;
 use plugin_perf::PerfPlugin;
 use plugin_rapl::RaplPlugin;
-use plugin_socket_control::SocketControlPlugin;
+// use plugin_socket_control::SocketControlPlugin;
 use serde::{Deserialize, Serialize};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -28,7 +28,7 @@ fn main() {
     let args = Cli::parse();
 
     // Specifies the plugins that we want to load.
-    let plugins = static_plugins![RaplPlugin, CsvPlugin, SocketControlPlugin, PerfPlugin];
+    let plugins = static_plugins![RaplPlugin, CsvPlugin, PerfPlugin];
 
     // Build the measurement agent.
     let mut agent = AgentBuilder::new(plugins)
@@ -53,7 +53,7 @@ fn main() {
     apply_config(&mut agent, &mut agent_config, args);
 
     // Start the measurement.
-    let mut running_agent = agent.start(agent_config).unwrap_or_else(|err| {
+    let running_agent = agent.start(agent_config).unwrap_or_else(|err| {
         log::error!("{err:?}");
         if let Some(_) = err.downcast_ref::<InvalidConfig>() {
             log::error!("HINT: You could try to regenerate the configuration by running `{} regen-config` (use --help to get more information).", env!("CARGO_BIN_NAME"));

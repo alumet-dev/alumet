@@ -47,7 +47,7 @@ impl AlumetPlugin for RaplPlugin {
         Ok(Box::new(RaplPlugin { config }))
     }
 
-    fn start(&mut self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
+    fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
         let mut use_perf = !self.config.no_perf_events;
         let mut use_powercap = true;
         let mut check_consistency = true;

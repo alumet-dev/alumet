@@ -15,6 +15,7 @@ use tokio_util::sync::CancellationToken;
 use super::error::PollError;
 use crate::measurement::{MeasurementAccumulator, MeasurementBuffer, Timestamp};
 use crate::metrics::MetricRegistry;
+use crate::pipeline::builder::context::SourceBuildContext;
 use crate::pipeline::builder::elements::SourceBuilder;
 use crate::pipeline::trigger::{Trigger, TriggerConstraints, TriggerReason, TriggerSpec};
 use crate::pipeline::util::matching::SourceSelector;
@@ -35,8 +36,8 @@ pub(crate) struct SourceControl {
     tasks: TaskManager,
     /// Generates unique names for source tasks.
     names: NameGenerator,
-    /// Read-only access to the metrics.
-    metrics: registry::MetricReader,
+    /// Read-only and write-only access to the metrics.
+    metrics: (registry::MetricReader, registry::MetricSender),
 }
 
 struct TaskManager {
@@ -69,6 +70,8 @@ struct TaskManager {
 
 struct BuildContext<'a> {
     metrics: &'a MetricRegistry,
+    metrics_r: &'a registry::MetricReader,
+    metrics_tx: &'a registry::MetricSender,
     namegen: &'a mut ScopedNameGenerator,
 }
 
@@ -79,7 +82,7 @@ impl SourceControl {
         in_tx: mpsc::Sender<MeasurementBuffer>,
         rt_normal: runtime::Handle,
         rt_priority: runtime::Handle,
-        metrics: registry::MetricReader,
+        metrics: (registry::MetricReader, registry::MetricSender),
     ) -> Self {
         Self {
             tasks: TaskManager {
@@ -96,40 +99,50 @@ impl SourceControl {
         }
     }
 
-    pub fn create_sources(&mut self, sources: Vec<(PluginName, SourceBuilder)>) {
-        let metrics = self.metrics.blocking_read();
+    pub fn create_sources(&mut self, sources: Vec<(PluginName, SourceBuilder)>) -> anyhow::Result<()> {
+        let metrics = self.metrics.0.blocking_read();
         for (plugin, builder) in sources {
             let mut ctx = BuildContext {
                 metrics: &metrics,
+                metrics_r: &self.metrics.0,
+                metrics_tx: &self.metrics.1,
                 namegen: self.names.namegen_for_scope(&plugin),
             };
-            self.tasks.create_source(&mut ctx, builder);
+            self.tasks.create_source(&mut ctx, builder)?;
         }
+        Ok(())
     }
 
-    pub fn create_source(&mut self, plugin: PluginName, builder: SourceBuilder) {
-        let metrics = self.metrics.blocking_read();
+    pub fn create_source(&mut self, plugin: PluginName, builder: SourceBuilder) -> anyhow::Result<()> {
+        let metrics = self.metrics.0.blocking_read();
         let mut ctx = BuildContext {
             metrics: &metrics,
+            metrics_r: &self.metrics.0,
+            metrics_tx: &self.metrics.1,
             namegen: self.names.namegen_for_scope(&plugin),
         };
-        self.tasks.create_source(&mut ctx, builder);
+        self.tasks.create_source(&mut ctx, builder)
     }
 
-    pub fn handle_message(&mut self, msg: ControlMessage) {
+    pub fn handle_message(&mut self, msg: ControlMessage) -> anyhow::Result<()> {
         match msg {
             ControlMessage::Configure(msg) => self.tasks.reconfigure(msg),
-            ControlMessage::Create(msg) => self.create_source(msg.plugin, msg.builder.into()),
+            ControlMessage::Create(msg) => self.create_source(msg.plugin, msg.builder.into())?,
             ControlMessage::TriggerManually(msg) => self.tasks.trigger_manually(msg),
         }
+        Ok(())
     }
-    
+
     pub fn has_task(&self) -> bool {
         !self.tasks.spawned_tasks.is_empty()
     }
 
     pub async fn join_next_task(&mut self) -> Result<anyhow::Result<()>, JoinError> {
-        self.tasks.spawned_tasks.join_next().await.expect("should not be called when !has_task()")
+        self.tasks
+            .spawned_tasks
+            .join_next()
+            .await
+            .expect("should not be called when !has_task()")
     }
 
     pub async fn shutdown<F>(mut self, handle_task_result: F)
@@ -161,11 +174,11 @@ impl SourceControl {
 }
 
 impl TaskManager {
-    fn create_source(&mut self, ctx: &mut BuildContext, builder: SourceBuilder) {
+    fn create_source(&mut self, ctx: &mut BuildContext, builder: SourceBuilder) -> anyhow::Result<()> {
         match builder {
             SourceBuilder::Managed(build) => {
                 // Build the source
-                let mut reg = build(ctx);
+                let mut reg = build(ctx).context("managed source creation failed")?;
 
                 // Apply constraints on the source trigger
                 log::trace!("New managed source: {} with spec {:?}", reg.name, reg.trigger_spec);
@@ -202,7 +215,7 @@ impl TaskManager {
             SourceBuilder::Autonomous(build) => {
                 let token = self.shutdown_token.child_token();
                 let tx = self.in_tx.clone();
-                let reg = build(ctx, token.clone(), tx);
+                let reg = build(ctx, token.clone(), tx).context("autonomous source creation failed")?;
                 log::trace!("New autonomous source: {}", reg.name);
 
                 let source_task = run_autonomous(reg.name.clone(), reg.source);
@@ -214,6 +227,7 @@ impl TaskManager {
                 log::trace!("source task spawned on the runtime");
             }
         };
+        Ok(())
     }
 
     fn reconfigure(&mut self, msg: ConfigureMessage) {
@@ -254,6 +268,24 @@ impl builder::context::SourceBuildContext for BuildContext<'_> {
 
     fn source_name(&mut self, name: &str) -> SourceName {
         self.namegen.source_name(name)
+    }
+}
+
+impl builder::context::AutonomousSourceBuildContext for BuildContext<'_> {
+    fn metric_by_name(&self, name: &str) -> Option<(crate::metrics::RawMetricId, &crate::metrics::Metric)> {
+        SourceBuildContext::metric_by_name(self, name)
+    }
+
+    fn metrics_reader(&self) -> registry::MetricReader {
+        self.metrics_r.clone()
+    }
+
+    fn metrics_sender(&self) -> registry::MetricSender {
+        self.metrics_tx.clone()
+    }
+
+    fn source_name(&mut self, name: &str) -> SourceName {
+        SourceBuildContext::source_name(self, name)
     }
 }
 

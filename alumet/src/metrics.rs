@@ -18,18 +18,18 @@
 //!
 //! ## Registering new metrics
 //! Metrics can only be registered during the plugin startup phase.
-//! To register new metrics, use [`AlumetStart::create_metric`](crate::plugin::AlumetStart::create_metric)
-//! or [`AlumetStart::create_metric_untyped`](crate::plugin::AlumetStart::create_metric).
+//! To register new metrics, use [`AlumetPluginStart::create_metric`](crate::plugin::AlumetPluginStart::create_metric)
+//! or [`AlumetPluginStart::create_metric_untyped`](crate::plugin::AlumetPluginStart::create_metric).
 //! You can then pass the id around.
 //!
 //! ### Example
 //!
 //! ```no_run
-//! use alumet::plugin::AlumetStart;
+//! use alumet::plugin::AlumetPluginStart;
 //! use alumet::metrics::TypedMetricId;
 //! use alumet::units::Unit;
 //!
-//! # fn start(alumet: &mut AlumetStart) -> anyhow::Result<()> {
+//! # fn start(alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
 //! let my_metric: TypedMetricId<u64> = alumet.create_metric::<u64>(
 //!     "cpu_voltage",
 //!     Unit::Volt,
@@ -50,8 +50,8 @@ use super::units::PrefixedUnit;
 /// The complete definition of a metric (except its id).
 ///
 /// To register new metrics from your plugin, use
-/// [`AlumetStart::create_metric`](crate::plugin::AlumetStart::create_metric)
-/// or [`AlumetStart::create_metric_untyped`](crate::plugin::AlumetStart::create_metric).
+/// [`AlumetPluginStart::create_metric`](crate::plugin::AlumetPluginStart::create_metric)
+/// or [`AlumetPluginStart::create_metric_untyped`](crate::plugin::AlumetPluginStart::create_metric).
 ///
 /// See the [module docs](self).
 #[derive(Debug, Clone)]

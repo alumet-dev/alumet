@@ -34,7 +34,7 @@ pub(crate) struct PipelineControl {
     outputs: output::OutputControl,
 }
 
-pub enum ControlError {
+pub enum ControlError {    
     ChannelFull(ControlMessage),
     Shutdown,
 }
@@ -83,10 +83,12 @@ impl ScopedControlHandle {
         trigger: trigger::TriggerSpec,
     ) -> Result<(), ControlError> {
         let source_name = name.to_owned();
-        let build = move |ctx: &mut dyn builder::context::SourceBuildContext| ManagedSourceRegistration {
-            name: ctx.source_name(&source_name),
-            trigger_spec: trigger,
-            source,
+        let build = move |ctx: &mut dyn builder::context::SourceBuildContext| {
+            Ok(ManagedSourceRegistration {
+                name: ctx.source_name(&source_name),
+                trigger_spec: trigger,
+                source,
+            })
         };
         self.add_source_builder(build)
     }
@@ -132,7 +134,7 @@ impl PipelineControl {
         (control_handle, task_handle)
     }
 
-    fn handle_message(&mut self, msg: ControlMessage) {
+    fn handle_message(&mut self, msg: ControlMessage) -> anyhow::Result<()> {
         match msg {
             ControlMessage::Source(msg) => self.sources.handle_message(msg),
             ControlMessage::Transform(msg) => self.transforms.handle_message(msg),
@@ -167,7 +169,11 @@ impl PipelineControl {
                 message = rx.recv() => {
                     // A control message has been received, or the channel has been closed (should not happen).
                     match message {
-                        Some(msg) => self.handle_message(msg),
+                        Some(msg) => {
+                            if let Err(e) = self.handle_message(msg) {
+                                log::error!("error in message handling: {e:?}");
+                            }
+                        },
                         None => todo!("pipeline_control_loop#rx channel closed"),
                     }
                 },

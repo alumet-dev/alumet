@@ -1,10 +1,9 @@
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
-    pipeline::{runtime::ControlHandle, trigger::TriggerSpec, PollError, Source},
+    pipeline::{control::ScopedControlHandle, elements::error::PollError, trigger::TriggerSpec, Source},
     plugin::{
-        rust::{deserialize_config, serialize_config, AlumetPlugin},
-        AlumetStart, ConfigTable, Plugin,
+        rust::{deserialize_config, serialize_config, AlumetPlugin}, AlumetPluginStart, AlumetPostStart, ConfigTable, Plugin
     },
     resources::{Resource, ResourceConsumer},
     units::{PrefixedUnit, Unit},
@@ -71,7 +70,7 @@ impl AlumetPlugin for Oar2Plugin {
         }))
     }
 
-    fn start(&mut self, alumet: &mut AlumetStart) -> Result<(), anyhow::Error> {
+    fn start(&mut self, alumet: &mut AlumetPluginStart) -> Result<(), anyhow::Error> {
         let cpu_metric = alumet.create_metric::<u64>(
             "cpu_time",
             PrefixedUnit::nano(Unit::Second),
@@ -134,10 +133,9 @@ impl AlumetPlugin for Oar2Plugin {
         Ok(())
     }
 
-    fn post_pipeline_start(&mut self, pipeline: &mut alumet::pipeline::runtime::RunningPipeline) -> anyhow::Result<()> {
-        let control_handle = pipeline.control_handle();
+    fn post_pipeline_start(&mut self, alumet: &mut AlumetPostStart) -> anyhow::Result<()> {
+        let control_handle = alumet.pipeline_control();
         let config_path = self.config.path.clone();
-        let plugin_name = self.name().to_owned();
 
         let metrics = self
             .metrics
@@ -151,8 +149,7 @@ impl AlumetPlugin for Oar2Plugin {
             config_path: PathBuf,
             cpu_metric: TypedMetricId<u64>,
             memory_metric: TypedMetricId<u64>,
-            control_handle: ControlHandle,
-            plugin_name: String,
+            control_handle: ScopedControlHandle,
             poll_interval: Duration,
         }
 
@@ -192,8 +189,7 @@ impl AlumetPlugin for Oar2Plugin {
                                 let source_name = job_name.to_string();
 
                                 job_detect.control_handle.add_source(
-                                    job_detect.plugin_name.clone(),
-                                    source_name,
+                                    &source_name,
                                     new_source,
                                     TriggerSpec::at_interval(job_detect.poll_interval),
                                 );
@@ -227,7 +223,6 @@ impl AlumetPlugin for Oar2Plugin {
             cpu_metric,
             memory_metric,
             control_handle,
-            plugin_name,
             poll_interval,
         };
         let mut watcher = notify::recommended_watcher(handler)?;

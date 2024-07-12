@@ -38,7 +38,7 @@ impl AlumetPlugin for NvidiaPlugin {
         Ok(Box::new(NvidiaPlugin { config }))
     }
 
-    fn start(&mut self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
+    fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
         #[cfg(feature = "nvml")]
         self.start_nvml(alumet)?;
 
@@ -62,7 +62,7 @@ impl NvidiaPlugin {
     /// This works on a device that has a desktop-class or server-class NVIDIA GPU.
     /// For Jetson edge devices, use [`start_jetson`] instead.
     #[cfg(feature = "nvml")]
-    fn start_nvml(&self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
+    fn start_nvml(&self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
         let nvml = nvml::NvmlDevices::detect(true)?;
         let stats = nvml.detection_stats();
         if stats.found_devices == 0 {
@@ -108,7 +108,7 @@ impl NvidiaPlugin {
     ///
     /// This works by querying the embedded INA sensor(s).
     #[cfg(feature = "jetson")]
-    fn start_jetson(&self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
+    fn start_jetson(&self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
         let sensors = jetson::detect_ina_sensors()?;
         if sensors.is_empty() {
             return Err(anyhow!("No INA sensor found. If you are not running on a Jetson device, disable the `jetson` feature of the plugin."));

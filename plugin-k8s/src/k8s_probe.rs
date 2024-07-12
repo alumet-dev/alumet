@@ -1,9 +1,10 @@
 use alumet::{
     measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::{MetricCreationError, TypedMetricId},
+    pipeline::elements::error::PollError,
     plugin::{
         util::{CounterDiff, CounterDiffUpdate},
-        AlumetStart,
+        AlumetPluginStart,
     },
     resources::{Resource, ResourceConsumer},
     units::{PrefixedUnit, Unit},
@@ -51,11 +52,7 @@ impl K8SProbe {
 }
 
 impl alumet::pipeline::Source for K8SProbe {
-    fn poll(
-        &mut self,
-        measurements: &mut MeasurementAccumulator,
-        timestamp: Timestamp,
-    ) -> Result<(), alumet::pipeline::PollError> {
+    fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         let mut file_buffer = String::new();
         let metrics: CgroupV2Metric = cgroup_v2::gather_value(&mut self.cgroup_v2_metric_file, &mut file_buffer)?;
         let diff_tot = match self.time_tot.update(metrics.time_used_tot) {
@@ -123,7 +120,7 @@ impl alumet::pipeline::Source for K8SProbe {
 }
 
 impl Metrics {
-    pub fn new(alumet: &mut AlumetStart) -> Result<Self, MetricCreationError> {
+    pub fn new(alumet: &mut AlumetPluginStart) -> Result<Self, MetricCreationError> {
         let usec: PrefixedUnit = PrefixedUnit::micro(Unit::Second);
         Ok(Self {
             time_used_tot: alumet.create_metric::<u64>(

@@ -4,9 +4,9 @@
 
 use anyhow::{anyhow, Context};
 
-use crate::plugin::{AlumetStart, Plugin};
+use crate::plugin::{AlumetPluginStart, Plugin};
 
-use super::{AlumetPostStart, ConfigTable};
+use super::{phases::AlumetPreStart, AlumetPostStart, ConfigTable};
 
 /// Trait for Alumet plugins written in Rust.
 ///
@@ -28,6 +28,7 @@ pub trait AlumetPlugin {
 
     /// Returns the default configuration of the plugin.
     fn default_config() -> anyhow::Result<Option<ConfigTable>> {
+        // TODO remove default impl because every plugin should manage its config
         Ok(None)
     }
 
@@ -36,13 +37,22 @@ pub trait AlumetPlugin {
     /// ## Plugin restart
     /// A plugin can be started and stopped multiple times, for instance when ALUMET switches from monitoring to profiling mode.
     /// [`AlumetPlugin::stop`] is guaranteed to be called between two calls of [`AlumetPlugin::start`].
-    fn start(&mut self, alumet: &mut AlumetStart) -> anyhow::Result<()>;
+    fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()>;
 
     /// Stops the plugin.
     ///
     /// This method is called _after_ all the metrics, sources and outputs previously registered
     /// by [`AlumetPlugin::start`] have been stopped and unregistered.
     fn stop(&mut self) -> anyhow::Result<()>;
+
+    /// Function called after the startup phase but before the operation phase,
+    /// i.e. the measurement pipeline has not started yet.
+    ///
+    /// It can be used, for instance, to obtain the list of all registered metrics.
+    fn pre_pipeline_start(&mut self, alumet: &mut AlumetPreStart) -> anyhow::Result<()> {
+        let _ = alumet; // do nothing by default
+        Ok(())
+    }
 
     /// Function called after the beginning of the operation phase,
     /// i.e. the measurement pipeline has started.
@@ -65,12 +75,16 @@ impl<P: AlumetPlugin> Plugin for P {
         P::version() as _
     }
 
-    fn start(&mut self, alumet: &mut AlumetStart) -> anyhow::Result<()> {
+    fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         AlumetPlugin::start(self, alumet)
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
         AlumetPlugin::stop(self)
+    }
+
+    fn pre_pipeline_start(&mut self, alumet: &mut AlumetPreStart) -> anyhow::Result<()> {
+        AlumetPlugin::pre_pipeline_start(self, alumet)
     }
 
     fn post_pipeline_start(&mut self, alumet: &mut AlumetPostStart) -> anyhow::Result<()> {

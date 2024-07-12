@@ -1,8 +1,11 @@
 use std::collections::HashSet;
 
 use alumet::{
-    measurement::{AttributeValue, WrappedMeasurementValue},
-    pipeline::Output,
+    measurement::{AttributeValue, MeasurementBuffer, WrappedMeasurementValue},
+    pipeline::{
+        elements::{error::WriteError, output::OutputContext},
+        Output,
+    },
     plugin::rust::{deserialize_config, serialize_config, AlumetPlugin},
 };
 use anyhow::Context;
@@ -34,7 +37,7 @@ impl AlumetPlugin for InfluxDbPlugin {
         Ok(Box::new(InfluxDbPlugin { config: Some(config) }))
     }
 
-    fn start(&mut self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
+    fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
         let config = self.config.take().unwrap();
 
         // Connect to InfluxDB to detect configuration errors early.
@@ -77,15 +80,11 @@ struct InfluxDbOutput {
 }
 
 impl Output for InfluxDbOutput {
-    fn write(
-        &mut self,
-        measurements: &alumet::measurement::MeasurementBuffer,
-        ctx: &alumet::pipeline::OutputContext,
-    ) -> Result<(), alumet::pipeline::WriteError> {
+    fn write(&mut self, measurements: &MeasurementBuffer, ctx: &OutputContext) -> Result<(), WriteError> {
         // Build the data to send to InfluxDB.
         let mut builder = LineProtocolData::builder();
         for m in measurements {
-            let metric = ctx.metrics.with_id(&m.metric).unwrap();
+            let metric = ctx.metrics.by_id(&m.metric).unwrap();
             builder.measurement(&metric.name);
 
             // Resources and consumers are translated to tags.

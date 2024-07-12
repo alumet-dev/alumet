@@ -5,8 +5,11 @@ use std::{
     time::Duration,
 };
 
-use crate::pipeline::{self, trigger::TriggerConstraints};
-use crate::plugin::{AlumetPostStart, AlumetStart, ConfigTable, Plugin, PluginMetadata};
+use crate::plugin::{AlumetPluginStart, AlumetPostStart, ConfigTable, Plugin, PluginMetadata};
+use crate::{
+    pipeline::{self, trigger::TriggerConstraints},
+    plugin::AlumetPreStart,
+};
 
 /// Easy-to-use skeleton for building a measurement application based on
 /// the core of Alumet, aka an "agent".
@@ -16,7 +19,7 @@ use crate::plugin::{AlumetPostStart, AlumetStart, ConfigTable, Plugin, PluginMet
 /// ## Example
 /// ```no_run
 /// use alumet::agent::{static_plugins, AgentBuilder, Agent};
-/// use alumet::plugin::{AlumetStart, ConfigTable};
+/// use alumet::plugin::{AlumetPluginStart, ConfigTable};
 /// use alumet::plugin::rust::AlumetPlugin;
 ///
 /// # struct PluginA;
@@ -33,7 +36,7 @@ use crate::plugin::{AlumetPostStart, AlumetStart, ConfigTable, Plugin, PluginMet
 /// #         todo!()
 /// #     }
 /// #
-/// #     fn start(&mut self, alumet: &mut AlumetStart) -> anyhow::Result<()> {
+/// #     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
 /// #         todo!()
 /// #     }
 /// #
@@ -65,9 +68,10 @@ pub struct AgentBuilder {
     plugins: Vec<PluginMetadata>,
     config: Option<AgentConfigSource>,
     default_app_config: toml::Table,
-    f_after_plugin_init: fn(&mut Vec<Box<dyn Plugin>>),
-    f_after_plugin_start: fn(&pipeline::Builder),
-    f_after_operation_begin: fn(&mut pipeline::MeasurementPipeline),
+    f_after_plugins_init: Box<dyn FnOnce(&mut Vec<Box<dyn Plugin>>)>,
+    f_after_plugins_start: Box<dyn FnOnce(&pipeline::Builder)>,
+    f_before_operation_begin: Box<dyn FnOnce(&pipeline::Builder)>,
+    f_after_operation_begin: Box<dyn FnOnce(&mut pipeline::MeasurementPipeline)>,
     allow_no_metrics: bool,
     source_constraints: TriggerConstraints,
 }
@@ -189,17 +193,17 @@ impl Agent {
             1 => log::info!("1 plugin initialized."),
             n => log::info!("{n} plugins initialized."),
         };
-        (self.settings.f_after_plugin_init)(&mut initialized_plugins);
+        (self.settings.f_after_plugins_init)(&mut initialized_plugins);
 
         // Start-up phase.
         log::info!("Starting the plugins...");
         let mut pipeline_builder = pipeline::Builder::new();
         pipeline_builder.set_trigger_constraints(self.settings.source_constraints);
 
-        // Call start(AlumetStart) on each plugin.
+        // Call start(AlumetPluginStart) on each plugin.
         for plugin in initialized_plugins.iter_mut() {
             log::debug!("Starting plugin {} v{}", plugin.name(), plugin.version());
-            let mut start_context = AlumetStart {
+            let mut start_context = AlumetPluginStart {
                 pipeline_builder: &mut pipeline_builder,
                 current_plugin: pipeline::PluginName(plugin.name().to_owned()),
             };
@@ -208,20 +212,37 @@ impl Agent {
                 .with_context(|| format!("Plugin failed to start: {} v{}", plugin.name(), plugin.version()))?;
         }
         print_stats(&pipeline_builder, &initialized_plugins);
-        (self.settings.f_after_plugin_start)(&pipeline_builder);
+        (self.settings.f_after_plugins_start)(&pipeline_builder);
+
+        // Call pre_pipeline_start(AlumetPreStart) on each plugin.
+        log::info!("Running pre-pipeline-start hooks...");
+        for plugin in initialized_plugins.iter_mut() {
+            let mut ctx = AlumetPreStart {
+                current_plugin: pipeline::PluginName(plugin.name().to_owned()),
+                pipeline_builder: &mut pipeline_builder,
+            };
+            plugin.pre_pipeline_start(&mut ctx).with_context(|| {
+                format!(
+                    "Plugin pre_pipeline_start failed: {} v{}",
+                    plugin.name(),
+                    plugin.version()
+                )
+            })?;
+        }
+        (self.settings.f_before_operation_begin)(&pipeline_builder);
 
         // Operation: the pipeline is running.
         log::info!("Starting the measurement pipeline...");
         let mut pipeline = pipeline_builder.build().context("Pipeline failed to build")?;
 
         // Call post_pipeline_start(AlumetPostStart) on each plugin.
+        log::info!("Running post-pipeline-start hooks...");
         for plugin in initialized_plugins.iter_mut() {
-            let mut post_start_context = AlumetPostStart {
-                pipeline: &mut pipeline,
+            let mut ctx = AlumetPostStart {
                 current_plugin: pipeline::PluginName(plugin.name().to_owned()),
+                pipeline: &mut pipeline,
             };
-
-            plugin.post_pipeline_start(&mut post_start_context).with_context(|| {
+            plugin.post_pipeline_start(&mut ctx).with_context(|| {
                 format!(
                     "Plugin post_pipeline_start failed: {} v{}",
                     plugin.name(),
@@ -434,9 +455,10 @@ impl AgentBuilder {
             plugins,
             config: Some(AgentConfigSource::FilePath(PathBuf::from("alumet-config.toml"))),
             default_app_config: toml::Table::new(),
-            f_after_plugin_init: |_| (),
-            f_after_plugin_start: |_| (),
-            f_after_operation_begin: |_| (),
+            f_after_plugins_init: Box::new(|_| ()),
+            f_after_plugins_start: Box::new(|_| ()),
+            f_before_operation_begin: Box::new(|_| ()),
+            f_after_operation_begin: Box::new(|_| ()),
             allow_no_metrics: false,
             source_constraints: TriggerConstraints::default(),
         }
@@ -481,24 +503,32 @@ impl AgentBuilder {
     /// Defines a function to run after the plugin initialization phase.
     ///
     /// If a function has already been defined, it is replaced.
-    pub fn after_plugin_init(mut self, f: fn(&mut Vec<Box<dyn Plugin>>)) -> Self {
-        self.f_after_plugin_init = f;
+    pub fn after_plugin_init<F: FnOnce(&mut Vec<Box<dyn Plugin>>) + 'static>(mut self, f: F) -> Self {
+        self.f_after_plugins_init = Box::new(f);
         self
     }
 
     /// Defines a function to run after the plugin start-up phase.
     ///
     /// If a function has already been defined, it is replaced.
-    pub fn after_plugin_start(mut self, f: fn(&pipeline::Builder)) -> Self {
-        self.f_after_plugin_start = f;
+    pub fn after_plugin_start<F: FnOnce(&pipeline::Builder) + 'static>(mut self, f: F) -> Self {
+        self.f_after_plugins_start = Box::new(f);
+        self
+    }
+
+    // Defines a function to run after the plugins have started but before the pipeline starts.
+    ///
+    /// If a function has already been defined, it is replaced.
+    pub fn before_operation_begin<F: FnOnce(&pipeline::Builder) + 'static>(mut self, f: F) -> Self {
+        self.f_before_operation_begin = Box::new(f);
         self
     }
 
     /// Defines a function to run just after the measurement pipeline has started.
     ///
     /// If a function has already been defined, it is replaced.
-    pub fn after_operation_begin(mut self, f: fn(&mut pipeline::MeasurementPipeline)) -> Self {
-        self.f_after_operation_begin = f;
+    pub fn after_operation_begin<F: FnOnce(&mut pipeline::MeasurementPipeline) + 'static>(mut self, f: F) -> Self {
+        self.f_after_operation_begin = Box::new(f);
         self
     }
 
@@ -554,7 +584,7 @@ mod tests {
     use serde::Serialize;
 
     use crate::plugin::rust::{serialize_config, AlumetPlugin};
-    use crate::plugin::{AlumetStart, ConfigTable};
+    use crate::plugin::{AlumetPluginStart, ConfigTable};
 
     #[test]
     fn parse_config_file() {
@@ -627,7 +657,7 @@ mod tests {
             todo!()
         }
 
-        fn start(&mut self, _alumet: &mut AlumetStart) -> anyhow::Result<()> {
+        fn start(&mut self, _alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
             todo!()
         }
 

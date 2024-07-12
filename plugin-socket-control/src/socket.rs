@@ -1,6 +1,6 @@
 use std::{path::Path, time::Duration};
 
-use alumet::pipeline::runtime::ControlHandle;
+use alumet::pipeline::control::{AnonymousControlHandle, ScopedControlHandle};
 use anyhow::Context;
 use tokio::{
     net::{unix::SocketAddr, UnixListener, UnixStream},
@@ -17,7 +17,10 @@ pub struct SocketControl {
 }
 
 impl SocketControl {
-    pub fn start_new<P: AsRef<Path>>(alumet_handle: ControlHandle, socket_path: P) -> anyhow::Result<SocketControl> {
+    pub fn start_new<P: AsRef<Path>>(
+        alumet_handle: ScopedControlHandle,
+        socket_path: P,
+    ) -> anyhow::Result<SocketControl> {
         // get socket_path as a PathBuf, so that we can send it across threads
         let socket_path = socket_path.as_ref().to_owned();
 
@@ -51,7 +54,7 @@ impl SocketControl {
                     },
                     new_connection = listener.accept() => {
                         // handle the new connection
-                        let alumet_handle = alumet_handle.clone();
+                        let alumet_handle = alumet_handle.anonymous().clone();
                         let rt_handle = rt_handle.clone();
 
                         rt_handle.spawn(async move {
@@ -88,14 +91,18 @@ impl SocketControl {
 async fn handle_socket_connection(
     stream: UnixStream,
     _addr: SocketAddr,
-    alumet_handle: &ControlHandle,
+    alumet_handle: &AnonymousControlHandle,
 ) -> anyhow::Result<()> {
+    use anyhow::anyhow;
     use tokio::io::{AsyncBufReadExt, BufStream};
 
     let buf = BufStream::new(stream);
     let mut lines = buf.lines();
     while let Some(line) = lines.next_line().await? {
-        command::parse_and_run(line, alumet_handle).await?;
+        let cmd = command::parse(&line)?;
+        cmd.run(alumet_handle)
+            .await
+            .map_err(|e| anyhow!("failed to run command {line}: {e}"))?;
     }
     Ok(())
 }

@@ -1,11 +1,12 @@
 use std::marker::PhantomData;
 
+use crate::metrics::MetricRegistry;
 use crate::pipeline::builder::context::OutputBuildContext;
 use crate::pipeline::builder::elements::{
     AutonomousSourceBuilder, ManagedSourceBuilder, ManagedSourceRegistration, OutputBuilder, OutputRegistration,
     SourceBuilder, TransformBuilder, TransformRegistration,
 };
-use crate::pipeline::builder;
+use crate::pipeline::{builder, registry};
 use crate::{
     measurement::{MeasurementType, WrappedMeasurementType},
     metrics::{Metric, MetricCreationError, RawMetricId, TypedMetricId},
@@ -19,23 +20,16 @@ use crate::{
 /// such as registering new measurement sources.
 ///
 /// ## Note for applications
-/// You should not create `AlumetStart` manually, build an [`Agent`](crate::agent::Agent) instead.
-pub struct AlumetStart<'a> {
+/// You should not create `AlumetPluginStart` manually, build an [`Agent`](crate::agent::Agent) instead.
+pub struct AlumetPluginStart<'a> {
     pub(crate) current_plugin: PluginName,
     pub(crate) pipeline_builder: &'a mut pipeline::Builder,
 }
 
-impl<'a> AlumetStart<'a> {
+impl<'a> AlumetPluginStart<'a> {
     /// Returns the name of the plugin that is being started.
     fn current_plugin_name(&self) -> PluginName {
         self.current_plugin.clone()
-    }
-
-    pub fn new(pipeline_builder: &'a mut pipeline::Builder, plugin: PluginName) -> AlumetStart<'a> {
-        Self {
-            pipeline_builder,
-            current_plugin: plugin,
-        }
     }
 
     /// Creates a new metric with a measurement type `T` (checked at compile time).
@@ -81,11 +75,11 @@ impl<'a> AlumetStart<'a> {
     /// Adds a measurement source to the Alumet pipeline.
     pub fn add_source(&mut self, source: Box<dyn Source>, trigger: trigger::TriggerSpec) {
         let plugin = self.current_plugin_name();
-        let builder = |ctx: &mut dyn builder::context::SourceBuildContext| ManagedSourceRegistration {
+        let builder = |ctx: &mut dyn builder::context::SourceBuildContext| Ok(ManagedSourceRegistration {
             name: ctx.source_name(""),
             trigger_spec: trigger,
             source,
-        };
+        });
         self.pipeline_builder
             .add_source_builder(plugin, SourceBuilder::Managed(Box::new(builder)))
     }
@@ -119,13 +113,14 @@ impl<'a> AlumetStart<'a> {
     /// use std::time::SystemTime;
     /// use alumet::measurement::{MeasurementBuffer, MeasurementPoint, Timestamp};
     /// use alumet::units::Unit;
-    /// # use alumet::plugin::AlumetStart;
+    /// use alumet::pipeline::builder::elements::AutonomousSourceRegistration;
+    /// # use alumet::plugin::AlumetPluginStart;
     ///
-    /// # let alumet: &AlumetStart = todo!();
+    /// # let alumet: &AlumetPluginStart = todo!();
     /// let metric = alumet.create_metric::<u64>("my_metric", Unit::Second, "...").unwrap();
-    /// alumet.add_autonomous_source(move |_, cancel_token, tx| {
+    /// alumet.add_autonomous_source_builder(move |ctx, cancel_token, tx| {
     ///     let out_tx = tx.clone();
-    ///     async move {
+    ///     let source = Box::pin(async move {
     ///         let mut buf = MeasurementBuffer::new();
     ///         while !cancel_token.is_cancelled() {
     ///             let timestamp = Timestamp::now();
@@ -144,7 +139,11 @@ impl<'a> AlumetStart<'a> {
     ///             buf.clear();
     ///         }
     ///         Ok(())
-    ///     }
+    ///     });
+    ///     Ok(AutonomousSourceRegistration {
+    ///         name: ctx.source_name("my-source"),
+    ///         source,
+    ///     })
     /// })
     /// ```
     pub fn add_autonomous_source_builder<F: AutonomousSourceBuilder + 'static>(&mut self, builder: F) {
@@ -156,10 +155,10 @@ impl<'a> AlumetStart<'a> {
     /// Adds a transform step to the Alumet pipeline.
     pub fn add_transform(&mut self, transform: Box<dyn Transform>) {
         let plugin = self.current_plugin_name();
-        let builder = |ctx: &mut dyn builder::context::TransformBuildContext| TransformRegistration {
+        let builder = |ctx: &mut dyn builder::context::TransformBuildContext| Ok(TransformRegistration {
             name: ctx.transform_name(""),
             transform,
-        };
+        });
         self.pipeline_builder.add_transform_builder(plugin, Box::new(builder));
     }
 
@@ -172,10 +171,10 @@ impl<'a> AlumetStart<'a> {
     /// Adds an output to the Alumet pipeline.
     pub fn add_output(&mut self, output: Box<dyn Output>) {
         let plugin = self.current_plugin_name();
-        let builder = |ctx: &mut dyn OutputBuildContext| OutputRegistration {
+        let builder = |ctx: &mut dyn OutputBuildContext| Ok(OutputRegistration {
             name: ctx.output_name(""),
             output,
-        };
+        });
         self.pipeline_builder.add_output_builder(plugin, Box::new(builder));
     }
 
@@ -193,6 +192,33 @@ impl<'a> AlumetStart<'a> {
     }
 }
 
+/// Structure passed to plugins for the pre start-up phase.
+pub struct AlumetPreStart<'a> {
+    pub(crate) current_plugin: PluginName,
+    pub(crate) pipeline_builder: &'a mut pipeline::Builder,
+}
+
+impl<'a> AlumetPreStart<'a> {
+    /// Returns the name of the plugin that has started.
+    pub fn current_plugin_name(&self) -> PluginName {
+        self.current_plugin.clone()
+    }
+
+    /// Returns a read-only access to the [`MetricRegistry`].
+    pub fn metrics(&self) -> &MetricRegistry {
+        &self.pipeline_builder.metrics
+    }
+
+    /// Registers a listener to get notified of all the new registered metrics.
+    pub fn add_metric_listener<F: Fn(Vec<(RawMetricId, Metric)>) -> anyhow::Result<()> + Send + 'static>(
+        &mut self,
+        listener: F,
+    ) {
+        self.pipeline_builder
+            .add_metric_listener(registry::make_listener(listener))
+    }
+}
+
 /// Structure passed to plugins for the post start-up phase.
 pub struct AlumetPostStart<'a> {
     pub(crate) current_plugin: PluginName,
@@ -200,14 +226,6 @@ pub struct AlumetPostStart<'a> {
 }
 
 impl<'a> AlumetPostStart<'a> {
-    pub fn new(pipeline: &'a mut pipeline::MeasurementPipeline, plugin: PluginName) -> AlumetPostStart<'a> {
-        Self {
-            pipeline,
-            current_plugin: plugin,
-        }
-    }
-    
-    
     /// Returns the name of the plugin that has started.
     pub fn current_plugin_name(&self) -> PluginName {
         self.current_plugin.clone()

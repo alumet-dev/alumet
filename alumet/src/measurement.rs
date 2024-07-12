@@ -18,7 +18,7 @@
 //! # let timestamp = todo!();
 //! buffer.push(MeasurementPoint::new(
 //!     timestamp, // timestamp, provided by Alumet as a parameter of [Source::poll]
-//!     my_metric, // a TypedMetricId that you obtained from [AlumetStart::create_metric]
+//!     my_metric, // a TypedMetricId that you obtained from [AlumetPluginStart::create_metric]
 //!     Resource::CpuPackage { id: 0 }, // the resource that you are measuring
 //!     ResourceConsumer::LocalMachine, // the thing that consumes the resource (here the "local machine" means "no consumer, we monitor the entire cpu package")
 //!     1234, // the measurement value

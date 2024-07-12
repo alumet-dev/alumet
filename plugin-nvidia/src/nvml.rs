@@ -8,9 +8,9 @@ use alumet::units::PrefixedUnit;
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint},
     metrics::TypedMetricId,
-    pipeline::PollError,
+    pipeline::elements::error::PollError,
     plugin::util::{CounterDiff, CounterDiffUpdate},
-    plugin::AlumetStart,
+    plugin::AlumetPluginStart,
     resources::Resource,
     units::Unit,
 };
@@ -216,7 +216,7 @@ pub struct Metrics {
 }
 
 impl Metrics {
-    pub fn new(alumet: &mut AlumetStart) -> Result<Self, MetricCreationError> {
+    pub fn new(alumet: &mut AlumetPluginStart) -> Result<Self, MetricCreationError> {
         Ok(Self {
             total_energy_consumption: alumet.create_metric(
                 "nvml_energy_consumption",

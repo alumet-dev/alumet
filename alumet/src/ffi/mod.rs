@@ -21,7 +21,7 @@ use libc::c_void;
 use crate::measurement::{MeasurementAccumulator, MeasurementBuffer};
 use crate::pipeline::elements::output::OutputContext;
 use crate::pipeline::elements::transform::TransformContext;
-use crate::plugin::AlumetStart;
+use crate::plugin::AlumetPluginStart;
 use time::Timestamp;
 
 // Submodules
@@ -37,7 +37,7 @@ pub mod time;
 // ====== Function types ======
 pub type PluginInitFn = extern "C" fn(config: *const toml::Table) -> *mut c_void;
 pub type PluginDefaultConfigFn = extern "C" fn(config: *mut toml::Table);
-pub type PluginStartFn = extern "C" fn(instance: *mut c_void, alumet: *mut AlumetStart);
+pub type PluginStartFn = extern "C" fn(instance: *mut c_void, alumet: *mut AlumetPluginStart);
 pub type PluginStopFn = extern "C" fn(instance: *mut c_void);
 
 pub type DropFn = unsafe extern "C" fn(instance: *mut c_void);

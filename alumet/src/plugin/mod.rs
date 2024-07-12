@@ -45,7 +45,7 @@
 //!
 //! In your library, define a structure for your plugin, and implement the [`rust::AlumetPlugin`] trait for it.
 //! ```no_run
-//! use alumet::plugin::{rust::AlumetPlugin, AlumetStart, ConfigTable};
+//! use alumet::plugin::{rust::AlumetPlugin, AlumetPluginStart, ConfigTable};
 //!
 //! struct MyPlugin {}
 //!
@@ -63,7 +63,7 @@
 //!         Ok(Box::new(MyPlugin {}))
 //!     }
 //!
-//!     fn start(&mut self, alumet: &mut AlumetStart) -> anyhow::Result<()> {
+//!     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
 //!         println!("My first plugin is starting!");
 //!         Ok(())
 //!     }
@@ -94,8 +94,7 @@ pub mod rust;
 pub mod util;
 pub(crate) mod version;
 
-pub use phases::AlumetPostStart;
-pub use phases::AlumetStart;
+pub use phases::{AlumetPluginStart, AlumetPostStart, AlumetPreStart};
 
 /// Plugin metadata, and a function that allows to initialize the plugin.
 pub struct PluginMetadata {
@@ -176,13 +175,19 @@ pub trait Plugin {
     /// ## Plugin restart
     /// A plugin can be started and stopped multiple times, for instance when ALUMET switches from monitoring to profiling mode.
     /// [`Plugin::stop`] is guaranteed to be called between two calls of [`Plugin::start`].
-    fn start(&mut self, alumet: &mut AlumetStart) -> anyhow::Result<()>;
+    fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()>;
 
     /// Stops the plugin.
     ///
     /// This method is called _after_ all the metrics, sources and outputs previously registered
     /// by [`Plugin::start`] have been stopped and unregistered.
     fn stop(&mut self) -> anyhow::Result<()>;
+    
+    /// Function called after the startup phase but before the operation phase,
+    /// i.e. the measurement pipeline has not started yet.
+    ///
+    /// It can be used, for instance, to obtain the list of all registered metrics.
+    fn pre_pipeline_start(&mut self, alumet: &mut AlumetPreStart) -> anyhow::Result<()>;
 
     /// Function called after the beginning of the operation phase,
     /// i.e. the measurement pipeline has started.
