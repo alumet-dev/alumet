@@ -12,16 +12,21 @@ use notify::{Event, EventHandler, EventKind, RecommendedWatcher, RecursiveMode, 
 use serde::{Deserialize, Serialize};
 use std::{fs::File, path::PathBuf, time::Duration};
 
-use crate::{cgroupv2_utils::Metrics, k8s_cgroup_v2::{self, CgroupV2MetricFile}, k8s_probe::{self, K8SProbe}};
+use crate::cgroupv2::Metrics;
+
+use super::{
+    probe::K8SProbe,
+    utils::{self, CgroupV2MetricFile},
+};
 
 pub struct K8sPlugin {
-    config: Config_K8s,
+    config: ConfigK8s,
     watcher: Option<RecommendedWatcher>,
     metrics: Option<Metrics>,
 }
 
 #[derive(Deserialize, Serialize)]
-struct Config_K8s {
+struct ConfigK8s {
     path: PathBuf,
     /// Initial interval between two cgroup measurements.
     #[serde(with = "humantime_serde")]
@@ -40,7 +45,7 @@ impl AlumetPlugin for K8sPlugin {
     }
 
     fn default_config() -> anyhow::Result<Option<ConfigTable>> {
-        let config = serialize_config(Config_K8s::default())?;
+        let config = serialize_config(ConfigK8s::default())?;
         Ok(Some(config))
     }
 
@@ -54,7 +59,7 @@ impl AlumetPlugin for K8sPlugin {
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
-        let v2_used: bool = k8s_cgroup_v2::is_accessible_dir(&PathBuf::from("/sys/fs/cgroup/"));
+        let v2_used: bool = super::utils::is_accessible_dir(&PathBuf::from("/sys/fs/cgroup/"));
         if !v2_used {
             anyhow::bail!("Cgroups v2 are not being used!");
         }
@@ -69,16 +74,16 @@ impl AlumetPlugin for K8sPlugin {
             self.config.hostname = hostname;
         }
 
-        let final_list_metric_file: Vec<CgroupV2MetricFile> = k8s_cgroup_v2::list_all_k8s_pods_file(
+        let final_list_metric_file: Vec<CgroupV2MetricFile> = utils::list_all_k8s_pods_file(
             &self.config.path,
             self.config.hostname.clone(),
             self.config.kubernetes_api_url.clone(),
         )?;
         //Add as a source each pod already present
         for metric_file in final_list_metric_file {
-            let counter_tmp_tot: CounterDiff = CounterDiff::with_max_value(super::CGROUP_MAX_TIME_COUNTER);
-            let counter_tmp_usr: CounterDiff = CounterDiff::with_max_value(super::CGROUP_MAX_TIME_COUNTER);
-            let counter_tmp_sys: CounterDiff = CounterDiff::with_max_value(super::CGROUP_MAX_TIME_COUNTER);
+            let counter_tmp_tot: CounterDiff = CounterDiff::with_max_value(crate::cgroupv2::CGROUP_MAX_TIME_COUNTER);
+            let counter_tmp_usr: CounterDiff = CounterDiff::with_max_value(crate::cgroupv2::CGROUP_MAX_TIME_COUNTER);
+            let counter_tmp_sys: CounterDiff = CounterDiff::with_max_value(crate::cgroupv2::CGROUP_MAX_TIME_COUNTER);
             let probe = K8SProbe::new(
                 self.metrics.as_ref().expect("Metrics is not available").clone(),
                 metric_file,
@@ -162,7 +167,7 @@ impl AlumetPlugin for K8sPlugin {
                                     .context("failed to create local tokio runtime")?;
                                 let (name, namespace, node) = rt
                                     .block_on(async {
-                                        k8s_cgroup_v2::get_pod_name(
+                                        utils::get_pod_name(
                                             name_to_seek.to_owned(),
                                             pod_detect.hostname.clone(),
                                             pod_detect.kubernetes_api_url.clone(),
@@ -184,9 +189,12 @@ impl AlumetPlugin for K8sPlugin {
                                     node: node.to_owned(),
                                 };
 
-                                let counter_tmp_tot: CounterDiff = CounterDiff::with_max_value(super::CGROUP_MAX_TIME_COUNTER);
-                                let counter_tmp_usr: CounterDiff = CounterDiff::with_max_value(super::CGROUP_MAX_TIME_COUNTER);
-                                let counter_tmp_sys: CounterDiff = CounterDiff::with_max_value(super::CGROUP_MAX_TIME_COUNTER);
+                                let counter_tmp_tot: CounterDiff =
+                                    CounterDiff::with_max_value(crate::cgroupv2::CGROUP_MAX_TIME_COUNTER);
+                                let counter_tmp_usr: CounterDiff =
+                                    CounterDiff::with_max_value(crate::cgroupv2::CGROUP_MAX_TIME_COUNTER);
+                                let counter_tmp_sys: CounterDiff =
+                                    CounterDiff::with_max_value(crate::cgroupv2::CGROUP_MAX_TIME_COUNTER);
                                 let probe: K8SProbe = K8SProbe::new(
                                     pod_detect.metrics.clone(),
                                     metric_file,
@@ -234,7 +242,7 @@ impl AlumetPlugin for K8sPlugin {
     }
 }
 
-impl Default for Config_K8s {
+impl Default for ConfigK8s {
     fn default() -> Self {
         let root_path = PathBuf::from("/sys/fs/cgroup/kubepods.slice/");
         Self {

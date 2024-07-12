@@ -1,14 +1,12 @@
+use std::str::FromStr;
+
 use alumet::{
-    measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::{MetricCreationError, TypedMetricId},
-    plugin::{
-        util::{CounterDiff, CounterDiffUpdate},
-        AlumetStart,
-    },
-    resources::{Resource, ResourceConsumer},
+    plugin::AlumetStart,
     units::{PrefixedUnit, Unit},
 };
-use std::{str::FromStr, string::String};
+
+pub(crate) const CGROUP_MAX_TIME_COUNTER: u64 = u64::MAX;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct CgroupV2Metric {

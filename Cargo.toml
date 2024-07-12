@@ -7,7 +7,7 @@ members = [
     "app-agent",
     "app-relay-collector",
     "plugin-csv",
-    "plugin-k8s",
+    "plugin-cgroupv2",
     "plugin-influxdb",
     "plugin-nvidia",
     "plugin-perf",

@@ -1,17 +1,14 @@
 use alumet::{
     measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp},
-    metrics::{MetricCreationError, TypedMetricId},
-    plugin::{
-        util::{CounterDiff, CounterDiffUpdate},
-        AlumetStart,
-    },
+    metrics::TypedMetricId,
+    plugin::util::{CounterDiff, CounterDiffUpdate},
     resources::{Resource, ResourceConsumer},
-    units::{PrefixedUnit, Unit},
 };
 use anyhow::Result;
 
-use crate::{cgroupv2_utils::Metrics, k8s_cgroup_v2::{self, CgroupV2MetricFile}};
-use crate::cgroupv2_utils::CgroupV2Metric;
+use crate::cgroupv2::{CgroupV2Metric, Metrics};
+
+use super::utils::{self, CgroupV2MetricFile};
 
 pub struct K8SProbe {
     pub cgroup_v2_metric_file: CgroupV2MetricFile,
@@ -22,7 +19,6 @@ pub struct K8SProbe {
     pub time_used_user_mode: TypedMetricId<u64>,
     pub time_used_system_mode: TypedMetricId<u64>,
 }
-
 
 impl K8SProbe {
     pub fn new(
@@ -51,7 +47,7 @@ impl alumet::pipeline::Source for K8SProbe {
         timestamp: Timestamp,
     ) -> Result<(), alumet::pipeline::PollError> {
         let mut file_buffer = String::new();
-        let metrics: CgroupV2Metric = k8s_cgroup_v2::gather_value(&mut self.cgroup_v2_metric_file, &mut file_buffer)?;
+        let metrics: CgroupV2Metric = utils::gather_value(&mut self.cgroup_v2_metric_file, &mut file_buffer)?;
         let diff_tot = match self.time_tot.update(metrics.time_used_tot) {
             CounterDiffUpdate::FirstTime => None,
             CounterDiffUpdate::Difference(diff) | CounterDiffUpdate::CorrectedDifference(diff) => Some(diff),
@@ -115,4 +111,3 @@ impl alumet::pipeline::Source for K8SProbe {
         Ok(())
     }
 }
-

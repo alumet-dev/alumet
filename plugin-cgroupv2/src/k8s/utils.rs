@@ -12,8 +12,7 @@ use std::{
     vec,
 };
 
-use crate::cgroupv2_utils::CgroupV2Metric;
-
+use crate::cgroupv2::CgroupV2Metric;
 
 /// CgroupV2MetricFile represents a file containing cgroup v2 data about cpu usage.
 ///
@@ -156,7 +155,8 @@ pub fn list_all_k8s_pods_file(
     }
 
     for prefix in all_sub_dir {
-        let mut result_vec = kubernetes_list_metric_file_in_dir(&prefix.to_owned(), hostname.clone(), kubernetes_api_url.clone())?;
+        let mut result_vec =
+            kubernetes_list_metric_file_in_dir(&prefix.to_owned(), hostname.clone(), kubernetes_api_url.clone())?;
         final_li_metric_file.append(&mut result_vec);
     }
     return Ok(final_li_metric_file);
@@ -425,7 +425,7 @@ mod tests {
         std::fs::write(c.join("cpu.stat"), "sv").unwrap();
         std::fs::write(d.join("cpu.stat"), "ne").unwrap();
         let li_met_file: anyhow::Result<Vec<CgroupV2MetricFile>> =
-        kubernetes_list_metric_file_in_dir(&burstable_dir, "".to_string(), "".to_string());
+            kubernetes_list_metric_file_in_dir(&burstable_dir, "".to_string(), "".to_string());
         let list_pod_name = [
             "pod32a1942cb9a81912549c152a49b5f9b1",
             "podd9209de2b4b526361248c9dcf3e702c0",
