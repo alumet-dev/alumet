@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use super::builder::elements::{
     AutonomousSourceBuilder, ManagedSourceBuilder, ManagedSourceRegistration, SendSourceBuilder,
 };
@@ -196,6 +198,24 @@ impl PipelineControl {
 
         log::trace!("waiting for outputs to finish");
         self.outputs.shutdown(|res| task_finished(res, "output")).await;
+    }
+}
+
+impl std::error::Error for ControlError {}
+impl Display for ControlError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ControlError::ChannelFull(_) => write!(f, "channel is full"),
+            ControlError::Shutdown => write!(f, "pipeline is not running"),
+        }
+    }
+}
+impl std::fmt::Debug for ControlError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ChannelFull(_) => f.debug_tuple("ChannelFull").field(&"...").finish(),
+            Self::Shutdown => write!(f, "Shutdown"),
+        }
     }
 }
 

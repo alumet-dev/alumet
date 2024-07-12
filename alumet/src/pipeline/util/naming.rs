@@ -1,4 +1,7 @@
-use std::{collections::HashMap, fmt};
+use std::{
+    collections::HashMap,
+    fmt::{self, Display},
+};
 
 /// Deduplicates names for the pipeline elements.
 pub(crate) struct NameDeduplicator {
@@ -53,28 +56,28 @@ impl ScopedNameGenerator {
         }
     }
 
-    fn element_name(&mut self, kind: &str, name: &str) -> ElementName {
+    fn element_name(&mut self, kind: &str, name: &str) -> ElementNameParts {
         let (full_name, add_suffix) = if name.is_empty() {
             (kind.to_owned(), true)
         } else {
             (format!("{kind}-{name}"), false)
         };
         let deduplicated = self.dedup.insert_deduplicate(full_name, add_suffix);
-        ElementName {
+        ElementNameParts {
             plugin: self.plugin.0.clone(),
             element: deduplicated,
         }
     }
 
     pub fn source_name(&mut self, name: &str) -> SourceName {
-        self.element_name("source", name)
+        SourceName(self.element_name("source", name))
     }
 
     pub fn transform_name(&mut self, name: &str) -> TransformName {
-        self.element_name("transform", name)
+        TransformName(self.element_name("transform", name))
     }
     pub fn output_name(&mut self, name: &str) -> OutputName {
-        self.element_name("output", name)
+        OutputName(self.element_name("output", name))
     }
 }
 
@@ -100,17 +103,73 @@ impl NameGenerator {
 pub struct PluginName(pub String);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ElementName {
-    pub(crate) plugin: String,
-    pub(crate) element: String,
+pub(super) struct ElementNameParts {
+    pub(super) plugin: String,
+    pub(super) element: String,
 }
 
-pub type SourceName = ElementName;
-pub type TransformName = ElementName;
-pub type OutputName = ElementName;
+#[derive(Debug, Clone)]
+pub struct SourceName(pub(super) ElementNameParts);
+#[derive(Debug, Clone)]
+pub struct TransformName(pub(super) ElementNameParts);
+#[derive(Debug, Clone)]
+pub struct OutputName(pub(super) ElementNameParts);
 
-impl fmt::Display for ElementName {
+impl fmt::Display for SourceName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}/{}", self.plugin, self.element)
+        write!(f, "{}/source/{}", self.0.plugin, self.0.element)
+    }
+}
+
+impl fmt::Display for TransformName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}/transform/{}", self.0.plugin, self.0.element)
+    }
+}
+
+impl fmt::Display for OutputName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}/output/{}", self.0.plugin, self.0.element)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ElementKind {
+    Source,
+    Transform,
+    Output,
+}
+
+pub trait ElementName: Display + Clone {
+    fn kind() -> ElementKind;
+    fn parts(&self) -> &ElementNameParts;
+}
+
+impl ElementName for SourceName {
+    fn kind() -> ElementKind {
+        ElementKind::Source
+    }
+
+    fn parts(&self) -> &ElementNameParts {
+        &self.0
+    }
+}
+
+impl ElementName for TransformName {
+    fn kind() -> ElementKind {
+        ElementKind::Transform
+    }
+
+    fn parts(&self) -> &ElementNameParts {
+        &self.0
+    }
+}
+
+impl ElementName for OutputName {
+    fn kind() -> ElementKind {
+        ElementKind::Output
+    }
+    fn parts(&self) -> &ElementNameParts {
+        &self.0
     }
 }

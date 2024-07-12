@@ -11,6 +11,7 @@ use tokio::task::{JoinError, JoinSet};
 use crate::measurement::MeasurementBuffer;
 use crate::metrics::MetricRegistry;
 use crate::pipeline::util::channel;
+use crate::pipeline::util::matching::OutputSelector;
 use crate::pipeline::util::naming::{NameGenerator, OutputName, ScopedNameGenerator};
 use crate::pipeline::{builder, PluginName};
 
@@ -99,13 +100,17 @@ impl OutputControl {
     pub fn handle_message(&mut self, msg: ControlMessage) {
         self.tasks.reconfigure(msg);
     }
-    
+
     pub fn has_task(&self) -> bool {
         !self.tasks.spawned_tasks.is_empty()
     }
 
     pub async fn join_next_task(&mut self) -> Result<anyhow::Result<()>, JoinError> {
-        self.tasks.spawned_tasks.join_next().await.expect("should not be called when !has_task()")
+        self.tasks
+            .spawned_tasks
+            .join_next()
+            .await
+            .expect("should not be called when !has_task()")
     }
 
     pub async fn shutdown<F>(mut self, handle_task_result: F)
@@ -116,7 +121,7 @@ impl OutputControl {
         // but that only works when the output is running.
         // If the output is paused, it needs to be stopped with a command.
         let stop_msg = ControlMessage {
-            selector: OutputSelector::All,
+            selector: OutputSelector::all(),
             new_state: TaskState::Stop,
         };
         self.handle_message(stop_msg);
@@ -181,22 +186,6 @@ impl builder::context::OutputBuildContext for BuildContext<'_> {
 
     fn async_runtime(&self) -> &tokio::runtime::Handle {
         &self.runtime
-    }
-}
-
-pub enum OutputSelector {
-    Single(OutputName),
-    Plugin(String),
-    All,
-}
-
-impl OutputSelector {
-    pub fn matches(&self, name: &OutputName) -> bool {
-        match self {
-            OutputSelector::Single(full_name) => name == full_name,
-            OutputSelector::Plugin(plugin_name) => &name.plugin == plugin_name,
-            OutputSelector::All => true,
-        }
     }
 }
 

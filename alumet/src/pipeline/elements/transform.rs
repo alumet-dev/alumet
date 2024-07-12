@@ -13,6 +13,7 @@ use tokio::{
 
 use super::error::TransformError;
 use crate::pipeline::builder::elements::{TransformBuilder, TransformRegistration};
+use crate::pipeline::util::matching::TransformSelector;
 use crate::pipeline::util::naming::{NameGenerator, ScopedNameGenerator, TransformName};
 use crate::pipeline::{builder, PluginName};
 use crate::{measurement::MeasurementBuffer, metrics::MetricRegistry, pipeline::registry::MetricReader};
@@ -81,7 +82,7 @@ impl TransformControl {
             tasks.reconfigure(msg);
         }
     }
-    
+
     pub fn has_task(&self) -> bool {
         self.tasks.is_some()
     }
@@ -140,10 +141,10 @@ impl TaskManager {
         for (i, name) in self.names_by_bitset_position.iter().enumerate() {
             if msg.selector.matches(name) {
                 match msg.new_state {
-                    TransformState::Enabled => {
+                    TaskState::Enabled => {
                         bitset |= 1 << i;
                     }
-                    TransformState::Disabled => {
+                    TaskState::Disabled => {
                         bitset &= !(1 << i);
                     }
                 }
@@ -163,28 +164,12 @@ impl builder::context::TransformBuildContext for BuildContext<'_> {
     }
 }
 
-pub enum TransformSelector {
-    Single(TransformName),
-    Plugin(String),
-    All,
-}
-
-impl TransformSelector {
-    pub fn matches(&self, name: &TransformName) -> bool {
-        match self {
-            TransformSelector::Single(full_name) => name == full_name,
-            TransformSelector::Plugin(plugin_name) => &name.plugin == plugin_name,
-            TransformSelector::All => true,
-        }
-    }
-}
-
 pub struct ControlMessage {
-    selector: TransformSelector,
-    new_state: TransformState,
+    pub selector: TransformSelector,
+    pub new_state: TaskState,
 }
 
-pub enum TransformState {
+pub enum TaskState {
     Enabled,
     Disabled,
 }

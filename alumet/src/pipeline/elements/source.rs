@@ -17,6 +17,7 @@ use crate::measurement::{MeasurementAccumulator, MeasurementBuffer, Timestamp};
 use crate::metrics::MetricRegistry;
 use crate::pipeline::builder::elements::SourceBuilder;
 use crate::pipeline::trigger::{Trigger, TriggerConstraints, TriggerReason, TriggerSpec};
+use crate::pipeline::util::matching::SourceSelector;
 use crate::pipeline::util::naming::{NameGenerator, PluginName, ScopedNameGenerator, SourceName};
 use crate::pipeline::{builder, registry};
 
@@ -141,7 +142,7 @@ impl SourceControl {
 
         // Send a stop message to all managed sources.
         let stop_msg = ConfigureMessage {
-            selector: SourceSelector::All,
+            selector: SourceSelector::all(),
             command: ConfigureCommand::Stop,
         };
         self.tasks.reconfigure(stop_msg);
@@ -276,12 +277,6 @@ pub struct TriggerMessage {
     pub selector: SourceSelector,
 }
 
-pub enum SourceSelector {
-    Single(SourceName),
-    Plugin(PluginName),
-    All,
-}
-
 /// A command to send to a managed [`Source`].
 pub enum ConfigureCommand {
     Pause,
@@ -313,16 +308,6 @@ impl From<u8> for TaskState {
             RUN => TaskState::Run,
             PAUSE => TaskState::Pause,
             _ => TaskState::Stop,
-        }
-    }
-}
-
-impl SourceSelector {
-    pub fn matches(&self, name: &SourceName) -> bool {
-        match self {
-            SourceSelector::Single(full_name) => name == full_name,
-            SourceSelector::Plugin(plugin_name) => name.plugin == plugin_name.0,
-            SourceSelector::All => true,
         }
     }
 }
