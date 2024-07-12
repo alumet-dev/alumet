@@ -98,7 +98,10 @@ impl AlumetPlugin for Oar2Plugin {
             let entry = entry?;
 
             let job_name = entry.file_name();
-            let job_name = job_name.into_string().ok().with_context(|| format!("Invalid oar username and job id."))?;
+            let job_name = job_name.clone()
+                .into_string()
+                .ok()
+                .with_context(|| format!("Invalid oar username and job id, for job: {:?}", job_name))?;
 
             if entry.file_type()?.is_dir() && job_name.chars().any(|c| c.is_numeric()) {
                 let job_separated = job_name.split_once("_");
@@ -136,7 +139,10 @@ impl AlumetPlugin for Oar2Plugin {
         let config_path = self.config.path.clone();
         let plugin_name = self.name().to_owned();
 
-        let metrics = self.metrics.clone().unwrap();
+        let metrics = self
+            .metrics
+            .take()
+            .expect("Metrics should be initialized by start()");
         let cpu_metric = metrics.cpu_metric;
         let memory_metric = metrics.memory_metric;
         let poll_interval = self.config.poll_interval;
@@ -152,6 +158,51 @@ impl AlumetPlugin for Oar2Plugin {
 
         impl EventHandler for JobDetector {
             fn handle_event(&mut self, event: Result<Event, notify::Error>) {
+                fn handle_event_on_path(job_detect: &mut JobDetector, path: PathBuf) -> anyhow::Result<()> {
+                    if let Some(job_name) = path.file_name() {
+                        let job_name = job_name.to_str().expect("Can't retrieve the job name value");
+
+                        if job_name.chars().any(|c| c.is_numeric()) {
+                            let job_separated = job_name.split_once("_");
+                            let job_id = job_separated.context("Invalid oar cgroup")?.1.parse()?;
+
+                            let cpu_path = job_detect.config_path.join("cpuacct/oar").join(&job_name);
+                            log::debug!("CPU path {cpu_path:?}");
+                            let memory_path = job_detect.config_path.join("memory/oar").join(&job_name);
+                            log::debug!("Memory path {memory_path:?}");
+
+                            let cpu_file_path = cpu_path.join("cpuacct.usage");
+                            log::debug!("CPU file path {cpu_file_path:?}");
+                            let memory_file_path = memory_path.join("memory.usage_in_bytes");
+                            log::debug!("Memory file path {memory_file_path:?}");
+
+                            if let (Ok(cgroup_cpu_file), Ok(cgroup_memory_file)) =
+                                (File::open(&cpu_file_path), File::open(&memory_file_path))
+                            {
+                                let new_source = Box::new(OarJobSource {
+                                    cpu_metric: job_detect.cpu_metric,
+                                    memory_metric: job_detect.memory_metric,
+                                    cgroup_cpu_file,
+                                    cgroup_memory_file,
+                                    cpu_file_path,
+                                    memory_file_path,
+                                    job_id,
+                                });
+
+                                let source_name = job_name.to_string();
+
+                                job_detect.control_handle.add_source(
+                                    job_detect.plugin_name.clone(),
+                                    source_name,
+                                    new_source,
+                                    TriggerSpec::at_interval(job_detect.poll_interval),
+                                );
+                            }
+                        }
+                    }
+                    return Ok(());
+                }
+
                 log::debug!("Handle event function");
                 if let Ok(Event {
                     kind: EventKind::Create(_),
@@ -161,45 +212,8 @@ impl AlumetPlugin for Oar2Plugin {
                 {
                     log::debug!("Paths: {paths:?}");
                     for path in paths {
-                        if let Some(job_name) = path.file_name() {
-                            let job_name = job_name.to_str().unwrap();
-                            if job_name.chars().any(|c| c.is_numeric()) {
-                                let job_separated = job_name.split_once("_");
-                                let job_id = job_separated.context("Invalid oar cgroup").unwrap().1.parse().unwrap();
-
-                                let cpu_path = self.config_path.join("cpuacct/oar").join(&job_name);
-                                log::debug!("CPU path {cpu_path:?}");
-                                let memory_path = self.config_path.join("memory/oar").join(&job_name);
-                                log::debug!("Memory path {memory_path:?}");
-
-                                let cpu_file_path = cpu_path.join("cpuacct.usage");
-                                log::debug!("CPU file path {cpu_file_path:?}");
-                                let memory_file_path = memory_path.join("memory.usage_in_bytes");
-                                log::debug!("Memory file path {memory_file_path:?}");
-
-                                if let (Ok(cgroup_cpu_file), Ok(cgroup_memory_file)) =
-                                    (File::open(&cpu_file_path), File::open(&memory_file_path))
-                                {
-                                    let new_source = Box::new(OarJobSource {
-                                        cpu_metric: self.cpu_metric,
-                                        memory_metric: self.memory_metric,
-                                        cgroup_cpu_file,
-                                        cgroup_memory_file,
-                                        cpu_file_path,
-                                        memory_file_path,
-                                        job_id,
-                                    });
-
-                                    let source_name = job_name.to_string();
-
-                                    self.control_handle.add_source(
-                                        self.plugin_name.clone(),
-                                        source_name,
-                                        new_source,
-                                        TriggerSpec::at_interval(self.poll_interval),
-                                    );
-                                }
-                            }
+                        if let Err(e) = handle_event_on_path(self, path.clone()) {
+                            log::error!("Unable to handle event on {}: {}", path.display(), e);
                         }
                     }
                 } else if let Err(e) = event {
@@ -261,7 +275,12 @@ impl Source for OarJobSource {
                 self.cpu_metric,
                 Resource::LocalMachine,
                 ResourceConsumer::ControlGroup {
-                    path: (self.cpu_file_path.to_str().unwrap().to_owned().into()),
+                    path: (self
+                        .cpu_file_path
+                        .to_str()
+                        .expect("cpu_file_path should be valid UTF-8")
+                        .to_owned()
+                        .into()),
                 },
                 cpu_usage_u64,
             )
@@ -274,7 +293,12 @@ impl Source for OarJobSource {
                 self.memory_metric,
                 Resource::LocalMachine,
                 ResourceConsumer::ControlGroup {
-                    path: (self.memory_file_path.to_str().unwrap().to_owned().into()),
+                    path: (self
+                        .memory_file_path
+                        .to_str()
+                        .expect("memory_file_path should be valid UTF-8")
+                        .to_owned()
+                        .into()),
                 },
                 memory_usage_u64,
             )
