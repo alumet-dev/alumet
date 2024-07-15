@@ -20,13 +20,13 @@ use super::{
 };
 
 pub struct K8sPlugin {
-    config: ConfigK8s,
+    config: K8sConfig,
     watcher: Option<RecommendedWatcher>,
     metrics: Option<Metrics>,
 }
 
 #[derive(Deserialize, Serialize)]
-struct ConfigK8s {
+struct K8sConfig {
     path: PathBuf,
     /// Initial interval between two cgroup measurements.
     #[serde(with = "humantime_serde")]
@@ -45,7 +45,7 @@ impl AlumetPlugin for K8sPlugin {
     }
 
     fn default_config() -> anyhow::Result<Option<ConfigTable>> {
-        let config = serialize_config(ConfigK8s::default())?;
+        let config = serialize_config(K8sConfig::default())?;
         Ok(Some(config))
     }
 
@@ -242,7 +242,7 @@ impl AlumetPlugin for K8sPlugin {
     }
 }
 
-impl Default for ConfigK8s {
+impl Default for K8sConfig {
     fn default() -> Self {
         let root_path = PathBuf::from("/sys/fs/cgroup/kubepods.slice/");
         Self {
