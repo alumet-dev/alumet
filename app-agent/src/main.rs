@@ -1,4 +1,4 @@
-use std::{process, time::Duration};
+use std::{env, path::PathBuf, process, time::Duration};
 
 use alumet::{
     agent::{static_plugins, Agent, AgentBuilder, AgentConfig},
@@ -54,7 +54,7 @@ fn main() {
 
     // Start the measurement.
     let mut running_agent = agent.start(agent_config).unwrap_or_else(|err| {
-        log::error!("{err:?}");
+        log::error!("---------------{err:?}");
         if let Some(_) = err.downcast_ref::<InvalidConfig>() {
             log::error!("HINT: You could try to regenerate the configuration by running `{} regen-config` (use --help to get more information).", env!("CARGO_BIN_NAME"));
         }
@@ -75,10 +75,25 @@ fn main() {
             // ...another process, that we'll launch now, exits.
 
             // Spawn the process.
-            let mut p = process::Command::new(external_command.clone())
+            let p_unw = process::Command::new(external_command.clone())
                 .args(args)
-                .spawn()
-                .expect("error in child process");
+                .spawn();
+            let mut p = match p_unw {
+                Ok(val) => val,
+                Err(e) => match e.kind() {
+                    std::io::ErrorKind::NotFound => {
+                        let current_dir = match env::current_dir() {
+                            Ok(current_dir) => current_dir,
+                            Err(_) => PathBuf::from("Unable to retrieve current dir"),
+                        };
+                        log::error!("File: {:?} not found in current directory: {:?}", external_command, current_dir);
+                        panic!("Maybe you could change the path to match with the correct one")
+                    }
+                    _ => {
+                        panic!("Error in child process");
+                    }
+                },
+            };
 
             // Notify the plugins that there is a process to observe.
             let pid = p.id();
