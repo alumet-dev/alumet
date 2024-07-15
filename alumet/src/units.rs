@@ -276,13 +276,13 @@ impl FromStr for UnitPrefix {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let res = match s {
-            "n" => UnitPrefix::Nano,
-            "μ" => UnitPrefix::Micro,
-            "m" => UnitPrefix::Milli,
+            "nano" | "n" => UnitPrefix::Nano,
+            "micro" | "μ" => UnitPrefix::Micro,
+            "milli" | "m" => UnitPrefix::Milli,
             "" => UnitPrefix::Plain,
-            "k" => UnitPrefix::Kilo,
-            "M" => UnitPrefix::Mega,
-            "G" => UnitPrefix::Giga,
+            "kilo" | "k" => UnitPrefix::Kilo,
+            "mega" | "M" => UnitPrefix::Mega,
+            "giga" | "G" => UnitPrefix::Giga,
             _ => return Err(anyhow!("Unknown prefix")),
         };
         Ok(res)

@@ -74,9 +74,9 @@ impl AlumetPlugin for RelayServerPlugin {
 
     fn start(&mut self, alumet: &mut AlumetStart) -> anyhow::Result<()> {
         let addr: SocketAddr = match self.config.ipv4_only {
-            true => SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, self.config.port)),
+            true => SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, self.config.port)),
             false => SocketAddr::V6(SocketAddrV6::new(
-                Ipv6Addr::LOCALHOST,
+                Ipv6Addr::UNSPECIFIED,
                 self.config.port,
                 0,
                 self.config.ipv6_scope_id.unwrap_or(0),
@@ -161,6 +161,7 @@ impl MetricCollector for GrpcMetricCollector {
             .into_iter()
             .map(|m| {
                 let value_type = protocol::MeasurementValueType::try_from(m.r#type).unwrap().into();
+                log::warn!("{:?}", m.clone().unit.unwrap());
                 let metric = Metric {
                     name: m.name,
                     description: m.description,
