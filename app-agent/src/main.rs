@@ -1,4 +1,4 @@
-use std::{env, path::PathBuf, process, time::Duration};
+use std::{process, time::Duration};
 
 use alumet::{
     agent::{static_plugins, Agent, AgentBuilder, AgentConfig},
@@ -79,18 +79,26 @@ fn main() {
             // ...another process, that we'll launch now, exits.
 
             // Spawn the process.
-            let p_unw = process::Command::new(external_command.clone())
+            let p_result = process::Command::new(external_command.clone())
                 .args(args)
                 .spawn();
-            let mut p = match p_unw {
+            let mut p = match p_result {
                 Ok(val) => val,
                 Err(e) => match e.kind() {
                     std::io::ErrorKind::NotFound => {
-                        let current_dir = match env::current_dir() {
-                            Ok(current_dir) => current_dir,
-                            Err(_) => PathBuf::from("Unable to retrieve current dir"),
-                        };
-                        log::error!("File: {:?} not found in current directory: {:?}", external_command, current_dir);
+                        let external_cmd_vec = external_command.split(" ");
+                        let mut final_cmd: String = String::new();
+                        for elem in external_cmd_vec{
+                            if std::fs::metadata(elem).is_ok(){
+                                if !elem.starts_with("./") {
+                                   let good_path_file = format!("./{}", elem);
+                                   final_cmd.push_str(&good_path_file);
+                                }
+                            }else{
+                                final_cmd.push_str(&format!("{} ",elem));
+                            }
+                        }
+                        log::error!("Error not found, maybe try with the following: {}", final_cmd);
                         panic!("Maybe you could change the path to match with the correct one")
                     }
                     _ => {
