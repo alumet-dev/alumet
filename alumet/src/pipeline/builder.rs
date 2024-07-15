@@ -27,7 +27,7 @@ pub struct MeasurementPipeline {
     metrics_control_task: JoinHandle<()>,
 }
 
-/// Constructs measurement pipelines.
+/// Builder for [`MeasurementPipeline`].
 pub struct Builder {
     sources: Vec<(PluginName, elements::SourceBuilder)>,
     transforms: Vec<(PluginName, Box<dyn elements::TransformBuilder>)>,
@@ -39,8 +39,12 @@ pub struct Builder {
     /// Metrics
     pub(crate) metrics: MetricRegistry,
     metric_listeners: Vec<registry::MetricListener>,
+
+    threads_normal: Option<usize>,
+    threads_high_priority: Option<usize>,
 }
 
+#[rustfmt::skip]
 pub mod elements {
     use tokio::sync::mpsc::Sender;
 
@@ -66,21 +70,11 @@ pub mod elements {
     impl<F> ManagedSourceBuilder for F where F: FnOnce(&mut dyn SourceBuildContext) -> anyhow::Result<ManagedSourceRegistration> {}
 
     pub trait AutonomousSourceBuilder:
-        FnOnce(
-        &mut dyn AutonomousSourceBuildContext,
-        CancellationToken,
-        Sender<MeasurementBuffer>,
-    ) -> anyhow::Result<AutonomousSourceRegistration>
-    {
-    }
+        FnOnce(&mut dyn AutonomousSourceBuildContext, CancellationToken, Sender<MeasurementBuffer>) -> anyhow::Result<AutonomousSourceRegistration>
+    {}
     impl<F> AutonomousSourceBuilder for F where
-        F: FnOnce(
-            &mut dyn AutonomousSourceBuildContext,
-            CancellationToken,
-            Sender<MeasurementBuffer>,
-        ) -> anyhow::Result<AutonomousSourceRegistration>
-    {
-    }
+        F: FnOnce(&mut dyn AutonomousSourceBuildContext, CancellationToken, Sender<MeasurementBuffer>) -> anyhow::Result<AutonomousSourceRegistration>
+    {}
 
     pub trait TransformBuilder: FnOnce(&mut dyn TransformBuildContext) -> anyhow::Result<TransformRegistration> {}
     impl<F> TransformBuilder for F where F: FnOnce(&mut dyn TransformBuildContext) -> anyhow::Result<TransformRegistration> {}
@@ -132,20 +126,22 @@ pub mod elements {
 pub mod context {
     use crate::{
         metrics::{Metric, RawMetricId},
-        pipeline::{registry, util::naming::{OutputName, SourceName, TransformName}},
+        pipeline::{
+            registry,
+            util::naming::{OutputName, SourceName, TransformName},
+        },
     };
 
     pub trait SourceBuildContext {
         fn metric_by_name(&self, name: &str) -> Option<(RawMetricId, &Metric)>;
         fn source_name(&mut self, name: &str) -> SourceName;
     }
-    
+
     pub trait AutonomousSourceBuildContext {
         fn metric_by_name(&self, name: &str) -> Option<(RawMetricId, &Metric)>;
         fn metrics_reader(&self) -> registry::MetricReader;
         fn metrics_sender(&self) -> registry::MetricSender;
         fn source_name(&mut self, name: &str) -> SourceName;
-        
     }
 
     pub trait TransformBuildContext {
@@ -169,6 +165,8 @@ impl Builder {
             trigger_constraints: TriggerConstraints::default(),
             metrics: MetricRegistry::new(),
             metric_listeners: Vec::new(),
+            threads_normal: None,
+            threads_high_priority: None,
         }
     }
 
@@ -192,15 +190,32 @@ impl Builder {
         self.outputs.push((plugin, builder))
     }
 
+    pub fn normal_threads(&mut self, n: usize) {
+        self.threads_normal = Some(n);
+    }
+
+    pub fn high_priority_threads(&mut self, n: usize) {
+        self.threads_high_priority = Some(n);
+    }
+
     /// Builds the measurement pipeline.
     ///
     /// The new pipeline is immediately started.
     pub fn build(self) -> anyhow::Result<MeasurementPipeline> {
-        let rt_priority: Option<Runtime> = util::threading::build_priority_runtime(None).ok();
+        let rt_priority: Option<Runtime> = if self.threads_high_priority == Some(0) {
+            None
+        } else {
+            util::threading::build_priority_runtime(None).ok()
+        };
         let rt_normal: Runtime = {
-            let normal_workers = if rt_priority.is_some() { Some(2) } else { None };
-            util::threading::build_normal_runtime(normal_workers)
-                .context("could not build the multithreaded Runtime")?
+            let n_threads = if let Some(n) = self.threads_normal {
+                Some(n)
+            } else if rt_priority.is_some() {
+                Some(2)
+            } else {
+                None
+            };
+            util::threading::build_normal_runtime(n_threads).context("could not build the multithreaded Runtime")?
         };
 
         // Token to shutdown the pipeline.
@@ -262,7 +277,9 @@ impl Builder {
             rt_priority.as_ref().unwrap_or(&rt_normal).handle().clone(),
             (metrics_r.clone(), metrics_tx.clone()),
         );
-        source_control.create_sources(self.sources).context("Could not create measurement sources")?;
+        source_control
+            .create_sources(self.sources)
+            .context("Could not create measurement sources")?;
 
         // Pipeline control
         let control = PipelineControl::new(source_control, transform_control, output_control);
@@ -289,8 +306,8 @@ impl Builder {
         }
     }
 
-    pub fn peek_metrics<F: FnOnce(&MetricRegistry) -> R, R>(&self, f: F) -> R {
-        f(&self.metrics)
+    pub fn metrics(&self) -> &MetricRegistry {
+        &self.metrics
     }
 }
 

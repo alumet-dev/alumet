@@ -137,7 +137,7 @@ fn test_plugin_lifecycle() {
             ];
             assert_eq!(
                 sorted(expected_metrics),
-                sorted(builder.peek_metrics(|m| m.iter().map(|(_id, m)| m.name.clone()).collect::<Vec<_>>()))
+                sorted(builder.metrics().iter().map(|(_id, m)| m.name.clone()).collect::<Vec<_>>())
             );
         })
         .before_operation_begin(move |_| {

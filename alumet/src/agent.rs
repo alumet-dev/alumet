@@ -72,7 +72,7 @@ pub struct AgentBuilder {
     f_after_plugins_start: Box<dyn FnOnce(&pipeline::Builder)>,
     f_before_operation_begin: Box<dyn FnOnce(&pipeline::Builder)>,
     f_after_operation_begin: Box<dyn FnOnce(&mut pipeline::MeasurementPipeline)>,
-    allow_no_metrics: bool,
+    no_high_priority_threads: bool,
     source_constraints: TriggerConstraints,
 }
 
@@ -199,6 +199,11 @@ impl Agent {
         log::info!("Starting the plugins...");
         let mut pipeline_builder = pipeline::Builder::new();
         pipeline_builder.set_trigger_constraints(self.settings.source_constraints);
+
+        // Disable high-priority threads if asked to
+        if self.settings.no_high_priority_threads {
+            pipeline_builder.high_priority_threads(0);
+        }
 
         // Call start(AlumetPluginStart) on each plugin.
         for plugin in initialized_plugins.iter_mut() {
@@ -459,7 +464,7 @@ impl AgentBuilder {
             f_after_plugins_start: Box::new(|_| ()),
             f_before_operation_begin: Box::new(|_| ()),
             f_after_operation_begin: Box::new(|_| ()),
-            allow_no_metrics: false,
+            no_high_priority_threads: false,
             source_constraints: TriggerConstraints::default(),
         }
     }
@@ -532,11 +537,11 @@ impl AgentBuilder {
         self
     }
 
-    /// Disables the "no metrics registered" warning.
+    /// Disables "high priority" threads.
     ///
-    /// Use this if you only expect late metrics to be registered.
-    pub fn allow_no_metrics(mut self) -> Self {
-        self.allow_no_metrics = true;
+    /// Use this when you are in an environment that you know will not allow Alumet to increase the scheduling priority of its threads.
+    pub fn no_high_priority_threads(mut self) -> Self {
+        self.no_high_priority_threads = true;
         self
     }
 }

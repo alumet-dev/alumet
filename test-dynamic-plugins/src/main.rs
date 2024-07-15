@@ -66,6 +66,7 @@ fn run_with_plugin(
     let expected_plugin_name = expected_plugin_name.to_owned();
     let expected_plugin_version = expected_plugin_version.to_owned();
     let agent = AgentBuilder::new(vec![plugin_info])
+        .no_high_priority_threads() // don't try to increase thread scheduling priority (for CI)
         .after_plugin_init(move |plugins| {
             let plugin = &plugins[0];
             assert_eq!(plugin.name(), expected_plugin_name);
