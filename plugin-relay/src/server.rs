@@ -1,5 +1,5 @@
 use std::{
-    net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
+    net::{IpAddr, SocketAddr, SocketAddrV4, SocketAddrV6, ToSocketAddrs},
     time::{Duration, UNIX_EPOCH},
 };
 
@@ -16,7 +16,7 @@ use alumet::{
     resources::{InvalidConsumerError, InvalidResourceError, Resource, ResourceConsumer},
     units::{PrefixedUnit, Unit},
 };
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use serde::{Deserialize, Serialize};
 use tonic::{transport::Server, Response, Status};
 
@@ -33,11 +33,14 @@ pub struct RelayServerPlugin {
 
 #[derive(Deserialize, Serialize)]
 struct Config {
+    /// Address to listen on.
+    /// The default value is ip6-localhost = `::1`.
+    ///
+    /// To listen all your network interfaces please use `0.0.0.0` or `::`.
+    address: String,
+
     /// Port on which to serve.
     port: u16,
-
-    /// If true, bind the server to an IPv4 socket instead of IPv6.
-    ipv4_only: bool,
 
     /// IPv6 scope id, for link-local addressing.
     ipv6_scope_id: Option<u32>,
@@ -46,8 +49,8 @@ struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            address: String::from("::1"), // Default to localhost on ipv6
             port: 50051,
-            ipv4_only: false,
             ipv6_scope_id: None,
         }
     }
@@ -68,20 +71,38 @@ impl AlumetPlugin for RelayServerPlugin {
     }
 
     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
-        let config = deserialize_config(config)?;
+        let config: Config = deserialize_config(config)?;
+
         Ok(Box::new(RelayServerPlugin { config }))
     }
 
     fn start(&mut self, alumet: &mut AlumetStart) -> anyhow::Result<()> {
-        let addr: SocketAddr = match self.config.ipv4_only {
-            true => SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, self.config.port)),
-            false => SocketAddr::V6(SocketAddrV6::new(
-                Ipv6Addr::LOCALHOST,
+        // Retrieve the ip from the config using
+        // [the trait ToSocketAddrs](https://doc.rust-lang.org/stable/std/net/trait.ToSocketAddrs.html)
+        // of (String, u16) to use a raw address without any port.
+        let current_ip = match (self.config.address.clone(), self.config.port)
+            .to_socket_addrs()
+            .context(format!("Parsing of the `address` param of the server relay plugin: {}", self.config.address))?
+            .next()
+        {
+            Some(socket) => socket.ip(),
+            _ => {
+                return Err(anyhow!("Could not retrieve any ip from {}", self.config.address));
+            }
+        };
+
+        // Once the IP has been parsed correctly, we need to build from scratch
+        // the SocketAddr to allow us to add `ipv6_scope_id` if needed.
+        let addr = match current_ip {
+            IpAddr::V4(ipv4) => SocketAddr::V4(SocketAddrV4::new(ipv4, self.config.port)),
+            IpAddr::V6(ipv6) => SocketAddr::V6(SocketAddrV6::new(
+                ipv6,
                 self.config.port,
                 0,
                 self.config.ipv6_scope_id.unwrap_or(0),
             )),
         };
+
         log::info!("Starting gRPC server with on socket {addr}");
         alumet.add_autonomous_source(move |p, cancel_token, out_tx| {
             let late_reg = tokio::sync::Mutex::new(p.late_registration_handle());
