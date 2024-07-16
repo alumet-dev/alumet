@@ -10,6 +10,7 @@ members = [
     "plugin-k8s",
     "plugin-influxdb",
     "plugin-nvidia",
+    "plugin-oar2",
     "plugin-perf",
     "plugin-rapl",
     "plugin-relay",
