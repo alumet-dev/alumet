@@ -1,6 +1,6 @@
 [package]
 name = "app-agent"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2021"
 description = "Metric collector agent to install on each node."
 
@@ -17,10 +17,10 @@ plugin-csv = { version = "0.2.0", path = "../plugin-csv" }
 plugin-influxdb = { version = "0.1.0", path = "../plugin-influxdb"}
 plugin-perf = { version = "0.1.0", path = "../plugin-perf" }
 plugin-rapl = { version = "0.3.0", path = "../plugin-rapl" }
-plugin-relay = { version = "0.1.0", path = "../plugin-relay", features = ["client", "server"] }
-plugin-k8s = { version = "0.0.1", path = "../plugin-k8s" }
+plugin-relay = { version = "0.2.0", path = "../plugin-relay", features = ["client", "server"] }
+plugin-k8s = { version = "0.1.0", path = "../plugin-k8s" }
 plugin-energy-attribution = { version = "0.1.0", path = "../plugin-energy-attribution" }
-plugin-socket-control = { version = "0.1.0", path = "../plugin-socket-control" }
+plugin-socket-control = { version = "0.2.0", path = "../plugin-socket-control" }
 serde = { version = "1.0.198", features = ["derive"] }
 toml = "0.8.12"
 

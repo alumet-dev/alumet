@@ -28,7 +28,7 @@ struct Config {
     /// Defaults to the hostname.
     #[serde(default = "default_client_name")]
     client_name: String,
-    
+
     /// The URI of the collector, for instance `http://127.0.0.1:50051`.
     #[serde(default = "default_collector_uri")]
     collector_uri: String,

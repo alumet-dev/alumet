@@ -2,7 +2,14 @@ use anyhow::*;
 use reqwest::{self, header};
 use serde_json::Value;
 use std::{
-    collections::HashMap, fs::{self, File}, io::{Read, Seek}, path::{Path, PathBuf}, process::Command, result::Result::Ok, str::FromStr, vec
+    collections::HashMap,
+    fs::{self, File},
+    io::{Read, Seek},
+    path::{Path, PathBuf},
+    process::Command,
+    result::Result::Ok,
+    str::FromStr,
+    vec,
 };
 
 use crate::parsing_cgroupv2::CgroupV2Metric;
@@ -22,21 +29,27 @@ pub struct CgroupV2MetricFile {
     pub uid: String,
     /// Namespace of the pod.
     pub namespace: String,
-
     /// Node of the pod.
     pub node: String,
 }
 
 impl CgroupV2MetricFile {
     /// Create a new CgroupV2MetricFile structure from a name, a path and a File
-    fn new(name: String, path_entry: PathBuf, file: File, uid: String, namespace: String, node: String) -> CgroupV2MetricFile {
+    fn new(
+        name: String,
+        path_entry: PathBuf,
+        file: File,
+        uid: String,
+        namespace: String,
+        node: String,
+    ) -> CgroupV2MetricFile {
         CgroupV2MetricFile {
             name,
             path: path_entry,
             file,
             uid,
             namespace,
-            node
+            node,
         }
     }
 }
@@ -46,73 +59,103 @@ pub fn is_accessible_dir(path: &Path) -> bool {
     path.is_dir()
 }
 
-
 /// Returns a Vector of CgroupV2MetricFile associated to pods available under a given directory.
-fn list_metric_file_in_dir(root_directory_path: &Path) -> anyhow::Result<Vec<CgroupV2MetricFile>> {
+fn list_metric_file_in_dir(
+    root_directory_path: &Path,
+    hostname: String,
+    kubernetes_api_url: String,
+) -> anyhow::Result<Vec<CgroupV2MetricFile>> {
     let mut vec_file_metric: Vec<CgroupV2MetricFile> = Vec::new();
     let entries = fs::read_dir(root_directory_path)?;
-    let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-    let main_hash_map: HashMap<String, (String,String,String)> = rt.block_on(async { get_existing_pods().await });
+    // Let's create a runtime to await async function and fill hashmap
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let main_hash_map: HashMap<String, (String, String, String)> =
+        rt.block_on(async { get_existing_pods(hostname, kubernetes_api_url).await })?;
+
+    // For each File in the root path
     for entry in entries {
         let path = entry?.path();
         let mut path_cloned = path.clone();
+
         if path.is_dir() {
             let path_mf = path_cloned.clone();
-            let dir_uid = path.file_name().unwrap().to_str().with_context(|| format!("filename is not valid UTF-8: {path:?}"))?;
+
+            let file_name = path.file_name().ok_or_else(|| anyhow::anyhow!("No file name found"))?;
+            let dir_uid = file_name
+                .to_str()
+                .with_context(|| format!("Filename is not valid UTF-8: {:?}", path))?;
+
             let dir_uid_mod = dir_uid.strip_suffix(".slice").unwrap_or(&dir_uid);
-            let truncated_prefix = root_directory_path.file_name().unwrap().to_str().with_context(|| format!("filename is not valid UTF-8: {path:?}"))?;
-            let mut new_prefix = truncated_prefix.strip_suffix(".slice").unwrap_or(&truncated_prefix).to_owned();
-            new_prefix.push_str("-");            
+
+            let root_file_name = root_directory_path
+                .file_name()
+                .ok_or_else(|| anyhow::anyhow!("No file name found"))?;
+            let truncated_prefix = root_file_name
+                .to_str()
+                .with_context(|| format!("filename is not valid UTF-8: {path:?}"))?;
+
+            let mut new_prefix = truncated_prefix
+                .strip_suffix(".slice")
+                .unwrap_or(&truncated_prefix)
+                .to_owned();
+
+            new_prefix.push_str("-");
             let uid = dir_uid_mod.strip_prefix(&new_prefix).unwrap_or(&dir_uid_mod);
             path_cloned.push("cpu.stat");
             let name_to_seek_raw = uid.strip_prefix("pod").unwrap_or(uid);
-            let name_to_seek = name_to_seek_raw.replace("_", "-");
-            let (name, ns, nd) = match main_hash_map.get(&name_to_seek.to_owned()) {
-                Some(tuple_pod) => {
-                    let (name, ns, nd) = tuple_pod;
-                    (name.to_owned(), ns.to_owned(), nd.to_owned())
-                },
+            let name_to_seek = name_to_seek_raw.replace("_", "-"); // Replace _ with - to match with hashmap
+
+            // Look in the hashmap if there is a tuple (name, namespace, node) associated to the uid of the cgroup
+            let (name, namespace, node): (String, String, String) = match main_hash_map.get(&name_to_seek.to_owned()) {
+                Some((name, namespace, node)) => (name.to_owned(), namespace.to_owned(), node.to_owned()),
                 None => ("".to_owned(), "".to_owned(), "".to_owned()),
             };
-            let file = File::open(&path_cloned).with_context(|| format!("failed to open file {}", path_cloned.display()))?;
+
+            let file: File =
+                File::open(&path_cloned).with_context(|| format!("failed to open file {}", path_cloned.display()))?;
+            // Let's create the new metric and push it to the vector of metrics
             vec_file_metric.push(CgroupV2MetricFile {
                 name: name.clone(),
                 path: path_mf,
                 file: file,
                 uid: uid.to_owned(),
-                namespace: ns.clone(),
-                node: nd.clone(),
+                namespace: namespace.clone(),
+                node: node.clone(),
             });
         }
     }
     return Ok(vec_file_metric);
 }
 
-/// This function list all k8s pods available, using sub-directories to look in:
-/// For each subdirectory, we look in if there is a directory/ies about pods and we add it
-/// to a vector. All subdirectory are visited with the help of <list_metric_file_in_dir> function.
-pub fn list_all_k8s_pods_file(root_directory_path: &Path) -> anyhow::Result<Vec<CgroupV2MetricFile>> {
+/// This function list all k8s pods available, using sub-directories to look in
+/// All subdirectory are visited with the help of <list_metric_file_in_dir> function.
+pub fn list_all_k8s_pods_file(
+    root_directory_path: &Path,
+    hostname: String,
+    kubernetes_api_url: String,
+) -> anyhow::Result<Vec<CgroupV2MetricFile>> {
     let mut final_li_metric_file: Vec<CgroupV2MetricFile> = Vec::new();
     if !root_directory_path.exists() {
         return Ok(final_li_metric_file);
     }
     // Add the root for all subdirectory:
-    let mut all_sub_dir: Vec<PathBuf>  = vec![root_directory_path.to_owned()];
+    let mut all_sub_dir: Vec<PathBuf> = vec![root_directory_path.to_owned()];
     // Iterate in the root directory and add to the vec all folder ending with "".slice"
     // On unix, folders are files, files are files and peripherals are also files
-    for file in fs::read_dir(root_directory_path)?{
+    for file in fs::read_dir(root_directory_path)? {
         let path = file?.path();
-        let file_name = path.file_name().unwrap().to_str().with_context(|| format!("filename is not valid UTF-8: {path:?}"))?;
-        if path.is_dir() && file_name.ends_with(".slice"){
-            all_sub_dir.push(path);            
+        let file_name = path
+            .file_name()
+            .ok_or_else(|| anyhow::anyhow!("No file name found"))?
+            .to_str()
+            .with_context(|| format!("Filename is not valid UTF-8: {:?}", path))?;
+        if path.is_dir() && file_name.ends_with(".slice") {
+            all_sub_dir.push(path);
         }
     }
 
     for prefix in all_sub_dir {
-        let mut result_vec = list_metric_file_in_dir(&prefix.to_owned())?;
+        let mut result_vec = list_metric_file_in_dir(&prefix.to_owned(), hostname.clone(), kubernetes_api_url.clone())?;
         final_li_metric_file.append(&mut result_vec);
     }
     return Ok(final_li_metric_file);
@@ -134,48 +177,71 @@ pub fn gather_value(file: &mut CgroupV2MetricFile, content_buffer: &mut String) 
     Ok(new_metric)
 }
 
-// This function return a hashmap where the key is the uid used and the value is a tuple containing it's name, namespace and node
-pub async fn get_existing_pods() -> HashMap<String, (String, String, String)> {
-    let output = Command::new("kubectl")
+/// Returns a HashMap where the key is the uid used and the value is a tuple containing it's name, namespace and node
+pub async fn get_existing_pods(
+    node: String,
+    kubernetes_api_url: String,
+) -> anyhow::Result<HashMap<String, (String, String, String)>> {
+    let Ok(output) = Command::new("kubectl")
         .args(&["create", "token", "alumet-reader"])
-        .output();
-    
-    let output_unwraped = match output {
-        Err(_) => {
-            return HashMap::new();
-        },
-        Ok(output_tmp) => {
-            output_tmp
-        }
+        .output()
+    else {
+        return Ok(HashMap::new());
     };
 
-    let token = String::from_utf8_lossy(&output_unwraped.stdout);
+    let token = String::from_utf8_lossy(&output.stdout);
     let token = token.trim();
-    let api_url = "https://10.22.80.14:6443/api/v1/pods/";
+    if kubernetes_api_url == "" {
+        return Ok(HashMap::new());
+    }
+    let mut api_url_root = kubernetes_api_url.clone();
+    api_url_root.push_str("/api/v1/pods/");
+    let mut selector = false;
+    let api_url = if node == "" {
+        api_url_root.to_owned()
+    } else {
+        let tmp = format!("{}?fieldSelector=spec.nodeName={}", api_url_root, node);
+        selector = true;
+        tmp
+    };
     let mut headers = header::HeaderMap::new();
-    headers.insert(
-        header::AUTHORIZATION,
-        format!("Bearer {}", token)
-            .parse()
-            .expect("Can't parse formatted token into a HeaderName"),
-    );
+    headers.insert(header::AUTHORIZATION, format!("Bearer {}", token).parse()?);
     let client = reqwest::Client::builder()
-        .danger_accept_invalid_certs(true) 
+        .danger_accept_invalid_certs(true)
         .default_headers(headers)
-        .build().unwrap();
-    let response_raw = client.get(api_url).send().await;
-
-    let response = match response_raw {
-        Ok(resp) => {
-            resp
-        },
-        Err(_) => {
-            return HashMap::new();
-        }
+        .build()?;
+    let Ok(response) = client.get(api_url).send().await else {
+        return Ok(HashMap::new());
     };
 
-    let data: Value = response.json().await.expect("Error parsing JSON");
+    let mut data: Value = match response.json().await {
+        Ok(value) => value,
+        Err(err) => {
+            log::error!("Error parsing JSON: {}", err);
+            Value::Null
+        }
+    };
     let mut hash_map_to_ret = HashMap::new();
+
+    // let's check if the items' part contain pods to look at
+    if let Some(items) = data.get("items") {
+        let size = items.as_array().unwrap_or(&vec![]).len(); // If the node was not found i.e. no item in the response, we call the API again with all nodes
+        if size == 0 && selector {
+            // Ask again the api, with all nodes
+            let Ok(response) = client.get(api_url_root).send().await else {
+                return Ok(HashMap::new());
+            };
+            data = match response.json().await {
+                Ok(value) => value,
+                Err(err) => {
+                    log::error!("Error parsing JSON: {}", err);
+                    Value::Null
+                }
+            }
+        } else {
+            log::debug!("Data is empty or not available.");
+        }
+    }
 
     if let Some(items) = data.get("items") {
         for item in items.as_array().unwrap_or(&vec![]) {
@@ -192,70 +258,95 @@ pub async fn get_existing_pods() -> HashMap<String, (String, String, String)> {
                         continue;
                     }
                     _ => {
-                        config_hash = metadata.get("uid")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
+                        config_hash = metadata.get("uid").and_then(|v| v.as_str()).unwrap_or("");
                     }
                 }
             }
-           
+
             let pod_name = metadata.get("name").and_then(|v| v.as_str()).unwrap_or("");
             let pod_namespace = metadata.get("namespace").and_then(|v| v.as_str()).unwrap_or("");
             let pod_node = spec.get("nodeName").and_then(|v| v.as_str()).unwrap_or("");
             log::debug!("Found matching pod: {} in namespace {}", pod_name, pod_namespace);
-            hash_map_to_ret.entry(String::from(config_hash)).or_insert((pod_name.to_owned(), pod_namespace.to_owned(), pod_node.to_owned()));
-            
+            hash_map_to_ret.entry(String::from(config_hash)).or_insert((
+                pod_name.to_owned(),
+                pod_namespace.to_owned(),
+                pod_node.to_owned(),
+            ));
         }
     } else {
-        log::debug!("No items found in the JSON response.");
+        log::debug!("No items part found in the JSON response.");
     }
 
-    return hash_map_to_ret;
+    return Ok(hash_map_to_ret);
 }
 
-
-//Read files in a filesystem to associate a cgroup of a poduid to a kubernetes pod name
-pub async fn get_pod_name(uid: String) -> (String, String, String) {
+/// Reads files in a filesystem to associate a cgroup of a poduid to a kubernetes pod name
+pub async fn get_pod_name(
+    uid: String,
+    node: String,
+    kubernetes_api_url: String,
+) -> anyhow::Result<(String, String, String)> {
     let new_uid = uid.replace("_", "-");
-    let output = Command::new("kubectl")
+    let Ok(output) = Command::new("kubectl")
         .args(&["create", "token", "alumet-reader"])
-        .output();
-    
-    let output_unwraped = match output {
-        Err(_) => {
-            return ("".to_string(),"".to_string(),"".to_string());
-        },
-        Ok(output_tmp) => {
-            output_tmp
-        }
+        .output()
+    else {
+        return Ok(("".to_string(), "".to_string(), "".to_string()));
     };
 
-    let token = String::from_utf8_lossy(&output_unwraped.stdout);
+    let token = String::from_utf8_lossy(&output.stdout);
     let token = token.trim();
-    let api_url = "https://10.22.80.14:6443/api/v1/pods/";
+    if kubernetes_api_url == "" {
+        return Ok(("".to_string(), "".to_string(), "".to_string()));
+    }
+    let mut api_url_root = kubernetes_api_url.clone();
+    api_url_root.push_str("/api/v1/pods/");
+    let mut selector = false;
+    let api_url = if node == "" {
+        api_url_root.to_owned()
+    } else {
+        let tmp = format!("{}?fieldSelector=spec.nodeName={}", api_url_root, node);
+        selector = true;
+        tmp
+    };
     let mut headers = header::HeaderMap::new();
-    headers.insert(
-        header::AUTHORIZATION,
-        format!("Bearer {}", token)
-            .parse()
-            .expect("Can't parse formatted token into a HeaderName"),
-    );
+    headers.insert(header::AUTHORIZATION, format!("Bearer {}", token).parse()?);
     let client = reqwest::Client::builder()
-        .danger_accept_invalid_certs(true) 
+        .danger_accept_invalid_certs(true)
         .default_headers(headers)
-        .build().unwrap();
-    let response_raw = client.get(api_url).send().await;
+        .build()?;
 
-    let response = match response_raw {
-        Ok(resp) => {
-            resp
-        },
-        Err(_) => {
-            return ("".to_string(),"".to_string(),"".to_string());
+    let Ok(response) = client.get(api_url).send().await else {
+        return Ok(("".to_string(), "".to_string(), "".to_string()));
+    };
+
+    let mut data: Value = match response.json().await {
+        Ok(value) => value,
+        Err(err) => {
+            log::error!("Error parsing JSON: {}", err);
+            Value::Null
         }
     };
 
-    let data: Value = response.json().await.expect("Error parsing JSON");
+    // let's check if the items' part contain pods to look at
+    if let Some(items) = data.get("items") {
+        let size = items.as_array().unwrap_or(&vec![]).len(); // If the node was not found i.e. no item in the response, we call the API again with all nodes
+        if size == 0 && selector {
+            // Ask again the api, with all nodes
+            let Ok(response) = client.get(api_url_root).send().await else {
+                return Ok(("".to_string(), "".to_string(), "".to_string()));
+            };
+            data = match response.json().await {
+                Ok(value) => value,
+                Err(err) => {
+                    log::error!("Error parsing JSON: {}", err);
+                    Value::Null
+                }
+            }
+        } else {
+            log::debug!("Data is empty or not available.");
+        }
+    }
 
     // Iterate over each item
     if let Some(items) = data.get("items") {
@@ -273,9 +364,7 @@ pub async fn get_pod_name(uid: String) -> (String, String, String) {
                         continue;
                     }
                     _ => {
-                        config_hash = metadata.get("uid")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
+                        config_hash = metadata.get("uid").and_then(|v| v.as_str()).unwrap_or("");
                     }
                 }
             }
@@ -284,15 +373,14 @@ pub async fn get_pod_name(uid: String) -> (String, String, String) {
                 let pod_namespace = metadata.get("namespace").and_then(|v| v.as_str()).unwrap_or("");
                 let pod_node = spec.get("nodeName").and_then(|v| v.as_str()).unwrap_or("");
                 log::debug!("Found matching pod: {} in namespace {}", pod_name, pod_namespace);
-                return (pod_name.to_owned(), pod_namespace.to_owned(), pod_node.to_owned());
+                return Ok((pod_name.to_owned(), pod_namespace.to_owned(), pod_node.to_owned()));
             }
         }
     } else {
         log::debug!("No items found in the JSON response.");
     }
-    ("".to_string(),"".to_string(),"".to_string())
+    Ok(("".to_string(), "".to_string(), "".to_string()))
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -335,7 +423,8 @@ mod tests {
         std::fs::write(b.join("cpu.stat"), "fr").unwrap();
         std::fs::write(c.join("cpu.stat"), "sv").unwrap();
         std::fs::write(d.join("cpu.stat"), "ne").unwrap();
-        let li_met_file: anyhow::Result<Vec<CgroupV2MetricFile>> = list_metric_file_in_dir(&burstable_dir);
+        let li_met_file: anyhow::Result<Vec<CgroupV2MetricFile>> =
+            list_metric_file_in_dir(&burstable_dir, "".to_string(), "".to_string());
         let list_pod_name = [
             "pod32a1942cb9a81912549c152a49b5f9b1",
             "podd9209de2b4b526361248c9dcf3e702c0",
@@ -344,9 +433,9 @@ mod tests {
         ];
 
         match li_met_file {
-            Ok(unwrap_li) => {
-                assert_eq!(unwrap_li.len(), 4);
-                for pod in unwrap_li {
+            Ok(unwrap_list) => {
+                assert_eq!(unwrap_list.len(), 4);
+                for pod in unwrap_list {
                     if !list_pod_name.contains(&pod.uid.as_str()) {
                         log::error!("Pod name not in the list: {}", pod.uid);
                         assert!(false);
@@ -392,8 +481,14 @@ mod tests {
             Ok(file) => file,
         };
 
-        let mut my_cgroup_test_file: CgroupV2MetricFile =
-            CgroupV2MetricFile::new("testing_pod".to_string(), path_file, file, "uid_test".to_string(), "namespace_test".to_string(), "node_test".to_owned());
+        let mut my_cgroup_test_file: CgroupV2MetricFile = CgroupV2MetricFile::new(
+            "testing_pod".to_string(),
+            path_file,
+            file,
+            "uid_test".to_string(),
+            "namespace_test".to_string(),
+            "node_test".to_owned(),
+        );
         let mut content_file = String::new();
         let res_metric = gather_value(&mut my_cgroup_test_file, &mut content_file);
         if let Ok(CgroupV2Metric {

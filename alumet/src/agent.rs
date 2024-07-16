@@ -337,9 +337,13 @@ fn load_config_from_file(
     default_agent_config: &toml::Table,
 ) -> anyhow::Result<toml::Table> {
     match std::fs::read_to_string(path) {
-        Ok(content) => content
-            .parse()
-            .with_context(|| format!("invalid TOML configuration {}", path.display())),
+        Ok(content) => {
+            let config = content
+                .parse()
+                .with_context(|| format!("invalid TOML configuration {}", path.display()));
+            log::info!("Loading config: {}", path.display());
+            config
+        }
         Err(e) => {
             match e.kind() {
                 std::io::ErrorKind::NotFound => {

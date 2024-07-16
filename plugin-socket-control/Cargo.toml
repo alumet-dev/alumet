@@ -1,6 +1,6 @@
 [package]
 name = "plugin-socket-control"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -11,3 +11,4 @@ anyhow = "1.0.82"
 log = "0.4.21"
 tokio = { version = "1.37.0", features = ["net", "io-util"] }
 tokio-util = "0.7.10"
+serde = { version = "1.0.198", features = ["derive"] }
