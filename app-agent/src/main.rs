@@ -32,7 +32,7 @@ fn main() {
 
     // Build the measurement agent.
     let mut agent = AgentBuilder::new(plugins)
-        .config_path("alumet-config.toml")
+        .config_path(&args.config)
         .default_app_config(AppConfig::default())
         .build();
 
@@ -133,6 +133,9 @@ struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
 
+    /// Path to the config file.
+    #[arg(long, default_value = "alumet-config.toml")]
+    config: String,
     /// Maximum amount of time between two updates of the sources' commands.
     ///
     /// A lower value means that the latency of source commands will be lower,
