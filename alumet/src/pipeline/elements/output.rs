@@ -193,6 +193,7 @@ impl builder::context::OutputBuildContext for BuildContext<'_> {
     }
 }
 
+#[derive(Debug)]
 pub struct ControlMessage {
     pub selector: OutputSelector,
     pub new_state: TaskState,

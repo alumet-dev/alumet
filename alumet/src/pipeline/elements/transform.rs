@@ -165,11 +165,13 @@ impl builder::context::TransformBuildContext for BuildContext<'_> {
     }
 }
 
+#[derive(Debug)]
 pub struct ControlMessage {
     pub selector: TransformSelector,
     pub new_state: TaskState,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum TaskState {
     Enabled,
     Disabled,

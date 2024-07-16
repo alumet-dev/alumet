@@ -108,11 +108,11 @@ pub(super) struct ElementNameParts {
     pub(super) element: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceName(pub(super) ElementNameParts);
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransformName(pub(super) ElementNameParts);
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutputName(pub(super) ElementNameParts);
 
 impl fmt::Display for SourceName {

@@ -1,5 +1,6 @@
 //! Implementation and control of source tasks.
 
+use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::Ordering;
@@ -289,27 +290,32 @@ impl builder::context::AutonomousSourceBuildContext for BuildContext<'_> {
     }
 }
 
+#[derive(Debug)]
 pub enum ControlMessage {
     Configure(ConfigureMessage),
     Create(CreateMessage),
     TriggerManually(TriggerMessage),
 }
 
+#[derive(Debug)]
 pub struct ConfigureMessage {
     pub selector: SourceSelector,
     pub command: ConfigureCommand,
 }
 
+#[derive(Debug)]
 pub struct CreateMessage {
     pub plugin: PluginName,
     pub builder: super::super::builder::elements::SendSourceBuilder,
 }
 
+#[derive(Debug)]
 pub struct TriggerMessage {
     pub selector: SourceSelector,
 }
 
 /// A command to send to a managed [`Source`].
+#[derive(Debug)]
 pub enum ConfigureCommand {
     Pause,
     Resume,

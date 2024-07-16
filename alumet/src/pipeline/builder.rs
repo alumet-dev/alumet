@@ -121,6 +121,24 @@ pub mod elements {
         pub name: OutputName,
         pub output: Box<dyn output::Output>,
     }
+    
+    impl std::fmt::Debug for SourceBuilder {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Self::Managed(_) => f.debug_tuple("Managed").field(&"Box<dyn _>").finish(),
+                Self::Autonomous(_) => f.debug_tuple("Autonomous").field(&"Box<dyn _>").finish(),
+            }
+        }
+    }
+
+    impl std::fmt::Debug for SendSourceBuilder {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Self::Managed(_) => f.debug_tuple("Managed").field(&"Box<dyn _>").finish(),
+                Self::Autonomous(_) => f.debug_tuple("Autonomous").field(&"Box<dyn _>").finish(),
+            }
+        }
+    }
 }
 
 pub mod context {

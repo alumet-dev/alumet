@@ -12,6 +12,7 @@ use alumet::pipeline::{
 use anyhow::{anyhow, Context};
 use humantime::parse_duration;
 
+#[derive(Debug)]
 pub enum Command {
     Control(Vec<ControlMessage>),
     Shutdown,
@@ -143,5 +144,166 @@ pub fn parse(command: &str) -> anyhow::Result<Command> {
         _ => Err(anyhow!(
             "unknown command '{command}'; available commands are 'shutdown' or 'control'"
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{any::Any, time::Duration};
+
+    use alumet::pipeline::{
+        control::ControlMessage,
+        elements::{output, source, transform},
+        matching::{NamePattern, NamePatterns, OutputSelector, SourceSelector, TransformSelector},
+        trigger::TriggerSpec,
+    };
+
+    use super::{parse, Command};
+
+    #[test]
+    fn control_source() -> anyhow::Result<()> {
+        assert_control_eq(
+            parse("control my-plugin/sources/my-source pause")?,
+            vec![ControlMessage::Source(source::ControlMessage::Configure(
+                source::ConfigureMessage {
+                    selector: SourceSelector::from(NamePatterns {
+                        plugin: NamePattern::Exact(String::from("my-plugin")),
+                        name: NamePattern::Exact(String::from("my-source")),
+                    }),
+                    command: source::ConfigureCommand::Pause,
+                },
+            ))],
+        );
+        assert_control_eq(
+            parse("control */sources/* resume")?,
+            vec![ControlMessage::Source(source::ControlMessage::Configure(
+                source::ConfigureMessage {
+                    selector: SourceSelector::all(),
+                    command: source::ConfigureCommand::Resume,
+                },
+            ))],
+        );
+        assert_control_eq(
+            parse("control */src/* stop")?,
+            vec![ControlMessage::Source(source::ControlMessage::Configure(
+                source::ConfigureMessage {
+                    selector: SourceSelector::all(),
+                    command: source::ConfigureCommand::Stop,
+                },
+            ))],
+        );
+        assert_control_eq(
+            parse("control sources trigger-now")?,
+            vec![ControlMessage::Source(source::ControlMessage::TriggerManually(
+                source::TriggerMessage {
+                    selector: SourceSelector::all(),
+                },
+            ))],
+        );
+        assert_control_eq(
+            parse("control */out/* stop")?,
+            vec![ControlMessage::Output(output::ControlMessage {
+                selector: OutputSelector::all(),
+                new_state: output::TaskState::Stop,
+            })],
+        );
+        assert_control_eq(
+            parse("control */tra/* enable")?,
+            vec![ControlMessage::Transform(transform::ControlMessage {
+                selector: TransformSelector::all(),
+                new_state: transform::TaskState::Enabled,
+            })],
+        );
+        assert_control_eq(
+            parse("control * pause")?,
+            vec![
+                ControlMessage::Source(source::ControlMessage::Configure(source::ConfigureMessage {
+                    selector: SourceSelector::all(),
+                    command: source::ConfigureCommand::Pause,
+                })),
+                ControlMessage::Transform(transform::ControlMessage {
+                    selector: TransformSelector::all(),
+                    new_state: transform::TaskState::Disabled,
+                }),
+                ControlMessage::Output(output::ControlMessage {
+                    selector: OutputSelector::all(),
+                    new_state: output::TaskState::Pause,
+                }),
+            ],
+        );
+        assert_control_eq(
+            parse("control sources set-period 10ms")?,
+            vec![ControlMessage::Source(source::ControlMessage::Configure(
+                source::ConfigureMessage {
+                    selector: SourceSelector::all(),
+                    command: source::ConfigureCommand::SetTrigger(TriggerSpec::at_interval(Duration::from_millis(10))),
+                },
+            ))],
+        );
+        Ok(())
+    }
+
+    fn assert_control_eq(cmd: Command, msg: Vec<ControlMessage>) {
+        match &cmd {
+            Command::Control(messages) => {
+                for (a, b) in messages.iter().zip(&msg) {
+                    if !control_message_eq(&a, &b) {
+                        panic!("wrong command {cmd:?}, expected Control({msg:?})")
+                    }
+                }
+            }
+            _ => panic!("wrong command {cmd:?}, expected Control({msg:?})"),
+        }
+    }
+
+    fn control_message_eq(a: &ControlMessage, b: &ControlMessage) -> bool {
+        fn source_msg_eq(a: &source::ControlMessage, b: &source::ControlMessage) -> bool {
+            use alumet::pipeline::builder::elements::SendSourceBuilder;
+            use source::ConfigureCommand;
+
+            match (a, b) {
+                (source::ControlMessage::Configure(c1), source::ControlMessage::Configure(c2)) => {
+                    c1.selector == c2.selector
+                        && match (&c1.command, &c2.command) {
+                            (ConfigureCommand::Pause, ConfigureCommand::Pause) => true,
+                            (ConfigureCommand::Resume, ConfigureCommand::Resume) => true,
+                            (ConfigureCommand::Stop, ConfigureCommand::Stop) => true,
+                            (ConfigureCommand::SetTrigger(t1), ConfigureCommand::SetTrigger(t2)) => t1 == t2,
+                            _ => false,
+                        }
+                }
+                (source::ControlMessage::Create(c1), source::ControlMessage::Create(c2)) => {
+                    c1.plugin == c2.plugin
+                        && match (&c1.builder, &c2.builder) {
+                            (SendSourceBuilder::Managed(b1), SendSourceBuilder::Managed(b2)) => {
+                                b1.type_id() == b2.type_id()
+                            }
+                            (SendSourceBuilder::Autonomous(b1), SendSourceBuilder::Autonomous(b2)) => {
+                                b1.type_id() == b2.type_id()
+                            }
+                            _ => false,
+                        }
+                }
+                (source::ControlMessage::TriggerManually(t1), source::ControlMessage::TriggerManually(t2)) => {
+                    t1.selector == t2.selector
+                }
+                _ => false,
+            }
+        }
+
+        fn transform_msg_eq(a: &transform::ControlMessage, b: &transform::ControlMessage) -> bool {
+            a.selector == b.selector && a.new_state == b.new_state
+        }
+
+        fn output_msg_eq(a: &output::ControlMessage, b: &output::ControlMessage) -> bool {
+            a.selector == b.selector && a.new_state == b.new_state
+        }
+
+        match (a, b) {
+            (ControlMessage::Source(s1), ControlMessage::Source(s2)) => source_msg_eq(s1, s2),
+            (ControlMessage::Transform(t1), ControlMessage::Transform(t2)) => transform_msg_eq(t1, t2),
+            (ControlMessage::Output(o1), ControlMessage::Output(o2)) => output_msg_eq(o1, o2),
+            _ => false,
+        }
     }
 }

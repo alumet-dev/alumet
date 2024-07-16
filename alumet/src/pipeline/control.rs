@@ -22,6 +22,7 @@ pub struct ScopedControlHandle {
     plugin: PluginName,
 }
 
+#[derive(Debug)]
 pub enum ControlMessage {
     Source(source::ControlMessage),
     Transform(transform::ControlMessage),

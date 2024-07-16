@@ -222,6 +222,26 @@ pub mod builder {
     }
 }
 
+pub(crate) mod private_impl {
+    use super::TriggerSpec;
+
+    impl PartialEq for TriggerSpec {
+        fn eq(&self, other: &Self) -> bool {
+            match (&self.mechanism, &other.mechanism) {
+                (
+                    super::TriggerMechanismSpec::TimeInterval(t0_a, duration_a),
+                    super::TriggerMechanismSpec::TimeInterval(t0_b, duration_b),
+                ) => duration_a == duration_b,
+                (super::TriggerMechanismSpec::Future(_f1), super::TriggerMechanismSpec::Future(_f2)) => {
+                    true // how to std::ptr::eq on this?
+                }
+                _ => false,
+            }
+        }
+    }
+    impl Eq for TriggerSpec {}
+}
+
 impl TriggerSpec {
     /// Defines a trigger that polls the source at regular intervals.
     ///
