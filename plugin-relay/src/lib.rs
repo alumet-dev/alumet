@@ -4,5 +4,5 @@ pub mod client;
 pub mod server;
 
 pub mod protocol {
-    tonic::include_proto!("alumet_relay");   
+    tonic::include_proto!("alumet_relay");
 }
