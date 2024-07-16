@@ -13,5 +13,5 @@ pub use elements::transform::Transform;
 
 pub use builder::Builder;
 pub use builder::MeasurementPipeline;
-pub use util::naming::{ElementName, ElementKind, PluginName};
+pub use util::naming::{ElementKind, PluginName};
 pub use util::matching;

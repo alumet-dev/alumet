@@ -1,6 +1,6 @@
 //! Match pipeline elements by plugin, element kind, element name, etc.
 
-use std::{error::Error, fmt::Display, marker::PhantomData, str::FromStr};
+use std::{marker::PhantomData, str::FromStr};
 
 use thiserror::Error;
 
@@ -232,7 +232,7 @@ mod tests {
     use std::str::FromStr;
 
     use crate::pipeline::matching::{
-        ElementSelector, NamePattern, NamePatternParseError, NamePatterns, SourceSelector,
+        ElementSelector, NamePattern, NamePatternParseError, NamePatterns,
     };
 
     #[test]

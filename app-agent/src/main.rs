@@ -15,7 +15,7 @@ use env_logger::Env;
 use plugin_csv::CsvPlugin;
 use plugin_perf::PerfPlugin;
 use plugin_rapl::RaplPlugin;
-// use plugin_socket_control::SocketControlPlugin;
+use plugin_socket_control::SocketControlPlugin;
 use serde::{Deserialize, Serialize};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -28,7 +28,7 @@ fn main() {
     let args = Cli::parse();
 
     // Specifies the plugins that we want to load.
-    let plugins = static_plugins![RaplPlugin, CsvPlugin, PerfPlugin];
+    let plugins = static_plugins![RaplPlugin, CsvPlugin, PerfPlugin, SocketControlPlugin];
 
     // Build the measurement agent.
     let mut agent = AgentBuilder::new(plugins)

@@ -156,7 +156,7 @@ impl AlumetPlugin for PerfPlugin {
                         &source_name,
                         Box::new(source),
                         TriggerSpec::at_interval(Duration::from_secs(1)), // TODO config
-                    );
+                    )?;
                     log::debug!("New source has started.");
                 }
             }

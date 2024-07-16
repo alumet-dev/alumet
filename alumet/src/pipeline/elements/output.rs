@@ -75,7 +75,7 @@ impl OutputControl {
         }
     }
 
-    pub fn create_outputs(&mut self, outputs: Vec<(PluginName, Box<dyn OutputBuilder>)>) {
+    pub fn create_outputs(&mut self, outputs: Vec<(PluginName, Box<dyn OutputBuilder>)>) -> anyhow::Result<()> {
         let metrics = self.metrics.blocking_read();
         for (plugin, builder) in outputs {
             let mut ctx = BuildContext {
@@ -83,8 +83,9 @@ impl OutputControl {
                 namegen: self.names.namegen_for_scope(&plugin),
                 runtime: self.tasks.rt_normal.clone(),
             };
-            self.tasks.create_output(&mut ctx, builder);
+            self.tasks.create_output(&mut ctx, builder)?;
         }
+        Ok(())
     }
 
     #[allow(unused)]
@@ -126,7 +127,7 @@ impl OutputControl {
             selector: OutputSelector::all(),
             new_state: TaskState::Stop,
         };
-        self.handle_message(stop_msg);
+        self.handle_message(stop_msg).expect("handle_message in shutdown should not fail");
 
         // Wait for all outputs to finish
         loop {

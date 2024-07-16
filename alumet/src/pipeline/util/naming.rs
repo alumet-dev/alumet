@@ -103,7 +103,7 @@ impl NameGenerator {
 pub struct PluginName(pub String);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct ElementNameParts {
+pub struct ElementNameParts {
     pub(super) plugin: String,
     pub(super) element: String,
 }

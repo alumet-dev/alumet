@@ -1,10 +1,9 @@
-use std::fmt::Display;
-
 use super::builder::elements::{
     AutonomousSourceBuilder, ManagedSourceBuilder, ManagedSourceRegistration, SendSourceBuilder,
 };
 use super::elements::{output, source, transform};
 use super::{builder, trigger, PluginName, Source};
+use thiserror::Error;
 use tokio::runtime;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::task::JoinHandle;
@@ -35,21 +34,42 @@ pub(crate) struct PipelineControl {
     outputs: output::OutputControl,
 }
 
-pub enum ControlError {    
-    ChannelFull(ControlMessage),
+#[derive(Debug, Error)]
+pub enum ControlError {
+    #[error("Cannot send the message because the channel is full")]
+    ChannelFull,
+    #[error("Cannot send the message because the pipeline has shut down")]
     Shutdown,
 }
 
+
+#[derive(Debug, Error)]
+pub enum ControlSendError {
+    #[error("Cannot send the message because the channel is full - {0:?}")]
+    ChannelFull(ControlMessage),
+    #[error("Cannot send the message because the pipeline has shut down")]
+    Shutdown,
+}
+
+impl From<ControlSendError> for ControlError {
+    fn from(value: ControlSendError) -> Self {
+        match value {
+            ControlSendError::ChannelFull(_) => ControlError::ChannelFull,
+            ControlSendError::Shutdown => ControlError::Shutdown,
+        }
+    }
+}
+
 impl AnonymousControlHandle {
-    pub async fn send(&self, message: ControlMessage) -> Result<(), ControlError> {
-        self.tx.send(message).await.map_err(|_| ControlError::Shutdown)
+    pub async fn send(&self, message: ControlMessage) -> Result<(), ControlSendError> {
+        self.tx.send(message).await.map_err(|_| ControlSendError::Shutdown)
     }
 
-    pub fn try_send(&self, message: ControlMessage) -> Result<(), ControlError> {
+    pub fn try_send(&self, message: ControlMessage) -> Result<(), ControlSendError> {
         match self.tx.try_send(message) {
             Ok(_) => Ok(()),
-            Err(mpsc::error::TrySendError::Full(m)) => Err(ControlError::ChannelFull(m)),
-            Err(mpsc::error::TrySendError::Closed(_)) => Err(ControlError::Shutdown),
+            Err(mpsc::error::TrySendError::Full(m)) => Err(ControlSendError::ChannelFull(m)),
+            Err(mpsc::error::TrySendError::Closed(_)) => Err(ControlSendError::Shutdown),
         }
     }
 
@@ -99,7 +119,7 @@ impl ScopedControlHandle {
             plugin: self.plugin.clone(),
             builder: SendSourceBuilder::Managed(Box::new(builder)),
         }));
-        self.inner.try_send(message)
+        self.inner.try_send(message).map_err(|e| e.into())
     }
 
     pub fn add_autonomous_source_builder<F: AutonomousSourceBuilder + Send + 'static>(
@@ -110,7 +130,7 @@ impl ScopedControlHandle {
             plugin: self.plugin.clone(),
             builder: SendSourceBuilder::Autonomous(Box::new(builder)),
         }));
-        self.inner.try_send(message)
+        self.inner.try_send(message).map_err(|e| e.into())
     }
 }
 
@@ -205,24 +225,6 @@ impl PipelineControl {
 
         log::trace!("waiting for outputs to finish");
         self.outputs.shutdown(|res| task_finished(res, "output")).await;
-    }
-}
-
-impl std::error::Error for ControlError {}
-impl Display for ControlError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ControlError::ChannelFull(_) => write!(f, "channel is full"),
-            ControlError::Shutdown => write!(f, "pipeline is not running"),
-        }
-    }
-}
-impl std::fmt::Debug for ControlError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::ChannelFull(_) => f.debug_tuple("ChannelFull").field(&"...").finish(),
-            Self::Shutdown => write!(f, "Shutdown"),
-        }
     }
 }
 

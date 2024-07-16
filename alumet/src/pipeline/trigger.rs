@@ -229,8 +229,8 @@ pub(crate) mod private_impl {
         fn eq(&self, other: &Self) -> bool {
             match (&self.mechanism, &other.mechanism) {
                 (
-                    super::TriggerMechanismSpec::TimeInterval(t0_a, duration_a),
-                    super::TriggerMechanismSpec::TimeInterval(t0_b, duration_b),
+                    super::TriggerMechanismSpec::TimeInterval(_, duration_a),
+                    super::TriggerMechanismSpec::TimeInterval(_, duration_b),
                 ) => duration_a == duration_b,
                 (super::TriggerMechanismSpec::Future(_f1), super::TriggerMechanismSpec::Future(_f2)) => {
                     true // how to std::ptr::eq on this?

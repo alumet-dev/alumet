@@ -263,7 +263,7 @@ impl Builder {
             // Outputs
             let out_rx_provider = channel::ReceiverProvider::from(in_rx);
             output_control = output::OutputControl::new(out_rx_provider, rt_normal.handle().clone(), metrics_r.clone());
-            output_control.create_outputs(self.outputs);
+            output_control.create_outputs(self.outputs).context("output creation failed")?;
 
             // No transforms
             transform_control = transform::TransformControl::empty();
@@ -274,7 +274,7 @@ impl Builder {
             // Outputs
             let out_rx_provider = channel::ReceiverProvider::from(out_tx.clone());
             output_control = output::OutputControl::new(out_rx_provider, rt_normal.handle().clone(), metrics_r.clone());
-            output_control.create_outputs(self.outputs);
+            output_control.create_outputs(self.outputs).context("output creation failed")?;
 
             // Transforms
             transform_control = transform::TransformControl::with_transforms(
@@ -297,7 +297,7 @@ impl Builder {
         );
         source_control
             .create_sources(self.sources)
-            .context("Could not create measurement sources")?;
+            .context("source creation failed")?;
 
         // Pipeline control
         let control = PipelineControl::new(source_control, transform_control, output_control);
