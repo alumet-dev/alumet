@@ -1,17 +1,23 @@
+use std::sync::atomic::AtomicU8;
+use std::sync::Arc;
 use std::time::Duration;
 
-use alumet::measurement::{MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementValue};
-use alumet::metrics::{MetricId, TypedMetricId};
-use alumet::pipeline::trigger;
-use alumet::pipeline::{Output, OutputContext, PollError, Source, Transform, TransformError, WriteError};
-use alumet::plugin::{AlumetStart, Plugin};
-use alumet::resources::{ResourceConsumer, Resource};
+use alumet::measurement::{
+    MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementValue,
+};
+use alumet::metrics::TypedMetricId;
+use alumet::pipeline::elements::error::{PollError, TransformError, WriteError};
+use alumet::pipeline::elements::output::OutputContext;
+use alumet::pipeline::elements::transform::TransformContext;
+use alumet::pipeline::{trigger, Output, Source, Transform};
+use alumet::plugin::{AlumetPostStart, AlumetPluginStart, AlumetPreStart, Plugin};
+use alumet::resources::{Resource, ResourceConsumer};
 use alumet::units::Unit;
 
 pub struct TestPlugin {
     name: String,
     base_value_a: u64,
-    pub state: State,
+    pub state: Arc<AtomicState>,
 }
 struct TestSource {
     metric_a: TypedMetricId<u64>,
@@ -21,8 +27,27 @@ struct TestSource {
 }
 struct TestTransform;
 struct TestOutput;
+
+pub struct AtomicState(AtomicU8);
+
+impl AtomicState {
+    pub fn new(value: State) -> Self {
+        Self(AtomicU8::new(value as _))
+    }
+
+    pub fn get(&self) -> State {
+        unsafe { std::mem::transmute(self.0.load(std::sync::atomic::Ordering::Relaxed)) }
+    }
+
+    pub fn set(&self, state: State) {
+        self.0.store(state as u8, std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
+#[repr(u8)]
 pub enum State {
+    PreInit,
     Initialized,
     Started,
     Stopped,
@@ -31,11 +56,12 @@ pub enum State {
 }
 
 impl TestPlugin {
-    pub fn init(name: &str, base_value_a: u64) -> Box<TestPlugin> {
+    pub fn init(name: &str, base_value_a: u64, state: Arc<AtomicState>) -> Box<TestPlugin> {
+        state.set(State::Initialized);
         Box::new(TestPlugin {
             name: name.to_owned(),
             base_value_a,
-            state: State::Initialized,
+            state,
         })
     }
 }
@@ -51,7 +77,7 @@ impl Plugin for TestPlugin {
     }
 
     #[rustfmt::skip]
-    fn start(&mut self, alumet: &mut AlumetStart) -> anyhow::Result<()> {
+    fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         // Register the metrics (for a normal plugin, you would simply give the name directly as a &str)
         let metric_name_a = self.name.clone() + ":energy-a";
         let metric_name_b = self.name.clone() + ":counter-b";
@@ -66,22 +92,22 @@ impl Plugin for TestPlugin {
         alumet.add_output(Box::new(TestOutput));
 
         // Update state (for testing purposes)
-        self.state = State::Started;
+        self.state.set(State::Started);
+        Ok(())
+    }
+    
+    fn pre_pipeline_start(&mut self, _alumet: &mut AlumetPreStart) -> anyhow::Result<()> {
+        self.state.set(State::PrePipelineStart);
         Ok(())
     }
 
-    fn pre_pipeline_start(&mut self, _: &alumet::pipeline::runtime::IdlePipeline) -> anyhow::Result<()> {
-        self.state = State::PrePipelineStart;
-        Ok(())
-    }
-
-    fn post_pipeline_start(&mut self, _: &mut alumet::pipeline::runtime::RunningPipeline) -> anyhow::Result<()> {
-        self.state = State::PostPipelineStart;
+    fn post_pipeline_start(&mut self, _: &mut AlumetPostStart) -> anyhow::Result<()> {
+        self.state.set(State::PostPipelineStart);
         Ok(())
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
-        self.state = State::Stopped;
+        self.state.set(State::Stopped);
         Ok(())
     }
 }
@@ -117,7 +143,7 @@ impl Source for TestSource {
 }
 
 impl Transform for TestTransform {
-    fn apply(&mut self, measurements: &mut MeasurementBuffer) -> Result<(), TransformError> {
+    fn apply(&mut self, measurements: &mut MeasurementBuffer, _ctx: &TransformContext) -> Result<(), TransformError> {
         fn copy_and_change_to_float(m: &MeasurementPoint) -> MeasurementPoint {
             let mut res = m.clone();
             res.value = match res.value {
@@ -140,7 +166,7 @@ impl Output for TestOutput {
             let ts = &m.timestamp;
             let res_kind = m.resource.kind();
             let res_id = m.resource.id_display();
-            let name = m.metric.name(ctx);
+            let name = ctx.metrics.by_id(&m.metric).unwrap().name.to_owned();
             let value = &m.value;
             println!(">> {ts:?} on {res_kind} {res_id} :{name} = {value:?}");
         }

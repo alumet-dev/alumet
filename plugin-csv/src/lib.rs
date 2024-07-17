@@ -33,7 +33,7 @@ impl AlumetPlugin for CsvPlugin {
         Ok(Box::new(CsvPlugin { config }))
     }
 
-    fn start(&mut self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
+    fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
         let output = Box::new(CsvOutput::new(
             &self.config.output_path,
             self.config.force_flush,

@@ -2,9 +2,20 @@ use std::env;
 use std::path::Path;
 use std::time::Duration;
 
-use alumet::{pipeline::builder::PipelineBuilder, plugin::{dynload::{initialize, load_cdylib, plugin_subconfig}, AlumetStart}};
+use alumet::{
+    agent::{AgentBuilder, AgentConfig},
+    plugin::dynload::load_cdylib,
+};
 
 fn main() {
+    // init logger
+    env_logger::builder()
+        .is_test(true)
+        .target(env_logger::Target::Stdout)
+        .format_timestamp(None) // no timestamp (because we compare the output in the test)
+        .filter_level(log::LevelFilter::Warn) // only show warnings and errors
+        .init();
+
     // read arguments
     let args: Vec<String> = env::args().collect();
     let plugin_file = &args[1];
@@ -13,9 +24,11 @@ fn main() {
 
     // create ad-hoc global config for testing
     let mut global_config = toml::Table::new();
+    let mut plugins_section = toml::Table::new();
     let mut plugin_config = toml::Table::new();
     plugin_config.insert("custom_attribute".into(), "42".into());
-    global_config.insert(expected_plugin_name.into(), plugin_config.into());
+    plugins_section.insert(expected_plugin_name.into(), plugin_config.into());
+    global_config.insert("plugins".into(), plugins_section.into());
 
     // run the test
     let plugin_file = Path::new(plugin_file);
@@ -23,7 +36,7 @@ fn main() {
         plugin_file,
         expected_plugin_name,
         expected_plugin_version,
-        &mut global_config,
+        global_config,
         Duration::from_secs(2),
     );
 }
@@ -32,7 +45,7 @@ fn run_with_plugin(
     plugin_file: &Path,
     expected_plugin_name: &str,
     expected_plugin_version: &str,
-    global_config: &mut toml::Table,
+    global_config: toml::Table,
     duration: Duration,
 ) {
     println!("[app] Starting ALUMET");
@@ -46,25 +59,34 @@ fn run_with_plugin(
     assert_eq!(plugin_info.name, expected_plugin_name);
     assert_eq!(plugin_info.version, expected_plugin_version);
 
-    // Create the plugin
-    let plugin_config = plugin_subconfig(&plugin_info, global_config).expect("plugin subconfig should exist");
-    println!("[app] plugin_config: {:?}", plugin_config.0);
-    let mut plugin = initialize(plugin_info, plugin_config).expect("plugin instance should be created by init");
-    assert_eq!(plugin.name(), expected_plugin_name);
-    assert_eq!(plugin.version(), expected_plugin_version);
+    // Check the config (print it here and assert_eq on the output in tests/test_plugins.rs)
+    println!("[app] global config: {:?}", global_config);
 
-    // Start the plugin
-    let mut pipeline_builder = PipelineBuilder::new();
-    let mut handle = AlumetStart::new(&mut pipeline_builder, plugin.name().to_owned());
-    plugin.start(&mut handle).expect("plugin should start fine");
+    // Create an agent with the plugin
+    let expected_plugin_name = expected_plugin_name.to_owned();
+    let expected_plugin_version = expected_plugin_version.to_owned();
+    let agent = AgentBuilder::new(vec![plugin_info])
+        .no_high_priority_threads() // don't try to increase thread scheduling priority (for CI)
+        .after_plugin_init(move |plugins| {
+            let plugin = &plugins[0];
+            assert_eq!(plugin.name(), expected_plugin_name);
+            assert_eq!(plugin.version(), expected_plugin_version);
+        })
+        .after_plugin_start(|_| println!("[app] plugin started"))
+        .before_operation_begin(|_| {
+            println!("[app] Starting the pipeline...");
+        })
+        .after_operation_begin(|_| println!("[app] pipeline started"))
+        .build();
 
-    // start the pipeline and wait for the tasks to finish
-    println!("[app] Starting the pipeline...");
-    let pipeline = pipeline_builder.build().expect("pipeline should build").start();
-
-    println!("[app] pipeline started");
+    // Start the plugin and the pipeline
+    let agent_config = AgentConfig::try_from(global_config).expect("config should be valid");
+    let running = agent.start(agent_config).expect("agent should start fine");
 
     // keep the pipeline running for some time
     std::thread::sleep(duration);
-    drop(pipeline);
+    println!("[app] shutting down...");
+    running.pipeline.control_handle().shutdown();
+    running.wait_for_shutdown().expect("error in shutdown");
+    println!("[app] stop");
 }

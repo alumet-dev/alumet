@@ -8,13 +8,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use alumet::metrics::TypedMetricId;
 use alumet::plugin::util::{CounterDiff, CounterDiffUpdate};
 use alumet::resources::Resource;
 use alumet::{
     measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp},
     resources::ResourceConsumer,
 };
+use alumet::{metrics::TypedMetricId, pipeline::elements::error::PollError};
 use anyhow::{anyhow, Context};
 
 use super::domains::RaplDomainType;
@@ -213,11 +213,7 @@ impl PowercapProbe {
 }
 
 impl alumet::pipeline::Source for PowercapProbe {
-    fn poll(
-        &mut self,
-        measurements: &mut MeasurementAccumulator,
-        timestamp: Timestamp,
-    ) -> Result<(), alumet::pipeline::PollError> {
+    fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         // Reuse the same buffer for all the zones.
         // The size of the content of the file `energy_uj` should never exceed those of `max_energy_uj`,
         // which is 16 bytes on all our test machines (if it does exceed 16 bytes it's fine, but less optimal).

@@ -8,9 +8,7 @@ use alumet::{
     metrics::TypedMetricId,
     pipeline::trigger::TriggerSpec,
     plugin::{
-        event,
-        rust::{deserialize_config, serialize_config, AlumetPlugin},
-        Plugin,
+        event, rust::{deserialize_config, serialize_config, AlumetPlugin}, AlumetPostStart, Plugin
     },
     units::Unit,
 };
@@ -76,7 +74,7 @@ impl AlumetPlugin for PerfPlugin {
         }))
     }
 
-    fn start(&mut self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
+    fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
         let mut config = self.config.lock().unwrap();
 
         let mut hardware_metrics = Vec::with_capacity(config.hardware_events.len());
@@ -104,10 +102,9 @@ impl AlumetPlugin for PerfPlugin {
         Ok(())
     }
 
-    fn post_pipeline_start(&mut self, pipeline: &mut alumet::pipeline::runtime::RunningPipeline) -> anyhow::Result<()> {
+    fn post_pipeline_start(&mut self, alumet: &mut AlumetPostStart) -> anyhow::Result<()> {
         let config_cloned = self.config.clone();
-        let control_handle = pipeline.control_handle();
-        let plugin_name = self.name().to_owned();
+        let pipeline_control = alumet.pipeline_control();
         event::start_consumer_measurement().subscribe(move |e| {
             for consumer in e.0 {
                 let observable = match consumer {
@@ -155,12 +152,11 @@ impl AlumetPlugin for PerfPlugin {
                     let source = builder.build()?;
 
                     // Add the source to Alumet's pipeline.
-                    control_handle.add_source(
-                        plugin_name.clone(),
-                        source_name,
+                    pipeline_control.add_source(
+                        &source_name,
                         Box::new(source),
                         TriggerSpec::at_interval(Duration::from_secs(1)), // TODO config
-                    );
+                    )?;
                     log::debug!("New source has started.");
                 }
             }

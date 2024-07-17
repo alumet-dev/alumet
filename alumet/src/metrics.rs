@@ -18,18 +18,18 @@
 //!
 //! ## Registering new metrics
 //! Metrics can only be registered during the plugin startup phase.
-//! To register new metrics, use [`AlumetStart::create_metric`](crate::plugin::AlumetStart::create_metric)
-//! or [`AlumetStart::create_metric_untyped`](crate::plugin::AlumetStart::create_metric).
+//! To register new metrics, use [`AlumetPluginStart::create_metric`](crate::plugin::AlumetPluginStart::create_metric)
+//! or [`AlumetPluginStart::create_metric_untyped`](crate::plugin::AlumetPluginStart::create_metric).
 //! You can then pass the id around.
 //!
 //! ### Example
 //!
 //! ```no_run
-//! use alumet::plugin::AlumetStart;
+//! use alumet::plugin::AlumetPluginStart;
 //! use alumet::metrics::TypedMetricId;
 //! use alumet::units::Unit;
 //!
-//! # fn start(alumet: &mut AlumetStart) -> anyhow::Result<()> {
+//! # fn start(alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
 //! let my_metric: TypedMetricId<u64> = alumet.create_metric::<u64>(
 //!     "cpu_voltage",
 //!     Unit::Volt,
@@ -44,17 +44,14 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::marker::PhantomData;
 
-use crate::pipeline::OutputContext;
-
 use super::measurement::{MeasurementType, WrappedMeasurementType};
 use super::units::PrefixedUnit;
 
-/// The complete definition of a metric.
+/// The complete definition of a metric (except its id).
 ///
 /// To register new metrics from your plugin, use
-/// [`AlumetStart::create_metric`](crate::plugin::AlumetStart::create_metric)
-/// or [`AlumetStart::create_metric_untyped`](crate::plugin::AlumetStart::create_metric).
-/// Metrics can only be registered during the plugin startup phase.
+/// [`AlumetPluginStart::create_metric`](crate::plugin::AlumetPluginStart::create_metric)
+/// or [`AlumetPluginStart::create_metric_untyped`](crate::plugin::AlumetPluginStart::create_metric).
 ///
 /// See the [module docs](self).
 #[derive(Debug, Clone)]
@@ -73,10 +70,6 @@ pub struct Metric {
 pub trait MetricId {
     /// Returns the id of the metric in the registry.
     fn untyped_id(&self) -> RawMetricId;
-
-    fn name<'a>(&self, ctx: &'a OutputContext) -> &'a str {
-        &ctx.metrics.with_id(&self.untyped_id()).unwrap().name
-    }
 }
 
 /// A registry of metrics.
@@ -130,7 +123,7 @@ impl<T: MeasurementType> TypedMetricId<T> {
     pub fn try_from(untyped: RawMetricId, registry: &MetricRegistry) -> Result<Self, MetricTypeError> {
         let expected_type = T::wrapped_type();
         let actual_type = registry
-            .with_id(&untyped)
+            .by_id(&untyped)
             .expect("the untyped metric should exist in the registry")
             .value_type
             .clone();
@@ -174,13 +167,15 @@ impl MetricRegistry {
     }
 
     /// Finds the metric that has the given id.
-    pub fn with_id<M: MetricId>(&self, id: &M) -> Option<&Metric> {
+    pub fn by_id<M: MetricId>(&self, id: &M) -> Option<&Metric> {
         self.metrics_by_id.get(&id.untyped_id())
     }
 
     /// Finds the metric that has the given name.
-    pub fn with_name(&self, name: &str) -> Option<&Metric> {
-        self.metrics_by_name.get(name).and_then(|id| self.metrics_by_id.get(id))
+    pub fn by_name(&self, name: &str) -> Option<(RawMetricId, &Metric)> {
+        self.metrics_by_name
+            .get(name)
+            .and_then(|id| self.metrics_by_id.get(id).map(|m| (*id, m)))
     }
 
     /// The number of metrics in the registry.
@@ -214,6 +209,10 @@ impl MetricRegistry {
         self.metrics_by_name.insert(name.clone(), id);
         self.metrics_by_id.insert(id, m);
         Ok(id)
+    }
+
+    pub(crate) fn extend(&mut self, metrics: Vec<Metric>) -> Vec<Result<RawMetricId, MetricCreationError>> {
+        metrics.into_iter().map(|m| self.register(m)).collect()
     }
 
     fn deduplicated_name(&self, requested_name: &str, resolution_suffix: &str) -> String {
@@ -282,7 +281,7 @@ impl<'a> IntoIterator for &'a MetricRegistry {
 ///
 /// This error is returned when the metric cannot be registered because of a conflict,
 /// that is, another metric with the same name has already been registered.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MetricCreationError {
     pub key: String,
 }
@@ -352,13 +351,13 @@ mod tests {
             .unwrap();
         assert_eq!(metrics.len(), 2);
 
-        let metric = metrics.with_name("metric").expect("metrics.with_name failed");
-        let metric2 = metrics.with_name("metric2").expect("metrics.with_name failed");
+        let (_id, metric) = metrics.by_name("metric").expect("metrics.with_name failed");
+        let (_id2, metric2) = metrics.by_name("metric2").expect("metrics.with_name failed");
         assert_eq!("metric", metric.name);
         assert_eq!("metric2", metric2.name);
 
-        let metric = metrics.with_id(&metric_id).expect("metrics.with_id failed");
-        let metric2 = metrics.with_id(&metric_id2).expect("metrics.with_id failed");
+        let metric = metrics.by_id(&metric_id).expect("metrics.with_id failed");
+        let metric2 = metrics.by_id(&metric_id2).expect("metrics.with_id failed");
         assert_eq!("metric", metric.name);
         assert_eq!("metric2", metric2.name);
 

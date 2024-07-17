@@ -4,7 +4,7 @@ use std::{fs::File, io};
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
-    pipeline::{PollError, Source},
+    pipeline::{elements::error::PollError, Source},
     resources::{Resource, ResourceConsumer},
 };
 use anyhow::Context;

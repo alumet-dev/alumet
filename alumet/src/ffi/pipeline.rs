@@ -1,9 +1,12 @@
 use libc::c_void;
 
-use super::{DropFn, FfiOutputContext, OutputWriteFn, SourcePollFn, TransformApplyFn};
+use super::{DropFn, FfiOutputContext, FfiTransformContext, OutputWriteFn, SourcePollFn, TransformApplyFn};
 use crate::{
     measurement::{MeasurementAccumulator, MeasurementBuffer},
-    pipeline::{self, OutputContext},
+    pipeline::{
+        self,
+        elements::{error, output, transform},
+    },
 };
 
 pub(crate) struct FfiSource {
@@ -29,19 +32,32 @@ unsafe impl Send for FfiTransform {}
 unsafe impl Send for FfiOutput {}
 
 impl pipeline::Source for FfiSource {
-    fn poll(&mut self, into: &mut MeasurementAccumulator, time: crate::measurement::Timestamp) -> Result<(), pipeline::PollError> {
+    fn poll(
+        &mut self,
+        into: &mut MeasurementAccumulator,
+        time: crate::measurement::Timestamp,
+    ) -> Result<(), error::PollError> {
         (self.poll_fn)(self.data, into, time.into());
         Ok(())
     }
 }
 impl pipeline::Transform for FfiTransform {
-    fn apply(&mut self, on: &mut MeasurementBuffer) -> Result<(), pipeline::TransformError> {
-        (self.apply_fn)(self.data, on);
+    fn apply(
+        &mut self,
+        measurements: &mut MeasurementBuffer,
+        ctx: &transform::TransformContext,
+    ) -> Result<(), error::TransformError> {
+        let ffi_ctx = FfiTransformContext { inner: ctx };
+        (self.apply_fn)(self.data, measurements, &ffi_ctx);
         Ok(())
     }
 }
 impl pipeline::Output for FfiOutput {
-    fn write(&mut self, measurements: &MeasurementBuffer, ctx: &OutputContext) -> Result<(), pipeline::WriteError> {
+    fn write(
+        &mut self,
+        measurements: &MeasurementBuffer,
+        ctx: &output::OutputContext,
+    ) -> Result<(), error::WriteError> {
         let ffi_ctx = FfiOutputContext { inner: ctx };
         (self.write_fn)(self.data, measurements, &ffi_ctx);
         Ok(())

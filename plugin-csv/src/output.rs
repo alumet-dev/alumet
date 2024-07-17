@@ -6,8 +6,8 @@ use std::{
     time::SystemTime,
 };
 
-use alumet::measurement::MeasurementBuffer;
-use alumet::{measurement::WrappedMeasurementValue, pipeline::OutputContext};
+use alumet::{measurement::MeasurementBuffer, pipeline::elements::{error::WriteError, output::OutputContext}};
+use alumet::measurement::WrappedMeasurementValue;
 use anyhow::Context;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -64,11 +64,7 @@ fn collect_attribute_keys(buf: &MeasurementBuffer) -> HashSet<String> {
 }
 
 impl alumet::pipeline::Output for CsvOutput {
-    fn write(
-        &mut self,
-        measurements: &MeasurementBuffer,
-        ctx: &OutputContext,
-    ) -> Result<(), alumet::pipeline::WriteError> {
+    fn write(&mut self, measurements: &MeasurementBuffer, ctx: &OutputContext) -> Result<(), WriteError> {
         if self.attributes_in_header.is_none() && measurements.len() > 0 {
             // Collect the attributes that are present in the measurements.
             // Then, sort the keys to ensure a consistent order between calls to `CsvOutput::write`.
@@ -99,7 +95,7 @@ impl alumet::pipeline::Output for CsvOutput {
             // get the full definition of the metric
             let full_metric = ctx
                 .metrics
-                .with_id(&m.metric)
+                .by_id(&m.metric)
                 .with_context(|| format!("Unknown metric {:?}", m.metric))?;
 
             // extract the metric name, appending its unit if configured so

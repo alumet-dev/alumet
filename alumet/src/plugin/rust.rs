@@ -4,12 +4,9 @@
 
 use anyhow::{anyhow, Context};
 
-use crate::{
-    pipeline::runtime::{IdlePipeline, RunningPipeline},
-    plugin::{AlumetStart, Plugin},
-};
+use crate::plugin::{AlumetPluginStart, Plugin};
 
-use super::ConfigTable;
+use super::{phases::AlumetPreStart, AlumetPostStart, ConfigTable};
 
 /// Trait for Alumet plugins written in Rust.
 ///
@@ -31,6 +28,7 @@ pub trait AlumetPlugin {
 
     /// Returns the default configuration of the plugin.
     fn default_config() -> anyhow::Result<Option<ConfigTable>> {
+        // TODO remove default impl because every plugin should manage its config
         Ok(None)
     }
 
@@ -39,7 +37,7 @@ pub trait AlumetPlugin {
     /// ## Plugin restart
     /// A plugin can be started and stopped multiple times, for instance when ALUMET switches from monitoring to profiling mode.
     /// [`AlumetPlugin::stop`] is guaranteed to be called between two calls of [`AlumetPlugin::start`].
-    fn start(&mut self, alumet: &mut AlumetStart) -> anyhow::Result<()>;
+    fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()>;
 
     /// Stops the plugin.
     ///
@@ -47,12 +45,12 @@ pub trait AlumetPlugin {
     /// by [`AlumetPlugin::start`] have been stopped and unregistered.
     fn stop(&mut self) -> anyhow::Result<()>;
 
-    /// Function called between the plugin startup phase and the operation phase.
+    /// Function called after the startup phase but before the operation phase,
+    /// i.e. the measurement pipeline has not started yet.
     ///
-    /// It can be used, for instance, to examine the metrics that have been registered.
-    /// No modification to the pipeline can be applied.
-    fn pre_pipeline_start(&mut self, pipeline: &IdlePipeline) -> anyhow::Result<()> {
-        let _ = pipeline; // do nothing by default
+    /// It can be used, for instance, to obtain the list of all registered metrics.
+    fn pre_pipeline_start(&mut self, alumet: &mut AlumetPreStart) -> anyhow::Result<()> {
+        let _ = alumet; // do nothing by default
         Ok(())
     }
 
@@ -61,8 +59,8 @@ pub trait AlumetPlugin {
     ///
     /// It can be used, for instance, to obtain a [`ControlHandle`](crate::pipeline::runtime::ControlHandle)
     /// of the pipeline. No modification to the pipeline can be applied.
-    fn post_pipeline_start(&mut self, pipeline: &mut RunningPipeline) -> anyhow::Result<()> {
-        let _ = pipeline; // do nothing by default
+    fn post_pipeline_start(&mut self, alumet: &mut AlumetPostStart) -> anyhow::Result<()> {
+        let _ = alumet; // do nothing by default
         Ok(())
     }
 }
@@ -77,7 +75,7 @@ impl<P: AlumetPlugin> Plugin for P {
         P::version() as _
     }
 
-    fn start(&mut self, alumet: &mut AlumetStart) -> anyhow::Result<()> {
+    fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         AlumetPlugin::start(self, alumet)
     }
 
@@ -85,12 +83,12 @@ impl<P: AlumetPlugin> Plugin for P {
         AlumetPlugin::stop(self)
     }
 
-    fn pre_pipeline_start(&mut self, pipeline: &IdlePipeline) -> anyhow::Result<()> {
-        AlumetPlugin::pre_pipeline_start(self, pipeline)
+    fn pre_pipeline_start(&mut self, alumet: &mut AlumetPreStart) -> anyhow::Result<()> {
+        AlumetPlugin::pre_pipeline_start(self, alumet)
     }
 
-    fn post_pipeline_start(&mut self, pipeline: &mut RunningPipeline) -> anyhow::Result<()> {
-        AlumetPlugin::post_pipeline_start(self, pipeline)
+    fn post_pipeline_start(&mut self, alumet: &mut AlumetPostStart) -> anyhow::Result<()> {
+        AlumetPlugin::post_pipeline_start(self, alumet)
     }
 }
 

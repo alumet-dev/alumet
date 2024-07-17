@@ -1,5 +1,8 @@
 use pretty_assertions::assert_str_eq;
-use std::{path::Path, process::Command};
+use std::{
+    path::Path,
+    process::Command,
+};
 
 #[test]
 fn test_plugin_c() {
@@ -58,13 +61,16 @@ fn run_app_with_plugin(plugin_lib: &Path, plugin_name: &str, plugin_version: &st
         .expect("Running `cargo run` with the plugin failed");
     assert!(
         cmd_result.status.success(),
-        "The application crashed:\n{}",
-        String::from_utf8_lossy(&cmd_result.stderr)
+        "The application crashed:\n---[stderr]---\n{}\n---[stdout]---\n{}",
+        String::from_utf8_lossy(&cmd_result.stderr),
+        String::from_utf8_lossy(&cmd_result.stdout),
     );
 
     // check the app (and plugin) output
     let output = String::from_utf8(cmd_result.stdout).expect("invalid app output");
-    println!("{output}");
+    println!("\n---[stdout]---\n{output}");
+    let out_err = String::from_utf8(cmd_result.stderr).expect("invalid app stderr");
+    println!("\n---[stderr]---\n{out_err}");
     check_app_output(output, plugin_name, plugin_version);
 }
 
@@ -75,30 +81,40 @@ fn check_app_output(output: String, plugin_name: &str, plugin_version: &str) {
         &format!("[app] dynamic plugin loaded: {plugin_name} version {plugin_version}"),
         lines[1]
     );
-    assert_str_eq!("[app] plugin_config: {\"custom_attribute\": String(\"42\")}", lines[2]);
-    assert_str_eq!("[app] Starting the pipeline...", lines[3]);
-    assert_str_eq!("[app] pipeline started", lines[4]);
+    assert_str_eq!("[app] global config: {\"plugins\": Table({\"test-dynamic-plugin-c\": Table({\"custom_attribute\": String(\"42\")})})}", lines[2]);
 
     let plugin_init_regex = regex::Regex::new("plugin = 0x[0-9a-zA-Z]+, custom_attribute = 42").unwrap();
-    assert!(plugin_init_regex.is_match(lines[5]), "wrong init: '{}'", lines[5]);
+    assert!(plugin_init_regex.is_match(lines[3]), "wrong init: '{}'", lines[3]);
 
     let plugin_start_regex =
         regex::Regex::new("plugin_start begins with plugin = 0x[0-9a-zA-Z]+, custom_attribute = 42").unwrap();
-    assert!(plugin_start_regex.is_match(lines[6]), "wrong start: '{}'", lines[6]);
+    assert!(plugin_start_regex.is_match(lines[4]), "wrong start: '{}'", lines[4]);
 
-    assert_str_eq!("plugin_start finished successfully", lines[7]);
+    assert_str_eq!("plugin_start finished successfully", lines[5]);
 
-    let measurement_output_regex =
-        regex::Regex::new("\\[\\d+\\] on cpu_package 0 by local_machine , rapl_pkg_consumption\\(id \\d+\\) = \\d+\\.\\d+").unwrap();
-    for i in 8..lines.len() - 1 {
+    assert_str_eq!("[app] plugin started", lines[6]);
+    assert_str_eq!("[app] Starting the pipeline...", lines[7]);
+    assert_str_eq!("[app] pipeline started", lines[8]);
+
+    let measurement_output_regex = regex::Regex::new(
+        "\\[\\d+\\] on cpu_package 0 by local_machine , rapl_pkg_consumption\\(id \\d+\\) = \\d+\\.\\d+",
+    )
+    .unwrap();
+    for i in 9..lines.len() - 3 {
+        let line = lines[i];
+        let is_measurement = measurement_output_regex.is_match(line);
         assert!(
-            measurement_output_regex.is_match(lines[i]),
+            is_measurement || line == "[app] shutting down...",
             "wrong measurement: '{}' does not match {:?}",
-            lines[i],
+            line,
             measurement_output_regex
         );
     }
 
-    let last_line = lines.last().unwrap();
-    assert_str_eq!("plugin Dropped", *last_line);
+    let line_pstop = lines[lines.len() - 3];
+    let line_pdrop = lines[lines.len() - 2];
+    let line_last = lines[lines.len() - 1];
+    assert_str_eq!("plugin stopped", line_pstop);
+    assert_str_eq!("plugin Dropped", line_pdrop);
+    assert_str_eq!("[app] stop", line_last);
 }

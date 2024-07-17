@@ -5,7 +5,7 @@ use libc::c_void;
 use crate::measurement::WrappedMeasurementType;
 use crate::metrics::RawMetricId;
 use crate::pipeline::trigger;
-use crate::{plugin::AlumetStart, units::Unit};
+use crate::{plugin::AlumetPluginStart, units::Unit};
 
 use super::pipeline::{FfiOutput, FfiTransform};
 use super::time::TimeDuration;
@@ -15,7 +15,7 @@ use super::{OutputWriteFn, TransformApplyFn};
 
 #[no_mangle]
 pub extern "C" fn alumet_create_metric(
-    alumet: &mut AlumetStart,
+    alumet: &mut AlumetPluginStart,
     name: AStr,
     value_type: WrappedMeasurementType,
     unit: FfiUnit,
@@ -32,7 +32,7 @@ pub extern "C" fn alumet_create_metric(
 
 #[no_mangle]
 pub extern "C" fn alumet_create_metric_c(
-    alumet: &mut AlumetStart,
+    alumet: &mut AlumetPluginStart,
     name: *const c_char,
     value_type: WrappedMeasurementType,
     unit: FfiUnit,
@@ -49,7 +49,7 @@ pub extern "C" fn alumet_create_metric_c(
 
 #[no_mangle]
 pub extern "C" fn alumet_add_source(
-    alumet: &mut AlumetStart,
+    alumet: &mut AlumetPluginStart,
     source_data: *mut c_void,
     poll_interval: TimeDuration,
     flush_interval: TimeDuration,
@@ -71,7 +71,7 @@ pub extern "C" fn alumet_add_source(
 }
 #[no_mangle]
 pub extern "C" fn alumet_add_transform(
-    alumet: &mut AlumetStart,
+    alumet: &mut AlumetPluginStart,
     transform_data: *mut c_void,
     transform_apply_fn: TransformApplyFn,
     transform_drop_fn: NullableDropFn,
@@ -85,7 +85,7 @@ pub extern "C" fn alumet_add_transform(
 }
 #[no_mangle]
 pub extern "C" fn alumet_add_output(
-    alumet: &mut AlumetStart,
+    alumet: &mut AlumetPluginStart,
     output_data: *mut c_void,
     output_write_fn: OutputWriteFn,
     output_drop_fn: NullableDropFn,

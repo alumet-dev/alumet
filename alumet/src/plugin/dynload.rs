@@ -6,14 +6,11 @@ use std::{
     path::Path,
 };
 
-use crate::{
-    pipeline::runtime::{IdlePipeline, RunningPipeline},
-    plugin::version::Version,
-};
+use crate::plugin::version::Version;
 use libc::c_void;
 use libloading::{Library, Symbol};
 
-use super::{version, AlumetStart, ConfigTable, Plugin};
+use super::{version, AlumetPostStart, AlumetPluginStart, ConfigTable, Plugin};
 use crate::ffi;
 use crate::plugin::PluginMetadata;
 
@@ -38,7 +35,7 @@ impl Plugin for DylibPlugin {
         &self.version
     }
 
-    fn start(&mut self, alumet: &mut AlumetStart) -> anyhow::Result<()> {
+    fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         (self.start_fn)(self.instance, alumet); // TODO error handling for ffi
         Ok(())
     }
@@ -47,13 +44,13 @@ impl Plugin for DylibPlugin {
         (self.stop_fn)(self.instance); // TODO error handling for ffi
         Ok(())
     }
-
-    fn pre_pipeline_start(&mut self, _pipeline: &IdlePipeline) -> anyhow::Result<()> {
+    
+    fn pre_pipeline_start(&mut self, _alumet: &mut super::phases::AlumetPreStart) -> anyhow::Result<()> {
         // TODO
         Ok(())
     }
 
-    fn post_pipeline_start(&mut self, _pipeline: &mut RunningPipeline) -> anyhow::Result<()> {
+    fn post_pipeline_start(&mut self, _alumet: &mut AlumetPostStart) -> anyhow::Result<()> {
         // TODO
         Ok(())
     }
@@ -117,7 +114,7 @@ pub struct PluginRegistry {
 /// #[no_mangle]
 /// pub extern "C" fn plugin_init(config: &ConfigTable) -> *mut MyPluginStruct {}
 /// #[no_mangle]
-/// pub extern "C" fn plugin_start(plugin: &mut MyPluginStruct, alumet: &mut AlumetStart) {}
+/// pub extern "C" fn plugin_start(plugin: &mut MyPluginStruct, alumet: &mut AlumetPluginStart) {}
 /// #[no_mangle]
 /// pub extern "C" fn plugin_stop(plugin: &mut MyPluginStruct) {}
 /// #[no_mangle]
@@ -132,7 +129,7 @@ pub struct PluginRegistry {
 /// PLUGIN_API const char *ALUMET_VERSION = "0.1.0";
 ///
 /// PLUGIN_API MyPluginStruct *plugin_init(const ConfigTable *config) {}
-/// PLUGIN_API void plugin_start(MyPluginStruct *plugin, AlumetStart *alumet) {}
+/// PLUGIN_API void plugin_start(MyPluginStruct *plugin, AlumetPluginStart *alumet) {}
 /// PLUGIN_API void plugin_stop(MyPluginStruct *plugin) {}
 /// PLUGIN_API void plugin_drop(MyPluginStruct *plugin) {}
 /// ```
@@ -251,26 +248,6 @@ pub fn load_cdylib(file: &Path) -> Result<PluginMetadata, LoadError> {
     };
 
     Ok(initializable_info)
-}
-
-/// Initializes a plugin, using its [`PluginMetadata`] and config table (not the global configuration).
-pub fn initialize(plugin: PluginMetadata, config: ConfigTable) -> anyhow::Result<Box<dyn Plugin>> {
-    let plugin_instance = (plugin.init)(config)?;
-    Ok(plugin_instance)
-}
-
-/// Extracts the config table of a specific plugin from the global config.
-pub fn plugin_subconfig(plugin: &PluginMetadata, global_config: &mut toml::Table) -> anyhow::Result<ConfigTable> {
-    let name = &plugin.name;
-    let sub_config = global_config.remove(name);
-    match sub_config {
-        Some(toml::Value::Table(t)) => Ok(ConfigTable(t)),
-        Some(bad_value) => Err(anyhow::anyhow!(
-            "invalid plugin configuration for '{name}': the value must be a table, not a {}.",
-            bad_value.type_str()
-        )),
-        None => Err(anyhow::anyhow!("missing plugin configuration for '{name}'")),
-    }
 }
 
 impl std::error::Error for LoadError {}

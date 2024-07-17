@@ -19,7 +19,6 @@ fn main() {
     // Build the collector
     let mut agent = AgentBuilder::new(plugins)
         .config_path("alumet-collector.toml")
-        .allow_no_metrics()
         .build();
 
     // CLI option: config regeneration.

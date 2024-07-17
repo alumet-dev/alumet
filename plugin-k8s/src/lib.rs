@@ -1,9 +1,9 @@
 use alumet::{
-    pipeline::{runtime::ControlHandle, trigger::TriggerSpec},
+    pipeline::{control::ScopedControlHandle, trigger::TriggerSpec},
     plugin::{
         rust::{deserialize_config, serialize_config, AlumetPlugin},
         util::CounterDiff,
-        ConfigTable, Plugin,
+        AlumetPluginStart, AlumetPostStart, ConfigTable,
     },
 };
 use anyhow::Context;
@@ -61,7 +61,7 @@ impl AlumetPlugin for K8sPlugin {
         }))
     }
 
-    fn start(&mut self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
+    fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         let v2_used: bool = cgroup_v2::is_accessible_dir(&PathBuf::from("/sys/fs/cgroup/"));
         if !v2_used {
             anyhow::bail!("Cgroups v2 are not being used!");
@@ -104,18 +104,16 @@ impl AlumetPlugin for K8sPlugin {
         Ok(())
     }
 
-    fn post_pipeline_start(&mut self, pipeline: &mut alumet::pipeline::runtime::RunningPipeline) -> anyhow::Result<()> {
-        let control_handle = pipeline.control_handle();
-        let plugin_name = self.name().to_owned();
+    fn post_pipeline_start(&mut self, alumet: &mut AlumetPostStart) -> anyhow::Result<()> {
+        let control_handle = alumet.pipeline_control();
 
         let metrics: Metrics = self.metrics.clone().expect("Metrics is not available");
         let poll_interval = self.config.poll_interval;
         let kubernetes_api_url = self.config.kubernetes_api_url.clone();
         let hostname = self.config.hostname.to_owned();
         struct PodDetector {
-            plugin_name: String,
             metrics: Metrics,
-            control_handle: ControlHandle,
+            control_handle: ScopedControlHandle,
             poll_interval: Duration,
             kubernetes_api_url: String,
             hostname: String,
@@ -205,12 +203,14 @@ impl AlumetPlugin for K8sPlugin {
                                 .with_context(|| format!("Error creating a metric:"))?;
 
                                 // Add the probe to the sources
-                                pod_detect.control_handle.add_source(
-                                    pod_detect.plugin_name.clone(),
-                                    pod_uid.to_string(),
-                                    Box::new(probe),
-                                    TriggerSpec::at_interval(pod_detect.poll_interval),
-                                );
+                                pod_detect
+                                    .control_handle
+                                    .add_source(
+                                        pod_uid,
+                                        Box::new(probe),
+                                        TriggerSpec::at_interval(pod_detect.poll_interval),
+                                    )
+                                    .map_err(|e| anyhow::anyhow!("failed to add source for pod {pod_uid}: {e}"))?;
                             }
                         }
                         Ok(())
@@ -225,7 +225,6 @@ impl AlumetPlugin for K8sPlugin {
             }
         }
         let handler = PodDetector {
-            plugin_name: plugin_name,
             metrics: metrics,
             control_handle: control_handle,
             poll_interval: poll_interval,

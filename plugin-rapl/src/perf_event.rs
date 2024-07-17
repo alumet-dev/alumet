@@ -1,6 +1,7 @@
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
+    pipeline::elements::error::PollError,
     plugin::util::{CounterDiff, CounterDiffUpdate},
     resources::{Resource, ResourceConsumer},
 };
@@ -204,11 +205,7 @@ impl PerfEventProbe {
 }
 
 impl alumet::pipeline::Source for PerfEventProbe {
-    fn poll(
-        &mut self,
-        measurements: &mut MeasurementAccumulator,
-        timestamp: Timestamp,
-    ) -> Result<(), alumet::pipeline::PollError> {
+    fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         for evt in &mut self.events {
             // read the new value of the perf-events counter
             let counter_value = read_perf_event(&mut evt.fd)

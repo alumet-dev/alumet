@@ -18,13 +18,13 @@ typedef enum WrappedMeasurementType {
 /**
  * Structure passed to plugins for the start-up phase.
  *
- * It allows the plugins to perform some actions before starting the measurment pipeline,
+ * It allows the plugins to perform some actions before starting the measurement pipeline,
  * such as registering new measurement sources.
  *
  * ## Note for applications
- * You should not create `AlumetStart` manually, build an [`Agent`](crate::agent::Agent) instead.
+ * You should not create `AlumetPluginStart` manually, build an [`Agent`](crate::agent::Agent) instead.
  */
-typedef struct AlumetStart AlumetStart;
+typedef struct AlumetPluginStart AlumetPluginStart;
 
 typedef struct ConfigArray ConfigArray;
 
@@ -79,7 +79,15 @@ typedef struct MeasurementBuffer MeasurementBuffer;
  */
 typedef struct MeasurementPoint MeasurementPoint;
 
+/**
+ * Shared data that can be accessed by outputs.
+ */
 typedef struct OutputContext OutputContext;
+
+/**
+ * Shared data that can be accessed by transforms.
+ */
+typedef struct TransformContext TransformContext;
 
 /**
  * FFI equivalent to [`Option<&str>`].
@@ -230,7 +238,13 @@ typedef void (*SourcePollFn)(void *instance,
 
 typedef void (*NullableDropFn)(void *instance);
 
-typedef void (*TransformApplyFn)(void *instance, struct MeasurementBuffer *buffer);
+typedef struct FfiTransformContext {
+  const struct TransformContext *inner;
+} FfiTransformContext;
+
+typedef void (*TransformApplyFn)(void *instance,
+                                 struct MeasurementBuffer *buffer,
+                                 const struct FfiTransformContext *ctx);
 
 typedef void (*OutputWriteFn)(void *instance,
                               const struct MeasurementBuffer *buffer,
@@ -333,31 +347,31 @@ void mbuffer_push(struct MeasurementBuffer *buf, struct MeasurementPoint *point)
  */
 void maccumulator_push(struct MeasurementAccumulator *buf, struct MeasurementPoint *point);
 
-struct RawMetricId alumet_create_metric(struct AlumetStart *alumet,
+struct RawMetricId alumet_create_metric(struct AlumetPluginStart *alumet,
                                         struct AStr name,
                                         enum WrappedMeasurementType value_type,
                                         union FfiUnit unit,
                                         struct AStr description);
 
-struct RawMetricId alumet_create_metric_c(struct AlumetStart *alumet,
+struct RawMetricId alumet_create_metric_c(struct AlumetPluginStart *alumet,
                                           const char *name,
                                           enum WrappedMeasurementType value_type,
                                           union FfiUnit unit,
                                           const char *description);
 
-void alumet_add_source(struct AlumetStart *alumet,
+void alumet_add_source(struct AlumetPluginStart *alumet,
                        void *source_data,
                        struct TimeDuration poll_interval,
                        struct TimeDuration flush_interval,
                        SourcePollFn source_poll_fn,
                        NullableDropFn source_drop_fn);
 
-void alumet_add_transform(struct AlumetStart *alumet,
+void alumet_add_transform(struct AlumetPluginStart *alumet,
                           void *transform_data,
                           TransformApplyFn transform_apply_fn,
                           NullableDropFn transform_drop_fn);
 
-void alumet_add_output(struct AlumetStart *alumet,
+void alumet_add_output(struct AlumetPluginStart *alumet,
                        void *output_data,
                        OutputWriteFn output_write_fn,
                        NullableDropFn output_drop_fn);

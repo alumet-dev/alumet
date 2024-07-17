@@ -1,6 +1,6 @@
 [package]
 name = "alumet"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 description = "Core of ALUMET, which includes an async measurement pipeline for use in applications, a plugin API, and an automatically generated C header for dynamic plugins."
 
@@ -23,6 +23,7 @@ serde = "1.0.198"
 smallvec = { version = "1.13.2", features = ["union"] }
 tokio-util = "0.7.10"
 indoc = "2.0.5"
+thiserror = "1.0.62"
 
 # Dependencies for Linux builds only.
 [target.'cfg(target_os = "linux")'.dependencies]

@@ -6,13 +6,17 @@
 
 PLUGIN_API const char *PLUGIN_NAME = "test-dynamic-plugin-c";
 PLUGIN_API const char *PLUGIN_VERSION = "0.1.0";
-PLUGIN_API const char *ALUMET_VERSION = "0.5.0";
+PLUGIN_API const char *ALUMET_VERSION = "0.6.0";
 
 typedef struct {
     AString custom_attribute;
 } PluginStruct;
 
 PLUGIN_API PluginStruct *plugin_init(const ConfigTable *config) {
+    // disable buffering of output, because the order of the output matters to test assertions
+    setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stderr, NULL, _IONBF, 0);
+
     PluginStruct *plugin = malloc(sizeof(PluginStruct));
     NullableAStr custom_attribute = config_string_in(config, astr("custom_attribute"));
     if (custom_attribute.ptr == NULL) {
@@ -24,7 +28,7 @@ PLUGIN_API PluginStruct *plugin_init(const ConfigTable *config) {
     return plugin;
 }
 
-PLUGIN_API void plugin_start(PluginStruct *plugin, AlumetStart *alumet) {
+PLUGIN_API void plugin_start(PluginStruct *plugin, AlumetPluginStart *alumet) {
     printf("plugin_start begins with plugin = %p, custom_attribute = %.*s\n", plugin, (int)plugin->custom_attribute.len, plugin->custom_attribute.ptr);
 
     // create the source

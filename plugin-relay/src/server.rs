@@ -8,10 +8,10 @@ use alumet::{
         AttributeValue, MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementType, WrappedMeasurementValue,
     },
     metrics::{Metric, RawMetricId},
-    pipeline::builder::LateRegistrationHandle,
+    pipeline::{builder::elements::AutonomousSourceRegistration, registry},
     plugin::{
         rust::{deserialize_config, serialize_config, AlumetPlugin},
-        AlumetStart, ConfigTable,
+        AlumetPluginStart, ConfigTable,
     },
     resources::{InvalidConsumerError, InvalidResourceError, Resource, ResourceConsumer},
     units::{PrefixedUnit, Unit},
@@ -76,7 +76,7 @@ impl AlumetPlugin for RelayServerPlugin {
         Ok(Box::new(RelayServerPlugin { config }))
     }
 
-    fn start(&mut self, alumet: &mut AlumetStart) -> anyhow::Result<()> {
+    fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         // Retrieve the ip from the config using
         // [the trait ToSocketAddrs](https://doc.rust-lang.org/stable/std/net/trait.ToSocketAddrs.html)
         // of (String, u16) to use a raw address without any port.
@@ -104,17 +104,21 @@ impl AlumetPlugin for RelayServerPlugin {
         };
 
         log::info!("Starting gRPC server with on socket {addr}");
-        alumet.add_autonomous_source(move |p, cancel_token, out_tx| {
-            let late_reg = tokio::sync::Mutex::new(p.late_registration_handle());
-            let collector = GrpcMetricCollector { out_tx, late_reg };
-            async move {
+        alumet.add_autonomous_source_builder(move |ctx, cancel_token, out_tx| {
+            let metrics_tx = ctx.metrics_sender();
+            let collector = GrpcMetricCollector { out_tx, metrics_tx };
+            let source = Box::pin(async move {
                 Server::builder()
                     .add_service(MetricCollectorServer::new(collector))
                     .serve_with_shutdown(addr, cancel_token.cancelled_owned())
                     .await
                     .context("server error")?;
                 Ok(())
-            }
+            });
+            Ok(AutonomousSourceRegistration {
+                name: ctx.source_name("grpc-server"),
+                source,
+            })
         });
         Ok(())
     }
@@ -126,7 +130,7 @@ impl AlumetPlugin for RelayServerPlugin {
 
 pub struct GrpcMetricCollector {
     out_tx: tokio::sync::mpsc::Sender<MeasurementBuffer>,
-    late_reg: tokio::sync::Mutex<LateRegistrationHandle>,
+    metrics_tx: registry::MetricSender,
 }
 
 #[tonic::async_trait]
@@ -193,19 +197,21 @@ impl MetricCollector for GrpcMetricCollector {
             .unzip();
 
         let server_metric_ids = self
-            .late_reg
-            .lock()
+            .metrics_tx
+            .create_metrics(metrics, registry::DuplicateStrategy::Rename { suffix: client_name })
             .await
-            .create_metrics_infallible(metrics, client_name)
-            .await
+            .map_err(|_| panic!("create_metrics failed"))
             .unwrap();
 
         let mappings = client_metric_ids
             .into_iter()
             .zip(server_metric_ids)
-            .map(|(client_id, server_id)| IdMapping {
-                id_for_agent: client_id,
-                id_for_collector: server_id.as_u64(),
+            .map(|(client_id, server_id)| match server_id {
+                Ok(id) => IdMapping {
+                    id_for_agent: client_id,
+                    id_for_collector: id.as_u64(),
+                },
+                Err(e) => todo!(),
             })
             .collect();
         Ok(Response::new(RegisterReply { mappings }))
