@@ -13,7 +13,7 @@ type ConfigArray = toml::value::Array;
 /// it should generate an opaque type for ConfigTable and ConfigArray, but it does not.
 mod cbindgen_workaround {
     pub struct ConfigArray;
-    
+
     #[no_mangle]
     fn __workaround(_x: ConfigArray) {}
 }
@@ -132,8 +132,8 @@ pub extern "C" fn config_table_at(array: &ConfigArray, index: usize) -> *const C
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::{CStr, CString};
     use super::*;
+    use std::ffi::{CStr, CString};
 
     #[test]
     fn test_pointers() {
@@ -144,7 +144,7 @@ mod tests {
             float = 123.456
             true = true
             false = false
-            
+
             array = [0xfafc, 0.42, "test", true, false, [987654321.978465132]]
         };
 
@@ -159,20 +159,14 @@ mod tests {
 
         // simple values
         let string_ptr_ok = config_string_in(&table, key_string);
-        assert_eq!(
-            string_ptr_ok.as_str(),
-            Some("abc")
-        );
+        assert_eq!(string_ptr_ok.as_str(), Some("abc"));
         let string_ptr_wrong = config_cstring_in(&table, key_wrong);
         assert_eq!(string_ptr_wrong, ptr::null());
         let string_ptr_wrong2 = config_string_in(&table, key_wrong);
         assert_eq!(string_ptr_wrong2.ptr, ptr::null_mut());
 
         let string_ptr_ok = config_string_in(&table, key_string2);
-        assert_eq!(
-            string_ptr_ok.as_str(),
-            Some("x and éàü¢»¤€")
-        );
+        assert_eq!(string_ptr_ok.as_str(), Some("x and éàü¢»¤€"));
 
         let int_ptr_ok = config_int_in(&table, key_int);
         let int_ptr_wrong = config_int_in(&table, key_wrong);
@@ -190,7 +184,7 @@ mod tests {
         assert_eq!(bool_ptr_wrong, ptr::null());
         assert_eq!(unsafe { *bool_ptr_true }, true);
         assert_eq!(unsafe { *bool_ptr_false }, false);
-        
+
         // array
         let array_ptr_ok = config_array_in(&table, key_array);
         let array_ptr_wrong = config_array_in(&table, key_wrong);
@@ -199,15 +193,18 @@ mod tests {
 
         let array = unsafe { &*array_ptr_ok };
         assert_eq!(array.len(), 6);
-        assert_eq!(unsafe{*config_int_at(array, 0)}, 0xfafc);
-        assert_eq!(unsafe{*config_float_at(array, 1)}, 0.42);
-        assert_eq!(unsafe{CStr::from_ptr(config_cstring_at(array, 2))}, CString::new("test").unwrap().as_c_str());
-        assert_eq!(unsafe{*config_bool_at(array, 3)}, true);
-        assert_eq!(unsafe{*config_bool_at(array, 4)}, false);
+        assert_eq!(unsafe { *config_int_at(array, 0) }, 0xfafc);
+        assert_eq!(unsafe { *config_float_at(array, 1) }, 0.42);
+        assert_eq!(
+            unsafe { CStr::from_ptr(config_cstring_at(array, 2)) },
+            CString::new("test").unwrap().as_c_str()
+        );
+        assert_eq!(unsafe { *config_bool_at(array, 3) }, true);
+        assert_eq!(unsafe { *config_bool_at(array, 4) }, false);
 
         assert_ne!(config_array_at(array, 5), ptr::null());
-        let sub_array = unsafe {&*config_array_at(array, 5)};
+        let sub_array = unsafe { &*config_array_at(array, 5) };
         assert_eq!(sub_array.len(), 1);
-        assert_eq!(unsafe{*config_float_at(sub_array, 0)}, 987654321.978465132)
+        assert_eq!(unsafe { *config_float_at(sub_array, 0) }, 987654321.978465132)
     }
 }

@@ -82,7 +82,10 @@ impl AlumetPlugin for RelayServerPlugin {
         // of (String, u16) to use a raw address without any port.
         let current_ip = match (self.config.address.clone(), self.config.port)
             .to_socket_addrs()
-            .context(format!("Parsing of the `address` param of the server relay plugin: {}", self.config.address))?
+            .context(format!(
+                "Parsing of the `address` param of the server relay plugin: {}",
+                self.config.address
+            ))?
             .next()
         {
             Some(socket) => socket.ip(),

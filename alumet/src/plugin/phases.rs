@@ -75,11 +75,13 @@ impl<'a> AlumetPluginStart<'a> {
     /// Adds a measurement source to the Alumet pipeline.
     pub fn add_source(&mut self, source: Box<dyn Source>, trigger: trigger::TriggerSpec) {
         let plugin = self.current_plugin_name();
-        let builder = |ctx: &mut dyn builder::context::SourceBuildContext| Ok(ManagedSourceRegistration {
-            name: ctx.source_name(""),
-            trigger_spec: trigger,
-            source,
-        });
+        let builder = |ctx: &mut dyn builder::context::SourceBuildContext| {
+            Ok(ManagedSourceRegistration {
+                name: ctx.source_name(""),
+                trigger_spec: trigger,
+                source,
+            })
+        };
         self.pipeline_builder
             .add_source_builder(plugin, SourceBuilder::Managed(Box::new(builder)))
     }
@@ -155,10 +157,12 @@ impl<'a> AlumetPluginStart<'a> {
     /// Adds a transform step to the Alumet pipeline.
     pub fn add_transform(&mut self, transform: Box<dyn Transform>) {
         let plugin = self.current_plugin_name();
-        let builder = |ctx: &mut dyn builder::context::TransformBuildContext| Ok(TransformRegistration {
-            name: ctx.transform_name(""),
-            transform,
-        });
+        let builder = |ctx: &mut dyn builder::context::TransformBuildContext| {
+            Ok(TransformRegistration {
+                name: ctx.transform_name(""),
+                transform,
+            })
+        };
         self.pipeline_builder.add_transform_builder(plugin, Box::new(builder));
     }
 
@@ -171,10 +175,12 @@ impl<'a> AlumetPluginStart<'a> {
     /// Adds an output to the Alumet pipeline.
     pub fn add_output(&mut self, output: Box<dyn Output>) {
         let plugin = self.current_plugin_name();
-        let builder = |ctx: &mut dyn OutputBuildContext| Ok(OutputRegistration {
-            name: ctx.output_name(""),
-            output,
-        });
+        let builder = |ctx: &mut dyn OutputBuildContext| {
+            Ok(OutputRegistration {
+                name: ctx.output_name(""),
+                output,
+            })
+        };
         self.pipeline_builder.add_output_builder(plugin, Box::new(builder));
     }
 

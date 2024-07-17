@@ -7,7 +7,7 @@ use crate::{
         AttributeValue, MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue,
     },
     metrics::RawMetricId,
-    resources::{ResourceConsumer, Resource},
+    resources::{Resource, ResourceConsumer},
 };
 
 use super::{
@@ -55,7 +55,13 @@ pub extern "C" fn mpoint_new_u64(
     consumer: FfiConsumerId,
     value: u64,
 ) -> *mut MeasurementPoint {
-    mpoint_new(timestamp, metric, resource, consumer, WrappedMeasurementValue::U64(value))
+    mpoint_new(
+        timestamp,
+        metric,
+        resource,
+        consumer,
+        WrappedMeasurementValue::U64(value),
+    )
 }
 
 #[no_mangle]
@@ -66,7 +72,13 @@ pub extern "C" fn mpoint_new_f64(
     consumer: FfiConsumerId,
     value: f64,
 ) -> *mut MeasurementPoint {
-    mpoint_new(timestamp, metric, resource, consumer, WrappedMeasurementValue::F64(value))
+    mpoint_new(
+        timestamp,
+        metric,
+        resource,
+        consumer,
+        WrappedMeasurementValue::F64(value),
+    )
 }
 
 /// Free a MeasurementPoint.

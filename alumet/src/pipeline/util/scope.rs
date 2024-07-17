@@ -8,7 +8,7 @@
 // /// ```ignore
 // /// spawn_blocking_with_output(output, ctx, func).await
 // /// ```
-// /// 
+// ///
 // /// The above is equivalent to:
 // /// ```ignore
 // /// tokio::task::spawn_blocking(move || {

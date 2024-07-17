@@ -26,9 +26,9 @@
 //! ```
 
 use core::fmt;
-use std::borrow::Cow;
 use fxhash::FxBuildHasher;
 use smallvec::SmallVec;
+use std::borrow::Cow;
 use std::{collections::HashMap, fmt::Display, time::SystemTime};
 
 use crate::resources::ResourceConsumer;
@@ -52,22 +52,22 @@ pub struct MeasurementPoint {
     pub value: WrappedMeasurementValue,
 
     /// The resource this measurement is about: CPU socket, GPU, process, ...
-    /// 
+    ///
     /// The `resource` and the `consumer` specify which object has been measured.
     pub resource: Resource,
-    
+
     /// The consumer of the resource: process, container, ...
-    /// 
+    ///
     /// This gives additional information about the perimeter of the measurement.
     /// For instance, we can measure the total CPU usage of the node,
     /// or the usage of the CPU by a particular process.
     pub consumer: ResourceConsumer,
 
     /// Additional attributes on the measurement point.
-    /// 
+    ///
     /// Not public because we could change how they are stored later (in fact it has already changed multiple times).
     /// Uses  [`SmallVec`] to avoid allocations if the number of attributes is small.
-    attributes: SmallVec<[(Cow<'static, str>, AttributeValue); 4]>
+    attributes: SmallVec<[(Cow<'static, str>, AttributeValue); 4]>,
 }
 
 /// A measurement of a clock.
@@ -143,13 +143,17 @@ impl MeasurementPoint {
     /// Attaches multiple attributes to this measurement point, from a [`Vec`].
     /// Existing attributes with conflicting keys are replaced.
     pub fn with_attr_vec<K: Into<Cow<'static, str>>>(mut self, attributes: Vec<(K, AttributeValue)>) -> Self {
-        self.attributes.extend(attributes.into_iter().map(|(k, v)| (k.into(), v)));
+        self.attributes
+            .extend(attributes.into_iter().map(|(k, v)| (k.into(), v)));
         self
     }
 
     /// Attaches multiple attributes to this measurement point, from a [`HashMap`].
     /// Existing attributes with conflicting keys are replaced.
-    pub fn with_attr_map<K: Into<Cow<'static, str>>>(mut self, attributes: HashMap<K, AttributeValue, FxBuildHasher>) -> Self {
+    pub fn with_attr_map<K: Into<Cow<'static, str>>>(
+        mut self,
+        attributes: HashMap<K, AttributeValue, FxBuildHasher>,
+    ) -> Self {
         let converted = attributes.into_iter().map(|(k, v)| (k.into(), v));
         if self.attributes.is_empty() {
             self.attributes = converted.collect();
@@ -251,9 +255,9 @@ pub enum AttributeValue {
     U64(u64),
     Bool(bool),
     /// A borrowed string attribute.
-    /// 
+    ///
     /// If you can use `AttributeValue::Str` instead of `AttributeValue::String`,
-    /// do it: it will save a memory allocation. 
+    /// do it: it will save a memory allocation.
     Str(&'static str),
     String(String),
 }
@@ -319,7 +323,7 @@ impl MeasurementBuffer {
             points: Vec::with_capacity(capacity),
         }
     }
-    
+
     /// Returns true if this buffer is empty.
     pub fn is_empty(&self) -> bool {
         self.points.is_empty()

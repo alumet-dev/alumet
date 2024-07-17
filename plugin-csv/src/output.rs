@@ -6,8 +6,11 @@ use std::{
     time::SystemTime,
 };
 
-use alumet::{measurement::MeasurementBuffer, pipeline::elements::{error::WriteError, output::OutputContext}};
 use alumet::measurement::WrappedMeasurementValue;
+use alumet::{
+    measurement::MeasurementBuffer,
+    pipeline::elements::{error::WriteError, output::OutputContext},
+};
 use anyhow::Context;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;

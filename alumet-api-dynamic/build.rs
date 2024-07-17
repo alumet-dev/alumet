@@ -1,4 +1,7 @@
-use std::{path::{PathBuf, Path}, env};
+use std::{
+    env,
+    path::{Path, PathBuf},
+};
 
 fn main() {
     // the current directory is the one containing build.rs
@@ -25,8 +28,10 @@ fn main() {
         .generate()
         .expect("Unable to generate Rust bindings for C header");
 
-    bindings.write_to_file(&outfile_path).expect("Failed to write the bindings");
-    
+    bindings
+        .write_to_file(&outfile_path)
+        .expect("Failed to write the bindings");
+
     // Create a link to the bindings for easy inspection
     let link_path = PathBuf::from("./generated/bindings.rs");
     std::fs::create_dir_all(link_path.parent().unwrap()).unwrap();

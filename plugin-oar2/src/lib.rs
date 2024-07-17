@@ -3,7 +3,8 @@ use alumet::{
     metrics::TypedMetricId,
     pipeline::{control::ScopedControlHandle, elements::error::PollError, trigger::TriggerSpec, Source},
     plugin::{
-        rust::{deserialize_config, serialize_config, AlumetPlugin}, AlumetPluginStart, AlumetPostStart, ConfigTable, Plugin
+        rust::{deserialize_config, serialize_config, AlumetPlugin},
+        AlumetPluginStart, AlumetPostStart, ConfigTable,
     },
     resources::{Resource, ResourceConsumer},
     units::{PrefixedUnit, Unit},
@@ -97,7 +98,8 @@ impl AlumetPlugin for Oar2Plugin {
             let entry = entry?;
 
             let job_name = entry.file_name();
-            let job_name = job_name.clone()
+            let job_name = job_name
+                .clone()
                 .into_string()
                 .ok()
                 .with_context(|| format!("Invalid oar username and job id, for job: {:?}", job_name))?;
@@ -137,10 +139,7 @@ impl AlumetPlugin for Oar2Plugin {
         let control_handle = alumet.pipeline_control();
         let config_path = self.config.path.clone();
 
-        let metrics = self
-            .metrics
-            .take()
-            .expect("Metrics should be initialized by start()");
+        let metrics = self.metrics.take().expect("Metrics should be initialized by start()");
         let cpu_metric = metrics.cpu_metric;
         let memory_metric = metrics.memory_metric;
         let poll_interval = self.config.poll_interval;
@@ -188,11 +187,14 @@ impl AlumetPlugin for Oar2Plugin {
 
                                 let source_name = job_name.to_string();
 
-                                job_detect.control_handle.add_source(
-                                    &source_name,
-                                    new_source,
-                                    TriggerSpec::at_interval(job_detect.poll_interval),
-                                );
+                                job_detect
+                                    .control_handle
+                                    .add_source(
+                                        &source_name,
+                                        new_source,
+                                        TriggerSpec::at_interval(job_detect.poll_interval),
+                                    )
+                                    .with_context(|| format!("failed to add source {source_name}"))?;
                             }
                         }
                     }

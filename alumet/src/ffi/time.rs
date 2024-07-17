@@ -25,7 +25,6 @@ impl From<Timestamp> for SystemTime {
     }
 }
 
-
 impl From<Timestamp> for crate::measurement::Timestamp {
     fn from(value: Timestamp) -> Self {
         crate::measurement::Timestamp::from(SystemTime::from(value))

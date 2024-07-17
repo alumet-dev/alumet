@@ -42,7 +42,6 @@ pub enum ControlError {
     Shutdown,
 }
 
-
 #[derive(Debug, Error)]
 pub enum ControlSendError {
     #[error("Cannot send the message because the channel is full - {0:?}")]

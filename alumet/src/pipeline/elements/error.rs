@@ -12,7 +12,7 @@ pub enum PollError {
     /// - And the source's `poll` method can be called again and work. Pay attention to the internal state of the source.
     CanRetry(anyhow::Error),
     /// The source is no longer able to work and must be stopped, but this is expected.
-    /// 
+    ///
     /// Use this when the object that you measure disappears in an expected way.
     /// For instance, a process can exit, which removes its associated files in the procfs,
     /// making them unreadable with a `NotFound` error.

@@ -1,6 +1,6 @@
 pub mod channel;
-pub mod naming;
 pub mod matching;
+pub mod naming;
 pub mod scope;
 pub mod threading;
 

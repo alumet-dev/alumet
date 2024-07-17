@@ -21,7 +21,7 @@ pub struct AString {
 pub struct AStr<'a> {
     pub(super) len: usize,
     pub(super) ptr: NonNull<c_char>,
-    _marker: &'a PhantomData<()>
+    _marker: &'a PhantomData<()>,
 }
 
 /// FFI equivalent to [`Option<&str>`].
@@ -30,7 +30,7 @@ pub struct AStr<'a> {
 pub struct NullableAStr<'a> {
     pub(super) len: usize,
     pub(super) ptr: *const c_char, // nullable but const
-    _marker: &'a PhantomData<()>
+    _marker: &'a PhantomData<()>,
 }
 
 impl Drop for AString {
@@ -78,7 +78,7 @@ impl<'a> NullableAStr<'a> {
         Self {
             len: s.len,
             ptr: s.ptr.as_ptr(),
-            _marker: &PhantomData
+            _marker: &PhantomData,
         }
     }
 
@@ -115,7 +115,6 @@ pub extern "C" fn astring(chars: *const c_char) -> AString {
     }
 }
 
-
 #[no_mangle]
 pub extern "C" fn astr_copy(astr: AStr) -> AString {
     AString::from(astr.as_str())
@@ -135,18 +134,18 @@ pub extern "C" fn astr<'a>(chars: *const c_char) -> AStr<'a> {
     AStr {
         len: str.len(),
         ptr: unsafe { NonNull::new_unchecked(cstring.as_ptr() as _) },
-        _marker: &PhantomData
+        _marker: &PhantomData,
     }
 }
 
 #[no_mangle]
 pub extern "C" fn astring_ref<'a>(string: AString) -> AStr<'a> {
     let string = ManuallyDrop::new(string);
-        AStr {
-            len: string.len,
-            ptr: string.ptr,
-            _marker: &PhantomData,
-        }
+    AStr {
+        len: string.len,
+        ptr: string.ptr,
+        _marker: &PhantomData,
+    }
 }
 
 /// Frees a `AString`.
@@ -201,7 +200,7 @@ impl<'a> From<&'a AString> for AStr<'a> {
         AStr {
             len: value.len,
             ptr: value.ptr,
-            _marker: &PhantomData
+            _marker: &PhantomData,
         }
     }
 }
@@ -211,7 +210,7 @@ impl<'a> From<&'a mut str> for AStr<'a> {
         AStr {
             len: value.len(),
             ptr: unsafe { NonNull::new_unchecked(value.as_mut_ptr() as _) },
-            _marker: &PhantomData
+            _marker: &PhantomData,
         }
     }
 }
@@ -227,7 +226,7 @@ impl<'a> From<&'a str> for AStr<'a> {
         AStr {
             len: value.len(),
             ptr: unsafe { NonNull::new_unchecked(value.as_ptr() as _) },
-            _marker: &PhantomData
+            _marker: &PhantomData,
         }
     }
 }
@@ -237,7 +236,7 @@ impl<'a> From<&'a str> for NullableAStr<'a> {
         NullableAStr {
             len: value.len(),
             ptr: value.as_ptr() as _,
-            _marker: &PhantomData
+            _marker: &PhantomData,
         }
     }
 }

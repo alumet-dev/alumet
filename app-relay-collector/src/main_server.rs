@@ -17,9 +17,7 @@ fn main() {
     let plugins = static_plugins![plugin_relay::server::RelayServerPlugin, plugin_csv::CsvPlugin];
 
     // Build the collector
-    let mut agent = AgentBuilder::new(plugins)
-        .config_path("alumet-collector.toml")
-        .build();
+    let mut agent = AgentBuilder::new(plugins).config_path("alumet-collector.toml").build();
 
     // CLI option: config regeneration.
     if args.regen_config {

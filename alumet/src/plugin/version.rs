@@ -6,7 +6,7 @@ use std::num::ParseIntError;
 const ALUMET_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// A version number that follows semantic versioning.
-/// 
+///
 /// See [`Version::parse`].
 pub struct Version {
     x: u8,
@@ -27,10 +27,10 @@ impl Version {
     }
 
     /// Parses a version number of the form `"x.y.z"` where x,y,z are integers.
-    /// 
+    ///
     /// It is allowed to omit the last number, in which case `z` is inferred to zero.
     /// For example, `"1.0"` is a valid version and is considered to be equal to `"1.0.0"`.
-    /// 
+    ///
     /// ## Example
     /// ```ignore
     /// let version = Version::parse("1.0.2").expect("the version number should be valid");
@@ -52,7 +52,7 @@ impl Version {
     }
 
     /// Checks if a plugin that requires version `required_version` can be loaded with version `self`.
-    /// 
+    ///
     /// The check is based on semantic versioning, see https://doc.rust-lang.org/cargo/reference/semver.html
     pub fn can_load(&self, required_version: &Version) -> bool {
         // 0.0.z: a change of z is always a major change
