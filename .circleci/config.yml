@@ -24,6 +24,9 @@ jobs:
           keys:
             - v1-cache-{{ checksum ".combined_cache_key" }}
       - run:
+          name: Check formatting
+          command: "cargo fmt --check"
+      - run:
           name: Run Tests (including doc tests)
           command: "CONTINUE_TEST_IF_NO_POWERCAP=true cargo test"
       - run:
