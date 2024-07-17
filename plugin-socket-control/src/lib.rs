@@ -32,10 +32,7 @@ impl AlumetPlugin for SocketControlPlugin {
 
     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
         let config = deserialize_config(config)?;
-        Ok(Box::new(SocketControlPlugin {
-            config: config,
-            control: None,
-        }))
+        Ok(Box::new(SocketControlPlugin { config, control: None }))
     }
 
     fn start(&mut self, _alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {

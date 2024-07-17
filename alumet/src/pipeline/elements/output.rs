@@ -274,7 +274,7 @@ async fn run_output<Rx: channel::MeasurementReceiver>(
                     }
                     Err(WriteError::Fatal(e)) => {
                         log::error!("Fatal error when writing to {name} (will stop running): {e:?}");
-                        return Err(e.context(format!("fatal error when writing to {name}")));
+                        Err(e.context(format!("fatal error when writing to {name}")))
                     }
                 }
             }

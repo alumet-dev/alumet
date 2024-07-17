@@ -20,7 +20,7 @@ use super::{
 // ====== Metrics ffi ======
 #[no_mangle]
 pub extern "C" fn metric_name<'a>(metric: RawMetricId, ctx: &'a FfiOutputContext) -> AStr<'a> {
-    let metrics: &crate::metrics::MetricRegistry = &unsafe { &*ctx.inner }.metrics;
+    let metrics: &crate::metrics::MetricRegistry = unsafe { &*ctx.inner }.metrics;
     let name: &str = &metrics.by_id(&metric).unwrap().name;
     AStr::from(name)
 }

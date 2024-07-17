@@ -86,9 +86,8 @@ impl alumet::pipeline::Source for NvmlSource {
                 CounterDiffUpdate::Difference(diff) => Some(diff),
                 CounterDiffUpdate::CorrectedDifference(diff) => Some(diff),
             };
-            if let Some(diff) = diff {
-                // if meaningful (we need at least two measurements), convert to joules and push
-                let milli_joules = diff as u64;
+            if let Some(milli_joules) = diff {
+                // if meaningful (we need at least two measurements), push
                 measurements.push(MeasurementPoint::new(
                     timestamp,
                     self.metrics.total_energy_consumption,
@@ -453,7 +452,7 @@ impl NvmlDevices {
 }
 
 impl ManagedDevice {
-    pub fn as_wrapper<'a>(&'a self) -> Device<'a> {
+    pub fn as_wrapper(&self) -> Device<'_> {
         unsafe { Device::new(self.handle, &self.lib) }
     }
 }

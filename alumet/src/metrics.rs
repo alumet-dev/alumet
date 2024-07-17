@@ -219,7 +219,7 @@ impl MetricRegistry {
         if let Some(_conflict) = self.metrics_by_name.get(requested_name) {
             let mut name = format!("{requested_name}_{resolution_suffix}");
             let mut dedup = 0;
-            while self.metrics_by_name.get(&name).is_some() {
+            while self.metrics_by_name.contains_key(&name) {
                 dedup += 1;
                 name = format!("{requested_name}_{resolution_suffix}__{dedup}");
             }

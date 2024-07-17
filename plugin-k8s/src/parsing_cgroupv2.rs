@@ -24,8 +24,8 @@ impl FromStr for CgroupV2Metric {
             time_used_user_mode: 0,
             time_used_system_mode: 0,
         };
-        for (_i, line) in s.lines().enumerate() {
-            let parts: Vec<&str> = line.split_whitespace().collect();
+        for line in s.lines() {
+            let parts: Vec<&str> = line.split_ascii_whitespace().collect();
             if parts.len() >= 2 {
                 match parts[0] {
                     "usage_usec" => {
@@ -41,7 +41,7 @@ impl FromStr for CgroupV2Metric {
                 }
             }
         }
-        return Ok(cgroup_struc_to_ret);
+        Ok(cgroup_struc_to_ret)
     }
 }
 

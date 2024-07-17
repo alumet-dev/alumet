@@ -105,7 +105,7 @@ impl AlumetPlugin for Oar2Plugin {
                 .with_context(|| format!("Invalid oar username and job id, for job: {:?}", job_name))?;
 
             if entry.file_type()?.is_dir() && job_name.chars().any(|c| c.is_numeric()) {
-                let job_separated = job_name.split_once("_");
+                let job_separated = job_name.split_once('_');
                 let job_id = job_separated.context("Invalid oar cgroup.")?.1.parse()?;
 
                 let cpu_job_path = cgroup_cpu_path.join(&job_name);
@@ -159,7 +159,7 @@ impl AlumetPlugin for Oar2Plugin {
                         let job_name = job_name.to_str().expect("Can't retrieve the job name value");
 
                         if job_name.chars().any(|c| c.is_numeric()) {
-                            let job_separated = job_name.split_once("_");
+                            let job_separated = job_name.split_once('_');
                             let job_id = job_separated.context("Invalid oar cgroup")?.1.parse()?;
 
                             let cpu_path = job_detect.config_path.join("cpuacct/oar").join(&job_name);
@@ -198,7 +198,7 @@ impl AlumetPlugin for Oar2Plugin {
                             }
                         }
                     }
-                    return Ok(());
+                    Ok(())
                 }
 
                 log::debug!("Handle event function");

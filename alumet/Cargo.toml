@@ -36,3 +36,6 @@ serde = { version = "1.0.198", features = ["derive"] }
 # Dependencies for the build script (build.rs).
 [build-dependencies]
 cbindgen = { git = "https://github.com/TheElectronWill/cbindgen.git", branch = "symbols-files" }
+
+[lints]
+workspace = true

@@ -140,7 +140,7 @@ impl Output for InfluxDbOutput {
                     AttributeValue::U64(v) => builder.field_uint(field_key, *v),
                     AttributeValue::Bool(v) => builder.field_bool(field_key, *v),
                     AttributeValue::Str(v) => builder.field_string(field_key, v),
-                    AttributeValue::String(v) => builder.field_string(field_key, &v),
+                    AttributeValue::String(v) => builder.field_string(field_key, v),
                 };
             }
 
