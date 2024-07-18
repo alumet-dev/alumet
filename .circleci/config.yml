@@ -2,6 +2,7 @@ version: 2.1
 
 jobs:
   build_and_test:
+    resource_class: large
     docker:
       - image: cimg/rust:1.78.0
     steps:
@@ -38,6 +39,7 @@ jobs:
             - ~/.cargo
             #- {{ .Environment.CARGO_HOME }}
   lint:
+    resource_class: medium
     docker:
       - image: cimg/rust:1.78.0
     steps:
@@ -77,6 +79,7 @@ jobs:
             - ~/.cargo
             #- {{ .Environment.CARGO_HOME }}
   miri_test:
+    resource_class: medium
     docker:
       - image: cimg/rust:1.78.0
     steps:
