@@ -5,6 +5,9 @@ fn main() {
         // do nothing if the `dynamic` feature is disabled
         return;
     }
+    if env::var_os("SKIP_BINDGEN").is_some() {
+        return;
+    }
 
     let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let out_dir = Path::new("generated");

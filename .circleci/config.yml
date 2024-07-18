@@ -76,9 +76,27 @@ jobs:
           paths:
             - ~/.cargo
             #- {{ .Environment.CARGO_HOME }}
+  miri_test:
+    docker:
+      - image: cimg/rust:1.78.0
+    steps:
+      - checkout
+      - run: cargo --version && rustup --version
+      - run:
+          name: Install required packages.
+          command: sudo apt-get update && sudo apt-get install llvm-dev libclang-dev --no-install-recommends
+      - run:
+          name: Install Miri on nightly rust
+          command: "rustup +nightly component add miri"
+      - run:
+          name: Run Miri on some tests
+          command: "cd alumet && cargo +nightly miri test -- ffi"
+          environment:
+            SKIP_BINDGEN: true
 
 workflows:
   test_and_lint:
     jobs:
       - build_and_test
       - lint
+      - miri_test
