@@ -1,0 +1,13 @@
+[package]
+name = "plugin-procfs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alumet = { path = "../alumet" }
+anyhow = "1.0.82"
+procfs = "0.16.0"
+serde = { version = "1.0.201", features = ["derive"] }
+
+[lints]
+workspace = true
