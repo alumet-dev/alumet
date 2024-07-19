@@ -1,8 +1,5 @@
 use pretty_assertions::assert_str_eq;
-use std::{
-    path::Path,
-    process::Command,
-};
+use std::{path::Path, process::Command};
 
 #[test]
 fn test_plugin_c() {

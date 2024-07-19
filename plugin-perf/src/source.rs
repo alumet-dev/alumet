@@ -121,7 +121,7 @@ impl PerfEventSourceBuilder {
 
                     // add event (the params must be the same)
                     let counter = perf_group
-                        .add(&perf_event::Builder::new(event).observe_pid(*pid).any_cpu())
+                        .add(perf_event::Builder::new(event).observe_pid(*pid).any_cpu())
                         .with_context(|| format!("perf_group.add with observe_pid({pid}).any_cpu()"))?;
 
                     // add metadata
@@ -156,7 +156,7 @@ impl PerfEventSourceBuilder {
                         // add event (the params must be the same)
                         let counter = perf_group
                             .add(
-                                &perf_event::Builder::new(event.clone())
+                                perf_event::Builder::new(event.clone())
                                     .observe_cgroup(fd)
                                     .one_cpu(cpu_id),
                             )

@@ -23,3 +23,6 @@ toml = "0.8.12"
 [[bin]]
 name = "alumet-agent"
 path = "src/main.rs"
+
+[lints]
+workspace = true

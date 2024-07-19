@@ -182,7 +182,7 @@ pub trait Plugin {
     /// This method is called _after_ all the metrics, sources and outputs previously registered
     /// by [`Plugin::start`] have been stopped and unregistered.
     fn stop(&mut self) -> anyhow::Result<()>;
-    
+
     /// Function called after the startup phase but before the operation phase,
     /// i.e. the measurement pipeline has not started yet.
     ///

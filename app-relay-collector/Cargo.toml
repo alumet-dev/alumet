@@ -28,3 +28,6 @@ path = "src/main_client.rs"
 name = "alumet-relay-server"
 required-features = ["server"]
 path = "src/main_server.rs"
+
+[lints]
+workspace = true

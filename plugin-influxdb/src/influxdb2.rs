@@ -80,6 +80,7 @@ impl LineProtocolBuilder {
         }
     }
 
+    #[allow(unused)]
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             buf: String::with_capacity(capacity),

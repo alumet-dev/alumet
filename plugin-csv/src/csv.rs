@@ -27,7 +27,7 @@ impl CsvHelper {
     ///
     /// See <https://www.ietf.org/rfc/rfc4180.txt>.
     pub fn escape_string<'a>(&self, s: &'a str) -> Cow<'a, str> {
-        if s.contains(&[self.delimiter, '"', '\n', '\r']) {
+        if s.contains([self.delimiter, '"', '\n', '\r']) {
             let escaped = s.replace('"', &self.escaped_quote);
             let quoted = format!("\"{escaped}\"");
             Cow::Owned(quoted)

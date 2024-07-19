@@ -1,4 +1,4 @@
-use crate::resources::{ResourceConsumer, Resource};
+use crate::resources::{Resource, ResourceConsumer};
 
 // pub(crate) const RESOURCE_ID_SIZE: usize = std::mem::size_of::<ResourceId>();
 
@@ -72,7 +72,7 @@ pub extern "C" fn consumer_new_process(pid: u32) -> FfiConsumerId {
 
 #[cfg(test)]
 mod tests {
-    use crate::resources::{ResourceConsumer, Resource};
+    use crate::resources::{Resource, ResourceConsumer};
 
     #[test]
     fn test_memory_layout() {

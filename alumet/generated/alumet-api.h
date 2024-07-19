@@ -252,8 +252,6 @@ typedef void (*OutputWriteFn)(void *instance,
 
 struct NullableAStr config_string_in(const ConfigTable *table, struct AStr key);
 
-const char *config_cstring_in(const ConfigTable *table, struct AStr key);
-
 const int64_t *config_int_in(const ConfigTable *table, struct AStr key);
 
 const bool *config_bool_in(const ConfigTable *table, struct AStr key);
@@ -264,9 +262,7 @@ const ConfigArray *config_array_in(const ConfigTable *table, struct AStr key);
 
 const ConfigTable *config_table_in(const ConfigTable *table, struct AStr key);
 
-struct NullableAStr config_string_at(ConfigArray *array, uintptr_t index);
-
-const char *config_cstring_at(const ConfigArray *array, uintptr_t index);
+struct NullableAStr config_string_at(const ConfigArray *array, uintptr_t index);
 
 const int64_t *config_int_at(const ConfigArray *array, uintptr_t index);
 

@@ -33,27 +33,6 @@ pub struct CgroupV2MetricFile {
     pub node: String,
 }
 
-impl CgroupV2MetricFile {
-    /// Create a new CgroupV2MetricFile structure from a name, a path and a File
-    fn new(
-        name: String,
-        path_entry: PathBuf,
-        file: File,
-        uid: String,
-        namespace: String,
-        node: String,
-    ) -> CgroupV2MetricFile {
-        CgroupV2MetricFile {
-            name,
-            path: path_entry,
-            file,
-            uid,
-            namespace,
-            node,
-        }
-    }
-}
-
 /// Check if a specific file is a dir. Used to know if cgroupv2 are used
 pub fn is_accessible_dir(path: &Path) -> bool {
     path.is_dir()
@@ -85,7 +64,7 @@ fn list_metric_file_in_dir(
                 .to_str()
                 .with_context(|| format!("Filename is not valid UTF-8: {:?}", path))?;
 
-            let dir_uid_mod = dir_uid.strip_suffix(".slice").unwrap_or(&dir_uid);
+            let dir_uid_mod = dir_uid.strip_suffix(".slice").unwrap_or(dir_uid);
 
             let root_file_name = root_directory_path
                 .file_name()
@@ -96,14 +75,14 @@ fn list_metric_file_in_dir(
 
             let mut new_prefix = truncated_prefix
                 .strip_suffix(".slice")
-                .unwrap_or(&truncated_prefix)
+                .unwrap_or(truncated_prefix)
                 .to_owned();
 
-            new_prefix.push_str("-");
-            let uid = dir_uid_mod.strip_prefix(&new_prefix).unwrap_or(&dir_uid_mod);
+            new_prefix.push('-');
+            let uid = dir_uid_mod.strip_prefix(&new_prefix).unwrap_or(dir_uid_mod);
             path_cloned.push("cpu.stat");
             let name_to_seek_raw = uid.strip_prefix("pod").unwrap_or(uid);
-            let name_to_seek = name_to_seek_raw.replace("_", "-"); // Replace _ with - to match with hashmap
+            let name_to_seek = name_to_seek_raw.replace('_', "-"); // Replace _ with - to match with hashmap
 
             // Look in the hashmap if there is a tuple (name, namespace, node) associated to the uid of the cgroup
             let (name, namespace, node): (String, String, String) = match main_hash_map.get(&name_to_seek.to_owned()) {
@@ -117,14 +96,14 @@ fn list_metric_file_in_dir(
             vec_file_metric.push(CgroupV2MetricFile {
                 name: name.clone(),
                 path: path_mf,
-                file: file,
+                file,
                 uid: uid.to_owned(),
                 namespace: namespace.clone(),
                 node: node.clone(),
             });
         }
     }
-    return Ok(vec_file_metric);
+    Ok(vec_file_metric)
 }
 
 /// This function list all k8s pods available, using sub-directories to look in
@@ -158,7 +137,7 @@ pub fn list_all_k8s_pods_file(
         let mut result_vec = list_metric_file_in_dir(&prefix.to_owned(), hostname.clone(), kubernetes_api_url.clone())?;
         final_li_metric_file.append(&mut result_vec);
     }
-    return Ok(final_li_metric_file);
+    Ok(final_li_metric_file)
 }
 
 /// Extracts the metrics from the file.
@@ -169,7 +148,7 @@ pub fn gather_value(file: &mut CgroupV2MetricFile, content_buffer: &mut String) 
         .with_context(|| format!("Unable to gather cgroup v2 metrics by reading file {}", file.name))?;
     file.file.rewind()?;
     let mut new_metric =
-        CgroupV2Metric::from_str(&content_buffer).with_context(|| format!("failed to parse {}", file.name))?;
+        CgroupV2Metric::from_str(content_buffer).with_context(|| format!("failed to parse {}", file.name))?;
     new_metric.name = file.name.clone();
     new_metric.namespace = file.namespace.clone();
     new_metric.uid = file.uid.clone();
@@ -183,7 +162,7 @@ pub async fn get_existing_pods(
     kubernetes_api_url: String,
 ) -> anyhow::Result<HashMap<String, (String, String, String)>> {
     let Ok(output) = Command::new("kubectl")
-        .args(&["create", "token", "alumet-reader"])
+        .args(["create", "token", "alumet-reader"])
         .output()
     else {
         return Ok(HashMap::new());
@@ -191,13 +170,13 @@ pub async fn get_existing_pods(
 
     let token = String::from_utf8_lossy(&output.stdout);
     let token = token.trim();
-    if kubernetes_api_url == "" {
+    if kubernetes_api_url.is_empty() {
         return Ok(HashMap::new());
     }
     let mut api_url_root = kubernetes_api_url.clone();
     api_url_root.push_str("/api/v1/pods/");
     let mut selector = false;
-    let api_url = if node == "" {
+    let api_url = if node.is_empty() {
         api_url_root.to_owned()
     } else {
         let tmp = format!("{}?fieldSelector=spec.nodeName={}", api_url_root, node);
@@ -252,7 +231,7 @@ pub async fn get_existing_pods(
                 .get("kubernetes.io/config.hash")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            if config_hash == "" {
+            if config_hash.is_empty() {
                 match metadata {
                     Value::Null => {
                         continue;
@@ -277,7 +256,7 @@ pub async fn get_existing_pods(
         log::debug!("No items part found in the JSON response.");
     }
 
-    return Ok(hash_map_to_ret);
+    Ok(hash_map_to_ret)
 }
 
 /// Reads files in a filesystem to associate a cgroup of a poduid to a kubernetes pod name
@@ -286,9 +265,9 @@ pub async fn get_pod_name(
     node: String,
     kubernetes_api_url: String,
 ) -> anyhow::Result<(String, String, String)> {
-    let new_uid = uid.replace("_", "-");
+    let new_uid = uid.replace('_', "-");
     let Ok(output) = Command::new("kubectl")
-        .args(&["create", "token", "alumet-reader"])
+        .args(["create", "token", "alumet-reader"])
         .output()
     else {
         return Ok(("".to_string(), "".to_string(), "".to_string()));
@@ -296,13 +275,13 @@ pub async fn get_pod_name(
 
     let token = String::from_utf8_lossy(&output.stdout);
     let token = token.trim();
-    if kubernetes_api_url == "" {
+    if kubernetes_api_url.is_empty() {
         return Ok(("".to_string(), "".to_string(), "".to_string()));
     }
     let mut api_url_root = kubernetes_api_url.clone();
     api_url_root.push_str("/api/v1/pods/");
     let mut selector = false;
-    let api_url = if node == "" {
+    let api_url = if node.is_empty() {
         api_url_root.to_owned()
     } else {
         let tmp = format!("{}?fieldSelector=spec.nodeName={}", api_url_root, node);
@@ -358,7 +337,7 @@ pub async fn get_pod_name(
                 .get("kubernetes.io/config.hash")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            if config_hash == "" {
+            if config_hash.is_empty() {
                 match metadata {
                     Value::Null => {
                         continue;
@@ -481,14 +460,14 @@ mod tests {
             Ok(file) => file,
         };
 
-        let mut my_cgroup_test_file: CgroupV2MetricFile = CgroupV2MetricFile::new(
-            "testing_pod".to_string(),
-            path_file,
+        let mut my_cgroup_test_file: CgroupV2MetricFile = CgroupV2MetricFile {
+            name: "testing_pod".to_string(),
+            path: path_file,
             file,
-            "uid_test".to_string(),
-            "namespace_test".to_string(),
-            "node_test".to_owned(),
-        );
+            uid: "uid_test".to_string(),
+            namespace: "namespace_test".to_string(),
+            node: "node_test".to_owned(),
+        };
         let mut content_file = String::new();
         let res_metric = gather_value(&mut my_cgroup_test_file, &mut content_file);
         if let Ok(CgroupV2Metric {

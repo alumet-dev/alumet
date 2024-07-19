@@ -17,3 +17,6 @@ log = "0.4.20"
 perf-event-open-sys = "4.0.0"
 regex = "1.10.3"
 serde = { version = "1.0.198", features = ["derive"] }
+
+[lints]
+workspace = true

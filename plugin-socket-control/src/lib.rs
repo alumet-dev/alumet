@@ -1,8 +1,8 @@
 mod command;
 mod socket;
 
-use alumet::plugin::{AlumetPostStart, AlumetPluginStart, ConfigTable};
-use alumet::plugin::rust::{AlumetPlugin, deserialize_config, serialize_config};
+use alumet::plugin::rust::{deserialize_config, serialize_config, AlumetPlugin};
+use alumet::plugin::{AlumetPluginStart, AlumetPostStart, ConfigTable};
 use serde::{Deserialize, Serialize};
 use socket::SocketControl;
 
@@ -32,10 +32,7 @@ impl AlumetPlugin for SocketControlPlugin {
 
     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
         let config = deserialize_config(config)?;
-        Ok(Box::new(SocketControlPlugin {
-            config: config,
-            control: None,
-        }))
+        Ok(Box::new(SocketControlPlugin { config, control: None }))
     }
 
     fn start(&mut self, _alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {

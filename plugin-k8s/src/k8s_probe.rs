@@ -38,8 +38,8 @@ impl K8SProbe {
         counter_tot: CounterDiff,
         counter_sys: CounterDiff,
         counter_usr: CounterDiff,
-    ) -> anyhow::Result<K8SProbe> {
-        return Ok(K8SProbe {
+    ) -> K8SProbe {
+        K8SProbe {
             cgroup_v2_metric_file: metric_file,
             time_tot: counter_tot,
             time_usr: counter_usr,
@@ -47,7 +47,7 @@ impl K8SProbe {
             time_used_tot: metric.time_used_tot,
             time_used_system_mode: metric.time_used_system_mode,
             time_used_user_mode: metric.time_used_user_mode,
-        });
+        }
     }
 }
 
@@ -78,7 +78,7 @@ impl alumet::pipeline::Source for K8SProbe {
                 self.time_used_tot,
                 Resource::LocalMachine,
                 consumer.clone(),
-                value_tot as u64,
+                value_tot,
             )
             .with_attr("uid", AttributeValue::String(metrics.uid.clone()))
             .with_attr("name", AttributeValue::String(metrics.name.clone()))
@@ -92,7 +92,7 @@ impl alumet::pipeline::Source for K8SProbe {
                 self.time_used_user_mode,
                 Resource::LocalMachine,
                 consumer.clone(),
-                value_usr as u64,
+                value_usr,
             )
             .with_attr("uid", AttributeValue::String(metrics.uid.clone()))
             .with_attr("name", AttributeValue::String(metrics.name.clone()))
@@ -106,7 +106,7 @@ impl alumet::pipeline::Source for K8SProbe {
                 self.time_used_system_mode,
                 Resource::LocalMachine,
                 consumer.clone(),
-                value_sys as u64,
+                value_sys,
             )
             .with_attr("uid", AttributeValue::String(metrics.uid.clone()))
             .with_attr("name", AttributeValue::String(metrics.name.clone()))

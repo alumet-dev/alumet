@@ -127,7 +127,8 @@ impl OutputControl {
             selector: OutputSelector::all(),
             new_state: TaskState::Stop,
         };
-        self.handle_message(stop_msg).expect("handle_message in shutdown should not fail");
+        self.handle_message(stop_msg)
+            .expect("handle_message in shutdown should not fail");
 
         // Wait for all outputs to finish
         loop {
@@ -167,7 +168,7 @@ impl TaskManager {
                 self.spawned_tasks.spawn_on(task, &self.rt_normal);
             }
         }
-        
+
         Ok(())
     }
 
@@ -273,7 +274,7 @@ async fn run_output<Rx: channel::MeasurementReceiver>(
                     }
                     Err(WriteError::Fatal(e)) => {
                         log::error!("Fatal error when writing to {name} (will stop running): {e:?}");
-                        return Err(e.context(format!("fatal error when writing to {name}")));
+                        Err(e.context(format!("fatal error when writing to {name}")))
                     }
                 }
             }

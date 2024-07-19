@@ -10,7 +10,7 @@ use alumet::pipeline::elements::error::{PollError, TransformError, WriteError};
 use alumet::pipeline::elements::output::OutputContext;
 use alumet::pipeline::elements::transform::TransformContext;
 use alumet::pipeline::{trigger, Output, Source, Transform};
-use alumet::plugin::{AlumetPostStart, AlumetPluginStart, AlumetPreStart, Plugin};
+use alumet::plugin::{AlumetPluginStart, AlumetPostStart, AlumetPreStart, Plugin};
 use alumet::resources::{Resource, ResourceConsumer};
 use alumet::units::Unit;
 
@@ -95,7 +95,7 @@ impl Plugin for TestPlugin {
         self.state.set(State::Started);
         Ok(())
     }
-    
+
     fn pre_pipeline_start(&mut self, _alumet: &mut AlumetPreStart) -> anyhow::Result<()> {
         self.state.set(State::PrePipelineStart);
         Ok(())

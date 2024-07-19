@@ -231,9 +231,7 @@ impl FromStr for NamePattern {
 mod tests {
     use std::str::FromStr;
 
-    use crate::pipeline::matching::{
-        ElementSelector, NamePattern, NamePatternParseError, NamePatterns,
-    };
+    use crate::pipeline::matching::{ElementSelector, NamePattern, NamePatternParseError, NamePatterns};
 
     #[test]
     fn parse_name_pattern() -> anyhow::Result<()> {

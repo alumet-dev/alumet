@@ -134,14 +134,14 @@ static GLOBAL_EVENT_BUSES: OnceLock<EventBuses> = OnceLock::new();
 /// Returns the global event bus for the event [`StartConsumerMeasurement`].
 pub fn start_consumer_measurement() -> &'static EventBus<StartConsumerMeasurement> {
     &GLOBAL_EVENT_BUSES
-        .get_or_init(|| EventBuses::default())
+        .get_or_init(EventBuses::default)
         .start_consumer_measurement
 }
 
 /// Returns the global event bus for the event [`StartResourceMeasurement`].
 pub fn start_resource_measurement() -> &'static EventBus<StartResourceMeasurement> {
     &GLOBAL_EVENT_BUSES
-        .get_or_init(|| EventBuses::default())
+        .get_or_init(EventBuses::default)
         .start_resource_measurement
 }
 

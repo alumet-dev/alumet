@@ -20,7 +20,7 @@ use tokio_util::sync::CancellationToken;
 
 pub struct MeasurementPipeline {
     rt_normal: Runtime,
-    rt_priority: Option<Runtime>,
+    _rt_priority: Option<Runtime>,
     control_handle: AnonymousControlHandle,
     metrics: (MetricSender, MetricReader),
     pipeline_control_task: JoinHandle<()>,
@@ -263,7 +263,9 @@ impl Builder {
             // Outputs
             let out_rx_provider = channel::ReceiverProvider::from(in_rx);
             output_control = output::OutputControl::new(out_rx_provider, rt_normal.handle().clone(), metrics_r.clone());
-            output_control.create_outputs(self.outputs).context("output creation failed")?;
+            output_control
+                .create_outputs(self.outputs)
+                .context("output creation failed")?;
 
             // No transforms
             transform_control = transform::TransformControl::empty();
@@ -274,7 +276,9 @@ impl Builder {
             // Outputs
             let out_rx_provider = channel::ReceiverProvider::from(out_tx.clone());
             output_control = output::OutputControl::new(out_rx_provider, rt_normal.handle().clone(), metrics_r.clone());
-            output_control.create_outputs(self.outputs).context("output creation failed")?;
+            output_control
+                .create_outputs(self.outputs)
+                .context("output creation failed")?;
 
             // Transforms
             transform_control = transform::TransformControl::with_transforms(
@@ -306,7 +310,7 @@ impl Builder {
         // Done!
         Ok(MeasurementPipeline {
             rt_normal,
-            rt_priority,
+            _rt_priority: rt_priority,
             control_handle,
             metrics: (metrics_tx, metrics_r),
             pipeline_control_task: control_join,

@@ -1,20 +1,20 @@
 //! Definition of measurement units.
 
+use anyhow::anyhow;
 use std::{
     fmt::{self, Debug, Display},
     str::FromStr,
 };
-use anyhow::anyhow;
 
 /// A unit of measurement.
 ///
 /// Some common units of the SI are provided as plain enum variants, such as `Unit::Second`.
 /// Use [`PrefixedUnit`] to create a standard multiple of a unit.
-/// 
+///
 /// ## Example
 /// ```
 /// use alumet::units::{Unit, PrefixedUnit};
-/// 
+///
 /// let seconds = Unit::Second;
 /// let kilobytes = PrefixedUnit::kilo(Unit::Byte);
 /// ```
@@ -49,7 +49,7 @@ pub enum Unit {
 
     /// Energy in Watt-hour (1 W⋅h = 3.6 kiloJoule = 3.6 × 10^3 Joules)
     WattHour,
-    
+
     /// Amount of information (1 byte = 8 bits).
     Byte,
 

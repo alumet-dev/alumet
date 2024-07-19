@@ -10,7 +10,7 @@ use crate::plugin::version::Version;
 use libc::c_void;
 use libloading::{Library, Symbol};
 
-use super::{version, AlumetPostStart, AlumetPluginStart, ConfigTable, Plugin};
+use super::{version, AlumetPluginStart, AlumetPostStart, ConfigTable, Plugin};
 use crate::ffi;
 use crate::plugin::PluginMetadata;
 
@@ -44,7 +44,7 @@ impl Plugin for DylibPlugin {
         (self.stop_fn)(self.instance); // TODO error handling for ffi
         Ok(())
     }
-    
+
     fn pre_pipeline_start(&mut self, _alumet: &mut super::phases::AlumetPreStart) -> anyhow::Result<()> {
         // TODO
         Ok(())
