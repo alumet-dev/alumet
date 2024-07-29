@@ -81,6 +81,12 @@ struct InfluxDbOutput {
 
 impl Output for InfluxDbOutput {
     fn write(&mut self, measurements: &MeasurementBuffer, ctx: &OutputContext) -> Result<(), WriteError> {
+        // Cannot write anything with an empty buffer.
+        if measurements.is_empty() {
+            log::warn!("InfluxDb received an empty MeasurementBuffer");
+            return Ok(());
+        }
+
         // Build the data to send to InfluxDB.
         let mut builder = LineProtocolData::builder();
         for m in measurements {
