@@ -2,12 +2,13 @@ use std::sync::{Arc, Mutex};
 
 use alumet::{
     metrics::{RawMetricId, TypedMetricId},
-    pipeline::runtime::IdlePipeline,
-    plugin::rust::AlumetPlugin,
+    plugin::{AlumetPreStart, ConfigTable},
     units::Unit,
+    plugin::rust::{serialize_config, AlumetPlugin},
 };
 
-use anyhow::Context;
+use serde::{Deserialize, Serialize};
+
 use transform::EnergyAttributionTransform;
 
 mod transform;
@@ -39,13 +40,17 @@ impl AlumetPlugin for EnergyAttributionPlugin {
         env!("CARGO_PKG_VERSION")
     }
 
+    fn default_config() -> anyhow::Result<Option<ConfigTable>> {
+        Ok(Some(serialize_config(Config::default())?))
+    }
+
     fn init(_: alumet::plugin::ConfigTable) -> anyhow::Result<Box<Self>> {
         Ok(Box::new(EnergyAttributionPlugin {
             metrics: Arc::new(Mutex::new(Metrics::default())),
         }))
     }
 
-    fn start(&mut self, alumet: &mut alumet::plugin::AlumetStart) -> anyhow::Result<()> {
+    fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
         let mut metrics = self.metrics.lock().unwrap();
 
         // Create the energy attribution metric and add its id to the
@@ -61,26 +66,40 @@ impl AlumetPlugin for EnergyAttributionPlugin {
         Ok(())
     }
 
-    fn pre_pipeline_start(&mut self, pipeline: &IdlePipeline) -> anyhow::Result<()> {
+    fn pre_pipeline_start(&mut self, alumet: &mut AlumetPreStart) -> anyhow::Result<()> {
         /// Finds the RawMetricId with the name of the metric.
         /// Will only run once, just before the pipeline starts.
-        fn find_metric_by_name(pipeline: &IdlePipeline, name: &str) -> anyhow::Result<RawMetricId> {
-            let (id, _metric) = pipeline
-                .metric_iter()
+        fn find_metric_by_name(alumet: &mut AlumetPreStart, name: &str) -> anyhow::Result<RawMetricId> {
+            let (id, _metric) = alumet
+                .metrics()
+                .into_iter()
                 .find(|m| m.1.name == name)
-                .with_context(|| format!("Cannot find metric {name}, is the 'rapl' plugin loaded?"))?;
+                .expect(&format!("Cannot find metric {name}, is the 'rapl' plugin loaded?").to_string());
             Ok(id.to_owned())
         }
 
         // Lock the metrics mutex to apply its modifications.
         let mut metrics = self.metrics.lock().unwrap();
 
-        metrics.rapl_consumed_energy = Some(find_metric_by_name(pipeline, "rapl_consumed_energy")?);
-        metrics.cpu_usage_per_pod = Some(find_metric_by_name(pipeline, "total_usage_usec")?);
+        metrics.rapl_consumed_energy = Some(find_metric_by_name(alumet, "rapl_consumed_energy")?);
+        metrics.cpu_usage_per_pod = Some(find_metric_by_name(alumet, "total_usage_usec")?);
         Ok(())
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
         Ok(())
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+struct Config {
+    oui: String,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            oui: String::from("oui"),
+        }
     }
 }

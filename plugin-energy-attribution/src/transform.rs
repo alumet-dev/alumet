@@ -4,8 +4,18 @@ use std::{
 };
 
 use alumet::{
-    measurement::{MeasurementPoint, WrappedMeasurementValue},
-    pipeline::Transform,
+    measurement::{
+        MeasurementBuffer,
+        MeasurementPoint,
+        WrappedMeasurementValue
+    },
+    pipeline::{
+        Transform,
+        elements::{
+            transform::TransformContext,
+            error::TransformError,
+        },
+    },
     resources::Resource,
 };
 
@@ -101,8 +111,8 @@ impl Transform for EnergyAttributionTransform {
     /// Applies the transform on the measurements.
     fn apply(
         &mut self,
-        measurements: &mut alumet::measurement::MeasurementBuffer,
-    ) -> Result<(), alumet::pipeline::TransformError> {
+        measurements: &mut MeasurementBuffer,
+        _ctx: &TransformContext) -> Result<(), TransformError> {
         // Retrieve the pod_id and the rapl_id.
         // Using a nested scope to reduce the lock time.
         let (pod_id, rapl_id) = {

@@ -26,7 +26,6 @@
 //! ```
 
 use core::fmt;
-use std::borrow::Cow;
 use std::time::UNIX_EPOCH;
 use fxhash::FxBuildHasher;
 use smallvec::SmallVec;
