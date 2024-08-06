@@ -1,15 +1,22 @@
 //! Helpers for creating a measurement agent.
 
 use std::{
+    env,
     path::{Path, PathBuf},
     time::Duration,
 };
+
+use fancy_regex::{Captures, Regex};
 
 use crate::plugin::{AlumetPluginStart, AlumetPostStart, ConfigTable, Plugin, PluginMetadata};
 use crate::{
     pipeline::{self, trigger::TriggerConstraints},
     plugin::AlumetPreStart,
 };
+
+/// ENV_VAR is a regex which matches every unescaped linux environment
+/// i.e. `$VAR` or `$VAR_BIS` for example but not `\$ESCAPED_VAR`
+const ENV_VAR: &'static str = r"\w?(?<!\\)\$([[:word:]]*)";
 
 /// Easy-to-use skeleton for building a measurement application based on
 /// the core of Alumet, aka an "agent".
@@ -348,9 +355,19 @@ fn load_config_from_file(
 ) -> anyhow::Result<toml::Table> {
     match std::fs::read_to_string(path) {
         Ok(content) => {
-            let config = content
+            let config: Result<Map<String, Value>, anyhow::Error> = Regex::new(ENV_VAR)
+                .expect("Invalid Regex")
+                .replace_all(&content, |c: &Captures| match &c[1] {
+                    // If the captured string is `$` then we manage it as an escaped `$`.
+                    "" => String::from("$"),
+                    // Else, we replace the `$varname` by its value. If the env var is empty or does
+                    // not exist, then we raise a panic.
+                    varname => env::var(varname).expect(format!("{varname} is invalid or empty").as_str()),
+                })
+                .to_owned()
                 .parse()
                 .with_context(|| format!("invalid TOML configuration {}", path.display()));
+
             log::info!("Loading config: {}", path.display());
             config
         }
@@ -583,13 +600,19 @@ macro_rules! static_plugins {
 use anyhow::{anyhow, Context};
 use serde::Serialize;
 pub use static_plugins;
+use toml::{map::Map, Value};
 
 #[cfg(test)]
 mod tests {
+    use std::env;
+
+    use fancy_regex::Regex;
     use serde::Serialize;
 
     use crate::plugin::rust::{serialize_config, AlumetPlugin};
     use crate::plugin::{AlumetPluginStart, ConfigTable};
+
+    use super::ENV_VAR;
 
     #[test]
     fn parse_config_file() {
@@ -615,6 +638,94 @@ mod tests {
             std::fs::read_to_string(config_path).unwrap(),
             config_content,
             "config file should not change"
+        );
+    }
+
+    #[test]
+    fn parse_config_file_with_env_var() {
+        let tmp = std::env::temp_dir();
+        let config_path = tmp.join("test-config-with-env-var.toml");
+        // Ensuring that an escaped `$` or a raw `$`, i.e. without any name,
+        // stay and is not replaced by anything. `$HOST:$PORT` should be
+        // replaced correctly because we are setting their values below.
+        let config_content = r#"
+        key = "value"
+        
+        [plugins.name]
+        list = ["a $", "\\$b"]
+        url = "http://$HOST:$PORT"
+    "#;
+        std::fs::write(&config_path, config_content).unwrap();
+
+        env::set_var("HOST", "8.8.8.8");
+        env::set_var("PORT", "42");
+
+        let plugins = static_plugins![MyPlugin];
+        let config = super::load_config_from_file(&plugins, &config_path, &toml::Table::new()).unwrap();
+
+        assert_eq!(
+            config,
+            config_content
+                .replace("$HOST", "8.8.8.8")
+                .replace("$PORT", "42")
+                .parse::<toml::Table>()
+                .unwrap(),
+            "returned config is wrong"
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn parse_config_file_with_unexisting_env_var() {
+        let tmp = std::env::temp_dir();
+        let config_path = tmp.join("test-config-with-wrong-env-var.toml");
+        let config_content = r#"
+        key = "value"
+        
+        [plugins.name]
+        list = ["a", "b"]
+        url = "$URL_BIS"
+    "#;
+        std::fs::write(&config_path, config_content).unwrap();
+
+        let plugins = static_plugins![MyPlugin];
+
+        // URL_BIS doesn't exist, load_config_from_file should panic.
+        let _ = super::load_config_from_file(&plugins, &config_path, &toml::Table::new()).unwrap();
+    }
+
+    #[test]
+    fn validate_env_var_regex() {
+        let compiled_ENV_VAR = Regex::new(ENV_VAR).expect("Invalid Regex");
+        // Verifying that the ENV_VAR regex is still working.
+        let mut result = compiled_ENV_VAR.find("abc $VAR abc");
+
+        assert!(result.is_ok(), "execution wasn't successful");
+        let mut match_option = result.unwrap();
+
+        assert!(match_option.is_some(), "did not found a match");
+        let mut m = match_option.unwrap();
+
+        assert_eq!(m.as_str(), "$VAR");
+
+        result = compiled_ENV_VAR.find("abc $VAR_BIS abc");
+
+        assert!(result.is_ok(), "execution wasn't successful");
+        match_option = result.unwrap();
+
+        assert!(match_option.is_some(), "did not found a match");
+        m = match_option.unwrap();
+
+        assert_eq!(m.as_str(), "$VAR_BIS");
+
+        result = compiled_ENV_VAR.find(r"abc \$VAR_BIS abc");
+
+        assert!(result.is_ok(), "execution wasn't successful");
+        match_option = result.unwrap();
+
+        assert!(
+            match_option.is_none(),
+            "The regex didn't ignored the escaped environment variable"
         );
     }
 
