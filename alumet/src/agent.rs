@@ -199,6 +199,7 @@ impl Agent {
         log::info!("Starting the plugins...");
         let mut pipeline_builder = pipeline::Builder::new();
         pipeline_builder.set_trigger_constraints(self.settings.source_constraints);
+        let mut post_start_actions = Vec::new();
 
         // Disable high-priority threads if asked to
         if self.settings.no_high_priority_threads {
@@ -211,6 +212,7 @@ impl Agent {
             let mut start_context = AlumetPluginStart {
                 pipeline_builder: &mut pipeline_builder,
                 current_plugin: pipeline::PluginName(plugin.name().to_owned()),
+                post_start_actions: &mut post_start_actions,
             };
             plugin
                 .start(&mut start_context)
@@ -239,9 +241,17 @@ impl Agent {
         // Operation: the pipeline is running.
         log::info!("Starting the measurement pipeline...");
         let mut pipeline = pipeline_builder.build().context("Pipeline failed to build")?;
+        log::info!("🔥 ALUMET measurement pipeline has started.");
 
         // Call post_pipeline_start(AlumetPostStart) on each plugin.
         log::info!("Running post-pipeline-start hooks...");
+        for (plugin, action) in post_start_actions {
+            let mut ctx = AlumetPostStart {
+                current_plugin: plugin.clone(),
+                pipeline: &mut pipeline,
+            };
+            action(&mut ctx).with_context(|| format!("Error in post-pipeline-start action of plugin {}", plugin.0))?;
+        }
         for plugin in initialized_plugins.iter_mut() {
             let mut ctx = AlumetPostStart {
                 current_plugin: pipeline::PluginName(plugin.name().to_owned()),
@@ -256,8 +266,8 @@ impl Agent {
             })?;
         }
 
-        log::info!("🔥 ALUMET measurement pipeline has started.");
         (self.settings.f_after_operation_begin)(&mut pipeline);
+        log::info!("🔥 ALUMET agent is ready.");
 
         let agent = RunningAgent {
             pipeline,
