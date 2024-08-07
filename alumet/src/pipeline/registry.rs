@@ -186,10 +186,6 @@ impl MetricAccess {
         self.inner.read().await
     }
 
-    pub fn blocking_read(&self) -> RwLockReadGuard<MetricRegistry> {
-        self.inner.blocking_read()
-    }
-
     pub async fn write(&self) -> tokio::sync::RwLockWriteGuard<MetricRegistry> {
         self.inner.write().await
     }
@@ -204,8 +200,8 @@ impl MetricReader {
         self.0.read().await
     }
 
-    pub fn blocking_read(&self) -> RwLockReadGuard<MetricRegistry> {
-        self.0.blocking_read()
+    pub(crate) fn blocking_read(&self) -> RwLockReadGuard<MetricRegistry> {
+        self.0.inner.blocking_read()
     }
 }
 

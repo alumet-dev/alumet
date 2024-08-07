@@ -17,7 +17,7 @@ use super::error::PollError;
 use crate::measurement::{MeasurementAccumulator, MeasurementBuffer, Timestamp};
 use crate::metrics::MetricRegistry;
 use crate::pipeline::builder::context::SourceBuildContext;
-use crate::pipeline::builder::elements::SourceBuilder;
+use crate::pipeline::builder::elements::{SendSourceBuilder, SourceBuilder};
 use crate::pipeline::trigger::{Trigger, TriggerConstraints, TriggerReason, TriggerSpec};
 use crate::pipeline::util::matching::SourceSelector;
 use crate::pipeline::util::naming::{NameGenerator, PluginName, ScopedNameGenerator, SourceName};
@@ -114,21 +114,21 @@ impl SourceControl {
         Ok(())
     }
 
-    pub fn create_source(&mut self, plugin: PluginName, builder: SourceBuilder) -> anyhow::Result<()> {
-        let metrics = self.metrics.0.blocking_read();
+    pub async fn create_source(&mut self, plugin: PluginName, builder: SendSourceBuilder) -> anyhow::Result<()> {
+        let metrics = self.metrics.0.read().await;
         let mut ctx = BuildContext {
             metrics: &metrics,
             metrics_r: &self.metrics.0,
             metrics_tx: &self.metrics.1,
             namegen: self.names.namegen_for_scope(&plugin),
         };
-        self.tasks.create_source(&mut ctx, builder)
+        self.tasks.create_source(&mut ctx, builder.into())
     }
 
-    pub fn handle_message(&mut self, msg: ControlMessage) -> anyhow::Result<()> {
+    pub async fn handle_message(&mut self, msg: ControlMessage) -> anyhow::Result<()> {
         match msg {
             ControlMessage::Configure(msg) => self.tasks.reconfigure(msg),
-            ControlMessage::Create(msg) => self.create_source(msg.plugin, msg.builder.into())?,
+            ControlMessage::Create(msg) => self.create_source(msg.plugin, msg.builder).await?,
             ControlMessage::TriggerManually(msg) => self.tasks.trigger_manually(msg),
         }
         Ok(())
@@ -196,8 +196,11 @@ impl TaskManager {
                 };
 
                 // Create the source trigger, which may be interruptible by a config change (depending on the TriggerSpec).
-                // Some triggers need to be built on the async runtime, hence we use `block_on`.
-                let trigger = runtime.block_on(async { Trigger::new(reg.trigger_spec) }).unwrap();
+                // Some triggers need to be built with an executor available, therefore we use `Handle::enter()`.
+                let trigger = {
+                    let _guard = runtime.enter();
+                    Trigger::new(reg.trigger_spec).context("error in Trigger::new")?
+                };
                 log::trace!("new trigger created from the spec");
 
                 // Create a controller to control the async task.
@@ -211,7 +214,6 @@ impl TaskManager {
 
                 // Spawn the future (execute the async task on the thread pool)
                 self.spawned_tasks.spawn_on(source_task, runtime);
-                log::trace!("source task spawned on the runtime");
             }
             SourceBuilder::Autonomous(build) => {
                 let token = self.shutdown_token.child_token();
@@ -225,9 +227,9 @@ impl TaskManager {
                 log::trace!("new controller initialized");
 
                 self.spawned_tasks.spawn_on(source_task, &self.rt_normal);
-                log::trace!("source task spawned on the runtime");
             }
         };
+        log::trace!("source task spawned on the runtime");
         Ok(())
     }
 

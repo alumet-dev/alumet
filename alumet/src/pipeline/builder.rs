@@ -306,7 +306,7 @@ impl Builder {
         // Pipeline control
         let control = PipelineControl::new(source_control, transform_control, output_control);
         let (control_handle, control_join) = control.start(pipeline_shutdown, rt_normal.handle());
-
+        
         // Done!
         Ok(MeasurementPipeline {
             rt_normal,

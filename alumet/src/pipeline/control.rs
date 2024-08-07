@@ -154,9 +154,9 @@ impl PipelineControl {
         (control_handle, task_handle)
     }
 
-    fn handle_message(&mut self, msg: ControlMessage) -> anyhow::Result<()> {
+    async fn handle_message(&mut self, msg: ControlMessage) -> anyhow::Result<()> {
         match msg {
-            ControlMessage::Source(msg) => self.sources.handle_message(msg),
+            ControlMessage::Source(msg) => self.sources.handle_message(msg).await,
             ControlMessage::Transform(msg) => self.transforms.handle_message(msg),
             ControlMessage::Output(msg) => self.outputs.handle_message(msg),
         }
@@ -190,7 +190,7 @@ impl PipelineControl {
                     // A control message has been received, or the channel has been closed (should not happen).
                     match message {
                         Some(msg) => {
-                            if let Err(e) = self.handle_message(msg) {
+                            if let Err(e) = self.handle_message(msg).await {
                                 log::error!("error in message handling: {e:?}");
                             }
                         },

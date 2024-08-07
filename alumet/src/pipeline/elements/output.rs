@@ -89,8 +89,8 @@ impl OutputControl {
     }
 
     #[allow(unused)]
-    pub fn create_output(&mut self, plugin: PluginName, builder: Box<dyn OutputBuilder>) {
-        let metrics = self.metrics.blocking_read();
+    pub async fn create_output(&mut self, plugin: PluginName, builder: Box<dyn OutputBuilder + Send>) {
+        let metrics = self.metrics.read().await;
         let mut ctx = BuildContext {
             metrics: &metrics,
             namegen: self.names.namegen_for_scope(&plugin),
