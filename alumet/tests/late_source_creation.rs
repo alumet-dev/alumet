@@ -73,15 +73,6 @@ impl AlumetPlugin for MyTestPluginLateMetricCreation {
 
 impl alumet::pipeline::Source for MyTestSourcePlugin {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
-        let consumer = ResourceConsumer::LocalMachine;
-        let p_tot: MeasurementPoint = MeasurementPoint::new(
-            timestamp,
-            self.value,
-            Resource::LocalMachine,
-            consumer.clone(),
-            1,
-        );
-        measurements.push(p_tot);
         Ok(())
     }
 }
