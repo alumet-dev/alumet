@@ -2,10 +2,9 @@
 
 use std::str::FromStr;
 
-use alumet::pipeline::control::{AnonymousControlHandle, ControlError};
+use alumet::pipeline::control::{AnonymousControlHandle, ControlError, ControlMessage};
 use alumet::pipeline::matching::{ElementSelector, OutputSelector, SourceSelector, TransformSelector};
 use alumet::pipeline::{
-    control::ControlMessage,
     elements::{output, source, transform},
     trigger,
 };
@@ -152,6 +151,7 @@ mod tests {
     use std::{any::Any, time::Duration};
 
     use alumet::pipeline::{
+        builder::elements::SendSourceBuilder,
         control::ControlMessage,
         elements::{output, source, transform},
         matching::{NamePattern, NamePatterns, OutputSelector, SourceSelector, TransformSelector},
@@ -257,8 +257,15 @@ mod tests {
     }
 
     fn control_message_eq(a: &ControlMessage, b: &ControlMessage) -> bool {
+        fn source_builder_eq(a: &SendSourceBuilder, b: &SendSourceBuilder) -> bool {
+            match (a, b) {
+                (SendSourceBuilder::Managed(b1), SendSourceBuilder::Managed(b2)) => b1.type_id() == b2.type_id(),
+                (SendSourceBuilder::Autonomous(b1), SendSourceBuilder::Autonomous(b2)) => b1.type_id() == b2.type_id(),
+                _ => false,
+            }
+        }
+
         fn source_msg_eq(a: &source::ControlMessage, b: &source::ControlMessage) -> bool {
-            use alumet::pipeline::builder::elements::SendSourceBuilder;
             use source::ConfigureCommand;
 
             match (a, b) {
@@ -272,17 +279,16 @@ mod tests {
                             _ => false,
                         }
                 }
-                (source::ControlMessage::Create(c1), source::ControlMessage::Create(c2)) => {
+                (source::ControlMessage::CreateOne(c1), source::ControlMessage::CreateOne(c2)) => {
+                    c1.plugin == c2.plugin && source_builder_eq(&c1.builder, &c2.builder)
+                }
+                (source::ControlMessage::CreateMany(c1), source::ControlMessage::CreateMany(c2)) => {
                     c1.plugin == c2.plugin
-                        && match (&c1.builder, &c2.builder) {
-                            (SendSourceBuilder::Managed(b1), SendSourceBuilder::Managed(b2)) => {
-                                b1.type_id() == b2.type_id()
-                            }
-                            (SendSourceBuilder::Autonomous(b1), SendSourceBuilder::Autonomous(b2)) => {
-                                b1.type_id() == b2.type_id()
-                            }
-                            _ => false,
-                        }
+                        && c1
+                            .builders
+                            .iter()
+                            .zip(&c2.builders)
+                            .all(|(a, b)| source_builder_eq(a, b))
                 }
                 (source::ControlMessage::TriggerManually(t1), source::ControlMessage::TriggerManually(t2)) => {
                     t1.selector == t2.selector

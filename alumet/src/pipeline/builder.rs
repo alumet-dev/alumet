@@ -247,7 +247,7 @@ impl Builder {
         let metrics_r = metrics_rw.into_read_only();
 
         // --- Build the pipeline elements and control loops, with some optimizations ---
-        const CHAN_BUF_SIZE: usize = 256;
+        const CHAN_BUF_SIZE: usize = 2048;
 
         // Channel: sources -> transforms (or sources -> output in case of optimization).
         let (in_tx, in_rx) = mpsc::channel::<MeasurementBuffer>(CHAN_BUF_SIZE);
@@ -264,7 +264,7 @@ impl Builder {
             let out_rx_provider = channel::ReceiverProvider::from(in_rx);
             output_control = output::OutputControl::new(out_rx_provider, rt_normal.handle().clone(), metrics_r.clone());
             output_control
-                .create_outputs(self.outputs)
+                .blocking_create_outputs(self.outputs)
                 .context("output creation failed")?;
 
             // No transforms
@@ -277,7 +277,7 @@ impl Builder {
             let out_rx_provider = channel::ReceiverProvider::from(out_tx.clone());
             output_control = output::OutputControl::new(out_rx_provider, rt_normal.handle().clone(), metrics_r.clone());
             output_control
-                .create_outputs(self.outputs)
+                .blocking_create_outputs(self.outputs)
                 .context("output creation failed")?;
 
             // Transforms
@@ -300,7 +300,7 @@ impl Builder {
             (metrics_r.clone(), metrics_tx.clone()),
         );
         source_control
-            .create_sources(self.sources)
+            .blocking_create_sources(self.sources)
             .context("source creation failed")?;
 
         // Pipeline control

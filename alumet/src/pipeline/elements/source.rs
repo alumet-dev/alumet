@@ -100,7 +100,7 @@ impl SourceControl {
         }
     }
 
-    pub fn create_sources(&mut self, sources: Vec<(PluginName, SourceBuilder)>) -> anyhow::Result<()> {
+    pub fn blocking_create_sources(&mut self, sources: Vec<(PluginName, SourceBuilder)>) -> anyhow::Result<()> {
         let metrics = self.metrics.0.blocking_read();
         for (plugin, builder) in sources {
             let mut ctx = BuildContext {
@@ -114,7 +114,8 @@ impl SourceControl {
         Ok(())
     }
 
-    pub async fn create_source(&mut self, plugin: PluginName, builder: SendSourceBuilder) -> anyhow::Result<()> {
+    pub async fn create_sources(&mut self, plugin: PluginName, builders: Vec<SendSourceBuilder>) -> anyhow::Result<()> {
+        // We only get the lock and BuildContext once for all the sources.
         let metrics = self.metrics.0.read().await;
         let mut ctx = BuildContext {
             metrics: &metrics,
@@ -122,13 +123,18 @@ impl SourceControl {
             metrics_tx: &self.metrics.1,
             namegen: self.names.namegen_for_scope(&plugin),
         };
-        self.tasks.create_source(&mut ctx, builder.into())
+        log::debug!("Creating {} sources for plugin {}", builders.len(), plugin.0);
+        for builder in builders {
+            self.tasks.create_source(&mut ctx, builder.into())?;
+        }
+        Ok(())
     }
 
     pub async fn handle_message(&mut self, msg: ControlMessage) -> anyhow::Result<()> {
         match msg {
             ControlMessage::Configure(msg) => self.tasks.reconfigure(msg),
-            ControlMessage::Create(msg) => self.create_source(msg.plugin, msg.builder).await?,
+            ControlMessage::CreateOne(msg) => self.create_sources(msg.plugin, vec![msg.builder]).await?,
+            ControlMessage::CreateMany(msg) => self.create_sources(msg.plugin, msg.builders).await?,
             ControlMessage::TriggerManually(msg) => self.tasks.trigger_manually(msg),
         }
         Ok(())
@@ -295,7 +301,8 @@ impl builder::context::AutonomousSourceBuildContext for BuildContext<'_> {
 #[derive(Debug)]
 pub enum ControlMessage {
     Configure(ConfigureMessage),
-    Create(CreateMessage),
+    CreateOne(CreateOneMessage),
+    CreateMany(CreateManyMessage),
     TriggerManually(TriggerMessage),
 }
 
@@ -306,9 +313,15 @@ pub struct ConfigureMessage {
 }
 
 #[derive(Debug)]
-pub struct CreateMessage {
+pub struct CreateOneMessage {
     pub plugin: PluginName,
     pub builder: super::super::builder::elements::SendSourceBuilder,
+}
+
+#[derive(Debug)]
+pub struct CreateManyMessage {
+    pub plugin: PluginName,
+    pub builders: Vec<super::super::builder::elements::SendSourceBuilder>,
 }
 
 #[derive(Debug)]

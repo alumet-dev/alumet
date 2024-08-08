@@ -1,6 +1,7 @@
 use super::builder::elements::{
     AutonomousSourceBuilder, ManagedSourceBuilder, ManagedSourceRegistration, SendSourceBuilder,
 };
+use super::elements::source::CreateManyMessage;
 use super::elements::{output, source, transform};
 use super::{builder, trigger, PluginName, Source};
 use thiserror::Error;
@@ -19,6 +20,11 @@ pub struct AnonymousControlHandle {
 pub struct ScopedControlHandle {
     inner: AnonymousControlHandle,
     plugin: PluginName,
+}
+
+pub struct SourceCreationBuffer<'a> {
+    inner: &'a mut ScopedControlHandle,
+    buffer: Vec<builder::elements::SendSourceBuilder>,
 }
 
 #[derive(Debug)]
@@ -85,15 +91,22 @@ impl AnonymousControlHandle {
 }
 
 impl ScopedControlHandle {
-    pub fn change_plugin_scope(&self, plugin: PluginName) -> ScopedControlHandle {
-        ScopedControlHandle {
-            inner: self.inner.clone(),
-            plugin,
+    pub fn anonymous(&self) -> &AnonymousControlHandle {
+        &self.inner
+    }
+
+    pub fn source_buffer<'a>(&'a mut self) -> SourceCreationBuffer<'a> {
+        SourceCreationBuffer {
+            inner: self,
+            buffer: Vec::new(),
         }
     }
 
-    pub fn anonymous(&self) -> &AnonymousControlHandle {
-        &self.inner
+    pub fn source_buffer_with_capacity<'a>(&'a mut self, capacity: usize) -> SourceCreationBuffer<'a> {
+        SourceCreationBuffer {
+            inner: self,
+            buffer: Vec::with_capacity(capacity),
+        }
     }
 
     pub fn add_source(
@@ -102,19 +115,12 @@ impl ScopedControlHandle {
         source: Box<dyn Source>,
         trigger: trigger::TriggerSpec,
     ) -> Result<(), ControlError> {
-        let source_name = name.to_owned();
-        let build = move |ctx: &mut dyn builder::context::SourceBuildContext| {
-            Ok(ManagedSourceRegistration {
-                name: ctx.source_name(&source_name),
-                trigger_spec: trigger,
-                source,
-            })
-        };
+        let build = self.managed_source_builder(name, trigger, source);
         self.add_source_builder(build)
     }
 
     pub fn add_source_builder<F: ManagedSourceBuilder + Send + 'static>(&self, builder: F) -> Result<(), ControlError> {
-        let message = ControlMessage::Source(source::ControlMessage::Create(source::CreateMessage {
+        let message = ControlMessage::Source(source::ControlMessage::CreateOne(source::CreateOneMessage {
             plugin: self.plugin.clone(),
             builder: SendSourceBuilder::Managed(Box::new(builder)),
         }));
@@ -125,11 +131,64 @@ impl ScopedControlHandle {
         &self,
         builder: F,
     ) -> Result<(), ControlError> {
-        let message = ControlMessage::Source(source::ControlMessage::Create(source::CreateMessage {
+        let message = ControlMessage::Source(source::ControlMessage::CreateOne(source::CreateOneMessage {
             plugin: self.plugin.clone(),
             builder: SendSourceBuilder::Autonomous(Box::new(builder)),
         }));
         self.inner.try_send(message).map_err(|e| e.into())
+    }
+
+    fn managed_source_builder(
+        &self,
+        name: &str,
+        trigger: trigger::TriggerSpec,
+        source: Box<dyn Source>,
+    ) -> impl FnOnce(&mut dyn builder::context::SourceBuildContext) -> anyhow::Result<ManagedSourceRegistration> {
+        let source_name = name.to_owned();
+        move |ctx: &mut dyn builder::context::SourceBuildContext| {
+            Ok(ManagedSourceRegistration {
+                name: ctx.source_name(&source_name),
+                trigger_spec: trigger,
+                source,
+            })
+        }
+    }
+}
+
+impl SourceCreationBuffer<'_> {
+    pub fn flush(&mut self) -> Result<(), ControlError> {
+        self.inner
+            .inner
+            .try_send(ControlMessage::Source(source::ControlMessage::CreateMany(
+                CreateManyMessage {
+                    plugin: self.inner.plugin.clone(),
+                    builders: std::mem::take(&mut self.buffer),
+                },
+            )))
+            .map_err(|e| e.into())
+    }
+
+    pub fn add_source(&mut self, name: &str, source: Box<dyn Source>, trigger: trigger::TriggerSpec) {
+        let build = self.inner.managed_source_builder(name, trigger, source);
+        self.add_source_builder(build)
+    }
+
+    pub fn add_source_builder<F: ManagedSourceBuilder + Send + 'static>(&mut self, builder: F) {
+        let builder = SendSourceBuilder::Managed(Box::new(builder));
+        self.buffer.push(builder);
+    }
+
+    pub fn add_autonomous_source_builder<F: AutonomousSourceBuilder + Send + 'static>(&mut self, builder: F) {
+        let builder = SendSourceBuilder::Autonomous(Box::new(builder));
+        self.buffer.push(builder);
+    }
+}
+
+impl Drop for SourceCreationBuffer<'_> {
+    fn drop(&mut self) {
+        if !self.buffer.is_empty() {
+            let _ = self.flush(); // ignore errors
+        }
     }
 }
 
