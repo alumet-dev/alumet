@@ -1,7 +1,7 @@
 
 use alumet::{agent::{AgentBuilder, AgentConfig}, measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp}, metrics::TypedMetricId, pipeline::{elements::error::PollError, trigger::TriggerSpec}, plugin::{rust::{deserialize_config, serialize_config, AlumetPlugin}, AlumetPluginStart, AlumetPostStart, ConfigTable}, resources::{Resource, ResourceConsumer}, static_plugins, units::{PrefixedUnit, Unit}};
 use anyhow::Context;
-use serde::{Deserialize, Serialize};
+use tokio::{runtime::Runtime, time::timeout};
 use std::{thread, time::{self, Duration}};
 
 pub struct Metrics {
@@ -9,7 +9,6 @@ pub struct Metrics {
 }
 
 pub struct MyTestPluginLateMetricCreation {
-    config: Config,
     metrics: Option<Metrics>,
 }
 
@@ -18,12 +17,6 @@ struct MyTestSourcePlugin {
     value: TypedMetricId<u64>,
 }
 
-#[derive(Deserialize, Serialize)]
-struct Config {
-    /// Initial interval between two cgroup measurements.
-    #[serde(with = "humantime_serde")]
-    poll_interval: Duration,
-}
 
 impl AlumetPlugin for MyTestPluginLateMetricCreation {
     fn name() -> &'static str {
@@ -35,14 +28,12 @@ impl AlumetPlugin for MyTestPluginLateMetricCreation {
     }
 
     fn default_config() -> anyhow::Result<Option<ConfigTable>> {
-        let config = serialize_config(Config::default())?;
+        let config = serialize_config(Duration::from_secs(1))?;
         Ok(Some(config))
     }
 
-    fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
-        let config = deserialize_config(config).context("invalid config")?;
+    fn init(_config: ConfigTable) -> anyhow::Result<Box<Self>> {
         Ok(Box::new(MyTestPluginLateMetricCreation {
-            config,
             metrics: None,
         }))
     }
@@ -72,20 +63,13 @@ impl AlumetPlugin for MyTestPluginLateMetricCreation {
             .add_source(
                 "x",
                 Box::new(probe),
-                TriggerSpec::at_interval(self.config.poll_interval),
+                TriggerSpec::at_interval(Duration::from_secs(1)),
             )
             .with_context(|| format!("failed to add source when testing add source in post_pipeline_start"))?;
         Ok(())                         
     }
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            poll_interval: Duration::from_secs(1), // 1Hz
-        }
-    }
-}
 
 impl alumet::pipeline::Source for MyTestSourcePlugin {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
@@ -118,6 +102,14 @@ fn late_source_creation_test() {
     let agent = agent.start(agent_config).unwrap();
     thread::sleep(time::Duration::from_secs(3));
     agent.pipeline.control_handle().shutdown();
-    agent.wait_for_shutdown().unwrap();
+    let rt = Runtime::new().unwrap();
+    let timeout_duration = Duration::from_secs(5);
+    let _result = rt.block_on(async {
+        timeout(timeout_duration, async {
+            agent.wait_for_shutdown().unwrap();
+        })
+        .await
+    });
 
+    
 }
