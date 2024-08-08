@@ -148,7 +148,7 @@ struct ProcessMonitoring {
 #[derive(Serialize, Deserialize)]
 struct ProcessMonitoringGroup {
     /// Only monitor the process that has this pid.
-    pid: Option<u32>,    
+    pid: Option<u32>,
 
     /// Only monitor the processes that have this parent pid.
     ppid: Option<u32>,

@@ -75,7 +75,10 @@ impl OutputControl {
         }
     }
 
-    pub fn blocking_create_outputs(&mut self, outputs: Vec<(PluginName, Box<dyn OutputBuilder>)>) -> anyhow::Result<()> {
+    pub fn blocking_create_outputs(
+        &mut self,
+        outputs: Vec<(PluginName, Box<dyn OutputBuilder>)>,
+    ) -> anyhow::Result<()> {
         let metrics = self.metrics.blocking_read();
         for (plugin, builder) in outputs {
             let mut ctx = BuildContext {
