@@ -60,7 +60,6 @@ fn main() {
         }
         panic!("ALUMET agent failed to start: {err}");
     });
-    log::info!("ALUMET agent is ready.");
 
     // Keep the pipeline running until...
     match cmd {

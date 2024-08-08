@@ -17,7 +17,7 @@ use super::error::PollError;
 use crate::measurement::{MeasurementAccumulator, MeasurementBuffer, Timestamp};
 use crate::metrics::MetricRegistry;
 use crate::pipeline::builder::context::SourceBuildContext;
-use crate::pipeline::builder::elements::SourceBuilder;
+use crate::pipeline::builder::elements::{SendSourceBuilder, SourceBuilder};
 use crate::pipeline::trigger::{Trigger, TriggerConstraints, TriggerReason, TriggerSpec};
 use crate::pipeline::util::matching::SourceSelector;
 use crate::pipeline::util::naming::{NameGenerator, PluginName, ScopedNameGenerator, SourceName};
@@ -100,7 +100,7 @@ impl SourceControl {
         }
     }
 
-    pub fn create_sources(&mut self, sources: Vec<(PluginName, SourceBuilder)>) -> anyhow::Result<()> {
+    pub fn blocking_create_sources(&mut self, sources: Vec<(PluginName, SourceBuilder)>) -> anyhow::Result<()> {
         let metrics = self.metrics.0.blocking_read();
         for (plugin, builder) in sources {
             let mut ctx = BuildContext {
@@ -114,21 +114,27 @@ impl SourceControl {
         Ok(())
     }
 
-    pub fn create_source(&mut self, plugin: PluginName, builder: SourceBuilder) -> anyhow::Result<()> {
-        let metrics = self.metrics.0.blocking_read();
+    pub async fn create_sources(&mut self, plugin: PluginName, builders: Vec<SendSourceBuilder>) -> anyhow::Result<()> {
+        // We only get the lock and BuildContext once for all the sources.
+        let metrics = self.metrics.0.read().await;
         let mut ctx = BuildContext {
             metrics: &metrics,
             metrics_r: &self.metrics.0,
             metrics_tx: &self.metrics.1,
             namegen: self.names.namegen_for_scope(&plugin),
         };
-        self.tasks.create_source(&mut ctx, builder)
+        log::debug!("Creating {} sources for plugin {}", builders.len(), plugin.0);
+        for builder in builders {
+            self.tasks.create_source(&mut ctx, builder.into())?;
+        }
+        Ok(())
     }
 
-    pub fn handle_message(&mut self, msg: ControlMessage) -> anyhow::Result<()> {
+    pub async fn handle_message(&mut self, msg: ControlMessage) -> anyhow::Result<()> {
         match msg {
             ControlMessage::Configure(msg) => self.tasks.reconfigure(msg),
-            ControlMessage::Create(msg) => self.create_source(msg.plugin, msg.builder.into())?,
+            ControlMessage::CreateOne(msg) => self.create_sources(msg.plugin, vec![msg.builder]).await?,
+            ControlMessage::CreateMany(msg) => self.create_sources(msg.plugin, msg.builders).await?,
             ControlMessage::TriggerManually(msg) => self.tasks.trigger_manually(msg),
         }
         Ok(())
@@ -196,8 +202,11 @@ impl TaskManager {
                 };
 
                 // Create the source trigger, which may be interruptible by a config change (depending on the TriggerSpec).
-                // Some triggers need to be built on the async runtime, hence we use `block_on`.
-                let trigger = runtime.block_on(async { Trigger::new(reg.trigger_spec) }).unwrap();
+                // Some triggers need to be built with an executor available, therefore we use `Handle::enter()`.
+                let trigger = {
+                    let _guard = runtime.enter();
+                    Trigger::new(reg.trigger_spec).context("error in Trigger::new")?
+                };
                 log::trace!("new trigger created from the spec");
 
                 // Create a controller to control the async task.
@@ -211,7 +220,6 @@ impl TaskManager {
 
                 // Spawn the future (execute the async task on the thread pool)
                 self.spawned_tasks.spawn_on(source_task, runtime);
-                log::trace!("source task spawned on the runtime");
             }
             SourceBuilder::Autonomous(build) => {
                 let token = self.shutdown_token.child_token();
@@ -225,9 +233,9 @@ impl TaskManager {
                 log::trace!("new controller initialized");
 
                 self.spawned_tasks.spawn_on(source_task, &self.rt_normal);
-                log::trace!("source task spawned on the runtime");
             }
         };
+        log::trace!("source task spawned on the runtime");
         Ok(())
     }
 
@@ -293,7 +301,8 @@ impl builder::context::AutonomousSourceBuildContext for BuildContext<'_> {
 #[derive(Debug)]
 pub enum ControlMessage {
     Configure(ConfigureMessage),
-    Create(CreateMessage),
+    CreateOne(CreateOneMessage),
+    CreateMany(CreateManyMessage),
     TriggerManually(TriggerMessage),
 }
 
@@ -304,9 +313,15 @@ pub struct ConfigureMessage {
 }
 
 #[derive(Debug)]
-pub struct CreateMessage {
+pub struct CreateOneMessage {
     pub plugin: PluginName,
     pub builder: super::super::builder::elements::SendSourceBuilder,
+}
+
+#[derive(Debug)]
+pub struct CreateManyMessage {
+    pub plugin: PluginName,
+    pub builders: Vec<super::super::builder::elements::SendSourceBuilder>,
 }
 
 #[derive(Debug)]

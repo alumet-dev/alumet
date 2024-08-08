@@ -24,7 +24,11 @@ use crate::{
 pub struct AlumetPluginStart<'a> {
     pub(crate) current_plugin: PluginName,
     pub(crate) pipeline_builder: &'a mut pipeline::Builder,
+    pub(crate) post_start_actions: &'a mut Vec<(PluginName, Box<dyn PostStartAction>)>,
 }
+
+pub trait PostStartAction: FnOnce(&mut AlumetPostStart) -> anyhow::Result<()> {}
+impl<F> PostStartAction for F where F: FnOnce(&mut AlumetPostStart) -> anyhow::Result<()> {}
 
 impl<'a> AlumetPluginStart<'a> {
     /// Returns the name of the plugin that is being started.
@@ -195,6 +199,11 @@ impl<'a> AlumetPluginStart<'a> {
     pub fn add_output_builder<F: OutputBuilder + 'static>(&mut self, builder: F) {
         let plugin = self.current_plugin_name();
         self.pipeline_builder.add_output_builder(plugin, Box::new(builder));
+    }
+
+    pub fn on_pipeline_start<F: PostStartAction + 'static>(&mut self, action: F) {
+        let plugin = self.current_plugin_name();
+        self.post_start_actions.push((plugin, Box::new(action)));
     }
 }
 

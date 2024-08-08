@@ -44,40 +44,40 @@ impl Default for NameDeduplicator {
 
 /// Generates names for the pipeline elements.
 pub struct ScopedNameGenerator {
-    dedup: NameDeduplicator,
+    source_dedup: NameDeduplicator,
+    transform_dedup: NameDeduplicator,
+    output_dedup: NameDeduplicator,
     plugin: PluginName,
 }
 
 impl ScopedNameGenerator {
     pub fn new(plugin: PluginName) -> Self {
         Self {
-            dedup: NameDeduplicator::new(),
+            source_dedup: NameDeduplicator::new(),
+            transform_dedup: NameDeduplicator::new(),
+            output_dedup: NameDeduplicator::new(),
             plugin,
         }
     }
 
-    fn element_name(&mut self, kind: &str, name: &str) -> ElementNameParts {
-        let (full_name, add_suffix) = if name.is_empty() {
-            (kind.to_owned(), true)
-        } else {
-            (format!("{kind}-{name}"), false)
-        };
-        let deduplicated = self.dedup.insert_deduplicate(full_name, add_suffix);
-        ElementNameParts {
-            plugin: self.plugin.0.clone(),
-            element: deduplicated,
-        }
-    }
-
     pub fn source_name(&mut self, name: &str) -> SourceName {
-        SourceName(self.element_name("source", name))
+        SourceName(ElementNameParts {
+            plugin: self.plugin.0.clone(),
+            element: self.source_dedup.insert_deduplicate(name.to_owned(), false),
+        })
     }
 
     pub fn transform_name(&mut self, name: &str) -> TransformName {
-        TransformName(self.element_name("transform", name))
+        TransformName(ElementNameParts {
+            plugin: self.plugin.0.clone(),
+            element: self.transform_dedup.insert_deduplicate(name.to_owned(), false),
+        })
     }
     pub fn output_name(&mut self, name: &str) -> OutputName {
-        OutputName(self.element_name("output", name))
+        OutputName(ElementNameParts {
+            plugin: self.plugin.0.clone(),
+            element: self.output_dedup.insert_deduplicate(name.to_owned(), false),
+        })
     }
 }
 

@@ -12,6 +12,7 @@ members = [
     "plugin-nvidia",
     "plugin-oar2",
     "plugin-perf",
+    "plugin-procfs",
     "plugin-rapl",
     "plugin-relay",
     "plugin-socket-control",
