@@ -2,17 +2,21 @@
 
 use std::{
     fs::File,
-    io::{BufRead, BufReader, Seek},
+    io::{BufReader, Seek},
 };
 
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
-    metrics::TypedMetricId,
+    metrics::{MetricCreationError, TypedMetricId},
     pipeline::{elements::error::PollError, Source},
+    plugin::AlumetPluginStart,
     resources::{Resource, ResourceConsumer},
+    units::{PrefixedUnit, Unit},
 };
 use anyhow::Context;
-use procfs::{CpuTime, Current, ExplicitSystemInfo, FromBufReadSI, KernelStats};
+use procfs::{
+    CpuTime, ExplicitSystemInfo, FromBufReadSI, KernelStats, LocalSystemInfo, ProcError, SystemInfoInterface,
+};
 
 /// Reads kernel statistics from /proc/stat.
 pub struct KernelStatsProbe {
@@ -23,16 +27,67 @@ pub struct KernelStatsProbe {
     /// The previously measured stats, to compute the difference.
     previous_stats: Option<KernelStats>,
 
-    // metrics
-    metric_cpu_time: TypedMetricId<u64>,
-    metric_context_switches: TypedMetricId<u64>,
-    metric_new_forks: TypedMetricId<u64>,
-    metric_n_procs_running: TypedMetricId<u64>,
-    metric_n_procs_blocked: TypedMetricId<u64>,
+    // ids of metrics
+    metrics: KernelMetrics,
+}
+
+pub struct KernelMetrics {
+    cpu_time: TypedMetricId<u64>,
+    context_switches: TypedMetricId<u64>,
+    new_forks: TypedMetricId<u64>,
+    n_procs_running: TypedMetricId<u64>,
+    n_procs_blocked: TypedMetricId<u64>,
+}
+
+fn gather_system_info() -> Result<ExplicitSystemInfo, ProcError> {
+    let sysinfo = LocalSystemInfo;
+    Ok(ExplicitSystemInfo {
+        boot_time_secs: sysinfo.boot_time_secs()?,
+        ticks_per_second: sysinfo.ticks_per_second(),
+        page_size: sysinfo.page_size(),
+        is_little_endian: sysinfo.is_little_endian(),
+    })
+}
+
+impl KernelMetrics {
+    pub fn new(alumet: &mut AlumetPluginStart) -> Result<Self, MetricCreationError> {
+        Ok(Self {
+            cpu_time: alumet.create_metric("kernel_cpu_time", PrefixedUnit::milli(Unit::Second), "busy CPU time")?,
+            context_switches: alumet.create_metric(
+                "kernel_context_switches",
+                Unit::Unity,
+                "number of context switches",
+            )?,
+            new_forks: alumet.create_metric("kernel_new_forks", Unit::Unity, "number of fork operations")?,
+            n_procs_running: alumet.create_metric(
+                "kernel_n_procs_running",
+                Unit::Unity,
+                "number of processes in a runnable state",
+            )?,
+            n_procs_blocked: alumet.create_metric(
+                "kernel_n_procs_blocked",
+                Unit::Unity,
+                "numbers of processes that are blocked on I/O operations",
+            )?,
+        })
+    }
+}
+
+impl KernelStatsProbe {
+    pub fn new(metrics: KernelMetrics, proc_stat_path: &str) -> anyhow::Result<Self> {
+        let file = File::open(proc_stat_path).with_context(|| format!("could not open {proc_stat_path}"))?;
+        Ok(Self {
+            reader: BufReader::new(file),
+            sysinfo: gather_system_info().context("could not gather system info")?,
+            previous_stats: None,
+            metrics,
+        })
+    }
 }
 
 impl Source for KernelStatsProbe {
     fn poll(&mut self, acc: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
+        self.reader.rewind()?;
         let now = KernelStats::from_buf_read(&mut self.reader, &self.sysinfo)?;
         if let Some(prev) = self.previous_stats.take() {
             // Gather metrics
@@ -49,20 +104,25 @@ impl Source for KernelStatsProbe {
             let n_procs_blocked = now.procs_blocked;
 
             // Push measurement points
-            cpu_time_total.push_measurements(self.metric_cpu_time, Resource::LocalMachine, acc, timestamp);
+            cpu_time_total.push_measurements(self.metrics.cpu_time, Resource::LocalMachine, acc, timestamp);
             for (i, cpu_time) in cpu_time_per_cpu.into_iter().enumerate() {
-                cpu_time.push_measurements(self.metric_cpu_time, Resource::CpuCore { id: i as u32 }, acc, timestamp)
+                cpu_time.push_measurements(
+                    self.metrics.cpu_time,
+                    Resource::CpuCore { id: i as u32 },
+                    acc,
+                    timestamp,
+                )
             }
             acc.push(MeasurementPoint::new(
                 timestamp,
-                self.metric_context_switches,
+                self.metrics.context_switches,
                 Resource::LocalMachine,
                 ResourceConsumer::LocalMachine,
                 context_switches,
             ));
             acc.push(MeasurementPoint::new(
                 timestamp,
-                self.metric_new_forks,
+                self.metrics.new_forks,
                 Resource::LocalMachine,
                 ResourceConsumer::LocalMachine,
                 new_forks,
@@ -70,7 +130,7 @@ impl Source for KernelStatsProbe {
             if let Some(n) = n_procs_running {
                 acc.push(MeasurementPoint::new(
                     timestamp,
-                    self.metric_n_procs_running,
+                    self.metrics.n_procs_running,
                     Resource::LocalMachine,
                     ResourceConsumer::LocalMachine,
                     n as u64,
@@ -79,7 +139,7 @@ impl Source for KernelStatsProbe {
             if let Some(n) = n_procs_blocked {
                 acc.push(MeasurementPoint::new(
                     timestamp,
-                    self.metric_n_procs_blocked,
+                    self.metrics.n_procs_blocked,
                     Resource::LocalMachine,
                     ResourceConsumer::LocalMachine,
                     n as u64,
@@ -176,77 +236,5 @@ impl DeltaCpuTime {
                     .with_attr("cpu_state", "guest_nice"),
             );
         }
-    }
-}
-
-/// Reads memory status from /proc/meminfo.
-pub struct MeminfoProbe {
-    /// A reader opened to /proc/meminfo.
-    reader: BufReader<File>,
-    /// List of metrics to read, other metrics are ignored when reading the file.
-    /// Every metric should have the `Byte` unit.
-    metrics_to_read: Vec<(String, TypedMetricId<u64>)>,
-}
-
-impl MeminfoProbe {
-    pub fn new(mut metrics_to_read: Vec<(String, TypedMetricId<u64>)>) -> procfs::ProcResult<Self> {
-        metrics_to_read.sort_unstable_by_key(|(name, _id)| name.to_owned());
-        Ok(Self {
-            reader: BufReader::new(File::open(procfs::Meminfo::PATH)?),
-            metrics_to_read,
-        })
-    }
-}
-
-impl Source for MeminfoProbe {
-    fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
-        fn parse_meminfo_line(line: &str) -> Option<(&str, u64)> {
-            let mut s = line.split_ascii_whitespace();
-            let key = s.next()?;
-            let value = s.next()?;
-            let unit = s.next(); // no unit means that the unit is Byte
-
-            let key = &key[..key.len() - 1]; // there is colon after the metric name
-            let value: u64 = value.parse().ok()?;
-            let value = match unit {
-                Some(unit) => convert_meminfo_to_bytes(value, unit)?,
-                None => value,
-            };
-            Some((key, value))
-        }
-
-        // Read memory statistics.
-        for line in (&mut self.reader).lines() {
-            // Optimization: we don't use procfs::Meminfo::from_buf_read to avoid a allocating HashMap that we don't need.
-            let line = line.context("could not read line from /proc/meminfo")?;
-            if !line.is_empty() {
-                let (key, value) =
-                    parse_meminfo_line(&line).with_context(|| format!("invalid line in /proc/meminfo: {line}"))?;
-
-                if let Ok(i) = self.metrics_to_read.binary_search_by_key(&key, |(name, _)| name) {
-                    let metric = self.metrics_to_read[i].1;
-                    measurements.push(MeasurementPoint::new(
-                        timestamp,
-                        metric,
-                        Resource::LocalMachine,
-                        ResourceConsumer::LocalMachine,
-                        value,
-                    ));
-                }
-            }
-        }
-        self.reader.rewind()?;
-        Ok(())
-    }
-}
-
-fn convert_meminfo_to_bytes(value: u64, unit: &str) -> Option<u64> {
-    // For meminfo, "kB" actually means "kiB". See the doc of procfs.
-    match unit {
-        "B" => Some(value),
-        "kB" | "KiB" | "kiB" | "KB" => Some(value * 1024),
-        "mB" | "MiB" | "miB" | "MB" => Some(value * 1024 * 1024),
-        "gB" | "GiB" | "giB" | "GB" => Some(value * 1024 * 1024 * 1024),
-        _ => None,
     }
 }

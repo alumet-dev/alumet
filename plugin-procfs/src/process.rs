@@ -1,20 +1,26 @@
 //! Process-level (by pid) metrics.
 
-use std::{collections::HashMap, fs::File, io::BufReader};
+use std::{
+    collections::HashMap,
+    fs::File,
+    io::{self, BufReader, Seek},
+    time::Duration,
+};
 
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
-    pipeline::{control::ScopedControlHandle, elements::error::PollError, Source},
+    pipeline::{
+        control::{ScopedControlHandle, SourceCreationBuffer},
+        elements::error::PollError,
+        trigger::TriggerSpec,
+        Source,
+    },
     resources::{Resource, ResourceConsumer},
 };
 use anyhow::Context;
 use procfs::{self, process::Process, FromRead, ProcError};
-
-fn a() {
-    // TODO DiskStat et IoPressure
-    // procfs::process::all_processes()
-}
+use regex::Regex;
 
 /// Reads process stats from `/proc/<pid>` for some `<pid>`.
 struct ProcessStatsProbe {
@@ -33,6 +39,10 @@ struct ProcessStatsProbe {
 
     /// The previously measured stats, to compute the difference.
     previous_general_stats: Option<procfs::process::Stat>,
+    /// If true, push the first statistics (i.e. push even is `previous_general_stats` is empty).
+    ///
+    /// Useful when we measure a process that has just been started.
+    push_first_stats: bool,
 
     // metrics
     metric_cpu_time: TypedMetricId<u64>,
@@ -43,6 +53,7 @@ impl ProcessStatsProbe {
     fn new(
         process: Process,
         ms_per_ticks: u64,
+        push_first_stats: bool,
         metric_cpu_time: TypedMetricId<u64>,
         metric_memory: TypedMetricId<u64>,
     ) -> Result<Self, procfs::ProcError> {
@@ -52,9 +63,29 @@ impl ProcessStatsProbe {
             reader_stat: BufReader::new(process.open_relative("stat")?),
             reader_statm: BufReader::new(process.open_relative("statm")?),
             previous_general_stats: None,
+            push_first_stats,
             metric_cpu_time,
             metric_memory,
         })
+    }
+}
+
+fn stop_if_proc_not_found(err: ProcError) -> PollError {
+    match err {
+        ProcError::NotFound(_) => PollError::NormalStop,
+        ProcError::Io(err, _) if err.raw_os_error() == Some(3) => {
+            // "No such process" not caught by the procfs crate (it should ideally be mapped to ProcError::NotFound)
+            PollError::NormalStop
+        }
+        _ => PollError::Fatal(err.into()),
+    }
+}
+
+fn stop_if_io_not_found(err: io::Error) -> PollError {
+    match err.kind() {
+        io::ErrorKind::NotFound => PollError::NormalStop,
+        _ if err.raw_os_error() == Some(3) => PollError::NormalStop,
+        _ => PollError::Fatal(err.into()),
     }
 }
 
@@ -62,28 +93,22 @@ impl Source for ProcessStatsProbe {
     fn poll(&mut self, buffer: &mut MeasurementAccumulator, t: Timestamp) -> Result<(), PollError> {
         let consumer = ResourceConsumer::Process { pid: self.pid as u32 };
 
-        let general = match procfs::process::Stat::from_read(&mut self.reader_stat) {
-            Err(ProcError::NotFound(_)) => {
-                // the process no longer exists, stop the source
-                return Err(PollError::NormalStop);
-            }
-            other => other,
-        }?;
-        let memory = match procfs::process::StatM::from_read(&mut self.reader_statm) {
-            Err(ProcError::NotFound(_)) => {
-                // the process no longer exists, stop the source
-                return Err(PollError::NormalStop);
-            }
-            other => other,
-        }?;
+        self.reader_stat.rewind().map_err(stop_if_io_not_found)?;
+        self.reader_statm.rewind().map_err(stop_if_io_not_found)?;
+        let general_stats = procfs::process::Stat::from_read(&mut self.reader_stat).map_err(stop_if_proc_not_found)?;
+        let memory_stats = procfs::process::StatM::from_read(&mut self.reader_statm).map_err(stop_if_proc_not_found)?;
 
         // TODO how to report the state of the process in the timeseries?
         // let state = now.state()?;
 
         // Compute CPU usage in the last time slice.
-        if let Some(prev) = self.previous_general_stats.take() {
-            let cpu_diff = DeltaCpuTime::compute_diff(&prev, &general, self.ms_per_ticks);
-            cpu_diff.push_measurements(
+        let cpu_usage = match self.previous_general_stats.take() {
+            Some(prev) => Some(DeltaCpuTime::compute_diff(&prev, &general_stats, self.ms_per_ticks)),
+            None if self.push_first_stats => Some(DeltaCpuTime::compute_first(&general_stats, self.ms_per_ticks)),
+            None => None,
+        };
+        if let Some(measurements) = cpu_usage {
+            measurements.push_measurements(
                 self.metric_cpu_time,
                 Resource::LocalMachine,
                 consumer.clone(),
@@ -91,6 +116,7 @@ impl Source for ProcessStatsProbe {
                 t,
             );
         }
+        self.previous_general_stats = Some(general_stats);
 
         // Compute RAM usage in the last time slice.
         buffer.push(
@@ -99,7 +125,7 @@ impl Source for ProcessStatsProbe {
                 self.metric_memory,
                 Resource::LocalMachine,
                 consumer.clone(),
-                memory.resident,
+                memory_stats.resident,
             )
             .with_attr("memory_kind", "resident"),
         );
@@ -109,13 +135,19 @@ impl Source for ProcessStatsProbe {
                 self.metric_memory,
                 Resource::LocalMachine,
                 consumer.clone(),
-                memory.shared,
+                memory_stats.shared,
             )
             .with_attr("memory_kind", "shared"),
         );
         buffer.push(
-            MeasurementPoint::new(t, self.metric_memory, Resource::LocalMachine, consumer, memory.size)
-                .with_attr("memory_kind", "vmsize"),
+            MeasurementPoint::new(
+                t,
+                self.metric_memory,
+                Resource::LocalMachine,
+                consumer,
+                memory_stats.size,
+            )
+            .with_attr("memory_kind", "vmsize"),
         );
 
         Ok(())
@@ -184,14 +216,35 @@ impl DeltaCpuTime {
 /// another heuristic.
 ///
 /// See https://github.com/eminence/procfs/issues/125.
-struct ProcessWatcher {
+pub struct ProcessWatcher {
     watched_processes: HashMap<i32, ProcessFingerprint>,
     alumet_handle: ScopedControlHandle,
-    ms_per_ticks: u64,
+    monitoring: ProcessMonitoring,
+}
 
-    // metrics
-    metric_cpu_time: TypedMetricId<u64>,
-    metric_memory: TypedMetricId<u64>,
+/// Information required to setup the monitoring of individual processes.
+struct ProcessMonitoring {
+    ms_per_ticks: u64,
+    metrics: ProcessMetrics,
+    groups: Vec<(ProcessFilter, MonitoringSettings)>,
+}
+
+pub struct ProcessMetrics {
+    pub metric_cpu_time: TypedMetricId<u64>,
+    pub metric_memory: TypedMetricId<u64>,
+}
+
+#[derive(Debug)]
+pub struct ProcessFilter {
+    pub pid: Option<i32>,
+    pub ppid: Option<i32>,
+    pub exe_regex: Option<Regex>,
+}
+
+#[derive(Debug)]
+pub struct MonitoringSettings {
+    pub poll_interval: Duration,
+    pub flush_interval: Duration,
 }
 
 #[derive(PartialEq, Eq)]
@@ -210,13 +263,43 @@ impl ProcessFingerprint {
 }
 
 impl ProcessWatcher {
+    pub fn new(
+        alumet_handle: ScopedControlHandle,
+        metrics: ProcessMetrics,
+        groups: Vec<(ProcessFilter, MonitoringSettings)>,
+    ) -> Self {
+        let tps = procfs::ticks_per_second();
+        let ms_per_ticks = 1000 / tps;
+        Self {
+            watched_processes: HashMap::new(),
+            alumet_handle,
+            monitoring: ProcessMonitoring {
+                ms_per_ticks,
+                metrics,
+                groups,
+            },
+        }
+    }
+
     pub fn refresh(&mut self) -> anyhow::Result<()> {
+        // The loop below can add a lot of sources, which can put too much pressure on the control packet buffer.
+        // To avoid filling the buffer, we call `source_buffer()` and use the returned structure to group all the sources
+        // creation messages together, in a single message that will be sent after the loop.
+        let mut source_buf = self.alumet_handle.source_buffer();
+        let monitoring = &mut self.monitoring;
         for p in procfs::process::all_processes().context("cannot read /proc")? {
             match p {
                 Ok(process) => {
                     let pid = process.pid;
                     let stat = match process.stat() {
                         Err(ProcError::NotFound(_)) => continue, // process vanished, ignore
+                        Err(ProcError::PermissionDenied(path)) => {
+                            // permission denied, warn and skip
+                            let path = path.unwrap_or_default();
+                            let path = path.display();
+                            log::warn!("cannot read process statistics from {path}: permission denied");
+                            continue;
+                        }
                         other => other,
                     }?;
                     let fingerprint = ProcessFingerprint::new(&stat);
@@ -236,26 +319,115 @@ impl ProcessWatcher {
                         true
                     };
                     if is_new {
-                        self.on_new_process(process)?;
+                        monitoring.on_new_process(process, &mut source_buf)?;
                     }
                 }
                 Err(ProcError::NotFound(_)) => continue,
                 Err(e) => Err(e)?,
             }
         }
+        // Flush the buffer and handle errors.
+        // NOTE: the buffer is automatically flushed on drop, but calling `flush()` is better because it
+        // allows to handle errors.
+        source_buf
+            .flush()
+            .context("failed to create sources for new processes detected by ProcessWatcher")?;
+        Ok(())
+    }
+}
+
+impl ProcessMonitoring {
+    fn on_new_process(&mut self, p: Process, source_buf: &mut SourceCreationBuffer) -> anyhow::Result<()> {
+        // find a group whose filter accepts the process
+        let pid = p.pid;
+        for (filter, settings) in &self.groups {
+            match filter.accepts(&p) {
+                Ok(false) => (), // not accepted by this group filter, continue
+                Ok(true) => {
+                    log::trace!("process {pid} matches filter {filter:?} with settings {settings:?}");
+                    self.start_monitoring(p, settings, source_buf)?;
+                    return Ok(());
+                }
+                Err(ProcError::PermissionDenied(path)) => {
+                    let path = path.unwrap_or_default();
+                    let path = path.display();
+                    log::warn!("cannot apply filter {filter:?} on process {pid}: permission denied on {path}");
+                    continue;
+                }
+                Err(e) => {
+                    return Err(e).context(format!(
+                        "error while trying to apply filter {filter:?} on process {pid}"
+                    ));
+                }
+            }
+        }
+        log::trace!("No process filter matches pid {}", p.pid);
         Ok(())
     }
 
-    fn on_new_process(&mut self, p: Process) -> anyhow::Result<()> {
-        let name = format!("pid-{}", p.pid);
-        let trigger = todo!();
+    fn start_monitoring(
+        &self,
+        p: Process,
+        settings: &MonitoringSettings,
+        source_buf: &mut SourceCreationBuffer,
+    ) -> anyhow::Result<()> {
+        let source_name = format!("pid-{}", p.pid);
+        let trigger = TriggerSpec::builder(settings.poll_interval)
+            .flush_interval(settings.flush_interval)
+            .build()
+            .with_context(|| {
+                format!(
+                    "error in TriggerSpec builder with settings {:?} for pid {}",
+                    settings, p.pid
+                )
+            })?;
+        log::trace!("adding source {source_name} with trigger specification {trigger:?}");
         let source = Box::new(
-            ProcessStatsProbe::new(p, self.ms_per_ticks, self.metric_cpu_time, self.metric_memory)
-                .with_context(|| format!("failed to create source {name}"))?,
+            ProcessStatsProbe::new(
+                p,
+                self.ms_per_ticks,
+                true,
+                self.metrics.metric_cpu_time,
+                self.metrics.metric_memory,
+            )
+            .with_context(|| format!("failed to create source {source_name}"))?,
         );
-        self.alumet_handle
-            .add_source(&name, source, trigger)
-            .with_context(|| format!("failed to add source {name}"));
+        source_buf.add_source(&source_name, source, trigger);
         Ok(())
+    }
+}
+
+impl Source for ProcessWatcher {
+    fn poll(&mut self, _measurements: &mut MeasurementAccumulator, _timestamp: Timestamp) -> Result<(), PollError> {
+        // No measurement, only refresh here.
+        // This is good to allow Alumet to control the refresh frequency, and to allow it to be changed at any time.
+        self.refresh().map_err(PollError::Fatal)
+    }
+}
+
+impl ProcessFilter {
+    fn accepts(&self, p: &Process) -> Result<bool, ProcError> {
+        if let Some(pid) = self.pid {
+            if p.pid != pid {
+                return Ok(false);
+            }
+        }
+
+        if let Some(ppid) = self.ppid {
+            if p.stat()?.ppid != ppid {
+                return Ok(false);
+            }
+        }
+
+        if let Some(r) = &self.exe_regex {
+            // cf. https://unix.stackexchange.com/questions/629869/getting-the-executable-name-in-linux-from-proc-and-detect-if-its-truncated
+            // TODO in case of PermissionDenied error, print a hint about ptrace access mode PTRACE_MODE_READ_FSCREDS (requires cap SYS_PTRACE or process of same user)
+            if let Some(path_string) = p.exe()?.to_str() {
+                if r.is_match(path_string) {
+                    return Ok(false);
+                }
+            }
+        }
+        Ok(true)
     }
 }
