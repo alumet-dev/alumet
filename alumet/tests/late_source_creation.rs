@@ -95,12 +95,9 @@ fn late_source_creation_test() {
     agent.pipeline.control_handle().shutdown();
     let rt = Runtime::new().unwrap();
     let timeout_duration = Duration::from_secs(5);
-    let _result = rt.block_on(async {
+    let _result = rt.block_on(
         timeout(timeout_duration, async {
             agent.wait_for_shutdown().unwrap();
         })
-        .await
-    });
-
-    
+    );    
 }
