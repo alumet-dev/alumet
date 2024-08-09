@@ -322,17 +322,35 @@ impl Agent {
 impl RunningAgent {
     /// Waits until the measurement pipeline stops, then stops the plugins.
     ///
-    /// If an element of the pipeline returns an error or panics, the other elements are aborted and an error is returned.
-    pub fn wait_for_shutdown(self) -> anyhow::Result<()> {
+    /// ## Initiating shutdown
+    /// ...
+    /// 
+    /// ## Errors
+    /// TODO explain
+    pub fn wait_for_shutdown(self, timeout: Duration) -> anyhow::Result<()> {
         let mut n_errors = 0;
+
+        // Tokio's timeout has a maximum timeout that is much smaller than Duration::MAX,
+        // so we turn the latter into None.
+        let timeout = Some(timeout).filter(|d| *d != Duration::MAX);
 
         // Wait for the pipeline to be stopped, by Ctrl+C or a command.
         // Also, **drop** the pipeline before stopping the plugin, because Plugin::stop expects
         // the sources, transforms and outputs to be stopped and dropped before it is called.
         // All tokio tasks that have not finished yet will abort.
-        if let Err(err) = self.pipeline.wait_for_shutdown() {
-            log::error!("Error in the measurement pipeline: {err}");
-            n_errors += 1;
+        match self.pipeline.wait_for_shutdown(timeout) {
+            Ok(Ok(_)) => (),
+            Ok(Err(err)) => {
+                log::error!("Error in the measurement pipeline: {err:?}");
+                n_errors += 1;
+            }
+            Err(_elapsed) => {
+                log::error!(
+                    "Timeout of {:?} expired while waiting for the pipeline to shut down",
+                    timeout.unwrap()
+                );
+                n_errors += 1;
+            }
         }
 
         // Stop all the plugins, even if some of them fail to stop properly.

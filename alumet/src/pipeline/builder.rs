@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use super::elements::{output, source, transform};
 use super::registry::{self, MetricReader, MetricSender};
 use crate::pipeline::registry::MetricRegistryControl;
@@ -11,6 +13,7 @@ use super::{
     util,
 };
 use anyhow::Context;
+use tokio::time::error::Elapsed;
 use tokio::{
     runtime::Runtime,
     sync::{broadcast, mpsc},
@@ -219,7 +222,26 @@ impl Builder {
     /// Builds the measurement pipeline.
     ///
     /// The new pipeline is immediately started.
-    pub fn build(self) -> anyhow::Result<MeasurementPipeline> {
+    pub fn build(mut self) -> anyhow::Result<MeasurementPipeline> {
+        use context::OutputBuildContext;
+        use elements::OutputRegistration;
+
+        fn dummy_output_builder(ctx: &mut dyn OutputBuildContext) -> anyhow::Result<OutputRegistration> {
+            use crate::pipeline::{elements::error::WriteError, Output};
+
+            struct DummyOutput;
+            impl Output for DummyOutput {
+                fn write(&mut self, _m: &MeasurementBuffer, _ctx: &output::OutputContext) -> Result<(), WriteError> {
+                    Ok(())
+                }
+            }
+
+            Ok(OutputRegistration {
+                name: ctx.output_name("dummy"),
+                output: Box::new(DummyOutput),
+            })
+        }
+
         let rt_priority: Option<Runtime> = if self.threads_high_priority == Some(0) {
             None
         } else {
@@ -254,6 +276,12 @@ impl Builder {
 
         let mut output_control;
         let transform_control;
+
+        if self.outputs.is_empty() {
+            log::warn!("No output has been registered. A dummy output will be added to make the pipeline work, but you probably want to add a true output.");
+            let no_plugin = PluginName(String::from("_"));
+            self.outputs.push((no_plugin, Box::new(dummy_output_builder)));
+        }
 
         if self.outputs.len() == 1 && self.transforms.is_empty() {
             // OPTIMIZATION: there is only one output and no transform,
@@ -358,13 +386,29 @@ impl MeasurementPipeline {
         self.rt_normal.handle()
     }
 
-    pub fn wait_for_shutdown(self) -> Result<(), tokio::task::JoinError> {
+    pub fn wait_for_shutdown(self, timeout: Option<Duration>) -> Result<anyhow::Result<()>, Elapsed> {
         log::debug!("pipeline::wait_for_shutdown");
-        let rt = self.async_runtime().clone();
-        rt.block_on(self.pipeline_control_task)?;
-        log::trace!("pipeline_control_task has ended, waiting for metrics_control_task");
-        rt.block_on(self.metrics_control_task)?;
-        log::trace!("metrics_control_task has ended, dropping the pipeline");
-        Ok(())
+        let rt = self.rt_normal;
+        let shutdown_task = async {
+            self.pipeline_control_task
+                .await
+                .context("pipeline_control_task failed to execute to completion")?;
+
+            log::trace!("pipeline_control_task has ended, waiting for metrics_control_task");
+            self.metrics_control_task
+                .await
+                .context("metrics_control_task failed to execute to completion")?;
+
+            log::trace!("metrics_control_task has ended, dropping the pipeline");
+            Ok::<(), anyhow::Error>(())
+        };
+        if let Some(duration) = timeout {
+            // It is necessary to wrap the timeout in a new async block, because it needs
+            // to be constructed in the context of a Runtime.
+            rt.block_on(async { tokio::time::timeout(duration, shutdown_task).await })
+        } else {
+            Ok(rt.block_on(shutdown_task))
+        }
+        // the Runtime is dropped
     }
 }
