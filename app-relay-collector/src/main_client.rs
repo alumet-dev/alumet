@@ -48,7 +48,7 @@ fn main() {
     });
 
     // Keep the pipeline running until the app closes.
-    running_agent.wait_for_shutdown().unwrap();
+    running_agent.wait_for_shutdown(Duration::MAX).unwrap();
     log::info!("ALUMET relay agent has stopped.");
 }
 

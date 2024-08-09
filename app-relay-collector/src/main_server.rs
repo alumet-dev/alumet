@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use alumet::agent::{static_plugins, AgentBuilder};
 use alumet::plugin::rust::InvalidConfig;
 
@@ -49,7 +51,7 @@ fn main() {
     });
 
     // Keep the pipeline running until the app closes.
-    running_agent.wait_for_shutdown().unwrap();
+    running_agent.wait_for_shutdown(Duration::MAX).unwrap();
     log::info!("ALUMET relay collector has stopped.");
 }
 

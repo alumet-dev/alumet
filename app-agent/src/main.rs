@@ -65,7 +65,7 @@ fn main() {
     match cmd {
         Commands::Run => {
             // ...the program stops (on SIGTERM or on a "stop" command).
-            running_agent.wait_for_shutdown().unwrap();
+            running_agent.wait_for_shutdown(Duration::MAX).unwrap();
         }
         Commands::Exec(ExecArgs {
             program: external_command,
@@ -91,7 +91,7 @@ fn main() {
 
             // Stop the pipeline.
             running_agent.pipeline.control_handle().shutdown();
-            running_agent.wait_for_shutdown().unwrap();
+            running_agent.wait_for_shutdown(Duration::MAX).unwrap();
         }
         Commands::RegenConfig => unreachable!(),
     }
