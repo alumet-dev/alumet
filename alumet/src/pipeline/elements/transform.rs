@@ -89,7 +89,8 @@ impl TransformControl {
     }
 
     pub async fn join_next_task(&mut self) -> Result<anyhow::Result<()>, JoinError> {
-        match &mut self.tasks {
+        // Take the handle to avoid "JoinError: task polled after completion"
+        match &mut self.tasks.take() {
             Some(tasks) => (&mut tasks.task_handle).await,
             None => panic!("join_next_task() should only be called if has_task()"),
         }
