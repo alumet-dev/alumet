@@ -55,20 +55,9 @@ impl alumet::pipeline::Source for K8SProbe {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         let mut file_buffer = String::new();
         let metrics: CgroupV2Metric = cgroup_v2::gather_value(&mut self.cgroup_v2_metric_file, &mut file_buffer)?;
-        let diff_tot = match self.time_tot.update(metrics.time_used_tot) {
-            CounterDiffUpdate::FirstTime => None,
-            CounterDiffUpdate::Difference(diff) | CounterDiffUpdate::CorrectedDifference(diff) => Some(diff),
-        };
-        let diff_usr = match self.time_usr.update(metrics.time_used_user_mode) {
-            CounterDiffUpdate::FirstTime => None,
-            CounterDiffUpdate::Difference(diff) => Some(diff),
-            CounterDiffUpdate::CorrectedDifference(diff) => Some(diff),
-        };
-        let diff_sys = match self.time_sys.update(metrics.time_used_system_mode) {
-            CounterDiffUpdate::FirstTime => None,
-            CounterDiffUpdate::Difference(diff) => Some(diff),
-            CounterDiffUpdate::CorrectedDifference(diff) => Some(diff),
-        };
+        let diff_tot = self.time_tot.update(metrics.time_used_tot).difference();
+        let diff_usr = self.time_usr.update(metrics.time_used_user_mode).difference();
+        let diff_sys = self.time_sys.update(metrics.time_used_system_mode).difference();
         let consumer = ResourceConsumer::ControlGroup {
             path: (self.cgroup_v2_metric_file.path.to_string_lossy().to_string().into()),
         };
