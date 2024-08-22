@@ -86,7 +86,9 @@ impl OutputControl {
                 namegen: self.names.namegen_for_scope(&plugin),
                 runtime: self.tasks.rt_normal.clone(),
             };
-            self.tasks.create_output(&mut ctx, builder)?;
+            self.tasks
+                .create_output(&mut ctx, builder)
+                .inspect_err(|e| log::error!("Error in output creation requested by plugin {plugin}: {e:#}"))?;
         }
         Ok(())
     }

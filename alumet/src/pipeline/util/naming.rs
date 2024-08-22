@@ -115,6 +115,12 @@ pub struct TransformName(pub(super) ElementNameParts);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutputName(pub(super) ElementNameParts);
 
+impl fmt::Display for PluginName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 impl fmt::Display for SourceName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}/source/{}", self.0.plugin, self.0.element)

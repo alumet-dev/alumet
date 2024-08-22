@@ -69,7 +69,9 @@ impl TransformControl {
                         metrics: &metrics_r,
                         namegen: namegen.namegen_for_scope(&plugin),
                     };
-                    builder(&mut ctx).context("transform creation failed")
+                    builder(&mut ctx)
+                        .context("transform creation failed")
+                        .inspect_err(|e| log::error!("Error in transform creation requested by plugin {plugin}: {e:#}"))
                 })
                 .collect()
         };

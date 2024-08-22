@@ -324,14 +324,16 @@ impl RunningAgent {
     ///
     /// ## Initiating shutdown
     /// ...
-    /// 
+    ///
     /// ## Errors
     /// TODO explain
     pub fn wait_for_shutdown(self, timeout: Duration) -> anyhow::Result<()> {
+        use std::panic::{catch_unwind, AssertUnwindSafe};
         let mut n_errors = 0;
 
         // Tokio's timeout has a maximum timeout that is much smaller than Duration::MAX,
-        // so we turn the latter into None.
+        // and will replace the latter by its maximum timeout.
+        // Therefore, we use an Option to disable the timeout if it's Duration::MAX.
         let timeout = Some(timeout).filter(|d| *d != Duration::MAX);
 
         // Wait for the pipeline to be stopped, by Ctrl+C or a command.
@@ -360,9 +362,35 @@ impl RunningAgent {
             let version = plugin.version().to_owned();
             log::info!("Stopping plugin {name} v{version}");
 
-            if let Err(error) = plugin.stop() {
-                log::error!("Error while stopping plugin {name} v{version} - {error:#}");
-                n_errors += 1;
+            // If a plugin panics, we still want to try to stop the other plugins.
+            match catch_unwind(AssertUnwindSafe(move || {
+                plugin.stop()
+                // plugin is dropped here
+            })) {
+                Ok(Ok(())) => (),
+                Ok(Err(e)) => {
+                    log::error!("Error while stopping plugin {name} v{version}. {e:#}");
+                    n_errors += 1;
+                }
+                Err(panic_payload) => {
+                    log::error!(
+                        "PANIC while stopping plugin {name} v{version}. There is probably a bug in the plugin!
+                        Please check the implementation of stop (and drop if Drop is implemented for the plugin type)."
+                    );
+                    n_errors += 1;
+                    // dropping the panic payload may, in turn, panic!
+                    let _ = catch_unwind(AssertUnwindSafe(move || {
+                        drop(panic_payload);
+                    }))
+                    .map_err(|panic2| {
+                        log::error!(
+                            "PANIC while dropping panic payload generated while stopping plugin {name} v{version}."
+                        );
+                        // We cannot drop it, forget it.
+                        // Alumet will stop after this anyway, but the plugin should be fixed.
+                        std::mem::forget(panic2);
+                    });
+                }
             }
         }
         log::info!("All plugins have stopped.");

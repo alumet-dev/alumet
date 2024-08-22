@@ -109,7 +109,10 @@ impl SourceControl {
                 metrics_tx: &self.metrics.1,
                 namegen: self.names.namegen_for_scope(&plugin),
             };
-            self.tasks.create_source(&mut ctx, builder)?;
+            self.tasks.create_source(&mut ctx, builder).inspect_err(|e| {
+                log::error!("Error in source creation requested by plugin {plugin}: {e:#}");
+            })?;
+            // `blocking_create_sources` is called during the startup phase. It's ok to fail early.
         }
         Ok(())
     }
@@ -123,11 +126,25 @@ impl SourceControl {
             metrics_tx: &self.metrics.1,
             namegen: self.names.namegen_for_scope(&plugin),
         };
-        log::debug!("Creating {} sources for plugin {}", builders.len(), plugin.0);
+        let n_sources = builders.len();
+        log::debug!("Creating {n_sources} sources for plugin {plugin}");
+
+        // `create_sources` is called while the pipeline is running, we want to be resilient to errors.
+        // Try to build as many sources as possible, even if some fail.
+        let mut n_errors = 0;
         for builder in builders {
-            self.tasks.create_source(&mut ctx, builder.into())?;
+            let _ = self.tasks.create_source(&mut ctx, builder.into()).inspect_err(|e| {
+                log::error!("Error in source creation requested by plugin {plugin}: {e:?}");
+                n_errors += 1;
+            });
         }
-        Ok(())
+        if n_errors == 0 {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(
+                "plugin {plugin} requested to create {n_sources} sources, {n_errors} failed (see logs above)"
+            ))
+        }
     }
 
     pub async fn handle_message(&mut self, msg: ControlMessage) -> anyhow::Result<()> {
