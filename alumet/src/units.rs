@@ -71,7 +71,7 @@ pub enum Unit {
 /// let milliA = PrefixedUnit::milli(Unit::Ampere);
 /// let nanoSec = PrefixedUnit::nano(Unit::Second);
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrefixedUnit {
     pub base_unit: Unit,
     pub prefix: UnitPrefix,
