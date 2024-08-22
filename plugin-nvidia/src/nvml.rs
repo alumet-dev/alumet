@@ -81,7 +81,10 @@ impl alumet::pipeline::Source for NvmlSource {
 
         if features.total_energy_consumption {
             // the difference in milliJoules
-            let diff = self.energy_counter.update(device.total_energy_consumption()?).difference();
+            let diff = self
+                .energy_counter
+                .update(device.total_energy_consumption()?)
+                .difference();
             if let Some(milli_joules) = diff {
                 // if meaningful (we need at least two measurements), push
                 measurements.push(MeasurementPoint::new(

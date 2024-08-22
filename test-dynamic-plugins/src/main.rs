@@ -87,6 +87,8 @@ fn run_with_plugin(
     std::thread::sleep(duration);
     println!("[app] shutting down...");
     running.pipeline.control_handle().shutdown();
-    running.wait_for_shutdown(Duration::from_secs(2)).expect("error in shutdown");
+    running
+        .wait_for_shutdown(Duration::from_secs(2))
+        .expect("error in shutdown");
     println!("[app] stop");
 }

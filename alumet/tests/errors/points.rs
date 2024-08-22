@@ -1,5 +1,5 @@
-use std::sync::Mutex;
 use anyhow::anyhow;
+use std::sync::Mutex;
 
 pub(crate) static ERRORS: Mutex<Option<PluginErrorPoints>> = Mutex::new(None);
 pub(crate) static CATCHES: Mutex<Option<ExpectedCatchPoints>> = Mutex::new(None);
@@ -87,7 +87,12 @@ macro_rules! error_point {
     ($point:ident) => {
         use crate::errors::points as p;
         let behavior = {
-            p::ERRORS.lock().expect("failed to acquire lock").as_ref().unwrap().$point
+            p::ERRORS
+                .lock()
+                .expect("failed to acquire lock")
+                .as_ref()
+                .unwrap()
+                .$point
         };
         match behavior {
             p::Behavior::Ok => (),
@@ -180,9 +185,9 @@ pub fn process_catch_point<R>(name: &str, expected: &Expect, actual: CatchResult
         (Expect::Error, CatchResult::Ok(_)) => {
             PointCheckResult::UnexpectedErrorOrPanic(anyhow!("expected error at {name}, got Ok(...)"))
         }
-        (Expect::Error, CatchResult::Panic(e)) => {
-            PointCheckResult::UnexpectedErrorOrPanic(anyhow!("expected error at {name}, got panic (see backtrace below): {e:?}"))
-        }
+        (Expect::Error, CatchResult::Panic(e)) => PointCheckResult::UnexpectedErrorOrPanic(anyhow!(
+            "expected error at {name}, got panic (see backtrace below): {e:?}"
+        )),
         (Expect::Error, CatchResult::Err(e)) => PointCheckResult::ExpectedErrorOrPanic(e),
         (Expect::Panic, CatchResult::Ok(_)) => {
             PointCheckResult::UnexpectedErrorOrPanic(anyhow!("expected panic at {name}, got Ok(...)"))

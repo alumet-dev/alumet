@@ -242,7 +242,7 @@ impl alumet::pipeline::Source for PowercapProbe {
                 CounterDiffUpdate::CorrectedDifference(diff) => {
                     log::debug!("Overflow on powercap counter for RAPL domain {}", zone.domain);
                     Some(diff)
-                },
+                }
             };
             if let Some(value) = diff {
                 let joules = (value as f64) * POWERCAP_ENERGY_UNIT;

@@ -13,7 +13,7 @@ static LOCK: Mutex<()> = Mutex::new(());
 /// Initializes the test and defines:
 /// 1. where the plugin should fail (in `errors`)
 /// 2. how and where the Alumet agent should react to the error (in `expected`)
-/// 
+///
 /// In addition, returns a [`MutexGuard`] to ensure that the tests are not executed in parallel.
 /// ## Example
 /// ```
