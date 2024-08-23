@@ -14,7 +14,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::metrics::{Metric, MetricCreationError, MetricRegistry, RawMetricId};
 
-/// A message that can be sent to the task that controls the [`MetricRegistry`], via [`MetricRegistryControl`].
+/// A message that can be sent to the task that controls the [`MetricRegistry`],
+/// for instance via [`MetricSender`].
 pub enum ControlMessage {
     /// Registers new metrics.
     RegisterMetrics(
@@ -35,6 +36,7 @@ pub enum DuplicateStrategy {
     Rename { suffix: String },
 }
 
+/// A callback that gets notified of new metrics.
 pub type MetricListener = Box<dyn Fn(Vec<(RawMetricId, Metric)>) + Send>;
 
 pub(crate) struct MetricRegistryControl {
@@ -182,10 +184,12 @@ pub(crate) fn make_listener<F: Fn(Vec<(RawMetricId, Metric)>) -> anyhow::Result<
 }
 
 impl MetricAccess {
+    /// Provides shared read access to the metric registry.
     pub async fn read(&self) -> RwLockReadGuard<MetricRegistry> {
         self.inner.read().await
     }
 
+    /// Provides exclusive write access to the metric registry.
     pub async fn write(&self) -> tokio::sync::RwLockWriteGuard<MetricRegistry> {
         self.inner.write().await
     }
@@ -196,20 +200,35 @@ impl MetricAccess {
 }
 
 impl MetricReader {
+    /// Provides shared read access to the metric registry.
     pub async fn read(&self) -> RwLockReadGuard<MetricRegistry> {
         self.0.read().await
     }
 
+    /// Provides shared read access to the metric registry, **in a blocking way**.
+    ///
+    /// Only use this _outside_ of an async runtime.
     pub(crate) fn blocking_read(&self) -> RwLockReadGuard<MetricRegistry> {
         self.0.inner.blocking_read()
     }
 }
 
 impl MetricSender {
+    /// Sends a message to the metric control loop. Waits until there is capacity.
+    /// # Errors
+    ///
+    /// Returns an error if the pipeline has been shut down.
     pub async fn send(&self, message: ControlMessage) -> Result<(), SendError> {
         self.0.send(message).await.map_err(|_| SendError::Shutdown)
     }
 
+    /// Attempts to immediately send a message to the metric control loop.
+    ///
+    /// # Errors
+    ///
+    /// There are two possible cases:
+    /// - The pipeline has been shut down and can no longer accept any message.
+    /// - The buffer of the control channel is full.
     pub fn try_send(&self, message: ControlMessage) -> Result<(), SendError> {
         match self.0.try_send(message) {
             Ok(_) => Ok(()),
@@ -218,6 +237,13 @@ impl MetricSender {
         }
     }
 
+    /// Registers new metrics.
+    ///
+    /// # Errors
+    /// The registration of a metric fails if another metric with the same unique name has already been registered.
+    /// For each metric, a `Result<RawMetricId, MetricCreationError>` is returned.
+    ///
+    /// `create_metrics` can also fail if the control message cannot be sent, or if the registration reply cannot be received.
     pub async fn create_metrics(
         &self,
         metrics: Vec<Metric>,
@@ -230,6 +256,7 @@ impl MetricSender {
         Ok(result)
     }
 
+    /// Attempts to add a new metric listener immediately.
     pub fn try_subscribe<F: Fn(Vec<(RawMetricId, Metric)>) -> anyhow::Result<()> + Send + 'static>(
         &self,
         listener: F,
@@ -237,6 +264,7 @@ impl MetricSender {
         self.try_send(ControlMessage::Subscribe(make_listener(listener)))
     }
 
+    /// Adds a new metric listener. Waits until there is capacity to send the message.
     pub async fn subscribe<F: Fn(Vec<(RawMetricId, Metric)>) -> anyhow::Result<()> + Send + 'static>(
         &self,
         listener: F,

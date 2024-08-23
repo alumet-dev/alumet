@@ -18,9 +18,19 @@ use crate::pipeline::util::naming::{NameGenerator, ScopedNameGenerator, Transfor
 use crate::pipeline::{builder, PluginName};
 use crate::{measurement::MeasurementBuffer, metrics::MetricRegistry, pipeline::registry::MetricReader};
 
-/// Transforms measurements.
+/// Transforms measurements (arbitrary transformation).
 pub trait Transform: Send {
-    /// Applies the transform on the measurements.
+    /// Applies the transform function on the measurements.
+    ///
+    /// After `apply` is done, the buffer is passed to the next transform, if there is one,
+    /// or to the outputs.
+    ///
+    /// # Transforming measurements
+    /// The transform is free to manipulate the measurement buffer how it sees fit.
+    /// The `apply` method can:
+    /// - remove some or all measurements
+    /// - add new measurements
+    /// - modify the measurement points
     fn apply(&mut self, measurements: &mut MeasurementBuffer, ctx: &TransformContext) -> Result<(), TransformError>;
 }
 
@@ -168,9 +178,12 @@ impl builder::context::TransformBuildContext for BuildContext<'_> {
     }
 }
 
+/// A control message for transforms.
 #[derive(Debug)]
 pub struct ControlMessage {
+    /// Which transform(s) to reconfigure.
     pub selector: TransformSelector,
+    /// The new state to apply to the selected transform(s).
     pub new_state: TaskState,
 }
 

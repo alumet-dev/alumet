@@ -1,3 +1,4 @@
+//! Things to deal with names.
 use std::{
     collections::HashMap,
     fmt::{self, Display},

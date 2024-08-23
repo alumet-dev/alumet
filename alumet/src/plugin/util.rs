@@ -2,11 +2,11 @@
 
 /// Computes the difference between each successive measurement.
 ///
-/// ## Correction of overflows
+/// # Correction of overflows
 /// `CounterDiff` automatically detects and corrects overflows by
 /// using the maximum value of the counter.
 ///
-/// ## Example
+/// # Example
 /// ```
 /// use alumet::plugin::util::{CounterDiff, CounterDiffUpdate};
 ///

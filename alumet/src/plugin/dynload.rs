@@ -91,7 +91,7 @@ pub struct PluginRegistry {
 
 /// Loads a dynamic plugin from a shared library file, and returns a [`PluginMetadata`] that allows to initialize the plugin.
 ///
-/// ## Required symbols
+/// # Required symbols
 /// To be valid, a dynamic plugin must declare the following shared symbols:
 /// - `PLUGIN_NAME: *const c_char`: the name of the plugin, as a null-terminated string
 /// - `PLUGIN_VERSION: *const c_char`: the version of the plugin, of the form "x.y.z" where x,y,z are integers
@@ -101,7 +101,7 @@ pub struct PluginRegistry {
 /// - `plugin_stop: PluginStopFn`: see [`ffi::PluginStopFn`]
 /// - `plugin_drop: DropFn`: see [`ffi::DropFn`]
 ///
-/// ### Declaration in Rust
+/// # Declaration in Rust
 /// Declaring such variables and symbols in the Rust language would look like the following:
 /// ```ignore
 /// #[no_mangle]
@@ -121,7 +121,7 @@ pub struct PluginRegistry {
 /// pub extern "C" fn plugin_drop(plugin: *mut MyPluginStruct) {}
 /// ```
 ///
-/// ### Declaration in C
+/// # Declaration in C
 /// Declaring such variables and symbols in the C language would look like the following:
 /// ```ignore
 /// PLUGIN_API const char *PLUGIN_NAME = "my-plugin";
@@ -134,7 +134,7 @@ pub struct PluginRegistry {
 /// PLUGIN_API void plugin_drop(MyPluginStruct *plugin) {}
 /// ```
 ///
-/// ## Exporting the symbols properly
+/// # Exporting the symbols properly
 /// You must ensure that the aforementioned symbols are properly exported, so that the ALUMET agent can
 /// load them. But be careful not to export private variables and functions, as they can cause conflicts
 /// between different plugins.

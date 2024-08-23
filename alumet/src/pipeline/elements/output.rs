@@ -50,6 +50,7 @@ struct TaskManager {
     metrics: registry::MetricReader,
 }
 
+/// Context provided when building new outputs.
 struct BuildContext<'a> {
     metrics: &'a MetricRegistry,
     namegen: &'a mut ScopedNameGenerator,
@@ -200,9 +201,12 @@ impl builder::context::OutputBuildContext for BuildContext<'_> {
     }
 }
 
+/// A control messages for outputs.
 #[derive(Debug)]
 pub struct ControlMessage {
+    /// Which output(s) to reconfigure.
     pub selector: OutputSelector,
+    /// The new state to apply to the selected output(s).
     pub new_state: TaskState,
 }
 

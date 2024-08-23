@@ -62,7 +62,7 @@ pub struct TriggerConstraints {
 
 /// Builder for source triggers.
 ///
-/// See [`builder::time_interval`](self::time_interval).
+/// See [`builder::time_interval`](time_interval()).
 pub mod builder {
     use core::fmt;
     use std::time::{Duration, Instant};
@@ -71,14 +71,14 @@ pub mod builder {
 
     /// Returns a builder for a source trigger that polls the source at regular intervals.
     ///
-    /// ## Timing
+    /// # Timing
     ///
     /// The accuracy of the timing depends on the operating system and on the scheduling
     /// policy of the thread that executes the trigger.
     /// For small intervals of 1ms or less, it is recommended to run Alumet on Linux
-    /// and to use [`SourceType::RealtimePriority`](crate::pipeline::SourceType::RealtimePriority).
+    /// and to use the high "realtime" scheduling priority by calling [`TimeTriggerBuilder::realtime_priority`].
     ///
-    /// ## Example
+    /// # Example
     /// ```
     /// use alumet::pipeline::trigger;
     /// use std::time::{Instant, Duration};

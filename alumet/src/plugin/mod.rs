@@ -1,9 +1,9 @@
 //! Static and dynamic plugins.
 //!
 //! Plugins are an essential part of Alumet, as they provide the
-//! [`Source`]s, [`Transform`]s and [`Output`]s.
+//! [`Source`](crate::pipeline::Source)s, [`Transform`](crate::pipeline::Transform)s and [`Output`](crate::pipeline::Output)s.
 //!
-//! ## Plugin lifecycle
+//! # Plugin lifecycle
 //! Every plugin follow these steps:
 //!
 //! 1. **Metadata loading**: the Alumet application loads basic information about the plugin.
@@ -19,14 +19,18 @@
 //! 4. **Operation**: the measurement pipeline has started, and the elements registered by the plugin
 //! are in use. Alumet takes care of the lifetimes and of the triggering of those elements.
 //!
-//! 5. **Stop**: the elements registered by the plugin are stopped and dropped.
+//! 5. **Post start-up**: [`post_pipeline_start`](Plugin::post_pipeline_start) is called with
+//! arguments that allow to interact with the running measurement pipeline (which is not possible
+//! in `start`, since the pipeline is not fully constructed nor started at this point).
+//!
+//! 5. **Stop**: when the pipeline is stopped, the elements registered by the plugin are stopped and dropped.
 //! Then, [`stop`](Plugin::stop) is called.
 //!
 //! 6. **Drop**: like any Rust value, the plugin is dropped when it goes out of scope.
 //! To customize the destructor of your static plugin, implement the [`Drop`] trait on your plugin structure.
 //! For a dynamic plugin, modify the `plugin_drop` function.
 //!
-//! ## Static plugins
+//! # Static plugins
 //!
 //! A static plugin is a plugin that is included in the Alumet measurement application
 //! at compile-time. The measurement tool and the static plugin are compiled together,
@@ -79,7 +83,7 @@
 //! 1. Add a dependency to your plugin crate (for example with `cargo add my-plugin --path=path/to/my-plugin`).
 //! 2. Modify your `main` to initialize and load the plugin. See [`Agent`](crate::agent::Agent).
 //!
-//! ## Dynamic plugins
+//! # Dynamic plugins
 //!
 //! WIP
 //!
@@ -132,7 +136,7 @@ impl PluginMetadata {
 /// since Alumet provides functions to easily serialize and deserialize configurations
 /// with `serde`.
 ///
-/// ## Example
+/// # Example
 ///
 /// ```
 /// use serde::{Serialize, Deserialize};
@@ -157,7 +161,7 @@ pub struct ConfigTable(pub toml::Table);
 
 /// Trait for plugins.
 ///
-/// ## Note for plugin authors
+/// # Note for plugin authors
 ///
 /// You should _not_ implement this trait manually.
 ///
@@ -172,7 +176,7 @@ pub trait Plugin {
 
     /// Starts the plugin, allowing it to register metrics, sources and outputs.
     ///
-    /// ## Plugin restart
+    /// # Plugin restart
     /// A plugin can be started and stopped multiple times, for instance when ALUMET switches from monitoring to profiling mode.
     /// [`Plugin::stop`] is guaranteed to be called between two calls of [`Plugin::start`].
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()>;
@@ -192,7 +196,6 @@ pub trait Plugin {
     /// Function called after the beginning of the operation phase,
     /// i.e. the measurement pipeline has started.
     ///
-    /// It can be used, for instance, to obtain a [`ControlHandle`](crate::pipeline::runtime::ControlHandle)
-    /// of the pipeline.
+    /// It can be used, for instance, to obtain a [`ScopedControlHandle`](crate::pipeline::control::ScopedControlHandle).
     fn post_pipeline_start(&mut self, alumet: &mut AlumetPostStart) -> anyhow::Result<()>;
 }

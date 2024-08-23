@@ -8,7 +8,7 @@
 //!
 //! This information is stored in the [`Metric`] struct.
 //!
-//! ## Metric identifiers
+//! # Metric identifiers
 //! In addition to this definition, Alumet assigns a unique id to each metric,
 //! which is used to refer to a metric from anywhere in the program.
 //! This id can exist in two forms:
@@ -16,13 +16,13 @@
 //! - A [`TypedMetricId`], which carries some information about the metric and allows
 //! to check the type of the measured values at compile time. It is a zero-cost wrapper around a `RawMetricId`.
 //!
-//! ## Registering new metrics
+//! # Registering new metrics
 //! Metrics can only be registered during the plugin startup phase.
 //! To register new metrics, use [`AlumetPluginStart::create_metric`](crate::plugin::AlumetPluginStart::create_metric)
 //! or [`AlumetPluginStart::create_metric_untyped`](crate::plugin::AlumetPluginStart::create_metric).
 //! You can then pass the id around.
 //!
-//! ### Example
+//! # Example
 //!
 //! ```no_run
 //! use alumet::plugin::AlumetPluginStart;
@@ -214,9 +214,9 @@ impl MetricRegistry {
     ///
     /// A new id is generated and returned.
     ///
-    /// ## Duplicates
+    /// # Duplicates
     /// Metric names are intended to be unique.
-    /// If a metric with the same name has already been registered, `register` reurns an error.
+    /// If a metric with the same name has already been registered, `register` returns an error.
     pub(crate) fn register(&mut self, m: Metric) -> Result<RawMetricId, MetricCreationError> {
         let name = &m.name;
         if let Some(_name_conflict) = self.metrics_by_name.get(name) {
@@ -242,7 +242,7 @@ impl MetricRegistry {
     ///
     /// A new id is generated and returned.
     ///
-    /// ## Duplicates
+    /// # Duplicates
     /// Contrary to [`register()`], `register_infallible` does not return an error if a metric with the
     /// same name as `m` already exists in the registry.
     ///
@@ -528,7 +528,7 @@ mod tests {
             assert_ne!(id4, id3);
             assert_ne!(id4, id2);
             assert_ne!(id4, id1);
-            
+
             // and the same as metric_suffix_3
             let id4_bis = metrics.register_infallible(
                 Metric {

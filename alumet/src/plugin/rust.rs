@@ -34,7 +34,7 @@ pub trait AlumetPlugin {
 
     /// Starts the plugin, allowing it to register metrics, sources and outputs.
     ///
-    /// ## Plugin restart
+    /// # Plugin restart
     /// A plugin can be started and stopped multiple times, for instance when ALUMET switches from monitoring to profiling mode.
     /// [`AlumetPlugin::stop`] is guaranteed to be called between two calls of [`AlumetPlugin::start`].
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()>;
@@ -57,8 +57,8 @@ pub trait AlumetPlugin {
     /// Function called after the beginning of the operation phase,
     /// i.e. the measurement pipeline has started.
     ///
-    /// It can be used, for instance, to obtain a [`ControlHandle`](crate::pipeline::runtime::ControlHandle)
-    /// of the pipeline. No modification to the pipeline can be applied.
+    /// It can be used, for instance, to obtain a [`ScopedControlHandle`](crate::pipeline::control::ScopedControlHandle).
+    /// No modification to the pipeline can be applied.
     fn post_pipeline_start(&mut self, alumet: &mut AlumetPostStart) -> anyhow::Result<()> {
         let _ = alumet; // do nothing by default
         Ok(())

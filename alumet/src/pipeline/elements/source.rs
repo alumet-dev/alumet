@@ -315,16 +315,29 @@ impl builder::context::AutonomousSourceBuildContext for BuildContext<'_> {
     }
 }
 
+/// A control message for sources.
 #[derive(Debug)]
 pub enum ControlMessage {
+    /// Reconfigures some source(s).
     Configure(ConfigureMessage),
+    /// Creates a new source.
     CreateOne(CreateOneMessage),
+    /// Creates multiple sources.
+    ///
+    /// Sending one `CreateMany` is more efficient than sending multiple `CreateOne`.
+    /// See [`crate::pipeline::control::SourceCreationBuffer`] for a high-level API that uses `CreateMany`.
     CreateMany(CreateManyMessage),
+    /// Triggers some source(s).
+    ///
+    /// The source will be triggered "as soon as possible", i.e. when it receives the messages
+    /// and processes it. Sources must be configured to accept manual trigger, otherwise this message
+    /// will do nothing.
     TriggerManually(TriggerMessage),
 }
 
 #[derive(Debug)]
 pub struct ConfigureMessage {
+    /// Which transform(s) to reconfigure.
     pub selector: SourceSelector,
     pub command: ConfigureCommand,
 }
@@ -343,6 +356,7 @@ pub struct CreateManyMessage {
 
 #[derive(Debug)]
 pub struct TriggerMessage {
+    /// Which transform(s) to trigger.
     pub selector: SourceSelector,
 }
 
