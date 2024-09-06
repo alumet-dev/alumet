@@ -21,7 +21,7 @@ typedef enum WrappedMeasurementType {
  * It allows the plugins to perform some actions before starting the measurement pipeline,
  * such as registering new measurement sources.
  *
- * ## Note for applications
+ * # Note for applications
  * You should not create `AlumetPluginStart` manually, build an [`Agent`](crate::agent::Agent) instead.
  */
 typedef struct AlumetPluginStart AlumetPluginStart;
@@ -36,7 +36,7 @@ typedef struct ConfigArray ConfigArray;
  * since Alumet provides functions to easily serialize and deserialize configurations
  * with `serde`.
  *
- * ## Example
+ * # Example
  *
  * ```
  * use serde::{Serialize, Deserialize};

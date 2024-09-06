@@ -1,4 +1,26 @@
 //! Helpers for creating a measurement agent.
+//!
+//! # Example
+//!
+//! ```
+//! use alumet::agent::{AgentBuilder, RunningAgent};
+//! use std::time::Duration;
+//!
+//! # fn f() -> anyhow::Result<()> {
+//! // create and start an Agent
+//! let mut agent = AgentBuilder::new(vec![]).config_value(toml::Table::new()).build();
+//! let config = agent.load_config()?;
+//! let agent: RunningAgent = agent.start(config)?;
+//!
+//! // initiate shutdown, this can be done from any thread
+//! agent.pipeline.control_handle().shutdown();
+//!
+//! // run until the shutdown command is processed, and stop all the plugins
+//! let timeout = Duration::MAX;
+//! agent.wait_for_shutdown(timeout)?;
+//! # Ok(())
+//! # }
+//! ```
 
 use std::{
     env,
@@ -23,7 +45,7 @@ const ENV_VAR: &'static str = r"\w?(?<!\\)\$([[:word:]]*)";
 ///
 /// Use the [`AgentBuilder`] to build a new agent.
 ///
-/// ## Example
+/// # Example
 /// ```no_run
 /// use alumet::agent::{static_plugins, AgentBuilder, Agent};
 /// use alumet::plugin::{AlumetPluginStart, ConfigTable};
@@ -83,19 +105,34 @@ pub struct AgentBuilder {
     source_constraints: TriggerConstraints,
 }
 
+/// Where to get the configuration from.
 enum AgentConfigSource {
+    /// Use this toml table as the agent configuration.
     Value(toml::Table),
+    /// Read the configuration from a file.
     FilePath(std::path::PathBuf),
 }
 
+/// Agent configuration.
 pub struct AgentConfig {
+    /// Contains the configuration of each plugin (one subtable per plugin).
     plugins_table: toml::Table,
+    /// Contains the configuration of the agent application.
+    ///
+    /// This is an Option in order to allow [`Option::take`].
     app_table: Option<toml::Table>,
 }
 
 impl TryFrom<toml::Table> for AgentConfig {
     type Error = anyhow::Error;
 
+    /// Parses a TOML configuration into an agent configuration.
+    ///
+    /// # Required structure
+    ///
+    /// For the agent configuration to be valid, it must contain a `plugins` table,
+    /// with one subtable per plugin. The rest of the configuration (outside of the
+    /// `plugins` table), will be used by the agent application.
     fn try_from(mut global_config: toml::Table) -> Result<Self, Self::Error> {
         // Extract the plugins' configurations.
         let plugins_table = match global_config.remove("plugins") {
@@ -118,7 +155,7 @@ impl TryFrom<toml::Table> for AgentConfig {
 }
 
 impl AgentConfig {
-    /// Returns a mutable reference to the plugin's subconfig, which is at plugins.\<name\>
+    /// Returns a mutable reference to the plugin's subconfig, which is at `plugins.<name>`
     pub fn plugin_config_mut(&mut self, plugin_name: &str) -> Option<&mut toml::Table> {
         let sub_config = self.plugins_table.get_mut(plugin_name);
         match sub_config {
@@ -127,7 +164,9 @@ impl AgentConfig {
         }
     }
 
-    /// Removes and returns the plugin's subconfig, which is at plugins.\<name\>
+    /// Takes the plugin's subconfig, which is at `plugins.<name>`
+    ///
+    /// See [`Option::take`].
     pub fn take_plugin_config(&mut self, plugin_name: &str) -> anyhow::Result<toml::Table> {
         let sub_config = self.plugins_table.remove(plugin_name);
         match sub_config {
@@ -143,16 +182,21 @@ impl AgentConfig {
         }
     }
 
+    /// Returns a mutable reference to the agent app config.
     pub fn app_config_mut(&mut self) -> &mut toml::Table {
         self.app_table.as_mut().unwrap()
     }
 
+    /// Takes the agent app config.
+    ///
+    /// See [`Option::take`].
     pub fn take_app_config(&mut self) -> toml::Table {
         self.app_table.take().unwrap()
     }
 }
 
 impl Agent {
+    /// Tries to load the configuration from its source (as defined by [`AgentBuilder::config_value`] or [`AgentBuilder::config_path`]).
     pub fn load_config(&mut self) -> anyhow::Result<AgentConfig> {
         // Load the global config, from a file or from a value, depending on the agent's settings.
         let global_config = match self.settings.config.take().unwrap() {
@@ -322,17 +366,33 @@ impl Agent {
 impl RunningAgent {
     /// Waits until the measurement pipeline stops, then stops the plugins.
     ///
-    /// If an element of the pipeline returns an error or panics, the other elements are aborted and an error is returned.
-    pub fn wait_for_shutdown(self) -> anyhow::Result<()> {
+    /// See the [module documentation](super::agent).
+    pub fn wait_for_shutdown(self, timeout: Duration) -> anyhow::Result<()> {
+        use std::panic::{catch_unwind, AssertUnwindSafe};
         let mut n_errors = 0;
+
+        // Tokio's timeout has a maximum timeout that is much smaller than Duration::MAX,
+        // and will replace the latter by its maximum timeout.
+        // Therefore, we use an Option to disable the timeout if it's Duration::MAX.
+        let timeout = Some(timeout).filter(|d| *d != Duration::MAX);
 
         // Wait for the pipeline to be stopped, by Ctrl+C or a command.
         // Also, **drop** the pipeline before stopping the plugin, because Plugin::stop expects
         // the sources, transforms and outputs to be stopped and dropped before it is called.
         // All tokio tasks that have not finished yet will abort.
-        if let Err(err) = self.pipeline.wait_for_shutdown() {
-            log::error!("Error in the measurement pipeline: {err}");
-            n_errors += 1;
+        match self.pipeline.wait_for_shutdown(timeout) {
+            Ok(Ok(_)) => (),
+            Ok(Err(err)) => {
+                log::error!("Error in the measurement pipeline: {err:?}");
+                n_errors += 1;
+            }
+            Err(_elapsed) => {
+                log::error!(
+                    "Timeout of {:?} expired while waiting for the pipeline to shut down",
+                    timeout.unwrap()
+                );
+                n_errors += 1;
+            }
         }
 
         // Stop all the plugins, even if some of them fail to stop properly.
@@ -342,9 +402,35 @@ impl RunningAgent {
             let version = plugin.version().to_owned();
             log::info!("Stopping plugin {name} v{version}");
 
-            if let Err(error) = plugin.stop() {
-                log::error!("Error while stopping plugin {name} v{version} - {error:#}");
-                n_errors += 1;
+            // If a plugin panics, we still want to try to stop the other plugins.
+            match catch_unwind(AssertUnwindSafe(move || {
+                plugin.stop()
+                // plugin is dropped here
+            })) {
+                Ok(Ok(())) => (),
+                Ok(Err(e)) => {
+                    log::error!("Error while stopping plugin {name} v{version}. {e:#}");
+                    n_errors += 1;
+                }
+                Err(panic_payload) => {
+                    log::error!(
+                        "PANIC while stopping plugin {name} v{version}. There is probably a bug in the plugin!
+                        Please check the implementation of stop (and drop if Drop is implemented for the plugin type)."
+                    );
+                    n_errors += 1;
+                    // dropping the panic payload may, in turn, panic!
+                    let _ = catch_unwind(AssertUnwindSafe(move || {
+                        drop(panic_payload);
+                    }))
+                    .map_err(|panic2| {
+                        log::error!(
+                            "PANIC while dropping panic payload generated while stopping plugin {name} v{version}."
+                        );
+                        // We cannot drop it, forget it.
+                        // Alumet will stop after this anyway, but the plugin should be fixed.
+                        std::mem::forget(panic2);
+                    });
+                }
             }
         }
         log::info!("All plugins have stopped.");
@@ -358,6 +444,9 @@ impl RunningAgent {
     }
 }
 
+/// Loads a configuration from a TOML file.
+///
+/// If the file does not exist, attempts to create it with a default configuration.
 fn load_config_from_file(
     plugins: &[PluginMetadata],
     path: &Path,
@@ -577,7 +666,7 @@ impl AgentBuilder {
 ///
 /// Each argument must be a _type_ that implements the [`AlumetPlugin`](crate::plugin::rust::AlumetPlugin) trait.
 ///
-/// ## Example
+/// # Example
 /// ```ignore
 /// use alumet::plugin::PluginMetadata;
 ///

@@ -31,7 +31,7 @@ impl Version {
     /// It is allowed to omit the last number, in which case `z` is inferred to zero.
     /// For example, `"1.0"` is a valid version and is considered to be equal to `"1.0.0"`.
     ///
-    /// ## Example
+    /// # Example
     /// ```ignore
     /// let version = Version::parse("1.0.2").expect("the version number should be valid");
     /// ```

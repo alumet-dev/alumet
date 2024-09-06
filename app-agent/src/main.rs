@@ -23,6 +23,11 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 fn main() {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     log::info!("Starting ALUMET agent v{VERSION}");
+    // Print a warning if we are running in debug mode.
+    #[cfg(debug_assertions)]
+    {
+        log::warn!("DEBUG assertions are enabled, this build of Alumet is fine for debugging, but not for production.");
+    }
 
     // Parse command-line arguments.
     let args = Cli::parse();
@@ -65,7 +70,7 @@ fn main() {
     match cmd {
         Commands::Run => {
             // ...the program stops (on SIGTERM or on a "stop" command).
-            running_agent.wait_for_shutdown().unwrap();
+            running_agent.wait_for_shutdown(Duration::MAX).unwrap();
         }
         Commands::Exec(ExecArgs {
             program: external_command,
@@ -91,7 +96,7 @@ fn main() {
 
             // Stop the pipeline.
             running_agent.pipeline.control_handle().shutdown();
-            running_agent.wait_for_shutdown().unwrap();
+            running_agent.wait_for_shutdown(Duration::MAX).unwrap();
         }
         Commands::RegenConfig => unreachable!(),
     }

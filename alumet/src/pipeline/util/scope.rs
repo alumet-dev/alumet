@@ -4,7 +4,7 @@
 
 // /// Spawns a blocking function with the provided arguments, and waits for it to return.
 // ///
-// /// ## Example
+// /// # Example
 // /// ```ignore
 // /// spawn_blocking_with_output(output, ctx, func).await
 // /// ```

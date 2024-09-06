@@ -5,7 +5,7 @@
 //! This is usually done through a [`MeasurementBuffer`] (for transforms and outputs)
 //! or a [`MeasurementAccumulator`] (for sources).
 //!
-//! ## Producing measurements
+//! # Producing measurements
 //!
 //! Assuming that you have a `buffer: &mut MeasurementBuffer` (or `MeasurementAccumulator`),
 //! you can produce new measurements like this:

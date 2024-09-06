@@ -19,7 +19,7 @@ use crate::{
 /// It allows the plugins to perform some actions before starting the measurement pipeline,
 /// such as registering new measurement sources.
 ///
-/// ## Note for applications
+/// # Note for applications
 /// You should not create `AlumetPluginStart` manually, build an [`Agent`](crate::agent::Agent) instead.
 pub struct AlumetPluginStart<'a> {
     pub(crate) current_plugin: PluginName,
@@ -110,11 +110,11 @@ impl<'a> AlumetPluginStart<'a> {
     /// It is given a [`Sender`](tokio::sync::mpsc::Sender) to send its measurements
     /// to the rest of the Alumet pipeline (transforms and outputs).
     ///
-    /// ## Graceful shutdown
-    /// To stop the autonomous source, a [`CancellationToken`] is provided.
+    /// # Graceful shutdown
+    /// To stop the autonomous source, a [`CancellationToken`](tokio_util::sync::CancellationToken) is provided.
     /// When the token is cancelled, you should stop the source.
     ///
-    /// ## Example
+    /// # Example
     /// ```no_run
     /// use std::time::SystemTime;
     /// use alumet::measurement::{MeasurementBuffer, MeasurementPoint, Timestamp};

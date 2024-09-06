@@ -1,3 +1,4 @@
+//! On-the-fly modification of the pipeline.
 use super::builder::elements::{
     AutonomousSourceBuilder, ManagedSourceBuilder, ManagedSourceRegistration, SendSourceBuilder,
 };
@@ -10,23 +11,63 @@ use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
+/// A control handle that is not tied to a particular plugin.
+///
+/// Unlike [`ScopedControlHandle`], `AnonymousControlHandle` does not provide any method
+/// that register new pipeline elements. You can call [`AnonymousControlHandle::scoped`] to turn an anonymous handle
+/// into a scoped one.
 #[derive(Clone)]
 pub struct AnonymousControlHandle {
     tx: Sender<ControlMessage>,
     shutdown: CancellationToken,
 }
 
+/// A control handle with the scope of a plugin.
+///
+/// Sources registered with methods like [`ScopedControlHandle::add_source`] will be named after the plugin scope.
 #[derive(Clone)]
 pub struct ScopedControlHandle {
     inner: AnonymousControlHandle,
     plugin: PluginName,
 }
 
+/// A buffer that allows to create multiple sources with only one control message.
+///
+/// # Example
+/// ```no_run
+/// use alumet::pipeline::control::{ScopedControlHandle, SourceCreationBuffer};
+/// use alumet::pipeline::Source;
+///
+/// // Assume that we have:
+/// // - a `control_handle: ScopedControlHandle`.
+/// // - a function `create_source()` that returns a `Box<dyn Source>`
+///
+/// # let control_handle: ScopedControlHandle = todo!();
+/// # fn create_source() -> Box<dyn Source> { todo!() }
+/// #
+/// // create the buffer
+/// let mut buf: SourceCreationBuffer<'_> = control_handle.source_buffer();
+///
+/// // add multiple sources, here 10
+/// for i in 1..=10 {
+///     let source = create_source();
+///     let trigger = todo!();
+///     buf.add_source(&format!("source-{i}"), source, trigger);
+/// }
+///
+/// // register all the sources at once
+/// buf.flush().expect("failed to create sources");
+/// ```
+///
+/// # Flushing
+/// The buffer is automatically flushed on drop, but **you should call flush**
+/// in order to handle the errors. The drop implementation silently ignores flushing errors.
 pub struct SourceCreationBuffer<'a> {
     inner: &'a mut ScopedControlHandle,
     buffer: Vec<builder::elements::SendSourceBuilder>,
 }
 
+/// A message that can be sent "to the pipeline" (I'm simplifying here) in order to control it.
 #[derive(Debug)]
 pub enum ControlMessage {
     Source(source::ControlMessage),
@@ -34,12 +75,14 @@ pub enum ControlMessage {
     Output(output::ControlMessage),
 }
 
+/// Encapsulates sources, transforms and outputs control.
 pub(crate) struct PipelineControl {
     sources: source::SourceControl,
     transforms: transform::TransformControl,
     outputs: output::OutputControl,
 }
 
+/// An error that can occur when performing a control operation.
 #[derive(Debug, Error)]
 pub enum ControlError {
     #[error("Cannot send the message because the channel is full")]
@@ -48,6 +91,9 @@ pub enum ControlError {
     Shutdown,
 }
 
+/// An error that can occur when sending a control message.
+///
+/// Unlike `ControlError`, `ControlSendError` gives back the message if the channel is full.
 #[derive(Debug, Error)]
 pub enum ControlSendError {
     #[error("Cannot send the message because the channel is full - {0:?}")]
@@ -66,10 +112,22 @@ impl From<ControlSendError> for ControlError {
 }
 
 impl AnonymousControlHandle {
+    /// Sends a control message to the pipeline, waiting until there is capacity.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the pipeline has been shut down.
     pub async fn send(&self, message: ControlMessage) -> Result<(), ControlSendError> {
         self.tx.send(message).await.map_err(|_| ControlSendError::Shutdown)
     }
 
+    /// Attempts to immediately send a control message to the pipeline.
+    ///
+    /// # Errors
+    ///
+    /// There are two possible cases:
+    /// - The pipeline has been shut down and can no longer accept any message.
+    /// - The buffer of the control channel is full.
     pub fn try_send(&self, message: ControlMessage) -> Result<(), ControlSendError> {
         match self.tx.try_send(message) {
             Ok(_) => Ok(()),
@@ -78,10 +136,12 @@ impl AnonymousControlHandle {
         }
     }
 
+    /// Requests the pipeline to shut down.
     pub fn shutdown(&self) {
         self.shutdown.cancel()
     }
 
+    /// Creates a new handle with the given plugin scope.
     pub fn scoped(&self, plugin: PluginName) -> ScopedControlHandle {
         ScopedControlHandle {
             inner: self.clone(),
@@ -95,6 +155,7 @@ impl ScopedControlHandle {
         &self.inner
     }
 
+    /// Creates a new buffer for bulk source creation.
     pub fn source_buffer<'a>(&'a mut self) -> SourceCreationBuffer<'a> {
         SourceCreationBuffer {
             inner: self,
@@ -102,6 +163,7 @@ impl ScopedControlHandle {
         }
     }
 
+    /// Creates a new buffer for bulk source creation, with the given initial capacity.
     pub fn source_buffer_with_capacity<'a>(&'a mut self, capacity: usize) -> SourceCreationBuffer<'a> {
         SourceCreationBuffer {
             inner: self,
@@ -109,6 +171,12 @@ impl ScopedControlHandle {
         }
     }
 
+    /// Adds a measurement source to the Alumet pipeline.
+    ///
+    /// This is similar to [`AlumetPluginStart::add_source()`](crate::plugin::AlumetPluginStart::add_source()).
+    ///
+    /// # Bulk registration of sources
+    /// To add multiple sources, it is more efficient to use [`source_buffer`](Self::source_buffer) instead of many `add_source`.
     pub fn add_source(
         &self,
         name: &str,
@@ -119,6 +187,13 @@ impl ScopedControlHandle {
         self.add_source_builder(build)
     }
 
+    /// Adds a measurement source to the Alumet pipeline, with an explicit builder.
+    ///
+    /// This is similar to [`AlumetPluginStart::add_source_builder()`](crate::plugin::AlumetPluginStart::add_source_builder()),
+    /// except that the builder needs to be [`Send`].
+    ///
+    /// # Bulk registration of sources
+    /// To add multiple sources, it is more efficient to use [`source_buffer`](Self::source_buffer) instead of many `add_source_builder`.
     pub fn add_source_builder<F: ManagedSourceBuilder + Send + 'static>(&self, builder: F) -> Result<(), ControlError> {
         let message = ControlMessage::Source(source::ControlMessage::CreateOne(source::CreateOneMessage {
             plugin: self.plugin.clone(),
@@ -127,6 +202,13 @@ impl ScopedControlHandle {
         self.inner.try_send(message).map_err(|e| e.into())
     }
 
+    /// Adds an autonomous measurement source to the Alumet pipeline, with an explicit builder.
+    ///
+    /// This is similar to [`AlumetPluginStart::add_autonomous_source_builder()`](crate::plugin::AlumetPluginStart::add_autonomous_source_builder()),
+    /// except that the builder needs to be [`Send`].
+    ///
+    /// # Bulk registration of sources
+    /// To add multiple sources, it is more efficient to use [`source_buffer`](Self::source_buffer) instead of many `add_source_builder`.
     pub fn add_autonomous_source_builder<F: AutonomousSourceBuilder + Send + 'static>(
         &self,
         builder: F,
@@ -138,6 +220,7 @@ impl ScopedControlHandle {
         self.inner.try_send(message).map_err(|e| e.into())
     }
 
+    /// Returns a source builder that returns the given boxed source.
     fn managed_source_builder(
         &self,
         name: &str,
@@ -156,6 +239,10 @@ impl ScopedControlHandle {
 }
 
 impl SourceCreationBuffer<'_> {
+    /// Flushes the buffer: creates all the sources.
+    ///
+    /// `flush` sends a [`CreateMany`](source::ControlMessage::CreateMany) message that, when processed,
+    ///  will create all the sources in this buffer.
     pub fn flush(&mut self) -> Result<(), ControlError> {
         self.inner
             .inner
@@ -168,16 +255,19 @@ impl SourceCreationBuffer<'_> {
             .map_err(|e| e.into())
     }
 
+    /// Adds a managed source to the buffer.
     pub fn add_source(&mut self, name: &str, source: Box<dyn Source>, trigger: trigger::TriggerSpec) {
         let build = self.inner.managed_source_builder(name, trigger, source);
         self.add_source_builder(build)
     }
 
+    /// Adds a source to the buffer, with an explicit builder.
     pub fn add_source_builder<F: ManagedSourceBuilder + Send + 'static>(&mut self, builder: F) {
         let builder = SendSourceBuilder::Managed(Box::new(builder));
         self.buffer.push(builder);
     }
 
+    /// Adds an autonomous source builder to the buffer.
     pub fn add_autonomous_source_builder<F: AutonomousSourceBuilder + Send + 'static>(&mut self, builder: F) {
         let builder = SendSourceBuilder::Autonomous(Box::new(builder));
         self.buffer.push(builder);
@@ -186,6 +276,7 @@ impl SourceCreationBuffer<'_> {
 
 impl Drop for SourceCreationBuffer<'_> {
     fn drop(&mut self) {
+        // prevent forgotten flushes
         if !self.buffer.is_empty() {
             let _ = self.flush(); // ignore errors
         }

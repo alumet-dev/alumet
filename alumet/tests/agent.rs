@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use alumet::{
     agent::{AgentBuilder, AgentConfig},
@@ -163,7 +163,7 @@ fn test_plugin_lifecycle() {
     let agent_config = AgentConfig::try_from(global_config).unwrap();
     let agent = agent.start(agent_config).unwrap();
     agent.pipeline.control_handle().shutdown();
-    agent.wait_for_shutdown().unwrap();
+    agent.wait_for_shutdown(Duration::from_secs(2)).unwrap();
 
     // check the plugins
     assert_eq!(state1.get(), State::Stopped);

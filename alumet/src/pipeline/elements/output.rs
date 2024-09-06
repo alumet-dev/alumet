@@ -50,6 +50,7 @@ struct TaskManager {
     metrics: registry::MetricReader,
 }
 
+/// Context provided when building new outputs.
 struct BuildContext<'a> {
     metrics: &'a MetricRegistry,
     namegen: &'a mut ScopedNameGenerator,
@@ -86,7 +87,9 @@ impl OutputControl {
                 namegen: self.names.namegen_for_scope(&plugin),
                 runtime: self.tasks.rt_normal.clone(),
             };
-            self.tasks.create_output(&mut ctx, builder)?;
+            self.tasks
+                .create_output(&mut ctx, builder)
+                .inspect_err(|e| log::error!("Error in output creation requested by plugin {plugin}: {e:#}"))?;
         }
         Ok(())
     }
@@ -198,9 +201,12 @@ impl builder::context::OutputBuildContext for BuildContext<'_> {
     }
 }
 
+/// A control messages for outputs.
 #[derive(Debug)]
 pub struct ControlMessage {
+    /// Which output(s) to reconfigure.
     pub selector: OutputSelector,
+    /// The new state to apply to the selected output(s).
     pub new_state: TaskState,
 }
 

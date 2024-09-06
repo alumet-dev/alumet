@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use alumet::agent::{static_plugins, AgentBuilder};
 use alumet::plugin::rust::InvalidConfig;
 
@@ -9,6 +11,11 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 fn main() {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     log::info!("Starting ALUMET relay collector v{VERSION}");
+    // Print a warning if we are running in debug mode.
+    #[cfg(debug_assertions)]
+    {
+        log::warn!("DEBUG assertions are enabled, this build of Alumet is fine for debugging, but not for production.");
+    }
 
     // Parse command-line arguments.
     let args = Args::parse();
@@ -49,7 +56,7 @@ fn main() {
     });
 
     // Keep the pipeline running until the app closes.
-    running_agent.wait_for_shutdown().unwrap();
+    running_agent.wait_for_shutdown(Duration::MAX).unwrap();
     log::info!("ALUMET relay collector has stopped.");
 }
 

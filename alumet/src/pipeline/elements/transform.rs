@@ -18,9 +18,19 @@ use crate::pipeline::util::naming::{NameGenerator, ScopedNameGenerator, Transfor
 use crate::pipeline::{builder, PluginName};
 use crate::{measurement::MeasurementBuffer, metrics::MetricRegistry, pipeline::registry::MetricReader};
 
-/// Transforms measurements.
+/// Transforms measurements (arbitrary transformation).
 pub trait Transform: Send {
-    /// Applies the transform on the measurements.
+    /// Applies the transform function on the measurements.
+    ///
+    /// After `apply` is done, the buffer is passed to the next transform, if there is one,
+    /// or to the outputs.
+    ///
+    /// # Transforming measurements
+    /// The transform is free to manipulate the measurement buffer how it sees fit.
+    /// The `apply` method can:
+    /// - remove some or all measurements
+    /// - add new measurements
+    /// - modify the measurement points
     fn apply(&mut self, measurements: &mut MeasurementBuffer, ctx: &TransformContext) -> Result<(), TransformError>;
 }
 
@@ -69,7 +79,9 @@ impl TransformControl {
                         metrics: &metrics_r,
                         namegen: namegen.namegen_for_scope(&plugin),
                     };
-                    builder(&mut ctx).context("transform creation failed")
+                    builder(&mut ctx)
+                        .context("transform creation failed")
+                        .inspect_err(|e| log::error!("Error in transform creation requested by plugin {plugin}: {e:#}"))
                 })
                 .collect()
         };
@@ -89,7 +101,8 @@ impl TransformControl {
     }
 
     pub async fn join_next_task(&mut self) -> Result<anyhow::Result<()>, JoinError> {
-        match &mut self.tasks {
+        // Take the handle to avoid "JoinError: task polled after completion"
+        match &mut self.tasks.take() {
             Some(tasks) => (&mut tasks.task_handle).await,
             None => panic!("join_next_task() should only be called if has_task()"),
         }
@@ -165,9 +178,12 @@ impl builder::context::TransformBuildContext for BuildContext<'_> {
     }
 }
 
+/// A control message for transforms.
 #[derive(Debug)]
 pub struct ControlMessage {
+    /// Which transform(s) to reconfigure.
     pub selector: TransformSelector,
+    /// The new state to apply to the selected transform(s).
     pub new_state: TaskState,
 }
 

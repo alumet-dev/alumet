@@ -8,7 +8,7 @@
 //! Therefore, if you work in a distributed environment, the resource id is not enough to identify what is being measured.
 //! You should add more information to your data, such as the hostname.
 //!
-//! ## Measurement points and resources
+//! # Measurement points and resources
 //!
 //! To create a measurement point for a given resource, use
 //! the [`Resource`] enum to provide a unique resource identifier.

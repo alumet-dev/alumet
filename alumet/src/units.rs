@@ -11,7 +11,7 @@ use std::{
 /// Some common units of the SI are provided as plain enum variants, such as `Unit::Second`.
 /// Use [`PrefixedUnit`] to create a standard multiple of a unit.
 ///
-/// ## Example
+/// # Example
 /// ```
 /// use alumet::units::{Unit, PrefixedUnit};
 ///
@@ -71,7 +71,7 @@ pub enum Unit {
 /// let milliA = PrefixedUnit::milli(Unit::Ampere);
 /// let nanoSec = PrefixedUnit::nano(Unit::Second);
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrefixedUnit {
     pub base_unit: Unit,
     pub prefix: UnitPrefix,

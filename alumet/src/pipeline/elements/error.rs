@@ -1,6 +1,6 @@
 use std::fmt;
 
-/// Error which can occur during [`Source::poll`].
+/// Error which can occur during [`Source::poll`](super::super::Source::poll).
 #[derive(Debug)]
 pub enum PollError {
     /// Polling failed and the source cannot recover from this failure, it should be stopped.
@@ -19,7 +19,7 @@ pub enum PollError {
     NormalStop,
 }
 
-/// Error which can occur during [`Transform::apply`].
+/// Error which can occur during [`Transform::apply`](super::super::Transform::apply).
 #[derive(Debug)]
 pub enum TransformError {
     /// The transformation failed and cannot recover from this failure, it should not be used anymore.
@@ -28,7 +28,7 @@ pub enum TransformError {
     UnexpectedInput(anyhow::Error),
 }
 
-/// Error which can occur during [`Output::write`].
+/// Error which can occur during [`Output::write`](super::super::Output::write).
 #[derive(Debug)]
 pub enum WriteError {
     /// The measurements could not be written properly, and the output cannot be used anymore.
@@ -95,6 +95,7 @@ pub trait PollRetry<T> {
     fn retry_poll(self) -> Result<T, PollError>;
 }
 impl<T, E: Into<anyhow::Error>> PollRetry<T> for Result<T, E> {
+    /// Turns this error into [`PollError::CanRetry`].
     fn retry_poll(self) -> Result<T, PollError> {
         self.map_err(|e| PollError::CanRetry(e.into()))
     }
@@ -105,6 +106,7 @@ pub trait WriteRetry<T> {
     fn retry_write(self) -> Result<T, WriteError>;
 }
 impl<T, E: Into<anyhow::Error>> WriteRetry<T> for Result<T, E> {
+    /// Turns this error into [`WriteError::CanRetry`].
     fn retry_write(self) -> Result<T, WriteError> {
         self.map_err(|e| WriteError::CanRetry(e.into()))
     }

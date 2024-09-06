@@ -1,6 +1,6 @@
 //! Event system for inter-plugin communication.
 //!
-//! ## Example: detection of new processes
+//! # Example: detection of new processes
 //!
 //! Event publisher (the detector):
 //! ```no_run
@@ -72,7 +72,7 @@ impl<E: Event> EventBus<E> {
     ///
     /// `listener` will be called on future events.
     ///
-    /// ## Performance caveats
+    /// # Performance caveats
     ///
     /// Event listeners are called in same thread as the publisher, one after the other.
     /// Therefore, **each listener should only perform a minimal amount of work**.
