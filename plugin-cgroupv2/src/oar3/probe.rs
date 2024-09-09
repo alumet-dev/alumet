@@ -29,7 +29,7 @@ impl CgroupV2prob {
         counter_sys: CounterDiff,
         counter_usr: CounterDiff,
     ) -> anyhow::Result<CgroupV2prob> {
-        return Ok(CgroupV2prob {
+        Ok(CgroupV2prob {
             cgroup_v2_metric_file: metric_file,
             time_tot: counter_tot,
             time_usr: counter_usr,
@@ -37,7 +37,7 @@ impl CgroupV2prob {
             time_used_tot: metric.time_used_tot,
             time_used_system_mode: metric.time_used_system_mode,
             time_used_user_mode: metric.time_used_user_mode,
-        });
+        })
     }
 }
 
@@ -68,7 +68,7 @@ impl alumet::pipeline::Source for CgroupV2prob {
                 self.time_used_tot,
                 Resource::LocalMachine,
                 consumer.clone(),
-                value_tot as u64,
+                value_tot,
             )
             .with_attr("name", AttributeValue::String(metrics.name.clone()));
             measurements.push(p_tot);
@@ -79,7 +79,7 @@ impl alumet::pipeline::Source for CgroupV2prob {
                 self.time_used_user_mode,
                 Resource::LocalMachine,
                 consumer.clone(),
-                value_usr as u64,
+                value_usr,
             )
             .with_attr("name", AttributeValue::String(metrics.name.clone()));
             measurements.push(p_usr);
@@ -90,7 +90,7 @@ impl alumet::pipeline::Source for CgroupV2prob {
                 self.time_used_system_mode,
                 Resource::LocalMachine,
                 consumer.clone(),
-                value_sys as u64,
+                value_sys,
             )
             .with_attr("name", AttributeValue::String(metrics.name.clone()));
             measurements.push(p_sys);

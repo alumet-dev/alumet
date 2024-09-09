@@ -61,11 +61,11 @@ fn list_metric_file_in_dir(root_directory_path: &Path) -> anyhow::Result<Vec<Cgr
                     .with_context(|| format!("Filename is not valid UTF-8: {:?}", path))?
                     .to_string(),
                 path: path.clone(),
-                file: file,
+                file,
             });
         }
     }
-    return Ok(vec_file_metric);
+    Ok(vec_file_metric)
 }
 
 /// This function list all cgroup files availables, using sub-directories to look in:
@@ -91,7 +91,7 @@ pub fn list_all_file(root_directory_path: &Path) -> anyhow::Result<Vec<CgroupV2M
         let mut result_vec = list_metric_file_in_dir(&prefix.to_owned())?;
         final_li_metric_file.append(&mut result_vec);
     }
-    return Ok(final_li_metric_file);
+    Ok(final_li_metric_file)
 }
 
 /// Extracts the metrics from the file.
@@ -102,7 +102,7 @@ pub fn gather_value(file: &mut CgroupV2MetricFile, content_buffer: &mut String) 
         .with_context(|| format!("Unable to gather cgroup v2 metrics by reading file {}", file.name))?;
     file.file.rewind()?;
     let mut new_metric =
-        CgroupV2Metric::from_str(&content_buffer).with_context(|| format!("failed to parse {}", file.name))?;
+        CgroupV2Metric::from_str(content_buffer).with_context(|| format!("failed to parse {}", file.name))?;
     new_metric.name = file.name.clone();
     Ok(new_metric)
 }

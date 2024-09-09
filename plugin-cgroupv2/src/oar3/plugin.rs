@@ -46,7 +46,7 @@ impl AlumetPlugin for OARPlugin {
     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
         let config = deserialize_config(config).context("invalid config")?;
         Ok(Box::new(OARPlugin {
-            config: config,
+            config,
             watcher: None,
             metrics: None,
         }))
@@ -78,7 +78,7 @@ impl AlumetPlugin for OARPlugin {
             alumet.add_source(Box::new(probe), TriggerSpec::at_interval(self.config.poll_interval));
         }
 
-        return Ok(());
+        Ok(())
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
@@ -127,7 +127,7 @@ impl AlumetPlugin for OARPlugin {
                                             .unwrap_or("ERROR")
                                             .to_string(),
                                         path: cpu_path,
-                                        file: file,
+                                        file,
                                     };
 
                                     let counter_tmp_tot: CounterDiff =
@@ -170,9 +170,9 @@ impl AlumetPlugin for OARPlugin {
             }
         }
         let handler = PodDetector {
-            control_handle: control_handle,
-            metrics: metrics,
-            poll_interval: poll_interval,
+            control_handle,
+            metrics,
+            poll_interval,
         };
 
         let mut watcher = notify::recommended_watcher(handler)?;

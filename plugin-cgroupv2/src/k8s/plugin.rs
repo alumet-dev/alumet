@@ -55,7 +55,7 @@ impl AlumetPlugin for K8sPlugin {
     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
         let config = deserialize_config(config).context("invalid config")?;
         Ok(Box::new(K8sPlugin {
-            config: config,
+            config,
             watcher: None,
             metrics: None,
         }))
@@ -68,7 +68,7 @@ impl AlumetPlugin for K8sPlugin {
         }
         self.metrics = Some(Metrics::new(alumet)?);
 
-        if self.config.hostname == "" {
+        if self.config.hostname.is_empty() {
             let hostname_ostring = gethostname();
             let hostname = hostname_ostring
                 .to_str()
@@ -97,7 +97,7 @@ impl AlumetPlugin for K8sPlugin {
             alumet.add_source(Box::new(probe), TriggerSpec::at_interval(self.config.poll_interval));
         }
 
-        return Ok(());
+        Ok(())
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {

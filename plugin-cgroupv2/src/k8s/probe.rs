@@ -29,7 +29,7 @@ impl K8SProbe {
         counter_sys: CounterDiff,
         counter_usr: CounterDiff,
     ) -> anyhow::Result<K8SProbe> {
-        return Ok(K8SProbe {
+        Ok(K8SProbe {
             cgroup_v2_metric_file: metric_file,
             time_tot: counter_tot,
             time_usr: counter_usr,
@@ -37,7 +37,7 @@ impl K8SProbe {
             time_used_tot: metric.time_used_tot,
             time_used_system_mode: metric.time_used_system_mode,
             time_used_user_mode: metric.time_used_user_mode,
-        });
+        })
     }
 }
 
