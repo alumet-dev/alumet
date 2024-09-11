@@ -23,6 +23,7 @@
 //! ```
 
 use std::{
+    collections::HashSet,
     env,
     path::{Path, PathBuf},
     time::Duration,
@@ -121,6 +122,16 @@ pub struct AgentConfig {
     ///
     /// This is an Option in order to allow [`Option::take`].
     app_table: Option<toml::Table>,
+    /// Which plugins are enabled.
+    /// 
+    /// By default, every plugin is enabled.
+    /// 
+    /// A boolean flag named `enable` can be added to the subconfig of a plugin
+    /// and set to false in order to disable it.
+    /// 
+    /// The `enable` flag is removed from the plugin's subconfig by [`AgentConfig::try_from`],
+    /// which means that the plugin will not see it in its configuration table during `init`.
+    plugins_enabled: HashSet<String>,
 }
 
 impl TryFrom<toml::Table> for AgentConfig {
@@ -135,7 +146,7 @@ impl TryFrom<toml::Table> for AgentConfig {
     /// `plugins` table), will be used by the agent application.
     fn try_from(mut global_config: toml::Table) -> Result<Self, Self::Error> {
         // Extract the plugins' configurations.
-        let plugins_table = match global_config.remove("plugins") {
+        let mut plugins_table = match global_config.remove("plugins") {
             Some(toml::Value::Table(t)) => Ok(t),
             Some(bad_value) => Err(anyhow!(
                 "invalid global config: 'plugins' must be a table, not a {}.",
@@ -144,17 +155,49 @@ impl TryFrom<toml::Table> for AgentConfig {
             None => Err(anyhow!("invalid global config: it should contain a 'plugins' table")),
         }?;
 
+        // Extract the "enable" key from each plugin configuration.
+        let mut plugins_enabled = HashSet::with_capacity(plugins_table.len());
+        for (plugin, subconfig) in &mut plugins_table {
+            let enabled = match subconfig {
+                Value::Table(t) => {
+                    let is_enabled = match t.remove("enable") {
+                        Some(toml::Value::Boolean(b)) => b,
+                        Some(bad_value) => {
+                            return Err(anyhow!("invalid value in plugin config: 'plugins.{plugin}.enabled' must be a boolean, not a {}.", bad_value.type_str()));
+                        }
+                        None => true,
+                    };
+                    is_enabled
+                }
+                bad_value => {
+                    return Err(anyhow!(
+                        "invalid plugin config: 'plugins.{plugin}' must be a table, not a {}.",
+                        bad_value.type_str()
+                    ))
+                }
+            };
+            if enabled {
+                plugins_enabled.insert(plugin.clone());
+            }
+        }
+
         // What remains is the app's configuration.
         let app_table = Some(global_config);
 
         Ok(AgentConfig {
             plugins_table,
             app_table,
+            plugins_enabled,
         })
     }
 }
 
 impl AgentConfig {
+    /// Checks whether a plugin is enabled.
+    pub fn is_plugin_enabled(&self, plugin_name: &str) -> bool {
+        self.plugins_enabled.contains(plugin_name)
+    }
+
     /// Returns a mutable reference to the plugin's subconfig, which is at `plugins.<name>`
     pub fn plugin_config_mut(&mut self, plugin_name: &str) -> Option<&mut toml::Table> {
         let sub_config = self.plugins_table.get_mut(plugin_name);
@@ -711,7 +754,7 @@ mod tests {
     use crate::plugin::rust::{serialize_config, AlumetPlugin};
     use crate::plugin::{AlumetPluginStart, ConfigTable};
 
-    use super::ENV_VAR;
+    use super::{AgentConfig, ENV_VAR};
 
     #[test]
     fn parse_config_file() {
@@ -795,9 +838,9 @@ mod tests {
 
     #[test]
     fn validate_env_var_regex() {
-        let compiled_ENV_VAR = Regex::new(ENV_VAR).expect("Invalid Regex");
+        let compiled_env_var = Regex::new(ENV_VAR).expect("Invalid Regex");
         // Verifying that the ENV_VAR regex is still working.
-        let mut result = compiled_ENV_VAR.find("abc $VAR abc");
+        let mut result = compiled_env_var.find("abc $VAR abc");
 
         assert!(result.is_ok(), "execution wasn't successful");
         let mut match_option = result.unwrap();
@@ -807,7 +850,7 @@ mod tests {
 
         assert_eq!(m.as_str(), "$VAR");
 
-        result = compiled_ENV_VAR.find("abc $VAR_BIS abc");
+        result = compiled_env_var.find("abc $VAR_BIS abc");
 
         assert!(result.is_ok(), "execution wasn't successful");
         match_option = result.unwrap();
@@ -817,7 +860,7 @@ mod tests {
 
         assert_eq!(m.as_str(), "$VAR_BIS");
 
-        result = compiled_ENV_VAR.find(r"abc \$VAR_BIS abc");
+        result = compiled_env_var.find(r"abc \$VAR_BIS abc");
 
         assert!(result.is_ok(), "execution wasn't successful");
         match_option = result.unwrap();
@@ -856,6 +899,49 @@ mod tests {
             expected,
             "config file should be correct"
         );
+    }
+
+    #[test]
+    fn enable_flag() -> anyhow::Result<()> {
+        let config: toml::Table = r#"
+            [plugins.a]
+            list = ["default-item"]
+            count = 42
+            
+            [plugins.b]
+            enable = false
+            key = "value"
+            
+            [plugins.c]
+            count = 0
+            enable = true
+        "#
+        .parse()?;
+
+        let config_a: toml::Table = r#"
+            list = ["default-item"]
+            count = 42
+        "#
+        .parse()?;
+        let config_b: toml::Table = r#"
+            key = "value"
+        "#
+        .parse()?;
+        let config_c: toml::Table = r#"
+            count = 0
+        "#
+        .parse()?;
+
+        let mut config = AgentConfig::try_from(config)?;
+        assert!(config.is_plugin_enabled("a"));
+        assert!(!config.is_plugin_enabled("b"));
+        assert!(config.is_plugin_enabled("c"));
+        assert!(!config.is_plugin_enabled("unknown"));
+
+        assert_eq!(config.plugin_config_mut("a").unwrap(), &config_a);
+        assert_eq!(config.plugin_config_mut("b").unwrap(), &config_b);
+        assert_eq!(config.plugin_config_mut("c").unwrap(), &config_c);
+        Ok(())
     }
 
     struct MyPlugin;
