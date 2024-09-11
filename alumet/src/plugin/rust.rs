@@ -27,10 +27,31 @@ pub trait AlumetPlugin {
     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>>;
 
     /// Returns the default configuration of the plugin.
-    fn default_config() -> anyhow::Result<Option<ConfigTable>> {
-        // TODO remove default impl because every plugin should manage its config
-        Ok(None)
-    }
+    ///
+    /// # Example
+    /// ```ignore
+    /// use serde::{Deserialize, Serialize}
+    /// use alumet::plugin::{
+    ///     rust::{serialize_config, AlumetPlugin},
+    ///     ConfigTable
+    /// };
+    ///
+    /// #[derive(Deserialize, Serialize)]
+    /// struct Config {
+    ///     integer: i32
+    /// }
+    ///
+    /// impl Default for Config {
+    ///     fn default() -> Self { integer: 123 }
+    /// }
+    ///
+    /// impl AlumetPlugin for MyPlugin {
+    ///     fn default_config() -> anyhow::Result<Option<ConfigTable>> {
+    ///         Ok(Some(serialize_config(Config::default())?))
+    ///     }
+    /// }
+    /// ```
+    fn default_config() -> anyhow::Result<Option<ConfigTable>>;
 
     /// Starts the plugin, allowing it to register metrics, sources and outputs.
     ///

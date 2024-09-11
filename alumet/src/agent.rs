@@ -63,6 +63,10 @@ const ENV_VAR: &'static str = r"\w?(?<!\\)\$([[:word:]]*)";
 /// #         "version"
 /// #     }
 /// #
+/// #     fn default_config() -> anyhow::Result<Option<ConfigTable>> {
+/// #       Ok(None)
+/// #     }
+/// #
 /// #     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
 /// #         todo!()
 /// #     }
