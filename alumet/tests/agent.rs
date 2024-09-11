@@ -161,6 +161,14 @@ fn test_plugin_lifecycle() {
     // Stop the pipeline
     let global_config = agent.default_config().unwrap();
     let agent_config = AgentConfig::try_from(global_config).unwrap();
+    assert!(
+        !agent_config.is_plugin_disabled("plugin1"),
+        "the plugins should be enabled"
+    );
+    assert!(
+        !agent_config.is_plugin_disabled("plugin2"),
+        "the plugins should be enabled"
+    );
     let agent = agent.start(agent_config).unwrap();
     agent.pipeline.control_handle().shutdown();
     agent.wait_for_shutdown(Duration::from_secs(2)).unwrap();
