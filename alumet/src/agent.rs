@@ -30,6 +30,7 @@ use std::{
 };
 
 use fancy_regex::{Captures, Regex};
+use indoc::formatdoc;
 
 use crate::plugin::{AlumetPluginStart, AlumetPostStart, ConfigTable, Plugin, PluginMetadata};
 use crate::{
@@ -123,15 +124,15 @@ pub struct AgentConfig {
     /// This is an Option in order to allow [`Option::take`].
     app_table: Option<toml::Table>,
     /// Which plugins are enabled.
-    /// 
-    /// By default, every plugin is enabled.
-    /// 
+    ///
+    /// By default, every plugin is enabled, even if it does not have a config table.
+    ///
     /// A boolean flag named `enable` can be added to the subconfig of a plugin
     /// and set to false in order to disable it.
-    /// 
+    ///
     /// The `enable` flag is removed from the plugin's subconfig by [`AgentConfig::try_from`],
     /// which means that the plugin will not see it in its configuration table during `init`.
-    plugins_enabled: HashSet<String>,
+    plugins_disabled: HashSet<String>,
 }
 
 impl TryFrom<toml::Table> for AgentConfig {
@@ -156,9 +157,11 @@ impl TryFrom<toml::Table> for AgentConfig {
         }?;
 
         // Extract the "enable" key from each plugin configuration.
-        let mut plugins_enabled = HashSet::with_capacity(plugins_table.len());
+        // We store disabled plugins instead of enabled plugins because we want plugins that
+        // do not have a configuration table to be enabled.
+        let mut plugins_disabled = HashSet::with_capacity(plugins_table.len());
         for (plugin, subconfig) in &mut plugins_table {
-            let enabled = match subconfig {
+            let disabled = match subconfig {
                 Value::Table(t) => {
                     let is_enabled = match t.remove("enable") {
                         Some(toml::Value::Boolean(b)) => b,
@@ -167,7 +170,7 @@ impl TryFrom<toml::Table> for AgentConfig {
                         }
                         None => true,
                     };
-                    is_enabled
+                    !is_enabled
                 }
                 bad_value => {
                     return Err(anyhow!(
@@ -176,8 +179,8 @@ impl TryFrom<toml::Table> for AgentConfig {
                     ))
                 }
             };
-            if enabled {
-                plugins_enabled.insert(plugin.clone());
+            if disabled {
+                plugins_disabled.insert(plugin.clone());
             }
         }
 
@@ -187,15 +190,15 @@ impl TryFrom<toml::Table> for AgentConfig {
         Ok(AgentConfig {
             plugins_table,
             app_table,
-            plugins_enabled,
+            plugins_disabled,
         })
     }
 }
 
 impl AgentConfig {
-    /// Checks whether a plugin is enabled.
-    pub fn is_plugin_enabled(&self, plugin_name: &str) -> bool {
-        self.plugins_enabled.contains(plugin_name)
+    /// Checks whether a plugin is disabled.
+    pub fn is_plugin_disabled(&self, plugin_name: &str) -> bool {
+        self.plugins_disabled.contains(plugin_name)
     }
 
     /// Returns a mutable reference to the plugin's subconfig, which is at `plugins.<name>`
@@ -269,10 +272,15 @@ impl Agent {
         // Initialization phase.
         log::info!("Initializing the plugins...");
 
-        // initialize the plugins with the config
-        let mut initialized_plugins: Vec<Box<dyn Plugin>> = self
+        // Find which plugins are enabled.
+        let (disabled_plugins, enabled_plugins): (Vec<PluginMetadata>, Vec<PluginMetadata>) = self
             .settings
             .plugins
+            .into_iter()
+            .partition(|plugin| config.is_plugin_disabled(&plugin.name));
+
+        // Initialize the plugins that are enabled.
+        let mut initialized_plugins: Vec<Box<dyn Plugin>> = enabled_plugins
             .into_iter()
             .map(|plugin| -> anyhow::Result<Box<dyn Plugin>> {
                 let name = plugin.name.clone();
@@ -283,7 +291,8 @@ impl Agent {
             .collect::<anyhow::Result<Vec<_>>>()?;
 
         match initialized_plugins.len() {
-            0 => log::warn!("No plugin has been initialized, please check your AgentBuilder."),
+            0 if disabled_plugins.is_empty() => log::warn!("No plugin has been initialized, there may be a problem with your agent implementation. Please check your AgentBuilder."),
+            0 => log::warn!("No plugin has been initialized because they were all disabled in the config. Please check your configuration."),
             1 => log::info!("1 plugin initialized."),
             n => log::info!("{n} plugins initialized."),
         };
@@ -312,7 +321,7 @@ impl Agent {
                 .start(&mut start_context)
                 .with_context(|| format!("Plugin failed to start: {} v{}", plugin.name(), plugin.version()))?;
         }
-        print_stats(&pipeline_builder, &initialized_plugins);
+        print_stats(&pipeline_builder, &initialized_plugins, &disabled_plugins);
         (self.settings.f_after_plugins_start)(&pipeline_builder);
 
         // Call pre_pipeline_start(AlumetPreStart) on each plugin.
@@ -563,16 +572,40 @@ fn initialize_with_config(agent_config: &mut AgentConfig, plugin: PluginMetadata
 }
 
 /// Prints some statistics after the plugin start-up phase.
-fn print_stats(pipeline_builder: &pipeline::Builder, plugins: &[Box<dyn Plugin>]) {
-    // plugins
-    let plugins_list = plugins
+fn print_stats(
+    pipeline_builder: &pipeline::Builder,
+    enabled_plugins: &[Box<dyn Plugin>],
+    disabled_plugins: &[PluginMetadata],
+) {
+    macro_rules! pluralize {
+        ($count:expr, $str:expr) => {
+            if $count > 1 {
+                concat!($str, "s")
+            } else {
+                $str
+            }
+        };
+    }
+
+    // format plugin lists
+    let enabled_list: String = enabled_plugins
         .iter()
         .map(|p| format!("    - {} v{}", p.name(), p.version()))
         .collect::<Vec<_>>()
         .join("\n");
+    let disabled_list: String = disabled_plugins
+        .iter()
+        .map(|p| format!("    - {} v {}", p.name, p.version))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let n_enabled = enabled_plugins.len();
+    let n_disabled = disabled_plugins.len();
+    let enabled_str = pluralize!(n_enabled, "plugin");
+    let disabled_str = pluralize!(n_disabled, "plugin");
 
+    // format metric list
     let metrics = &pipeline_builder.metrics;
-    let metrics_list = if metrics.is_empty() {
+    let metric_list = if metrics.is_empty() {
         String::from("    ∅")
     } else {
         let mut m = metrics
@@ -587,24 +620,38 @@ fn print_stats(pipeline_builder: &pipeline::Builder, plugins: &[Box<dyn Plugin>]
             .join("\n")
     };
 
+    // format pipeline statistics
     let stats = pipeline_builder.stats();
-    let str_source = if stats.sources > 1 { "sources" } else { "source" };
-    let str_transform = if stats.transforms > 1 {
-        "transforms"
-    } else {
-        "transform"
-    };
-    let str_output = if stats.outputs > 1 { "outputs" } else { "output" };
-    let pipeline_elements = format!(
-        "📥 {} {str_source}, 🔀 {} {str_transform} and 📝 {} {str_output} registered.",
-        stats.sources, stats.transforms, stats.outputs,
-    );
 
-    let n_plugins = plugins.len();
+    let n_sources = stats.sources;
+    let n_transforms = stats.transforms;
+    let n_outputs = stats.outputs;
+    let n_metric_listeners = stats.metric_listeners;
+
+    let source_str = pluralize!(n_sources, "source");
+    let transform_str = pluralize!(n_transforms, "transform");
+    let output_str = pluralize!(n_outputs, "output");
+    let metric_listener_str = pluralize!(n_metric_listeners, "metric listener");
+
     let n_metrics = stats.metrics;
-    let str_plugin = if n_plugins > 1 { "plugins" } else { "plugin" };
-    let str_metric = if n_metrics > 1 { "metrics" } else { "metric" };
-    log::info!("Plugin startup complete.\n🧩 {n_plugins} {str_plugin} started:\n{plugins_list}\n📏 {n_metrics} {str_metric} registered:\n{metrics_list}\n{pipeline_elements}");
+    let str_metric = pluralize!(n_metrics, "metric");
+    let msg = formatdoc! {"
+        Plugin startup complete.
+        🧩 {n_enabled} {enabled_str} started:
+        {enabled_list}
+        
+        ⭕ {n_disabled} {disabled_str} disabled:
+        {disabled_list}
+        
+        📏 {n_metrics} {str_metric} registered:
+        {metric_list}
+        
+        📥 {n_sources} {source_str}, 🔀 {n_transforms} {transform_str} and 📝 {n_outputs} {output_str} registered.
+        
+        🔔 {n_metric_listeners} {metric_listener_str} registered.
+        "
+    };
+    log::info!("{msg}");
 }
 
 impl AgentBuilder {
@@ -933,14 +980,26 @@ mod tests {
         .parse()?;
 
         let mut config = AgentConfig::try_from(config)?;
-        assert!(config.is_plugin_enabled("a"));
-        assert!(!config.is_plugin_enabled("b"));
-        assert!(config.is_plugin_enabled("c"));
-        assert!(!config.is_plugin_enabled("unknown"));
+        assert!(!config.is_plugin_disabled("a"));
+        assert!(config.is_plugin_disabled("b"));
+        assert!(!config.is_plugin_disabled("c"));
 
         assert_eq!(config.plugin_config_mut("a").unwrap(), &config_a);
         assert_eq!(config.plugin_config_mut("b").unwrap(), &config_b);
         assert_eq!(config.plugin_config_mut("c").unwrap(), &config_c);
+        Ok(())
+    }
+
+    #[test]
+    fn enable_when_no_subconfig() -> anyhow::Result<()> {
+        let config: toml::Table = r#"
+            global_var = 42
+            
+            [plugins]
+        "#
+        .parse()?;
+        let config = AgentConfig::try_from(config)?;
+        assert!(!config.is_plugin_disabled("a"));
         Ok(())
     }
 
