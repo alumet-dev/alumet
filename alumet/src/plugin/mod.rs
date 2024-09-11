@@ -62,6 +62,10 @@
 //!         "0.1.0"
 //!     }
 //!
+//!     fn default_config() -> anyhow::Result<Option<ConfigTable>> {
+//!         Ok(None)
+//!     }
+//!
 //!     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
 //!         // You can read the config and store some settings in your structure.
 //!         Ok(Box::new(MyPlugin {}))
