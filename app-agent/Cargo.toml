@@ -35,17 +35,17 @@ relay_server = ["dep:plugin-relay", "plugin-relay/server"]
 [[bin]]
 name = "alumet-local-agent"
 path = "src/bin/local.rs"
-features = ["local_x86"]
+required-features = ["local_x86"]
 
 [[bin]]
 name = "alumet-relay-client"
 path = "src/bin/relay_client.rs"
-features = ["relay_client"]
+required-features = ["relay_client"]
 
 [[bin]]
 name = "alumet-relay-server"
 path = "src/bin/relay_server.rs"
-features = ["relay_server"]
+required-features = ["relay_server"]
 
 [lints]
 workspace = true
