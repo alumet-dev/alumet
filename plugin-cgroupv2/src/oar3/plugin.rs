@@ -3,7 +3,7 @@ use alumet::{
     plugin::{
         rust::{deserialize_config, serialize_config, AlumetPlugin},
         util::CounterDiff,
-        AlumetPostStart, ConfigTable,
+        AlumetPluginStart, AlumetPostStart, ConfigTable,
     },
 };
 use anyhow::Context;
@@ -52,7 +52,7 @@ impl AlumetPlugin for OARPlugin {
         }))
     }
 
-    fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
+    fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         let v2_used: bool = super::utils::is_accessible_dir(&PathBuf::from("/sys/fs/cgroup/"));
         if !v2_used {
             anyhow::bail!("Cgroups v2 are not being used!");

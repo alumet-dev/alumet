@@ -2,7 +2,7 @@
 
 Allows to measure CPU-time used using the cgroup v2 sysfs.
 
-# Table of Contents
+## Table of Contents
 1. [Kubernetes Plugin](#Kubernetes-Plugin)
 2. [OAR3 Plugin](#OAR3-Plugin)
 
@@ -71,7 +71,7 @@ Run:
 kubectl apply -f alumet-user.yaml
 ```
 
-## How it work
+## How it works
 
 The plugin read data inside the sysfs. At its start, the plugin retrieves a token thanks to the alumet-reader user. It uses the token to retrieve all pods running on the current node.
 After that, it retrieves all cgroup related to Kubernetes pods, and make a correspondence between data retrieve from API and gathered from cgroup to fulfil the input plugin.
@@ -100,10 +100,10 @@ To work this plugin needs several things.
 
 ### cgroupv2
 
-As the plugin use cgroupv2 to gather data, make sure to use this version of cgroup. In fact, a check is made by the plugin.
+As the plugin uses cgroupv2 to gather data, make sure to use this version of cgroup. In fact, a check is made by the plugin.
 If it doesn't detect the use of cgroupv2, the plugin will not start.
 
 
-## How it work
+## How it works
 
 The plugin read data inside the sysfs. It read file under the path given in the config. If it find a cpu consumption time it gather it. If some folder are created, it try to read the new folder and find information about time consumption.

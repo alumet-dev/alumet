@@ -3,7 +3,7 @@ use alumet::{
     plugin::{
         rust::{deserialize_config, serialize_config, AlumetPlugin},
         util::CounterDiff,
-        AlumetPostStart, ConfigTable,
+        AlumetPluginStart, AlumetPostStart, ConfigTable,
     },
 };
 use anyhow::Context;
@@ -68,10 +68,10 @@ impl AlumetPlugin for K8sPlugin {
         }))
     }
 
-    fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
+    fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         let v2_used: bool = super::utils::is_accessible_dir(&PathBuf::from("/sys/fs/cgroup/"));
         if !v2_used {
-            anyhow::bail!("Cgroup v2 are not being used!");
+            anyhow::bail!("Cgroups v2 are not being used!");
         }
         self.metrics = Some(Metrics::new(alumet)?);
 
@@ -180,10 +180,10 @@ impl AlumetPlugin for K8sPlugin {
                                 let (name, namespace, node) = rt
                                     .block_on(async {
                                         get_pod_name(
-                                            name_to_seek.to_owned(),
-                                            detector.hostname.clone(),
-                                            detector.kubernetes_api_url.clone(),
-                                            detector.token_retrieval.clone(),
+                                            &name_to_seek,
+                                            &detector.hostname,
+                                            &detector.kubernetes_api_url,
+                                            &detector.token_retrieval,
                                         )
                                         .await
                                     })
