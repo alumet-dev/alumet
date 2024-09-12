@@ -13,16 +13,39 @@ clap = { version = "4.5.4", features = ["derive"] }
 env_logger = "0.11.2"
 humantime-serde = "1.1.1"
 log = "0.4.20"
-plugin-csv = { version = "0.2.0", path = "../plugin-csv" }
-plugin-perf = { version = "0.1.0", path = "../plugin-perf" }
-plugin-rapl = { version = "0.3.0", path = "../plugin-rapl" }
-plugin-socket-control = { path = "../plugin-socket-control" }
 serde = { version = "1.0.198", features = ["derive"] }
+tokio = { version = "1.40.0", features = ["rt"] }
 toml = "0.8.12"
 
+# plugins
+plugin-csv = { path = "../plugin-csv", optional = true }
+plugin-perf = { path = "../plugin-perf", optional = true }
+plugin-rapl = { path = "../plugin-rapl", optional = true }
+plugin-socket-control = { path = "../plugin-socket-control", optional = true }
+plugin-relay = { path = "../plugin-relay", optional = true }
+
+[features]
+# local non-relay mode for x86 processors
+local_x86 = ["dep:plugin-rapl", "dep:plugin-perf", "dep:plugin-csv", "dep:plugin-socket-control"]
+
+# relay mode
+relay_client = ["dep:plugin-relay", "plugin-relay/client", "dep:plugin-rapl", "dep:plugin-perf", "dep:plugin-socket-control"]
+relay_server = ["dep:plugin-relay", "plugin-relay/server"]
+
 [[bin]]
-name = "alumet-agent"
-path = "src/main.rs"
+name = "alumet-local-agent"
+path = "src/bin/local.rs"
+features = ["local_x86"]
+
+[[bin]]
+name = "alumet-relay-client"
+path = "src/bin/relay_client.rs"
+features = ["relay_client"]
+
+[[bin]]
+name = "alumet-relay-server"
+path = "src/bin/relay_server.rs"
+features = ["relay_server"]
 
 [lints]
 workspace = true

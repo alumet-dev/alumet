@@ -117,8 +117,8 @@ impl AnonymousControlHandle {
     /// # Errors
     ///
     /// Returns an error if the pipeline has been shut down.
-    pub async fn send(&self, message: ControlMessage) -> Result<(), ControlSendError> {
-        self.tx.send(message).await.map_err(|_| ControlSendError::Shutdown)
+    pub async fn send(&self, message: ControlMessage) -> Result<(), ControlError> {
+        self.tx.send(message).await.map_err(|_| ControlError::Shutdown)
     }
 
     /// Attempts to immediately send a control message to the pipeline.
