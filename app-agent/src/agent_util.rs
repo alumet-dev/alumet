@@ -59,7 +59,10 @@ pub fn load_config<'de, Conf: AgentModifier + Deserialize<'de>, Args: AgentModif
     let mut config = agent.load_config().expect("could not load the agent configuration");
 
     // Extract the non-plugin part of the config.
-    let app_config: Conf = config.take_app_config().try_into().expect("could not parse the agent configuration");
+    let app_config: Conf = config
+        .take_app_config()
+        .try_into()
+        .expect("could not parse the agent configuration");
 
     // Modify the agent with the config.
     app_config.apply_to(agent, &mut config);

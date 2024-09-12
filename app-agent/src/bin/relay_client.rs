@@ -62,7 +62,7 @@ struct Cli {
     common: cli::CommonArgs,
 
     /// The name that this client will use to identify itself to the collector server.
-    /// 
+    ///
     /// Defaults to the hostname.
     #[arg(long)]
     client_name: Option<String>,
