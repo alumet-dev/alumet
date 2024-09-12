@@ -22,7 +22,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: alumet-reader
-  namespace: default
+  namespace: alumet
 
 ---
 
@@ -37,4 +37,4 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: alumet-reader
-    namespace: default
+    namespace: alumet

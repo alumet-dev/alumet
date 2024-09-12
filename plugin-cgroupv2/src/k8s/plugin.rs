@@ -36,6 +36,13 @@ struct K8sConfig {
     poll_interval: Duration,
     kubernetes_api_url: String,
     hostname: String,
+
+    /// Way to retrieve the k8s API token.
+    /// Can be either one of the following:
+    ///
+    /// - kubectl
+    /// - file, won't work if automountServiceAccountToken is set to false
+    token_retrieval: String,
 }
 
 impl AlumetPlugin for K8sPlugin {
@@ -64,7 +71,7 @@ impl AlumetPlugin for K8sPlugin {
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
         let v2_used: bool = super::utils::is_accessible_dir(&PathBuf::from("/sys/fs/cgroup/"));
         if !v2_used {
-            anyhow::bail!("Cgroups v2 are not being used!");
+            anyhow::bail!("Cgroup v2 are not being used!");
         }
         self.metrics = Some(Metrics::new(alumet)?);
 
@@ -81,6 +88,7 @@ impl AlumetPlugin for K8sPlugin {
             &self.config.path,
             self.config.hostname.clone(),
             self.config.kubernetes_api_url.clone(),
+            self.config.token_retrieval.clone(),
         )?;
         //Add as a source each pod already present
         for metric_file in final_list_metric_file {
@@ -111,12 +119,15 @@ impl AlumetPlugin for K8sPlugin {
         let poll_interval = self.config.poll_interval;
         let kubernetes_api_url = self.config.kubernetes_api_url.clone();
         let hostname = self.config.hostname.to_owned();
+        let token_retrieval = self.config.token_retrieval.clone();
+
         struct PodDetector {
             metrics: Metrics,
             control_handle: ScopedControlHandle,
             poll_interval: Duration,
             kubernetes_api_url: String,
             hostname: String,
+            token_retrieval: String,
         }
 
         impl EventHandler for PodDetector {
@@ -161,7 +172,7 @@ impl AlumetPlugin for K8sPlugin {
                                 let uid_raw = parts.last().unwrap_or(&"No UID found");
                                 let uid = format!("pod{}", uid_raw);
                                 let name_to_seek = name_to_seek_raw.replace('_', "-");
-                                // let (name, ns) = cgroup_v2::get_pod_name(name_to_seek.to_owned());
+
                                 let rt = tokio::runtime::Builder::new_current_thread()
                                     .enable_all()
                                     .build()
@@ -172,6 +183,7 @@ impl AlumetPlugin for K8sPlugin {
                                             name_to_seek.to_owned(),
                                             detector.hostname.clone(),
                                             detector.kubernetes_api_url.clone(),
+                                            detector.token_retrieval.clone(),
                                         )
                                         .await
                                     })
@@ -229,6 +241,7 @@ impl AlumetPlugin for K8sPlugin {
             poll_interval,
             kubernetes_api_url,
             hostname,
+            token_retrieval,
         };
 
         let mut watcher = notify::recommended_watcher(handler)?;
@@ -248,6 +261,7 @@ impl Default for K8sConfig {
             poll_interval: Duration::from_secs(1), // 1Hz
             kubernetes_api_url: String::from("https://127.0.0.1:8080"),
             hostname: String::from(""),
+            token_retrieval: String::from("kubectl"),
         }
     }
 }
