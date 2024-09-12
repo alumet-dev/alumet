@@ -14,6 +14,8 @@ use std::{
 
 use crate::cgroupv2::CgroupV2Metric;
 
+use super::plugin::TokenRetrieval;
+
 /// CgroupV2MetricFile represents a file containing cgroup v2 data about cpu usage.
 ///
 /// Note that the file contains multiple metrics.
@@ -43,7 +45,7 @@ fn list_metric_file_in_dir(
     root_directory_path: &Path,
     hostname: &str,
     kubernetes_api_url: &str,
-    token_retrieval: &str,
+    token_retrieval: TokenRetrieval,
 ) -> anyhow::Result<Vec<CgroupV2MetricFile>> {
     let mut vec_file_metric: Vec<CgroupV2MetricFile> = Vec::new();
     let entries = fs::read_dir(root_directory_path)?;
@@ -113,7 +115,7 @@ pub fn list_all_k8s_pods_file(
     root_directory_path: &Path,
     hostname: String,
     kubernetes_api_url: String,
-    token_retrieval: String,
+    token_retrieval: TokenRetrieval,
 ) -> anyhow::Result<Vec<CgroupV2MetricFile>> {
     let mut final_list_metric_file: Vec<CgroupV2MetricFile> = Vec::new();
     if !root_directory_path.exists() {
@@ -140,7 +142,7 @@ pub fn list_all_k8s_pods_file(
             &prefix.to_owned(),
             hostname.clone().as_str(),
             kubernetes_api_url.clone().as_str(),
-            token_retrieval.clone().as_str(),
+            token_retrieval.clone(),
         )?;
         final_list_metric_file.append(&mut result_vec);
     }
@@ -167,11 +169,9 @@ pub fn gather_value(file: &mut CgroupV2MetricFile, content_buffer: &mut String) 
 pub async fn kubernetes_get_existing_pods(
     node: &str,
     kubernetes_api_url: &str,
-    token_retrieval: &str,
+    token_retrieval: TokenRetrieval,
 ) -> anyhow::Result<HashMap<String, (String, String, String)>> {
-    let Some(token) = get_token(token_retrieval) else {
-        return Ok(HashMap::new());
-    };
+    let token = get_token(token_retrieval)?;
 
     if kubernetes_api_url.is_empty() {
         return Ok(HashMap::new());
@@ -267,12 +267,10 @@ pub async fn get_pod_name(
     uid: &str,
     node: &str,
     kubernetes_api_url: &str,
-    token_retrieval: &str,
+    token_retrieval: TokenRetrieval,
 ) -> anyhow::Result<(String, String, String)> {
     let new_uid = uid.replace('_', "-");
-    let Some(token) = get_token(token_retrieval) else {
-        return Ok(("".to_string(), "".to_string(), "".to_string()));
-    };
+    let token = get_token(token_retrieval)?;
 
     if kubernetes_api_url.is_empty() {
         return Ok(("".to_string(), "".to_string(), "".to_string()));
@@ -362,35 +360,23 @@ pub async fn get_pod_name(
 
 /// Retrieves the k8s API token using either a kubectl command
 /// or by reading  the service account token's file.
-fn get_token(token_retrieval: &str) -> Option<String> {
+fn get_token(token_retrieval: TokenRetrieval) -> anyhow::Result<String> {
     match token_retrieval {
-        "kubectl" => {
-            let Ok(output) = Command::new("kubectl")
+        TokenRetrieval::Kubectl => {
+            let output = Command::new("kubectl")
                 .args(["create", "token", "alumet-reader", "-n", "alumet"])
-                .output()
-            else {
-                return None;
-            };
+                .output()?;
 
             let token = String::from_utf8_lossy(&output.stdout);
             let token = token.trim();
-            Some(token.to_string())
+            Ok(token.to_string())
         }
-        "file" => {
-            let mut file = match File::open("/var/run/secrets/kubernetes.io/serviceaccount/token") {
-                Ok(file) => file,
-                Err(e) => {
-                    log::error!("Could not read the service account token file, got {e}");
-                    return None;
-                }
-            };
+        TokenRetrieval::File => {
+            let mut file = File::open("/var/run/secrets/kubernetes.io/serviceaccount/token")?;
             let mut token = String::new();
-            if file.read_to_string(&mut token).is_ok() {
-                return Some(token);
-            }
-            None
+            file.read_to_string(&mut token)?;
+            Ok(token)
         }
-        _ => None,
     }
 }
 
@@ -436,7 +422,7 @@ mod tests {
         std::fs::write(c.join("cpu.stat"), "sv").unwrap();
         std::fs::write(d.join("cpu.stat"), "ne").unwrap();
         let li_met_file: anyhow::Result<Vec<CgroupV2MetricFile>> =
-            list_metric_file_in_dir(&burstable_dir, "", "", "kubectl");
+            list_metric_file_in_dir(&burstable_dir, "", "", TokenRetrieval::Kubectl);
         let list_pod_name = [
             "pod32a1942cb9a81912549c152a49b5f9b1",
             "podd9209de2b4b526361248c9dcf3e702c0",

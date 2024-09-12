@@ -38,11 +38,16 @@ struct K8sConfig {
     hostname: String,
 
     /// Way to retrieve the k8s API token.
-    /// Can be either one of the following:
-    ///
-    /// - kubectl
-    /// - file, won't work if automountServiceAccountToken is set to false
-    token_retrieval: String,
+    token_retrieval: TokenRetrieval,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub enum TokenRetrieval {
+    #[serde(rename = "kubectl")]
+    Kubectl,
+
+    #[serde(rename = "file")]
+    File,
 }
 
 impl AlumetPlugin for K8sPlugin {
@@ -127,7 +132,7 @@ impl AlumetPlugin for K8sPlugin {
             poll_interval: Duration,
             kubernetes_api_url: String,
             hostname: String,
-            token_retrieval: String,
+            token_retrieval: TokenRetrieval,
         }
 
         impl EventHandler for PodDetector {
@@ -183,7 +188,7 @@ impl AlumetPlugin for K8sPlugin {
                                             &name_to_seek,
                                             &detector.hostname,
                                             &detector.kubernetes_api_url,
-                                            &detector.token_retrieval,
+                                            detector.token_retrieval.clone(),
                                         )
                                         .await
                                     })
@@ -261,7 +266,7 @@ impl Default for K8sConfig {
             poll_interval: Duration::from_secs(1), // 1Hz
             kubernetes_api_url: String::from("https://127.0.0.1:8080"),
             hostname: String::from(""),
-            token_retrieval: String::from("kubectl"),
+            token_retrieval: TokenRetrieval::Kubectl,
         }
     }
 }
