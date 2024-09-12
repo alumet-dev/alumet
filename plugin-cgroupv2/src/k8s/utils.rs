@@ -176,7 +176,7 @@ pub async fn kubernetes_get_existing_pods(
     if kubernetes_api_url.is_empty() {
         return Ok(HashMap::new());
     }
-    let mut api_url_root = kubernetes_api_url.clone().to_string();
+    let mut api_url_root = kubernetes_api_url.to_string();
     api_url_root.push_str("/api/v1/pods/");
     let mut selector = false;
     let api_url = if node.is_empty() {
@@ -275,7 +275,7 @@ pub async fn get_pod_name(
     if kubernetes_api_url.is_empty() {
         return Ok(("".to_string(), "".to_string(), "".to_string()));
     }
-    let mut api_url_root = kubernetes_api_url.clone().to_string();
+    let mut api_url_root = kubernetes_api_url.to_string();
     api_url_root.push_str("/api/v1/pods/");
     let mut selector = false;
     let api_url = if node.is_empty() {
