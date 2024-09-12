@@ -13,7 +13,6 @@ type AppConfig = config::CommonArgs;
 fn main() {
     let plugins = static_plugins![
         plugin_rapl::RaplPlugin,
-        plugin_csv::CsvPlugin,
         plugin_perf::PerfPlugin,
         plugin_socket_control::SocketControlPlugin,
         plugin_relay::client::RelayClientPlugin,

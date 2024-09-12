@@ -8,10 +8,7 @@ use clap::{Parser, Subcommand};
 type AppConfig = config::CommonArgs;
 
 fn main() {
-    let plugins = static_plugins![
-        plugin_relay::server::RelayServerPlugin,
-        plugin_csv::CsvPlugin,
-    ];
+    let plugins = static_plugins![plugin_relay::server::RelayServerPlugin, plugin_csv::CsvPlugin];
 
     init_logger();
     const BINARY: &str = env!("CARGO_BIN_NAME");
