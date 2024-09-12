@@ -30,7 +30,7 @@ local_x86 = ["dep:plugin-rapl", "dep:plugin-perf", "dep:plugin-csv", "dep:plugin
 
 # relay mode
 relay_client = ["dep:plugin-relay", "plugin-relay/client", "dep:plugin-rapl", "dep:plugin-perf", "dep:plugin-socket-control"]
-relay_server = ["dep:plugin-relay", "plugin-relay/server"]
+relay_server = ["dep:plugin-relay", "plugin-relay/server", "dep:plugin-csv"]
 
 [[bin]]
 name = "alumet-local-agent"

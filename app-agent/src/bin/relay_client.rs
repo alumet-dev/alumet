@@ -16,7 +16,7 @@ fn main() {
         plugin_csv::CsvPlugin,
         plugin_perf::PerfPlugin,
         plugin_socket_control::SocketControlPlugin,
-        plugin_relay::client::RelayClientPlugin
+        plugin_relay::client::RelayClientPlugin,
     ];
 
     init_logger();

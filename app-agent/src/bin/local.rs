@@ -15,7 +15,7 @@ fn main() {
         plugin_rapl::RaplPlugin,
         plugin_perf::PerfPlugin,
         plugin_csv::CsvPlugin,
-        plugin_socket_control::SocketControlPlugin
+        plugin_socket_control::SocketControlPlugin,
     ];
 
     init_logger();

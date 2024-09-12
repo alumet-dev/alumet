@@ -779,7 +779,7 @@ macro_rules! static_plugins {
     [] => {
         Vec::<$crate::plugin::PluginMetadata>::new()
     };
-    [$($x:path),*] => {
+    [$($x:path),* $(,)?] => {
         {
             vec![
                 $(
@@ -806,6 +806,18 @@ mod tests {
     use crate::plugin::{AlumetPluginStart, ConfigTable};
 
     use super::{AgentConfig, ENV_VAR};
+
+    #[test]
+    fn static_plugins_macro() {
+        let a = static_plugins![MyPlugin];
+        let b = static_plugins![MyPlugin,];
+        let empty = static_plugins![];
+        assert_eq!(1, a.len());
+        assert_eq!(1, b.len());
+        assert_eq!(a[0].name, b[0].name);
+        assert_eq!(a[0].version, b[0].version);
+        assert!(empty.is_empty());
+    }
 
     #[test]
     fn parse_config_file() {
