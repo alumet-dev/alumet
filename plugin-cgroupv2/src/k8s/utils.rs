@@ -171,7 +171,13 @@ pub async fn kubernetes_get_existing_pods(
     kubernetes_api_url: &str,
     token_retrieval: TokenRetrieval,
 ) -> anyhow::Result<HashMap<String, (String, String, String)>> {
-    let token = get_token(token_retrieval)?;
+    let token = match get_token(token_retrieval) {
+        Ok(token) => token,
+        Err(e) => {
+            log::error!("could not retrieve the token, got {e}");
+            return Ok(HashMap::new());
+        }
+    };
 
     if kubernetes_api_url.is_empty() {
         return Ok(HashMap::new());
@@ -270,7 +276,13 @@ pub async fn get_pod_name(
     token_retrieval: TokenRetrieval,
 ) -> anyhow::Result<(String, String, String)> {
     let new_uid = uid.replace('_', "-");
-    let token = get_token(token_retrieval)?;
+    let token = match get_token(token_retrieval) {
+        Ok(token) => token,
+        Err(e) => {
+            log::error!("could not retrieve the token, got {e}");
+            return Ok(("".to_string(), "".to_string(), "".to_string()));
+        }
+    };
 
     if kubernetes_api_url.is_empty() {
         return Ok(("".to_string(), "".to_string(), "".to_string()));
