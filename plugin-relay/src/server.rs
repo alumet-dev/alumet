@@ -1,5 +1,5 @@
 use std::{
-    net::{IpAddr, SocketAddr, SocketAddrV4, SocketAddrV6, ToSocketAddrs},
+    net::SocketAddr,
     time::{Duration, UNIX_EPOCH},
 };
 
@@ -16,15 +16,18 @@ use alumet::{
     resources::{InvalidConsumerError, InvalidResourceError, Resource, ResourceConsumer},
     units::{PrefixedUnit, Unit},
 };
-use anyhow::{anyhow, Context};
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use tonic::{transport::Server, Response, Status};
 
-use crate::protocol::{
-    self,
-    metric_collector_server::{MetricCollector, MetricCollectorServer},
-    register_reply::IdMapping,
-    Empty, RegisterReply,
+use crate::{
+    protocol::{
+        self,
+        metric_collector_server::{MetricCollector, MetricCollectorServer},
+        register_reply::IdMapping,
+        Empty, RegisterReply,
+    },
+    resolve_socket_address,
 };
 
 pub struct RelayServerPlugin {
@@ -49,7 +52,7 @@ struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            address: String::from("::1"), // Default to localhost on ipv6
+            address: String::from("::1"), // "any" on ipv6
             port: 50051,
             ipv6_scope_id: None,
         }
@@ -58,7 +61,7 @@ impl Default for Config {
 
 impl AlumetPlugin for RelayServerPlugin {
     fn name() -> &'static str {
-        "plugin-relay:server"
+        "relay-server"
     }
 
     fn version() -> &'static str {
@@ -77,34 +80,9 @@ impl AlumetPlugin for RelayServerPlugin {
     }
 
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
-        // Retrieve the ip from the config using
-        // [the trait ToSocketAddrs](https://doc.rust-lang.org/stable/std/net/trait.ToSocketAddrs.html)
-        // of (String, u16) to use a raw address without any port.
-        let current_ip = match (self.config.address.clone(), self.config.port)
-            .to_socket_addrs()
-            .context(format!(
-                "Parsing of the `address` param of the server relay plugin: {}",
-                self.config.address
-            ))?
-            .next()
-        {
-            Some(socket) => socket.ip(),
-            _ => {
-                return Err(anyhow!("Could not retrieve any ip from {}", self.config.address));
-            }
-        };
-
-        // Once the IP has been parsed correctly, we need to build from scratch
-        // the SocketAddr to allow us to add `ipv6_scope_id` if needed.
-        let addr = match current_ip {
-            IpAddr::V4(ipv4) => SocketAddr::V4(SocketAddrV4::new(ipv4, self.config.port)),
-            IpAddr::V6(ipv6) => SocketAddr::V6(SocketAddrV6::new(
-                ipv6,
-                self.config.port,
-                0,
-                self.config.ipv6_scope_id.unwrap_or(0),
-            )),
-        };
+        // Resolve the address from the config.
+        let config_address = std::mem::take(&mut self.config.address);
+        let addr: SocketAddr = resolve_socket_address(config_address, self.config.port, self.config.ipv6_scope_id)?[0];
 
         log::info!("Starting gRPC server with on socket {addr}");
         alumet.add_autonomous_source_builder(move |ctx, cancel_token, out_tx| {
@@ -115,7 +93,7 @@ impl AlumetPlugin for RelayServerPlugin {
                     .add_service(MetricCollectorServer::new(collector))
                     .serve_with_shutdown(addr, cancel_token.cancelled_owned())
                     .await
-                    .context("server error")?;
+                    .context("gRPC server error")?;
                 Ok(())
             });
             Ok(AutonomousSourceRegistration {
@@ -127,6 +105,7 @@ impl AlumetPlugin for RelayServerPlugin {
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
+        // The autonomous source has already been stopped at this point.
         Ok(())
     }
 }
@@ -138,31 +117,32 @@ pub struct GrpcMetricCollector {
 
 #[tonic::async_trait]
 impl MetricCollector for GrpcMetricCollector {
+    /// Handles a gRPC request to ingest new measurement points.
     async fn ingest_measurements(
         &self,
         request: tonic::Request<crate::protocol::MeasurementBuffer>,
     ) -> Result<Response<Empty>, Status> {
-        // TODO proper error handling
+        fn read_measurement(m: protocol::MeasurementPoint) -> anyhow::Result<MeasurementPoint> {
+            fn read_attribute(attr: protocol::MeasurementAttribute) -> anyhow::Result<(String, AttributeValue)> {
+                let value = attr
+                    .value
+                    .with_context(|| format!("missing attribute value for key {}", attr.key))?;
+                Ok((attr.key, value.into()))
+            }
+
+            let timestamp = Timestamp::from(UNIX_EPOCH + Duration::new(m.timestamp_secs, m.timestamp_nanos));
+            let value = m.value.context("missing value")?.into();
+            let resource = Resource::try_from(m.resource.context("missing resource")?).unwrap();
+            let consumer = ResourceConsumer::try_from(m.consumer.context("missing resource consumer")?).unwrap();
+            let attributes: anyhow::Result<Vec<_>> = m.attributes.into_iter().map(read_attribute).collect();
+            let metric = RawMetricId::from_u64(m.metric);
+            Ok(MeasurementPoint::new_untyped(timestamp, metric, resource, consumer, value).with_attr_vec(attributes?))
+        }
 
         // Transform gRPC structures into ALUMET data points.
-        let measurements: Vec<MeasurementPoint> = request
-            .into_inner()
-            .points
-            .into_iter()
-            .map(|m| {
-                let timestamp = Timestamp::from(UNIX_EPOCH + Duration::new(m.timestamp_secs, m.timestamp_nanos));
-                let value = m.value.unwrap().into();
-                let resource = Resource::try_from(m.resource.unwrap()).unwrap();
-                let consumer = ResourceConsumer::try_from(m.consumer.unwrap()).unwrap();
-                let attributes: Vec<_> = m
-                    .attributes
-                    .into_iter()
-                    .map(|attr| (attr.key, attr.value.unwrap().into()))
-                    .collect();
-                MeasurementPoint::new_untyped(timestamp, RawMetricId::from_u64(m.metric), resource, consumer, value)
-                    .with_attr_vec(attributes)
-            })
-            .collect();
+        let measurements: anyhow::Result<Vec<MeasurementPoint>> =
+            request.into_inner().points.into_iter().map(read_measurement).collect();
+        let measurements = measurements.map_err(|e| Status::invalid_argument(e.to_string()))?;
 
         // Send the measurements to the rest of the pipeline.
         self.out_tx.send(MeasurementBuffer::from(measurements)).await.unwrap();
@@ -171,11 +151,23 @@ impl MetricCollector for GrpcMetricCollector {
         Ok(Response::new(Empty {}))
     }
 
+    /// Handles a gRPC request to register new metrics.
     async fn register_metrics(
         &self,
         request: tonic::Request<crate::protocol::MetricDefinitions>,
     ) -> Result<Response<RegisterReply>, Status> {
-        // TODO convert errors to a proper Status
+        fn read_metric(m: crate::protocol::metric_definitions::MetricDef) -> anyhow::Result<(u64, Metric)> {
+            let value_type = protocol::MeasurementValueType::try_from(m.r#type)?.into();
+            let metric = Metric {
+                name: m.name,
+                description: m.description,
+                value_type,
+                unit: m.unit.context("missing unit")?.try_into()?,
+            };
+            Ok((m.id_for_agent, metric))
+        }
+
+        // Extract the client name from metadata header, or address.
         let client_name = request
             .metadata()
             .get("x-alumet-client")
@@ -183,40 +175,38 @@ impl MetricCollector for GrpcMetricCollector {
             .or_else(|| request.remote_addr().map(|addr| addr.to_string()))
             .unwrap_or_else(|| String::from("?"));
 
-        let (client_metric_ids, metrics): (Vec<u64>, Vec<Metric>) = request
-            .into_inner()
-            .definitions
-            .into_iter()
-            .map(|m| {
-                let value_type = protocol::MeasurementValueType::try_from(m.r#type).unwrap().into();
-                let metric = Metric {
-                    name: m.name,
-                    description: m.description,
-                    value_type,
-                    unit: m.unit.unwrap().try_into().unwrap(),
-                };
-                (m.id_for_agent, metric)
-            })
-            .unzip();
+        // Read the incoming metric definitions.
+        let defs = request.into_inner().definitions;
+        let mut client_metrics_ids = Vec::with_capacity(defs.len());
+        let mut metrics = Vec::with_capacity(defs.len());
+        for incoming_metric in defs {
+            let (client_id, alumet_metric) =
+                read_metric(incoming_metric).map_err(|e| Status::invalid_argument(e.to_string()))?;
+            client_metrics_ids.push(client_id);
+            metrics.push(alumet_metric);
+        }
 
+        // Attempt to register the metrics.
         let server_metric_ids = self
             .metrics_tx
             .create_metrics(metrics, registry::DuplicateStrategy::Rename { suffix: client_name })
             .await
-            .map_err(|_| panic!("create_metrics failed"))
-            .unwrap();
+            .map_err(|e| Status::internal(format!("create_metrics failed: {e}")))?;
 
-        let mappings = client_metric_ids
+        // Maps client ids to server ids.
+        let mappings = client_metrics_ids
             .into_iter()
             .zip(server_metric_ids)
             .map(|(client_id, server_id)| match server_id {
-                Ok(id) => IdMapping {
+                Ok(id) => Ok(IdMapping {
                     id_for_agent: client_id,
                     id_for_collector: id.as_u64(),
-                },
-                Err(e) => todo!(),
+                }),
+                Err(e) => Err(Status::internal(e.to_string())),
             })
-            .collect();
+            .collect::<Result<Vec<IdMapping>, Status>>()?;
+
+        // Send the response (happy path).
         Ok(Response::new(RegisterReply { mappings }))
     }
 }

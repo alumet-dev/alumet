@@ -8,10 +8,11 @@ use crate::protocol::{self, RegisterReply};
 use alumet::measurement::{
     AttributeValue, MeasurementBuffer, MeasurementPoint, WrappedMeasurementType, WrappedMeasurementValue,
 };
-use alumet::metrics::MetricRegistry;
-use alumet::pipeline::builder::elements::OutputRegistration;
+use alumet::metrics::{Metric, RawMetricId};
+use alumet::pipeline::builder::elements::{MetricListenerRegistration, OutputRegistration};
 use alumet::pipeline::elements::error::WriteError;
 use alumet::pipeline::elements::output::OutputContext;
+use alumet::pipeline::registry::MetricListener;
 use alumet::plugin::rust::{deserialize_config, serialize_config, AlumetPlugin};
 use alumet::plugin::{AlumetPluginStart, AlumetPreStart, ConfigTable};
 use anyhow::Context;
@@ -58,7 +59,7 @@ fn default_collector_uri() -> String {
 
 impl AlumetPlugin for RelayClientPlugin {
     fn name() -> &'static str {
-        "plugin-relay:client"
+        "relay-client"
     }
 
     fn version() -> &'static str {
@@ -97,17 +98,11 @@ impl AlumetPlugin for RelayClientPlugin {
             // We also store the runtime handle, for use in `pre_pipeline_start`.
             // This is important because a Tonic gRPC client can only be used from the runtime that it has been initialized with.
             let rt = ctx.async_runtime();
+            let client = rt
+                .block_on(RelayClient::new(collector_uri, client_name.clone(), metric_ids))
+                .context("gRPC connection error")?;
 
-            let grpc_client = rt
-                .block_on(MetricCollectorClient::connect(collector_uri))
-                .context("Failed to connect to gRPC server")?;
-
-            let client = RelayClient {
-                grpc_client,
-                client_name,
-                metric_ids,
-            };
-            log::info!("Connected successfully.");
+            log::info!("Successfully connected with client name {client_name}.");
             let output = Box::new(RelayOutput { client });
             Ok(OutputRegistration {
                 name: ctx.output_name("grpc"),
@@ -118,25 +113,46 @@ impl AlumetPlugin for RelayClientPlugin {
     }
 
     fn pre_pipeline_start(&mut self, alumet: &mut AlumetPreStart) -> anyhow::Result<()> {
-        // The plugins have registered their metrics, send them to the server.
-        // TODO get notified of late metric registration?
-
         let collector_uri = self.collector_uri.clone();
         let client_name = self.client_name.clone();
         let metric_ids = self.metric_ids.clone();
 
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-        let grpc_client = rt
-            .block_on(MetricCollectorClient::connect(collector_uri))
-            .context("Failed to connect to gRPC server")?;
+        // Clone the existing metrics (which have been registered by the `start` methods of all the plugins).
+        let existing_metrics = alumet
+            .metrics()
+            .iter()
+            .map(|(id, def)| (id.clone(), def.clone()))
+            .collect();
 
-        // We need to create a new client, because it uses another tokio Runtime.
-        let mut client = RelayClient {
-            grpc_client,
-            client_name,
-            metric_ids,
-        };
-        rt.block_on(client.register_metrics(alumet.metrics()))?;
+        // Get notified of late metric registration. (TODO: is this the best way? Would it be faster to inspect the points in the output instead?)
+        // Also register the existing metrics on the async pipeline.
+        alumet.add_metric_listener_builder(move |ctx| {
+            let rt = ctx.async_runtime();
+
+            let mut client = rt.block_on(async move {
+                // We need to create another client, the one created in `start` has been moved to the output.
+                let mut client = RelayClient::new(collector_uri, client_name, metric_ids).await?;
+
+                // Register the existing metrics.
+                client.register_metrics(existing_metrics).await?;
+
+                // Pass the client, for use in the listener.
+                Ok::<RelayClient, anyhow::Error>(client)
+            })?;
+
+            // Build a listener that uses the client.
+            let listener: Box<dyn MetricListener> = Box::new(move |new_metrics| {
+                // register the metrics, wait for the message to be sent
+                let rt = tokio::runtime::Handle::current();
+                rt.block_on(client.register_metrics(new_metrics))?;
+                Ok(())
+            });
+
+            Ok(MetricListenerRegistration {
+                name: ctx.listener_name("grpc-registration"),
+                listener,
+            })
+        });
         Ok(())
     }
 
@@ -164,16 +180,39 @@ impl alumet::pipeline::Output for RelayOutput {
 }
 
 struct RelayClient {
+    /// gRPC client
     grpc_client: MetricCollectorClient<Channel>,
+    /// Maps local ids to collector ids.
     metric_ids: Arc<Mutex<HashMap<u64, u64>>>,
+    /// Name of this client, should be unique (from the collector's pov).
     client_name: String,
 }
 
 impl RelayClient {
+    /// Creates a new `RelayClient` by connecting to a gRPC endpoint.
+    async fn new(
+        uri: String,
+        client_name: String,
+        metric_ids: Arc<Mutex<HashMap<u64, u64>>>,
+    ) -> anyhow::Result<RelayClient> {
+        let uri_clone = uri.clone();
+        let grpc_client = MetricCollectorClient::connect(uri)
+            .await
+            .with_context(|| format!("could not connect to {uri_clone}"))?;
+        let client = RelayClient {
+            grpc_client,
+            client_name,
+            metric_ids,
+        };
+        Ok(client)
+    }
+
+    /// Sends measurements via gRPC.
     async fn send_measurements(&mut self, measurements: &MeasurementBuffer) -> anyhow::Result<()> {
+        /// Convert Alumet measurements to the appropriate Protocol Buffer structure for gRPC.
         fn convert_alumet_to_protobuf(
             m: &MeasurementPoint,
-            metric_ids: &mut HashMap<u64, u64>,
+            metric_ids: &HashMap<u64, u64>,
         ) -> protocol::MeasurementPoint {
             // convert metric id
             let metric = *metric_ids.get(&m.metric.as_u64()).unwrap();
@@ -185,13 +224,10 @@ impl RelayClient {
             // convert timestamp
             let time_diff = SystemTime::from(m.timestamp)
                 .duration_since(UNIX_EPOCH)
-                .expect("Every timestamp should be obtained from system_time_now()");
+                .expect("Every timestamp should be after the UNIX_EPOCH");
 
             // convert value
-            let value = match m.value {
-                WrappedMeasurementValue::F64(x) => protocol::measurement_point::Value::F64(x),
-                WrappedMeasurementValue::U64(x) => protocol::measurement_point::Value::U64(x),
-            };
+            let value = m.value.clone().into(); // TODO avoid cloning by making Output::write accept an owned MeasurementBuffer?
 
             // convert resource and consumer
             let resource = protocol::Resource {
@@ -208,13 +244,7 @@ impl RelayClient {
                 .attributes()
                 .map(|(attr_key, attr_value)| protocol::MeasurementAttribute {
                     key: attr_key.to_owned(),
-                    value: Some(match attr_value {
-                        AttributeValue::F64(v) => protocol::measurement_attribute::Value::F64(*v),
-                        AttributeValue::U64(v) => protocol::measurement_attribute::Value::U64(*v),
-                        AttributeValue::Bool(v) => protocol::measurement_attribute::Value::Bool(*v),
-                        AttributeValue::String(v) => protocol::measurement_attribute::Value::Str(v.to_owned()),
-                        AttributeValue::Str(v) => protocol::measurement_attribute::Value::Str(v.to_string()),
-                    }),
+                    value: Some(attr_value.clone().into()),
                 })
                 .collect();
 
@@ -230,33 +260,32 @@ impl RelayClient {
             }
         }
 
-        let mut metric_ids = self.metric_ids.lock().unwrap();
+        let metric_ids = self.metric_ids.lock().unwrap();
         let points: Vec<protocol::MeasurementPoint> = measurements
             .iter()
-            .map(|point| convert_alumet_to_protobuf(point, &mut metric_ids))
+            .map(|point| convert_alumet_to_protobuf(point, &metric_ids))
             .collect();
 
         log::debug!("Sending gRPC request with {} measurement points", points.len());
         let request = tonic::Request::new(protocol::MeasurementBuffer { points });
-        let response = self.grpc_client.ingest_measurements(request).await?;
-
+        let response = self.grpc_client.ingest_measurements(request).await;
         log::trace!("RESPONSE={:?}", response);
-        // TODO handle the response
 
+        response?;
+        // TODO add details to the error (in server) and handle them here
         Ok(())
     }
 
-    async fn register_metrics(&mut self, metrics: &MetricRegistry) -> anyhow::Result<()> {
+    /// Sends metric registration requests via gRPC.
+    async fn register_metrics(&mut self, metrics: Vec<(RawMetricId, Metric)>) -> anyhow::Result<()> {
+        // Convert Alumet metrics to the appropriate Protocol Buffer structures.
         let definitions: Vec<protocol::metric_definitions::MetricDef> = metrics
-            .iter()
+            .into_iter()
             .map(|(id, metric)| protocol::metric_definitions::MetricDef {
                 id_for_agent: id.as_u64(),
-                name: metric.name.clone(),
-                description: metric.description.clone(),
-                r#type: match metric.value_type {
-                    WrappedMeasurementType::F64 => protocol::MeasurementValueType::F64 as i32,
-                    WrappedMeasurementType::U64 => protocol::MeasurementValueType::U64 as i32,
-                },
+                name: metric.name,
+                description: metric.description,
+                r#type: protocol::MeasurementValueType::from(metric.value_type) as i32,
                 unit: Some(protocol::PrefixedUnit {
                     prefix: metric.unit.prefix.unique_name().to_string(),
                     base_unit: metric.unit.base_unit.unique_name().to_string(),
@@ -273,8 +302,9 @@ impl RelayClient {
             .append("x-alumet-client", self.client_name.parse().unwrap());
 
         // Wait for the response.
-        let response = self.grpc_client.register_metrics(request).await?;
+        let response = self.grpc_client.register_metrics(request).await;
         log::debug!("RESPONSE={:?}", response);
+        let response = response?;
 
         let reply: RegisterReply = response.into_inner();
         let mut metric_ids = self.metric_ids.lock().unwrap();
@@ -282,5 +312,35 @@ impl RelayClient {
             metric_ids.insert(mapping.id_for_agent, mapping.id_for_collector);
         }
         Ok(())
+    }
+}
+
+impl From<WrappedMeasurementType> for protocol::MeasurementValueType {
+    fn from(value: WrappedMeasurementType) -> Self {
+        match value {
+            WrappedMeasurementType::F64 => protocol::MeasurementValueType::F64,
+            WrappedMeasurementType::U64 => protocol::MeasurementValueType::U64,
+        }
+    }
+}
+
+impl From<WrappedMeasurementValue> for protocol::measurement_point::Value {
+    fn from(value: WrappedMeasurementValue) -> Self {
+        match value {
+            WrappedMeasurementValue::F64(x) => protocol::measurement_point::Value::F64(x),
+            WrappedMeasurementValue::U64(x) => protocol::measurement_point::Value::U64(x),
+        }
+    }
+}
+
+impl From<AttributeValue> for protocol::measurement_attribute::Value {
+    fn from(value: AttributeValue) -> Self {
+        match value {
+            AttributeValue::F64(v) => protocol::measurement_attribute::Value::F64(v),
+            AttributeValue::U64(v) => protocol::measurement_attribute::Value::U64(v),
+            AttributeValue::Bool(v) => protocol::measurement_attribute::Value::Bool(v),
+            AttributeValue::String(v) => protocol::measurement_attribute::Value::Str(v),
+            AttributeValue::Str(v) => protocol::measurement_attribute::Value::Str(v.to_owned()),
+        }
     }
 }

@@ -2,6 +2,7 @@
 
 use std::{fmt::Debug, sync::Arc};
 
+use anyhow::Context;
 use tokio::{
     runtime,
     sync::{
@@ -93,7 +94,8 @@ impl MetricRegistryControl {
                 rt,
                 namegen: self.listener_names.namegen_for_scope(&plugin),
             };
-            let reg = builder(&mut ctx)?;
+            let reg = builder(&mut ctx)
+                .with_context(|| format!("error in listener creation requested by plugin {plugin}"))?;
             self.listeners.push(reg);
         }
         Ok(())
