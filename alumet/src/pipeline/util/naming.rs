@@ -48,6 +48,7 @@ pub struct ScopedNameGenerator {
     source_dedup: NameDeduplicator,
     transform_dedup: NameDeduplicator,
     output_dedup: NameDeduplicator,
+    listener_dedup: NameDeduplicator,
     plugin: PluginName,
 }
 
@@ -57,6 +58,7 @@ impl ScopedNameGenerator {
             source_dedup: NameDeduplicator::new(),
             transform_dedup: NameDeduplicator::new(),
             output_dedup: NameDeduplicator::new(),
+            listener_dedup: NameDeduplicator::new(),
             plugin,
         }
     }
@@ -74,10 +76,18 @@ impl ScopedNameGenerator {
             element: self.transform_dedup.insert_deduplicate(name.to_owned(), false),
         })
     }
+
     pub fn output_name(&mut self, name: &str) -> OutputName {
         OutputName(ElementNameParts {
             plugin: self.plugin.0.clone(),
             element: self.output_dedup.insert_deduplicate(name.to_owned(), false),
+        })
+    }
+
+    pub fn listener_name(&mut self, name: &str) -> ListenerName {
+        ListenerName(ElementNameParts {
+            plugin: self.plugin.0.clone(),
+            element: self.listener_dedup.insert_deduplicate(name.to_owned(), false),
         })
     }
 }
@@ -111,10 +121,15 @@ pub struct ElementNameParts {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceName(pub(super) ElementNameParts);
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransformName(pub(super) ElementNameParts);
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutputName(pub(super) ElementNameParts);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListenerName(pub(super) ElementNameParts);
 
 impl fmt::Display for PluginName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -137,6 +152,12 @@ impl fmt::Display for TransformName {
 impl fmt::Display for OutputName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}/output/{}", self.0.plugin, self.0.element)
+    }
+}
+
+impl fmt::Display for ListenerName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}/listener/{}", self.0.plugin, self.0.element)
     }
 }
 

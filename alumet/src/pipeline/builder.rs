@@ -2,7 +2,7 @@
 use std::time::Duration;
 
 use super::elements::{output, source, transform};
-use super::registry::{self, MetricReader, MetricSender};
+use super::registry::{MetricReader, MetricSender};
 use crate::pipeline::registry::MetricRegistryControl;
 use crate::pipeline::util::channel;
 use crate::{measurement::MeasurementBuffer, metrics::MetricRegistry};
@@ -14,6 +14,7 @@ use super::{
     util,
 };
 use anyhow::Context;
+use elements::MetricListenerBuilder;
 use tokio::time::error::Elapsed;
 use tokio::{
     runtime::Runtime,
@@ -43,18 +44,18 @@ pub struct Builder {
 
     /// Metrics
     pub(crate) metrics: MetricRegistry,
-    metric_listeners: Vec<registry::MetricListener>,
+    metric_listeners: Vec<(PluginName, Box<dyn MetricListenerBuilder>)>,
 
     threads_normal: Option<usize>,
     threads_high_priority: Option<usize>,
 }
 
 /// Definitions of element builders.
-/// 
+///
 /// # Why are the builders traits?
 /// Builders are just closures, but they are quite long and used in various places of the `alumet` crate.
 /// To deduplicate the code and make it more readable, _trait aliases_ would have been idea.
-/// 
+///
 /// Unfortunately, _trait aliases_ are currently unstable.
 /// Therefore, I have defined subtraits with an automatic implementation for closures.
 #[rustfmt::skip]
@@ -66,9 +67,7 @@ pub mod elements {
     use crate::{
         measurement::MeasurementBuffer,
         pipeline::{
-            elements::{output, source, transform},
-            trigger,
-            util::naming::{OutputName, SourceName, TransformName},
+            elements::{output, source, transform}, registry, trigger, util::naming::{ListenerName, OutputName, SourceName, TransformName}
         },
     };
 
@@ -79,20 +78,20 @@ pub mod elements {
     //     pub type ManagedSourceBuilder = dyn FnOnce(&mut dyn SourceBuildContext) -> ManagedSourceRegistration;
     //
     // Therefore, we define a subtrait that is automatically implemented for closures.
-    
+
     /// Trait for managed source builders.
-    /// 
+    ///
     /// # Example
     /// ```
     /// use alumet::pipeline::builder::elements::{ManagedSourceBuilder, ManagedSourceRegistration};
     /// use alumet::pipeline::builder::context::{SourceBuildContext};
     /// use alumet::pipeline::{trigger, Source};
     /// use std::time::Duration;
-    /// 
+    ///
     /// fn build_my_source() -> anyhow::Result<Box<dyn Source>> {
     ///     todo!("build a new source")
     /// }
-    /// 
+    ///
     /// let builder: &dyn ManagedSourceBuilder = &|ctx: &mut dyn SourceBuildContext| {
     ///     let source = build_my_source()?;
     ///     Ok(ManagedSourceRegistration {
@@ -106,18 +105,18 @@ pub mod elements {
     impl<F> ManagedSourceBuilder for F where F: FnOnce(&mut dyn SourceBuildContext) -> anyhow::Result<ManagedSourceRegistration> {}
 
     /// Trait for autonomous source builders.
-    /// 
+    ///
     /// # Example
     /// ```
     /// use alumet::pipeline::builder::elements::{AutonomousSourceBuilder, AutonomousSourceRegistration};
     /// use alumet::pipeline::builder::context::{AutonomousSourceBuildContext};
     /// use alumet::pipeline::{trigger, Source};
     /// use alumet::measurement::MeasurementBuffer;
-    /// 
+    ///
     /// use std::time::Duration;
     /// use tokio::sync::mpsc::Sender;
     /// use tokio_util::sync::CancellationToken;
-    /// 
+    ///
     /// async fn my_autonomous_source(shutdown: CancellationToken, tx: Sender<MeasurementBuffer>) -> anyhow::Result<()> {
     ///     let fut = async { todo!("async trigger") };
     ///     loop {
@@ -133,7 +132,7 @@ pub mod elements {
     ///     }
     ///     Ok(())
     /// }
-    /// 
+    ///
     /// let builder: &dyn AutonomousSourceBuilder = &|ctx: &mut dyn AutonomousSourceBuildContext, shutdown: CancellationToken, tx: Sender<MeasurementBuffer>| {
     ///     let source = Box::pin(my_autonomous_source(shutdown, tx));
     ///     Ok(AutonomousSourceRegistration {
@@ -151,17 +150,17 @@ pub mod elements {
     {}
 
     /// Trait for transform builders.
-    /// 
+    ///
     ///  # Example
     /// ```
     /// use alumet::pipeline::builder::elements::{TransformBuilder, TransformRegistration};
     /// use alumet::pipeline::builder::context::{TransformBuildContext};
     /// use alumet::pipeline::{trigger, Transform};
-    /// 
+    ///
     /// fn build_my_transform() -> anyhow::Result<Box<dyn Transform>> {
     ///     todo!("build a new transform")
     /// }
-    /// 
+    ///
     /// let builder: &dyn TransformBuilder = &|ctx: &mut dyn TransformBuildContext| {
     ///     let transform = build_my_transform()?;
     ///     Ok(TransformRegistration {
@@ -174,17 +173,17 @@ pub mod elements {
     impl<F> TransformBuilder for F where F: FnOnce(&mut dyn TransformBuildContext) -> anyhow::Result<TransformRegistration> {}
 
     /// Trait for output builders.
-    /// 
+    ///
     ///  # Example
     /// ```
     /// use alumet::pipeline::builder::elements::{OutputBuilder, OutputRegistration};
     /// use alumet::pipeline::builder::context::{OutputBuildContext};
     /// use alumet::pipeline::{trigger, Output};
-    /// 
+    ///
     /// fn build_my_output() -> anyhow::Result<Box<dyn Output>> {
     ///     todo!("build a new output")
     /// }
-    /// 
+    ///
     /// let builder: &dyn OutputBuilder = &|ctx: &mut dyn OutputBuildContext| {
     ///     let output = build_my_output()?;
     ///     Ok(OutputRegistration {
@@ -197,7 +196,7 @@ pub mod elements {
     impl<F> OutputBuilder for F where F: FnOnce(&mut dyn OutputBuildContext) -> anyhow::Result<OutputRegistration> {}
 
     /// A source builder, for a managed or autonomous source.
-    /// 
+    ///
     /// Use this type in the pipeline Builder.
     pub enum SourceBuilder {
         Managed(Box<dyn ManagedSourceBuilder>),
@@ -205,7 +204,7 @@ pub mod elements {
     }
 
     /// Like [`SourceBuilder`] but with a [`Send`] bound on the builder.
-    /// 
+    ///
     /// Use this type in the pipeline control loop.
     pub enum SendSourceBuilder {
         Managed(Box<dyn ManagedSourceBuilder + Send>),
@@ -263,6 +262,18 @@ pub mod elements {
             }
         }
     }
+
+    /// Information required to register a new metric listener.
+    pub struct MetricListenerRegistration {
+        pub name: ListenerName,
+        pub listener: Box<dyn registry::MetricListener>,
+    }
+
+    /// Trait for builders of metric listeners.
+    /// 
+    /// Similar to the other builders.
+    pub trait MetricListenerBuilder: FnOnce(&mut dyn MetricListenerBuildContext) -> anyhow::Result<MetricListenerRegistration> {}
+    impl<F> MetricListenerBuilder for F where F: FnOnce(&mut dyn MetricListenerBuildContext) -> anyhow::Result<MetricListenerRegistration> {}
 }
 
 /// Contexts used by element builders.
@@ -271,7 +282,7 @@ pub mod context {
         metrics::{Metric, RawMetricId},
         pipeline::{
             registry,
-            util::naming::{OutputName, SourceName, TransformName},
+            util::naming::{ListenerName, OutputName, SourceName, TransformName},
         },
     };
 
@@ -315,6 +326,14 @@ pub mod context {
         /// It can be used to start asynchronous task on the same runtime as the output.
         fn async_runtime(&self) -> &tokio::runtime::Handle;
     }
+
+    /// Context accessible when building a metric listener.
+    pub trait MetricListenerBuildContext {
+        /// Generates a name for the listener.
+        fn listener_name(&mut self, name: &str) -> ListenerName;
+        /// Returns a handle to the async runtime on which the listener will be executed.
+        fn async_runtime(&self) -> &tokio::runtime::Handle;
+    }
 }
 
 impl Builder {
@@ -336,10 +355,10 @@ impl Builder {
         self.trigger_constraints = constraints;
     }
 
-    /// Registers a listener that will be notified of all the new registered metrics,
-    /// during build and while the pipeline is running.
-    pub fn add_metric_listener(&mut self, listener: registry::MetricListener) {
-        self.metric_listeners.push(listener)
+    /// Registers a listener that will be notified of the metrics that are created while the pipeline is running,
+    /// with a dedicated builder.
+    pub fn add_metric_listener_builder(&mut self, plugin: PluginName, builder: Box<dyn MetricListenerBuilder>) {
+        self.metric_listeners.push((plugin, builder))
     }
 
     /// Adds a source to the pipeline, with a dedicated builder.
@@ -396,11 +415,14 @@ impl Builder {
             })
         }
 
+        // Tokio runtime backed by "real-time" high priority threads.
         let rt_priority: Option<Runtime> = if self.threads_high_priority == Some(0) {
             None
         } else {
             util::threading::build_priority_runtime(None).ok()
         };
+
+        // Tokio runtime backed by usual threads (default priority).
         let rt_normal: Runtime = {
             let n_threads = if let Some(n) = self.threads_normal {
                 Some(n)
@@ -411,15 +433,22 @@ impl Builder {
             };
             util::threading::build_normal_runtime(n_threads).context("could not build the multithreaded Runtime")?
         };
+        let rt_handle = rt_normal.handle();
 
         // Token to shutdown the pipeline.
         let pipeline_shutdown = CancellationToken::new();
 
-        // Metric registry, global but we can modify it without sending a message
-        // thanks to MetricAccess::write().
-        let registry_control = MetricRegistryControl::new(self.metrics, self.metric_listeners);
-        let (metrics_tx, metrics_rw, metrics_join) =
-            registry_control.start(pipeline_shutdown.child_token(), rt_normal.handle());
+        // --- Metric registry (one for the entire pipeline) ---
+        // Note: We can modify it without sending a message thanks to MetricAccess::write().
+        let mut registry_control = MetricRegistryControl::new(self.metrics);
+
+        // Before it starts, register the initial listeners.
+        registry_control
+            .create_listeners(self.metric_listeners, rt_handle)
+            .context("could not create the metric listeners")?;
+
+        // Start the MetricRegistryControl
+        let (metrics_tx, metrics_rw, metrics_join) = registry_control.start(pipeline_shutdown.child_token(), rt_handle);
         let metrics_r = metrics_rw.into_read_only();
 
         // --- Build the pipeline elements and control loops, with some optimizations ---
@@ -444,7 +473,7 @@ impl Builder {
 
             // Outputs
             let out_rx_provider = channel::ReceiverProvider::from(in_rx);
-            output_control = output::OutputControl::new(out_rx_provider, rt_normal.handle().clone(), metrics_r.clone());
+            output_control = output::OutputControl::new(out_rx_provider, rt_handle.clone(), metrics_r.clone());
             output_control
                 .blocking_create_outputs(self.outputs)
                 .context("output creation failed")?;
@@ -457,7 +486,7 @@ impl Builder {
 
             // Outputs
             let out_rx_provider = channel::ReceiverProvider::from(out_tx.clone());
-            output_control = output::OutputControl::new(out_rx_provider, rt_normal.handle().clone(), metrics_r.clone());
+            output_control = output::OutputControl::new(out_rx_provider, rt_handle.clone(), metrics_r.clone());
             output_control
                 .blocking_create_outputs(self.outputs)
                 .context("output creation failed")?;
@@ -468,7 +497,7 @@ impl Builder {
                 metrics_r.clone(),
                 in_rx,
                 out_tx,
-                rt_normal.handle(),
+                rt_handle,
             )?;
         };
 
@@ -477,7 +506,7 @@ impl Builder {
             self.trigger_constraints,
             pipeline_shutdown.clone(),
             in_tx,
-            rt_normal.handle().clone(),
+            rt_handle.clone(),
             rt_priority.as_ref().unwrap_or(&rt_normal).handle().clone(),
             (metrics_r.clone(), metrics_tx.clone()),
         );
@@ -487,7 +516,7 @@ impl Builder {
 
         // Pipeline control
         let control = PipelineControl::new(source_control, transform_control, output_control);
-        let (control_handle, control_join) = control.start(pipeline_shutdown, rt_normal.handle());
+        let (control_handle, control_join) = control.start(pipeline_shutdown, rt_handle);
 
         // Done!
         Ok(MeasurementPipeline {

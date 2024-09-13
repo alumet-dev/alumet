@@ -1,10 +1,10 @@
 use std::marker::PhantomData;
 
 use crate::metrics::MetricRegistry;
-use crate::pipeline::builder::context::OutputBuildContext;
+use crate::pipeline::builder::context::{MetricListenerBuildContext, OutputBuildContext};
 use crate::pipeline::builder::elements::{
-    AutonomousSourceBuilder, ManagedSourceBuilder, ManagedSourceRegistration, OutputBuilder, OutputRegistration,
-    SourceBuilder, TransformBuilder, TransformRegistration,
+    AutonomousSourceBuilder, ManagedSourceBuilder, ManagedSourceRegistration, MetricListenerRegistration,
+    OutputBuilder, OutputRegistration, SourceBuilder, TransformBuilder, TransformRegistration,
 };
 use crate::pipeline::{builder, registry};
 use crate::{
@@ -224,13 +224,28 @@ impl<'a> AlumetPreStart<'a> {
         &self.pipeline_builder.metrics
     }
 
-    /// Registers a listener to get notified of all the new registered metrics.
-    pub fn add_metric_listener<F: Fn(Vec<(RawMetricId, Metric)>) -> anyhow::Result<()> + Send + 'static>(
-        &mut self,
-        listener: F,
-    ) {
+    /// Registers a metric listener, which will be notified of all the new registered metrics.
+    pub fn add_metric_listener<F: registry::MetricListener + Send + 'static>(&mut self, listener: F) {
+        let builder = |ctx: &mut dyn MetricListenerBuildContext| {
+            Ok(MetricListenerRegistration {
+                name: ctx.listener_name(""),
+                listener: Box::new(listener),
+            })
+        };
+        let plugin = self.current_plugin_name();
         self.pipeline_builder
-            .add_metric_listener(registry::make_listener(listener))
+            .add_metric_listener_builder(plugin, Box::new(builder));
+    }
+
+    /// Registers a metric listener builder, which will construct a listener that
+    /// will be notified of all the new registered metrics.
+    pub fn add_metric_listener_builder<F: builder::elements::MetricListenerBuilder + Send + 'static>(
+        &mut self,
+        builder: F,
+    ) {
+        let plugin = self.current_plugin_name();
+        self.pipeline_builder
+            .add_metric_listener_builder(plugin, Box::new(builder));
     }
 }
 
