@@ -5,12 +5,12 @@ edition = "2021"
 
 [dependencies]
 alumet = { path = "../alumet" }
-anyhow = "1.0.86"
+anyhow = "1.0.88"
 notify = { version = "6.1.1", default-features = false, features = ["macos_fsevent"] }
-serde = { version = "1.0.202", features = ["derive"] }
+serde = { version = "1.0.210", features = ["derive"] }
 humantime-serde = "1.1"
 serde_derive = "1.0"
-log = "0.4.21"
+log = "0.4.22"
 
 [lints]
 workspace = true

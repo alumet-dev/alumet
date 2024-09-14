@@ -9,4 +9,4 @@ description = "Rust sugar on top of the C API, to make dynamic ALUMET plugins in
 [dependencies]
 
 [build-dependencies]
-bindgen = "0.69.4"
+bindgen = "0.70.1"

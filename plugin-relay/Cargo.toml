@@ -14,7 +14,7 @@ anyhow = "1.0.88"
 hostname = "0.4.0"
 log = "0.4.22"
 serde = { version = "1.0.210", features = ["derive"] }
-tokio = { version = "1.37.0", features = ["rt"] }
+tokio = { version = "1.40.0", features = ["rt"] }
 tonic = "0.12.2"
 prost = "0.13" # required because we include generated code that depends on prost in lib.rs
 

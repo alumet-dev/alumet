@@ -5,13 +5,13 @@ edition = "2021"
 
 [dependencies]
 alumet = { path = "../alumet" }
-anyhow = "1.0.82"
-log = "0.4.21"
+anyhow = "1.0.88"
+log = "0.4.22"
 
 # We disable HTTP2 because it's not supported by InfluxDB.
-reqwest = { version = "0.12.4", default-features = false, features = ["default-tls"] }
-serde = { version = "1.0.200", features = ["derive"] }
-tokio = { version = "1.37.0", features = ["rt"] }
+reqwest = { version = "0.12.7", default-features = false, features = ["default-tls"] }
+serde = { version = "1.0.210", features = ["derive"] }
+tokio = { version = "1.40.0", features = ["rt"] }
 
 [lints]
 workspace = true

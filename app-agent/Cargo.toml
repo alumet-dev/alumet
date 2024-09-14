@@ -8,14 +8,14 @@ description = "Metric collector agent to install on each node."
 
 [dependencies]
 alumet = { path = "../alumet" }
-anyhow = "1.0.79"
-clap = { version = "4.5.4", features = ["derive"] }
-env_logger = "0.11.2"
+anyhow = "1.0.88"
+clap = { version = "4.5.17", features = ["derive"] }
+env_logger = "0.11.5"
 humantime-serde = "1.1.1"
-log = "0.4.20"
-serde = { version = "1.0.198", features = ["derive"] }
+log = "0.4.22"
+serde = { version = "1.0.210", features = ["derive"] }
 tokio = { version = "1.40.0", features = ["rt"] }
-toml = "0.8.12"
+toml = "0.8.19"
 
 # plugins
 plugin-csv = { path = "../plugin-csv", optional = true }
