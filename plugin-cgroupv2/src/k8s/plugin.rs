@@ -10,7 +10,7 @@ use anyhow::Context;
 use gethostname::gethostname;
 use notify::{Event, EventHandler, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-use std::{fs::File, path::PathBuf, time::Duration};
+use std::{fs::File, path::PathBuf, sync::Arc, time::Duration};
 
 use crate::{
     cgroupv2::{Metrics, CGROUP_MAX_TIME_COUNTER},
@@ -19,6 +19,7 @@ use crate::{
 
 use super::{
     probe::K8SProbe,
+    token::Token,
     utils::{self, CgroupV2MetricFile},
 };
 
@@ -42,11 +43,9 @@ struct K8sConfig {
 }
 
 #[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum TokenRetrieval {
-    #[serde(rename = "kubectl")]
     Kubectl,
-
-    #[serde(rename = "file")]
     File,
 }
 
@@ -93,7 +92,7 @@ impl AlumetPlugin for K8sPlugin {
             &self.config.path,
             self.config.hostname.clone(),
             self.config.kubernetes_api_url.clone(),
-            self.config.token_retrieval.clone(),
+            &Arc::new(Token::new(self.config.token_retrieval.clone())),
         )?;
         //Add as a source each pod already present
         for metric_file in final_list_metric_file {
@@ -132,7 +131,7 @@ impl AlumetPlugin for K8sPlugin {
             poll_interval: Duration,
             kubernetes_api_url: String,
             hostname: String,
-            token_retrieval: TokenRetrieval,
+            token: Token,
         }
 
         impl EventHandler for PodDetector {
@@ -188,7 +187,7 @@ impl AlumetPlugin for K8sPlugin {
                                             &name_to_seek,
                                             &detector.hostname,
                                             &detector.kubernetes_api_url,
-                                            detector.token_retrieval.clone(),
+                                            &detector.token,
                                         )
                                         .await
                                     })
@@ -246,7 +245,7 @@ impl AlumetPlugin for K8sPlugin {
             poll_interval,
             kubernetes_api_url,
             hostname,
-            token_retrieval,
+            token: Token::new(token_retrieval),
         };
 
         let mut watcher = notify::recommended_watcher(handler)?;
