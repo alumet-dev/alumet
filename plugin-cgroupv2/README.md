@@ -1,8 +1,25 @@
-# Kubernetes plugin
+# Cgroups V2 plugins <!-- omit in toc -->
 
-Allows to measure K8S pods using the cgroup v2 sysfs.
+Allows to measure CPU-time used using the cgroup v2 sysfs.
 
-# How to use
+## Table of Contents <!-- omit in toc -->
+
+- [Kubernetes Plugin](#kubernetes-plugin)
+  - [How to use](#how-to-use)
+  - [Prepare your environment](#prepare-your-environment)
+    - [cgroupv2](#cgroupv2)
+    - [kubectl](#kubectl)
+    - [alumet-reader](#alumet-reader)
+  - [How it works](#how-it-works)
+- [OAR3 Plugin](#oar3-plugin)
+  - [How to use](#how-to-use-1)
+  - [Prepare your environment](#prepare-your-environment-1)
+    - [cgroupv2](#cgroupv2-1)
+  - [How it works](#how-it-works-1)
+
+## Kubernetes Plugin
+
+### How to use
 
 Just compile the app-agent of the alumet's github repository.
 
@@ -15,7 +32,7 @@ Make sure that in main.rs of app-agent the Kubernetes plugin is imported and use
 
 The binary created by the compilation will be found under the target repository.
 
-# Prepare your environment
+### Prepare your environment
 
 To work this plugin needs several things.
 
@@ -23,12 +40,12 @@ To work this plugin needs several things.
 2. kubectl
 3. alumet-reader user
 
-## cgroupv2
+#### cgroupv2
 
 As the plugin use cgroupv2 to gather data, make sure to use this version of cgroup. In fact, a check is made by the plugin.
 If it doesn't detect the use of cgroupv2, the plugin will not start.
 
-## kubectl
+#### kubectl
 
 In this version of the plugin, to gather some data about pods and nodes, the plugin use kubectl. So make sure that kubectl is installed and usable.
 [How to install kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/)
@@ -55,7 +72,7 @@ Under the section: **[plugins.k8s]** I add the following:
 
 By default the value **kubernetes_api_url** will be set at: **https://127.0.0.1:8080**
 
-## alumet-reader
+#### alumet-reader
 
 To use the Kubernetes API an user is needed. It's the **alumet-reader** user. Make sur the user exist and have the good rights.
 You can use the yaml file: [alumet-user.yaml](./alumet-user.yaml) to create this user.
@@ -65,8 +82,38 @@ Run:
 kubectl apply -f alumet-user.yaml
 ```
 
-# How it work
+### How it works
 
 The plugin read data inside the sysfs. At its start, the plugin retrieves a token thanks to the alumet-reader user. It uses the token to retrieve all pods running on the current node.
 After that, it retrieves all cgroup related to Kubernetes pods, and make a correspondence between data retrieve from API and gathered from cgroup to fulfil the input plugin.
 When a new pod is started. The plugin interrogate the API to retrieve data about the pod, such as its name, its namespace and the node its running on.
+
+## OAR3 Plugin
+
+### How to use
+
+Just compile the app-agent of the alumet's github repository.
+
+```bash
+cargo run
+```
+
+Make sure that in the app-agent's cargo.toml file the OAR3 plugin is imported.
+Make sure that in main.rs of app-agent the OAR3 plugin is imported and used.
+
+The binary created by the compilation will be found under the target repository.
+
+### Prepare your environment
+
+To work this plugin needs several things.
+
+1. cgroupv2
+
+#### cgroupv2
+
+As the plugin uses cgroupv2 to gather data, make sure to use this version of cgroup. In fact, a check is made by the plugin.
+If it doesn't detect the use of cgroupv2, the plugin will not start.
+
+### How it works
+
+The plugin read data inside the sysfs. It read file under the path given in the config. If it find a cpu consumption time it gather it. If some folder are created, it try to read the new folder and find information about time consumption.

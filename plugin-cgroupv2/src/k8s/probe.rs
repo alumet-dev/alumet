@@ -1,31 +1,21 @@
 use alumet::{
     measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp},
-    metrics::{MetricCreationError, TypedMetricId},
+    metrics::TypedMetricId,
     pipeline::elements::error::PollError,
-    plugin::{
-        util::{CounterDiff, CounterDiffUpdate},
-        AlumetPluginStart,
-    },
+    plugin::util::CounterDiff,
     resources::{Resource, ResourceConsumer},
-    units::{PrefixedUnit, Unit},
 };
 use anyhow::Result;
 
-use crate::cgroup_v2::{self, CgroupV2MetricFile};
-use crate::parsing_cgroupv2::CgroupV2Metric;
+use crate::cgroupv2::{CgroupV2Metric, Metrics};
+
+use super::utils::{gather_value, CgroupV2MetricFile};
 
 pub struct K8SProbe {
     pub cgroup_v2_metric_file: CgroupV2MetricFile,
     pub time_tot: CounterDiff,
     pub time_usr: CounterDiff,
     pub time_sys: CounterDiff,
-    pub time_used_tot: TypedMetricId<u64>,
-    pub time_used_user_mode: TypedMetricId<u64>,
-    pub time_used_system_mode: TypedMetricId<u64>,
-}
-
-#[derive(Clone)]
-pub struct Metrics {
     pub time_used_tot: TypedMetricId<u64>,
     pub time_used_user_mode: TypedMetricId<u64>,
     pub time_used_system_mode: TypedMetricId<u64>,
@@ -38,8 +28,8 @@ impl K8SProbe {
         counter_tot: CounterDiff,
         counter_sys: CounterDiff,
         counter_usr: CounterDiff,
-    ) -> K8SProbe {
-        K8SProbe {
+    ) -> anyhow::Result<K8SProbe> {
+        Ok(K8SProbe {
             cgroup_v2_metric_file: metric_file,
             time_tot: counter_tot,
             time_usr: counter_usr,
@@ -47,14 +37,14 @@ impl K8SProbe {
             time_used_tot: metric.time_used_tot,
             time_used_system_mode: metric.time_used_system_mode,
             time_used_user_mode: metric.time_used_user_mode,
-        }
+        })
     }
 }
 
 impl alumet::pipeline::Source for K8SProbe {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         let mut file_buffer = String::new();
-        let metrics: CgroupV2Metric = cgroup_v2::gather_value(&mut self.cgroup_v2_metric_file, &mut file_buffer)?;
+        let metrics: CgroupV2Metric = gather_value(&mut self.cgroup_v2_metric_file, &mut file_buffer)?;
         let diff_tot = self.time_tot.update(metrics.time_used_tot).difference();
         let diff_usr = self.time_usr.update(metrics.time_used_user_mode).difference();
         let diff_sys = self.time_sys.update(metrics.time_used_system_mode).difference();
@@ -105,28 +95,5 @@ impl alumet::pipeline::Source for K8SProbe {
             measurements.push(p_sys);
         }
         Ok(())
-    }
-}
-
-impl Metrics {
-    pub fn new(alumet: &mut AlumetPluginStart) -> Result<Self, MetricCreationError> {
-        let usec: PrefixedUnit = PrefixedUnit::micro(Unit::Second);
-        Ok(Self {
-            time_used_tot: alumet.create_metric::<u64>(
-                "total_usage_usec",
-                usec.clone(),
-                "Total CPU usage time by the group",
-            )?,
-            time_used_user_mode: alumet.create_metric::<u64>(
-                "user_usage_usec",
-                usec.clone(),
-                "User CPU usage time by the group",
-            )?,
-            time_used_system_mode: alumet.create_metric::<u64>(
-                "system_usage_usec",
-                usec.clone(),
-                "System CPU usage time by the group",
-            )?,
-        })
     }
 }

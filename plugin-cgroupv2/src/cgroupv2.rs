@@ -1,4 +1,12 @@
-use std::{str::FromStr, string::String};
+use std::str::FromStr;
+
+use alumet::{
+    metrics::{MetricCreationError, TypedMetricId},
+    plugin::AlumetPluginStart,
+    units::{PrefixedUnit, Unit},
+};
+
+pub(crate) const CGROUP_MAX_TIME_COUNTER: u64 = u64::MAX;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct CgroupV2Metric {
@@ -42,6 +50,36 @@ impl FromStr for CgroupV2Metric {
             }
         }
         Ok(cgroup_struc_to_ret)
+    }
+}
+
+#[derive(Clone)]
+pub struct Metrics {
+    pub time_used_tot: TypedMetricId<u64>,
+    pub time_used_user_mode: TypedMetricId<u64>,
+    pub time_used_system_mode: TypedMetricId<u64>,
+}
+
+impl Metrics {
+    pub fn new(alumet: &mut AlumetPluginStart) -> Result<Self, MetricCreationError> {
+        let usec: PrefixedUnit = PrefixedUnit::micro(Unit::Second);
+        Ok(Self {
+            time_used_tot: alumet.create_metric::<u64>(
+                "cgroup_cpu_usage_total",
+                usec.clone(),
+                "Total CPU usage time by the cgroup",
+            )?,
+            time_used_user_mode: alumet.create_metric::<u64>(
+                "cgroup_cpu_usage_user",
+                usec.clone(),
+                "CPU in user mode usage time by the cgroup",
+            )?,
+            time_used_system_mode: alumet.create_metric::<u64>(
+                "cgroup_cpu_usage_system",
+                usec.clone(),
+                "CPU in system mode usage time by the cgroup",
+            )?,
+        })
     }
 }
 

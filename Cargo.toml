@@ -6,7 +6,7 @@ members = [
     "alumet-api-macros",
     "app-agent",
     "plugin-csv",
-    "plugin-k8s",
+    "plugin-cgroupv2",
     "plugin-influxdb",
     "plugin-nvidia",
     "plugin-oar2",

@@ -8,34 +8,45 @@ use alumet::{
 };
 use anyhow::Context;
 use gethostname::gethostname;
-use k8s_probe::Metrics;
 use notify::{Event, EventHandler, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::{fs::File, path::PathBuf, time::Duration};
 
-mod cgroup_v2;
-mod k8s_probe;
-mod parsing_cgroupv2;
+use crate::{
+    cgroupv2::{Metrics, CGROUP_MAX_TIME_COUNTER},
+    k8s::utils::get_pod_name,
+};
 
-use crate::cgroup_v2::CgroupV2MetricFile;
-use crate::k8s_probe::K8SProbe;
-
-pub(crate) const CGROUP_MAX_TIME_COUNTER: u64 = u64::MAX;
+use super::{
+    probe::K8SProbe,
+    token::Token,
+    utils::{self, CgroupV2MetricFile},
+};
 
 pub struct K8sPlugin {
-    config: Config,
+    config: K8sConfig,
     watcher: Option<RecommendedWatcher>,
     metrics: Option<Metrics>,
 }
 
 #[derive(Deserialize, Serialize)]
-struct Config {
+struct K8sConfig {
     path: PathBuf,
     /// Initial interval between two cgroup measurements.
     #[serde(with = "humantime_serde")]
     poll_interval: Duration,
     kubernetes_api_url: String,
     hostname: String,
+
+    /// Way to retrieve the k8s API token.
+    token_retrieval: TokenRetrieval,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TokenRetrieval {
+    Kubectl,
+    File,
 }
 
 impl AlumetPlugin for K8sPlugin {
@@ -48,7 +59,7 @@ impl AlumetPlugin for K8sPlugin {
     }
 
     fn default_config() -> anyhow::Result<Option<ConfigTable>> {
-        let config = serialize_config(Config::default())?;
+        let config = serialize_config(K8sConfig::default())?;
         Ok(Some(config))
     }
 
@@ -62,7 +73,7 @@ impl AlumetPlugin for K8sPlugin {
     }
 
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
-        let v2_used: bool = cgroup_v2::is_accessible_dir(&PathBuf::from("/sys/fs/cgroup/"));
+        let v2_used: bool = super::utils::is_accessible_dir(&PathBuf::from("/sys/fs/cgroup/"));
         if !v2_used {
             anyhow::bail!("Cgroups v2 are not being used!");
         }
@@ -72,28 +83,29 @@ impl AlumetPlugin for K8sPlugin {
             let hostname_ostring = gethostname();
             let hostname = hostname_ostring
                 .to_str()
-                .with_context(|| format!("hostname {hostname_ostring:?} is not valid UTF-8"))?
+                .with_context(|| format!("Invalid UTF-8 in hostname: {hostname_ostring:?}"))?
                 .to_string();
             self.config.hostname = hostname;
         }
 
-        let final_list_metric_file: Vec<CgroupV2MetricFile> = cgroup_v2::list_all_k8s_pods_file(
+        let final_list_metric_file: Vec<CgroupV2MetricFile> = utils::list_all_k8s_pods_file(
             &self.config.path,
             self.config.hostname.clone(),
             self.config.kubernetes_api_url.clone(),
+            &Token::new(self.config.token_retrieval.clone()),
         )?;
         //Add as a source each pod already present
         for metric_file in final_list_metric_file {
-            let counter_tmp_tot: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
-            let counter_tmp_usr: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
-            let counter_tmp_sys: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
+            let counter_tmp_tot: CounterDiff = CounterDiff::with_max_value(crate::cgroupv2::CGROUP_MAX_TIME_COUNTER);
+            let counter_tmp_usr: CounterDiff = CounterDiff::with_max_value(crate::cgroupv2::CGROUP_MAX_TIME_COUNTER);
+            let counter_tmp_sys: CounterDiff = CounterDiff::with_max_value(crate::cgroupv2::CGROUP_MAX_TIME_COUNTER);
             let probe = K8SProbe::new(
                 self.metrics.as_ref().expect("Metrics is not available").clone(),
                 metric_file,
                 counter_tmp_tot,
                 counter_tmp_sys,
                 counter_tmp_usr,
-            );
+            )?;
             alumet.add_source(Box::new(probe), TriggerSpec::at_interval(self.config.poll_interval));
         }
 
@@ -111,12 +123,15 @@ impl AlumetPlugin for K8sPlugin {
         let poll_interval = self.config.poll_interval;
         let kubernetes_api_url = self.config.kubernetes_api_url.clone();
         let hostname = self.config.hostname.to_owned();
+        let token_retrieval = self.config.token_retrieval.clone();
+
         struct PodDetector {
             metrics: Metrics,
             control_handle: ScopedControlHandle,
             poll_interval: Duration,
             kubernetes_api_url: String,
             hostname: String,
+            token: Token,
         }
 
         impl EventHandler for PodDetector {
@@ -161,17 +176,18 @@ impl AlumetPlugin for K8sPlugin {
                                 let uid_raw = parts.last().unwrap_or(&"No UID found");
                                 let uid = format!("pod{}", uid_raw);
                                 let name_to_seek = name_to_seek_raw.replace('_', "-");
-                                // let (name, ns) = cgroup_v2::get_pod_name(name_to_seek.to_owned());
+
                                 let rt = tokio::runtime::Builder::new_current_thread()
                                     .enable_all()
                                     .build()
                                     .context("failed to create local tokio runtime")?;
                                 let (name, namespace, node) = rt
                                     .block_on(async {
-                                        cgroup_v2::get_pod_name(
-                                            name_to_seek.to_owned(),
-                                            detector.hostname.clone(),
-                                            detector.kubernetes_api_url.clone(),
+                                        get_pod_name(
+                                            &name_to_seek,
+                                            &detector.hostname,
+                                            &detector.kubernetes_api_url,
+                                            &detector.token,
                                         )
                                         .await
                                     })
@@ -199,7 +215,7 @@ impl AlumetPlugin for K8sPlugin {
                                     counter_tmp_tot,
                                     counter_tmp_sys,
                                     counter_tmp_usr,
-                                );
+                                )?;
 
                                 // Add the probe to the sources
                                 detector
@@ -229,6 +245,7 @@ impl AlumetPlugin for K8sPlugin {
             poll_interval,
             kubernetes_api_url,
             hostname,
+            token: Token::new(token_retrieval),
         };
 
         let mut watcher = notify::recommended_watcher(handler)?;
@@ -240,7 +257,7 @@ impl AlumetPlugin for K8sPlugin {
     }
 }
 
-impl Default for Config {
+impl Default for K8sConfig {
     fn default() -> Self {
         let root_path = PathBuf::from("/sys/fs/cgroup/kubepods.slice/");
         Self {
@@ -248,6 +265,7 @@ impl Default for Config {
             poll_interval: Duration::from_secs(1), // 1Hz
             kubernetes_api_url: String::from("https://127.0.0.1:8080"),
             hostname: String::from(""),
+            token_retrieval: TokenRetrieval::Kubectl,
         }
     }
 }
