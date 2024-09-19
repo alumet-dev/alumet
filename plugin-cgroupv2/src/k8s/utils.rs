@@ -173,7 +173,7 @@ pub async fn kubernetes_get_existing_pods(
     let token = match token.get_value().await {
         Ok(token) => token,
         Err(e) => {
-            log::error!("could not retrieve the token, got {e}");
+            log::error!("Could not retrieve the token, got:{e}");
             return Ok(HashMap::new());
         }
     };
@@ -278,7 +278,7 @@ pub async fn get_pod_name(
     let token = match token.get_value().await {
         Ok(token) => token,
         Err(e) => {
-            log::error!("could not retrieve the token, got {e}");
+            log::error!("Could not retrieve the token, got: {e}");
             return Ok(("".to_string(), "".to_string(), "".to_string()));
         }
     };

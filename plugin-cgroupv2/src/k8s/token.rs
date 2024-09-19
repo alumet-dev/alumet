@@ -74,6 +74,13 @@ impl Token {
                     .args(["create", "token", "alumet-reader", "-n", "alumet"])
                     .output()?;
 
+                if !output.status.success() {
+                    return Err(anyhow!(
+                        "kubectl raised an error: {}",
+                        String::from_utf8_lossy(&output.stderr)
+                    ));
+                }
+
                 let token = String::from_utf8_lossy(&output.stdout);
                 token.trim().to_string()
             }
