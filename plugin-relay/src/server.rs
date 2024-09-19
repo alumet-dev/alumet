@@ -18,7 +18,7 @@ use alumet::{
 };
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
-use tonic::{transport::Server, Response, Status};
+use tonic::{transport::Server, Response, Status, Streaming};
 
 use crate::{
     protocol::{
@@ -120,10 +120,11 @@ impl MetricCollector for GrpcMetricCollector {
     /// Handles a gRPC request to ingest new measurement points.
     async fn ingest_measurements(
         &self,
-        request: tonic::Request<crate::protocol::MeasurementBuffer>,
+        request: tonic::Request<Streaming<protocol::MeasurementBuffer>>,
     ) -> Result<Response<Empty>, Status> {
-        fn read_measurement(m: protocol::MeasurementPoint) -> anyhow::Result<MeasurementPoint> {
-            fn read_attribute(attr: protocol::MeasurementAttribute) -> anyhow::Result<(String, AttributeValue)> {
+        // Transforms gRPC structures into ALUMET measurement points.
+        fn convert_protobuf_to_alumet(m: protocol::MeasurementPoint) -> anyhow::Result<MeasurementPoint> {
+            fn convert_attribute(attr: protocol::MeasurementAttribute) -> anyhow::Result<(String, AttributeValue)> {
                 let value = attr
                     .value
                     .with_context(|| format!("missing attribute value for key {}", attr.key))?;
@@ -134,19 +135,41 @@ impl MetricCollector for GrpcMetricCollector {
             let value = m.value.context("missing value")?.into();
             let resource = Resource::try_from(m.resource.context("missing resource")?).unwrap();
             let consumer = ResourceConsumer::try_from(m.consumer.context("missing resource consumer")?).unwrap();
-            let attributes: anyhow::Result<Vec<_>> = m.attributes.into_iter().map(read_attribute).collect();
+            let attributes: anyhow::Result<Vec<_>> = m.attributes.into_iter().map(convert_attribute).collect();
             let metric = RawMetricId::from_u64(m.metric);
             Ok(MeasurementPoint::new_untyped(timestamp, metric, resource, consumer, value).with_attr_vec(attributes?))
         }
 
-        // Transform gRPC structures into ALUMET data points.
-        let measurements: anyhow::Result<Vec<MeasurementPoint>> =
-            request.into_inner().points.into_iter().map(read_measurement).collect();
-        let measurements = measurements.map_err(|e| Status::invalid_argument(e.to_string()))?;
-
-        // Send the measurements to the rest of the pipeline.
-        self.out_tx.send(MeasurementBuffer::from(measurements)).await.unwrap();
-
+        // Handle each message as it arrives
+        let mut streaming: Streaming<protocol::MeasurementBuffer> = request.into_inner();
+        loop {
+            let incoming = streaming.message().await;
+            match incoming {
+                Ok(Some(buf)) => {
+                    // convert protobuf structs to Alumet structs
+                    let converted: anyhow::Result<Vec<MeasurementPoint>> =
+                        buf.points.into_iter().map(convert_protobuf_to_alumet).collect();
+                    let converted = converted.map_err(|e| Status::invalid_argument(e.to_string()))?;
+                    // send the measurements to the rest of the pipeline
+                    self.out_tx
+                        .send(MeasurementBuffer::from(converted))
+                        .await
+                        .expect("out_tx receiving end should not be dropped while an input is still running");
+                }
+                Ok(None) => {
+                    // end of the stream, the client will no longer send messages
+                    break;
+                }
+                Err(status) => {
+                    let client_name = status
+                        .metadata()
+                        .get(super::CLIENT_NAME_HEADER)
+                        .and_then(|name| name.to_str().ok())
+                        .unwrap_or("?");
+                    log::error!("Error received from the relay client '{client_name}': {status}");
+                }
+            }
+        }
         // Done.
         Ok(Response::new(Empty {}))
     }

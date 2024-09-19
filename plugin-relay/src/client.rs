@@ -1,27 +1,33 @@
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::protocol::metric_collector_client::MetricCollectorClient;
 use crate::protocol::{self, RegisterReply};
 
-use alumet::measurement::{
-    AttributeValue, MeasurementBuffer, MeasurementPoint, WrappedMeasurementType, WrappedMeasurementValue,
-};
+use alumet::measurement::{AttributeValue, MeasurementPoint, WrappedMeasurementType, WrappedMeasurementValue};
 use alumet::metrics::{Metric, RawMetricId};
-use alumet::pipeline::builder::elements::{MetricListenerRegistration, OutputRegistration};
-use alumet::pipeline::elements::error::WriteError;
-use alumet::pipeline::elements::output::OutputContext;
-use alumet::pipeline::registry::MetricListener;
-use alumet::plugin::rust::{deserialize_config, serialize_config, AlumetPlugin};
-use alumet::plugin::{AlumetPluginStart, AlumetPreStart, ConfigTable};
-use anyhow::Context;
+use alumet::pipeline::{
+    builder::elements::MetricListenerRegistration,
+    elements::output::{builder::AsyncOutputRegistration, AsyncOutputStream, BoxedAsyncOutput},
+    registry::MetricListener,
+};
+use alumet::plugin::{
+    rust::{deserialize_config, serialize_config, AlumetPlugin},
+    AlumetPluginStart, AlumetPreStart, ConfigTable,
+};
+
+use anyhow::{anyhow, Context};
+use futures::Stream;
 use serde::{Deserialize, Serialize};
-use tonic::transport::Channel;
+use tonic::{
+    metadata::{Ascii, MetadataValue},
+    transport::Channel,
+};
 
 pub struct RelayClientPlugin {
-    client_name: String,
-    collector_uri: String,
+    config: Config,
     metric_ids: Arc<Mutex<HashMap<u64, u64>>>,
 }
 
@@ -35,6 +41,10 @@ struct Config {
     /// The URI of the collector, for instance `http://127.0.0.1:50051`.
     #[serde(default = "default_collector_uri")]
     collector_uri: String,
+
+    buffer_size: usize,
+    #[serde(with = "humantime_serde")]
+    buffer_timeout: Duration,
 }
 
 impl Default for Config {
@@ -42,6 +52,8 @@ impl Default for Config {
         Self {
             client_name: default_client_name(),
             collector_uri: default_collector_uri(),
+            buffer_size: 4096,
+            buffer_timeout: Duration::from_secs(60),
         }
     }
 }
@@ -78,34 +90,32 @@ impl AlumetPlugin for RelayClientPlugin {
         let metric_ids = Arc::new(Mutex::new(HashMap::new()));
 
         // Return initialized plugin.
-        Ok(Box::new(Self {
-            client_name: config.client_name,
-            collector_uri: config.collector_uri,
-            metric_ids,
-        }))
+        Ok(Box::new(Self { config, metric_ids }))
     }
 
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
-        let collector_uri = self.collector_uri.clone();
-        let client_name = self.client_name.clone();
+        let collector_uri = self.config.collector_uri.clone();
+        let client_name = self.config.client_name.clone();
         let metric_ids = self.metric_ids.clone();
 
-        // The output cannot be created right now: we need the tokio Runtime (see below).
-        alumet.add_output_builder(move |ctx| {
-            log::info!("Connecting to gRPC server {collector_uri}...");
+        let buffer_size = self.config.buffer_size;
+        let buffer_timeout = self.config.buffer_timeout;
 
+        // The output is async :)
+        alumet.add_async_output_builder(move |ctx, stream| {
+            log::info!("Connecting to gRPC server {collector_uri}...");
             // Connect to gRPC server, using the tokio runtime in which Alumet will trigger the output.
-            // We also store the runtime handle, for use in `pre_pipeline_start`.
-            // This is important because a Tonic gRPC client can only be used from the runtime that it has been initialized with.
+            // Note that a Tonic gRPC client can only be used from the runtime it has been initialized with.
             let rt = ctx.async_runtime();
             let client = rt
                 .block_on(RelayClient::new(collector_uri, client_name.clone(), metric_ids))
                 .context("gRPC connection error")?;
-
             log::info!("Successfully connected with client name {client_name}.");
-            let output = Box::new(RelayOutput { client });
-            Ok(OutputRegistration {
-                name: ctx.output_name("grpc"),
+
+            let output = client.process_measurement_stream(stream, buffer_size, buffer_timeout);
+            let output: BoxedAsyncOutput = Box::into_pin(Box::new(output));
+            Ok(AsyncOutputRegistration {
+                name: ctx.output_name("grpc-measurements"),
                 output,
             })
         });
@@ -113,8 +123,8 @@ impl AlumetPlugin for RelayClientPlugin {
     }
 
     fn pre_pipeline_start(&mut self, alumet: &mut AlumetPreStart) -> anyhow::Result<()> {
-        let collector_uri = self.collector_uri.clone();
-        let client_name = self.client_name.clone();
+        let collector_uri = self.config.collector_uri.clone();
+        let client_name = self.config.client_name.clone();
         let metric_ids = self.metric_ids.clone();
 
         // Clone the existing metrics (which have been registered by the `start` methods of all the plugins).
@@ -161,24 +171,6 @@ impl AlumetPlugin for RelayClientPlugin {
     }
 }
 
-struct RelayOutput {
-    client: RelayClient,
-}
-
-impl alumet::pipeline::Output for RelayOutput {
-    fn write(&mut self, measurements: &MeasurementBuffer, _ctx: &OutputContext) -> Result<(), WriteError> {
-        // Acquire the client.
-        let client = &mut self.client;
-        // Get a handle to the current tokio runtime. This works because Alumet outputs are executed inside of a tokio runtime.
-        let handle = tokio::runtime::Handle::current();
-        // Execute send_measurements in a blocking way (wait for it to finish).
-        handle
-            .block_on(client.send_measurements(measurements))
-            .context("error in send_measurements")?;
-        Ok(())
-    }
-}
-
 struct RelayClient {
     /// gRPC client
     grpc_client: MetricCollectorClient<Channel>,
@@ -207,11 +199,17 @@ impl RelayClient {
         Ok(client)
     }
 
-    /// Sends measurements via gRPC.
-    async fn send_measurements(&mut self, measurements: &MeasurementBuffer) -> anyhow::Result<()> {
-        /// Convert Alumet measurements to the appropriate Protocol Buffer structure for gRPC.
+    fn process_measurement_stream(
+        self,
+        measurements: AsyncOutputStream,
+        buffer_size: usize,
+        buffer_timeout: Duration,
+    ) -> impl Future<Output = anyhow::Result<()>> + Send {
+        // ) -> impl Future<Output = tonic::Result<tonic::Response<protocol::Empty>>> + Send {
+        // TODO this future is not Send, why??
+
         fn convert_alumet_to_protobuf(
-            m: &MeasurementPoint,
+            m: MeasurementPoint,
             metric_ids: &HashMap<u64, u64>,
         ) -> protocol::MeasurementPoint {
             // convert metric id
@@ -225,9 +223,6 @@ impl RelayClient {
             let time_diff = SystemTime::from(m.timestamp)
                 .duration_since(UNIX_EPOCH)
                 .expect("Every timestamp should be after the UNIX_EPOCH");
-
-            // convert value
-            let value = m.value.clone().into(); // TODO avoid cloning by making Output::write accept an owned MeasurementBuffer?
 
             // convert resource and consumer
             let resource = protocol::Resource {
@@ -244,9 +239,12 @@ impl RelayClient {
                 .attributes()
                 .map(|(attr_key, attr_value)| protocol::MeasurementAttribute {
                     key: attr_key.to_owned(),
-                    value: Some(attr_value.clone().into()),
+                    value: Some(attr_value.to_owned().into()), // todo avoid clone by using a dedicated structure to expose the attributes
                 })
                 .collect();
+
+            // convert value
+            let value = m.value.into();
 
             // create point
             protocol::MeasurementPoint {
@@ -260,20 +258,52 @@ impl RelayClient {
             }
         }
 
-        let metric_ids = self.metric_ids.lock().unwrap();
-        let points: Vec<protocol::MeasurementPoint> = measurements
-            .iter()
-            .map(|point| convert_alumet_to_protobuf(point, &metric_ids))
-            .collect();
+        use futures::StreamExt;
+        let grpc_client = self.grpc_client;
+        let metric_ids = self.metric_ids;
 
-        log::debug!("Sending gRPC request with {} measurement points", points.len());
-        let request = tonic::Request::new(protocol::MeasurementBuffer { points });
-        let response = self.grpc_client.ingest_measurements(request).await;
-        log::trace!("RESPONSE={:?}", response);
+        let converted_stream = measurements
+            .0
+            .filter_map(move |maybe_buf| {
+                let metric_ids = metric_ids.clone();
+                async move {
+                    if let Ok(buf) = maybe_buf {
+                        let metric_ids = metric_ids.lock().unwrap();
+                        let converted: Vec<protocol::MeasurementPoint> = buf
+                            .into_iter()
+                            .map(|m| convert_alumet_to_protobuf(m, &metric_ids))
+                            .collect();
+                        let iterated = futures::stream::iter(converted);
+                        Some(iterated)
+                        // TODO(opt) optimize the inner stream away by creating a special version of
+                        // `chunks_timeout` that keep the buffers (to avoid copies) but counts the number of points
+                    } else {
+                        None
+                    }
+                }
+            })
+            .flatten();
+        let buffered_stream = tokio_stream::StreamExt::chunks_timeout(converted_stream, buffer_size, buffer_timeout)
+            .map(|points| protocol::MeasurementBuffer { points });
 
-        response?;
-        // TODO add details to the error (in server) and handle them here
-        Ok(())
+        // This function is necessary for the type inference to work,
+        // otherwise the compiler cannot prove that the type of the future returned by the tonic function is correct
+        // and produces weird "higher-ranked lifetime error".
+        fn ingest<S: Stream<Item = protocol::MeasurementBuffer> + Send + 'static>(
+            mut client: MetricCollectorClient<Channel>,
+            stream: S,
+        ) -> impl Future<Output = anyhow::Result<()>> + 'static {
+            async move {
+                let res = client.ingest_measurements(stream).await;
+                match res {
+                    Ok(_response) => Ok(()),
+                    Err(status) => Err(anyhow!("error in grpc streaming ingest_measurements: status {status}")),
+                }
+            }
+        }
+        // TODO add the client name in the header
+
+        ingest(grpc_client, buffered_stream)
     }
 
     /// Sends metric registration requests via gRPC.
@@ -297,9 +327,13 @@ impl RelayClient {
         let mut request = tonic::Request::new(protocol::MetricDefinitions { definitions });
 
         // Add a header to tell the server who we are.
-        request
-            .metadata_mut()
-            .append("x-alumet-client", self.client_name.parse().unwrap());
+        let client_name: MetadataValue<Ascii> = self.client_name.parse().with_context(|| {
+            format!(
+                "Invalid client_name '{}', it must be a valid ASCII string",
+                self.client_name
+            )
+        })?;
+        request.metadata_mut().append(super::CLIENT_NAME_HEADER, client_name);
 
         // Wait for the response.
         let response = self.grpc_client.register_metrics(request).await;

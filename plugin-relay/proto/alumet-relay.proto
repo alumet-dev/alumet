@@ -3,7 +3,7 @@ package alumet_relay;
 
 service MetricCollector {
     // Ingest new measurements, returns nothing.
-    rpc IngestMeasurements (MeasurementBuffer) returns (Empty);
+    rpc IngestMeasurements (stream MeasurementBuffer) returns (Empty);
 
     // Registers new metrics, returns their id.
     rpc RegisterMetrics (MetricDefinitions) returns (RegisterReply);

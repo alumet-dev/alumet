@@ -14,6 +14,8 @@ pub mod protocol {
     tonic::include_proto!("alumet_relay");
 }
 
+pub const CLIENT_NAME_HEADER: &str = "x-alumet-client";
+
 /// Parses and resolves a socket address, made of an `address` and a `port`.
 ///
 /// # Result

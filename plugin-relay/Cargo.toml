@@ -1,6 +1,6 @@
 [package]
 name = "plugin-relay"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 
 [features]
@@ -17,6 +17,9 @@ serde = { version = "1.0.210", features = ["derive"] }
 tokio = { version = "1.40.0", features = ["rt"] }
 tonic = "0.12.2"
 prost = "0.13" # required because we include generated code that depends on prost in lib.rs
+tokio-stream = "0.1.16"
+futures = "0.3.30"
+humantime-serde = "1.1.1"
 
 [build-dependencies]
 tonic-build = "0.12.2"
