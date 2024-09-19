@@ -83,7 +83,7 @@ impl AlumetPlugin for K8sPlugin {
             let hostname_ostring = gethostname();
             let hostname = hostname_ostring
                 .to_str()
-                .context("Invalid UTF-8 in Hostname")?
+                .with_context(|| format!("Invalid UTF-8 in hostname: {hostname_ostring:?}"))?
                 .to_string();
             self.config.hostname = hostname;
         }

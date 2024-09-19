@@ -65,19 +65,19 @@ impl Metrics {
         let usec: PrefixedUnit = PrefixedUnit::micro(Unit::Second);
         Ok(Self {
             time_used_tot: alumet.create_metric::<u64>(
-                "total_usage_usec",
+                "cgroup_cpu_usage_total",
                 usec.clone(),
-                "Total CPU usage time by the group",
+                "Total CPU usage time by the cgroup",
             )?,
             time_used_user_mode: alumet.create_metric::<u64>(
-                "user_usage_usec",
+                "cgroup_cpu_usage_user",
                 usec.clone(),
-                "User CPU usage time by the group",
+                "CPU in user mode usage time by the cgroup",
             )?,
             time_used_system_mode: alumet.create_metric::<u64>(
-                "system_usage_usec",
+                "cgroup_cpu_usage_system",
                 usec.clone(),
-                "System CPU usage time by the group",
+                "CPU in system mode usage time by the cgroup",
             )?,
         })
     }
