@@ -410,7 +410,7 @@ mod tests {
         std::fs::write(b.join("cpu.stat"), "fr").unwrap();
         std::fs::write(c.join("cpu.stat"), "sv").unwrap();
         std::fs::write(d.join("cpu.stat"), "ne").unwrap();
-        let li_met_file: anyhow::Result<Vec<CgroupV2MetricFile>> =
+        let list_met_file: anyhow::Result<Vec<CgroupV2MetricFile>> =
             list_metric_file_in_dir(&burstable_dir, "", "", &Token::new(TokenRetrieval::Kubectl));
         let list_pod_name = [
             "pod32a1942cb9a81912549c152a49b5f9b1",
@@ -419,7 +419,7 @@ mod tests {
             "podd87dz3z8z09de2b4b526361248c902c0",
         ];
 
-        match li_met_file {
+        match list_met_file {
             Ok(unwrap_list) => {
                 assert_eq!(unwrap_list.len(), 4);
                 for pod in unwrap_list {
@@ -430,7 +430,7 @@ mod tests {
                 }
             }
             Err(err) => {
-                log::error!("Error reading li_met_file: {:?}", err);
+                log::error!("Error reading list_met_file: {:?}", err);
                 assert!(false);
             }
         }

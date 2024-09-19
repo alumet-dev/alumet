@@ -72,9 +72,9 @@ fn list_metric_file_in_dir(root_directory_path: &Path) -> anyhow::Result<Vec<Cgr
 /// For each subdirectory, we look in if there is a directory/ies about pods and we add it
 /// to a vector. All subdirectory are visited with the help of <list_metric_file_in_dir> function.
 pub fn list_all_file(root_directory_path: &Path) -> anyhow::Result<Vec<CgroupV2MetricFile>> {
-    let mut final_li_metric_file: Vec<CgroupV2MetricFile> = Vec::new();
+    let mut final_list_metric_file: Vec<CgroupV2MetricFile> = Vec::new();
     if !root_directory_path.exists() {
-        return Ok(final_li_metric_file);
+        return Ok(final_list_metric_file);
     }
     // Add the root for all subdirectory:
     let mut all_sub_dir: Vec<PathBuf> = vec![root_directory_path.to_owned()];
@@ -89,9 +89,9 @@ pub fn list_all_file(root_directory_path: &Path) -> anyhow::Result<Vec<CgroupV2M
 
     for prefix in all_sub_dir {
         let mut result_vec = list_metric_file_in_dir(&prefix.to_owned())?;
-        final_li_metric_file.append(&mut result_vec);
+        final_list_metric_file.append(&mut result_vec);
     }
-    Ok(final_li_metric_file)
+    Ok(final_list_metric_file)
 }
 
 /// Extracts the metrics from the file.
@@ -148,7 +148,7 @@ mod tests {
         std::fs::write(b.join("cpu.stat"), "fr").unwrap();
         std::fs::write(c.join("cpu.stat"), "sv").unwrap();
         std::fs::write(d.join("cpu.stat"), "ne").unwrap();
-        let li_met_file: anyhow::Result<Vec<CgroupV2MetricFile>> = list_metric_file_in_dir(&burstable_dir);
+        let list_met_file: anyhow::Result<Vec<CgroupV2MetricFile>> = list_metric_file_in_dir(&burstable_dir);
         let list_pod_name = [
             "32a1942cb9a81912549c152a49b5f9b1",
             "d9209de2b4b526361248c9dcf3e702c0",
@@ -156,7 +156,7 @@ mod tests {
             "d87dz3z8z09de2b4b526361248c902c0",
         ];
 
-        match li_met_file {
+        match list_met_file {
             Ok(unwrap_list) => {
                 assert_eq!(unwrap_list.len(), 4);
                 for pod in unwrap_list {
@@ -167,7 +167,7 @@ mod tests {
                 }
             }
             Err(err) => {
-                log::error!("Error reading li_met_file: {:?}", err);
+                log::error!("Error reading list_met_file: {:?}", err);
                 assert!(false);
             }
         }
