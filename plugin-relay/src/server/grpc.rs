@@ -1,127 +1,46 @@
-use std::{
-    net::SocketAddr,
-    time::{Duration, UNIX_EPOCH},
-};
+use std::time::{Duration, UNIX_EPOCH};
 
 use alumet::{
     measurement::{
         AttributeValue, MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementType, WrappedMeasurementValue,
     },
     metrics::{Metric, RawMetricId},
-    pipeline::{builder::elements::AutonomousSourceRegistration, registry},
-    plugin::{
-        rust::{deserialize_config, serialize_config, AlumetPlugin},
-        AlumetPluginStart, ConfigTable,
-    },
+    pipeline::registry,
     resources::{InvalidConsumerError, InvalidResourceError, Resource, ResourceConsumer},
     units::{PrefixedUnit, Unit},
 };
 use anyhow::Context;
-use serde::{Deserialize, Serialize};
-use tonic::{transport::Server, Response, Status, Streaming};
+use tonic::Status;
 
-use crate::{
-    protocol::{
-        self,
-        metric_collector_server::{MetricCollector, MetricCollectorServer},
-        register_reply::IdMapping,
-        Empty, RegisterReply,
-    },
-    resolve_socket_address,
+use crate::protocol::{
+    self,
+    metric_collector_server::{MetricCollector, MetricCollectorServer},
+    register_reply::IdMapping,
+    Empty, RegisterReply,
 };
 
-pub struct RelayServerPlugin {
-    config: Config,
-}
-
-#[derive(Deserialize, Serialize)]
-struct Config {
-    /// Address to listen on.
-    /// The default value is ip6-localhost = `::1`.
-    ///
-    /// To listen all your network interfaces please use `0.0.0.0` or `::`.
-    address: String,
-
-    /// Port on which to serve.
-    port: u16,
-
-    /// IPv6 scope id, for link-local addressing.
-    ipv6_scope_id: Option<u32>,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            address: String::from("::1"), // "any" on ipv6
-            port: 50051,
-            ipv6_scope_id: None,
-        }
-    }
-}
-
-impl AlumetPlugin for RelayServerPlugin {
-    fn name() -> &'static str {
-        "relay-server"
-    }
-
-    fn version() -> &'static str {
-        env!("CARGO_PKG_VERSION")
-    }
-
-    fn default_config() -> anyhow::Result<Option<ConfigTable>> {
-        let config = serialize_config(Config::default())?;
-        Ok(Some(config))
-    }
-
-    fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
-        let config: Config = deserialize_config(config)?;
-
-        Ok(Box::new(RelayServerPlugin { config }))
-    }
-
-    fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
-        // Resolve the address from the config.
-        let config_address = std::mem::take(&mut self.config.address);
-        let addr: SocketAddr = resolve_socket_address(config_address, self.config.port, self.config.ipv6_scope_id)?[0];
-
-        log::info!("Starting gRPC server with on socket {addr}");
-        alumet.add_autonomous_source_builder(move |ctx, cancel_token, out_tx| {
-            let metrics_tx = ctx.metrics_sender();
-            let collector = GrpcMetricCollector { out_tx, metrics_tx };
-            let source = Box::pin(async move {
-                Server::builder()
-                    .add_service(MetricCollectorServer::new(collector))
-                    .serve_with_shutdown(addr, cancel_token.cancelled_owned())
-                    .await
-                    .context("gRPC server error")?;
-                Ok(())
-            });
-            Ok(AutonomousSourceRegistration {
-                name: ctx.source_name("grpc-server"),
-                source,
-            })
-        });
-        Ok(())
-    }
-
-    fn stop(&mut self) -> anyhow::Result<()> {
-        // The autonomous source has already been stopped at this point.
-        Ok(())
-    }
-}
-
-pub struct GrpcMetricCollector {
+pub struct MetricCollectorImpl {
     out_tx: tokio::sync::mpsc::Sender<MeasurementBuffer>,
     metrics_tx: registry::MetricSender,
 }
 
+impl MetricCollectorImpl {
+    pub fn new(out_tx: tokio::sync::mpsc::Sender<MeasurementBuffer>, metrics_tx: registry::MetricSender) -> Self {
+        Self { out_tx, metrics_tx }
+    }
+
+    pub fn into_service(self) -> MetricCollectorServer<Self> {
+        MetricCollectorServer::new(self)
+    }
+}
+
 #[tonic::async_trait]
-impl MetricCollector for GrpcMetricCollector {
+impl MetricCollector for MetricCollectorImpl {
     /// Handles a gRPC request to ingest new measurement points.
     async fn ingest_measurements(
         &self,
-        request: tonic::Request<Streaming<protocol::MeasurementBuffer>>,
-    ) -> Result<Response<Empty>, Status> {
+        request: tonic::Request<tonic::Streaming<protocol::MeasurementBuffer>>,
+    ) -> Result<tonic::Response<Empty>, Status> {
         // Transforms gRPC structures into ALUMET measurement points.
         fn convert_protobuf_to_alumet(m: protocol::MeasurementPoint) -> anyhow::Result<MeasurementPoint> {
             fn convert_attribute(attr: protocol::MeasurementAttribute) -> anyhow::Result<(String, AttributeValue)> {
@@ -141,7 +60,7 @@ impl MetricCollector for GrpcMetricCollector {
         }
 
         // Handle each message as it arrives
-        let mut streaming: Streaming<protocol::MeasurementBuffer> = request.into_inner();
+        let mut streaming: tonic::Streaming<protocol::MeasurementBuffer> = request.into_inner();
         loop {
             let incoming = streaming.message().await;
             match incoming {
@@ -163,7 +82,7 @@ impl MetricCollector for GrpcMetricCollector {
                 Err(status) => {
                     let client_name = status
                         .metadata()
-                        .get(super::CLIENT_NAME_HEADER)
+                        .get(crate::CLIENT_NAME_HEADER)
                         .and_then(|name| name.to_str().ok())
                         .unwrap_or("?");
                     log::error!("Error received from the relay client '{client_name}': {status}");
@@ -171,14 +90,14 @@ impl MetricCollector for GrpcMetricCollector {
             }
         }
         // Done.
-        Ok(Response::new(Empty {}))
+        Ok(tonic::Response::new(Empty {}))
     }
 
     /// Handles a gRPC request to register new metrics.
     async fn register_metrics(
         &self,
         request: tonic::Request<crate::protocol::MetricDefinitions>,
-    ) -> Result<Response<RegisterReply>, Status> {
+    ) -> Result<tonic::Response<RegisterReply>, Status> {
         fn read_metric(m: crate::protocol::metric_definitions::MetricDef) -> anyhow::Result<(u64, Metric)> {
             let value_type = protocol::MeasurementValueType::try_from(m.r#type)?.into();
             let metric = Metric {
@@ -230,7 +149,7 @@ impl MetricCollector for GrpcMetricCollector {
             .collect::<Result<Vec<IdMapping>, Status>>()?;
 
         // Send the response (happy path).
-        Ok(Response::new(RegisterReply { mappings }))
+        Ok(tonic::Response::new(RegisterReply { mappings }))
     }
 }
 

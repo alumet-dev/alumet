@@ -10,7 +10,7 @@ pub mod client;
 #[cfg(feature = "server")]
 pub mod server;
 
-pub mod protocol {
+pub(crate) mod protocol {
     tonic::include_proto!("alumet_relay");
 }
 
