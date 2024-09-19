@@ -86,11 +86,20 @@ impl Token {
         };
 
         let mut components = token.split('.');
-        let _ = components.next().ok_or(anyhow!("Could not parse the token"))?;
+        let _ = components
+            .next()
+            .ok_or(anyhow!("Could not parse the token, the header is missing"))?;
         let payload: serde_json::Value = serde_json::from_slice(
-            &BASE64_STANDARD_NO_PAD.decode(components.next().ok_or(anyhow!("Could not parse the token"))?.trim())?,
+            &BASE64_STANDARD_NO_PAD.decode(
+                components
+                    .next()
+                    .ok_or(anyhow!("Could not parse the token, the payload is missing"))?
+                    .trim(),
+            )?,
         )?;
-        let _ = components.next().ok_or(anyhow!("Could not parse the token"))?;
+        let _ = components
+            .next()
+            .ok_or(anyhow!("Could not parse the token, the signature is missing"))?;
 
         if components.next().is_some() {
             return Err(anyhow!("Token has too many components"));

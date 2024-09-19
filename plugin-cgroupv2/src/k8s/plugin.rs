@@ -10,7 +10,7 @@ use anyhow::Context;
 use gethostname::gethostname;
 use notify::{Event, EventHandler, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-use std::{fs::File, path::PathBuf, sync::Arc, time::Duration};
+use std::{fs::File, path::PathBuf, time::Duration};
 
 use crate::{
     cgroupv2::{Metrics, CGROUP_MAX_TIME_COUNTER},
@@ -92,7 +92,7 @@ impl AlumetPlugin for K8sPlugin {
             &self.config.path,
             self.config.hostname.clone(),
             self.config.kubernetes_api_url.clone(),
-            &Arc::new(Token::new(self.config.token_retrieval.clone())),
+            &Token::new(self.config.token_retrieval.clone()),
         )?;
         //Add as a source each pod already present
         for metric_file in final_list_metric_file {
