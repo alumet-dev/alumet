@@ -51,7 +51,7 @@ fn list_metric_file_in_dir(
     // Let's create a runtime to await async function and fill hashmap
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
     let main_hash_map: HashMap<String, (String, String, String)> =
-        rt.block_on(async { kubernetes_get_existing_pods(hostname, kubernetes_api_url, token).await })?;
+        rt.block_on(async { get_existing_pods(hostname, kubernetes_api_url, token).await })?;
 
     // For each File in the root path
     for entry in entries {
@@ -165,7 +165,7 @@ pub fn gather_value(file: &mut CgroupV2MetricFile, content_buffer: &mut String) 
 }
 
 /// Returns a HashMap where the key is the uid used and the value is a tuple containing it's name, namespace and node
-pub async fn kubernetes_get_existing_pods(
+pub async fn get_existing_pods(
     node: &str,
     kubernetes_api_url: &str,
     token: &Token,
