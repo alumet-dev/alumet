@@ -2,8 +2,9 @@ use std::time::Duration;
 
 use super::points::{error_point, panic_point};
 use alumet::measurement::{MeasurementAccumulator, MeasurementBuffer, Timestamp};
-use alumet::pipeline::builder::elements::{ManagedSourceRegistration, OutputRegistration, TransformRegistration};
+use alumet::pipeline::builder::elements::{ManagedSourceRegistration, TransformRegistration};
 use alumet::pipeline::elements::error::{TransformError, WriteError};
+use alumet::pipeline::elements::output::builder::BlockingOutputRegistration;
 use alumet::pipeline::elements::output::OutputContext;
 use alumet::pipeline::elements::transform::TransformContext;
 use alumet::pipeline::{elements::error::PollError, trigger::TriggerSpec};
@@ -59,9 +60,9 @@ impl AlumetPlugin for BadPlugin {
                 transform: Box::new(BadTransform),
             })
         });
-        alumet.add_output_builder(|ctx| {
+        alumet.add_blocking_output_builder(|ctx| {
             error_point!(output_build);
-            Ok(OutputRegistration {
+            Ok(BlockingOutputRegistration {
                 name: ctx.output_name("output"),
                 output: Box::new(BadOutput),
             })

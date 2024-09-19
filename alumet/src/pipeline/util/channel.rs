@@ -1,5 +1,6 @@
 //! Abstractions over different kinds of channel.
 
+use futures::Stream;
 use tokio::sync::{broadcast, mpsc};
 
 use crate::measurement::MeasurementBuffer;
@@ -7,6 +8,7 @@ use crate::measurement::MeasurementBuffer;
 /// Trait that allows to receive measurements from different kinds of channel.
 pub trait MeasurementReceiver {
     async fn recv(&mut self) -> Result<MeasurementBuffer, RecvError>;
+    fn into_stream(self) -> impl Stream<Item = Result<MeasurementBuffer, StreamRecvError>>;
 }
 
 pub enum ReceiverEnum {
@@ -21,9 +23,16 @@ enum ProviderEnum {
     Single(Option<mpsc::Receiver<MeasurementBuffer>>),
 }
 
+// common error enum
+
 pub enum RecvError {
     Lagged(u64),
     Closed,
+}
+
+#[non_exhaustive]
+pub enum StreamRecvError {
+    Lagged(u64),
 }
 
 // receiver implementations
@@ -35,6 +44,17 @@ impl MeasurementReceiver for broadcast::Receiver<MeasurementBuffer> {
             broadcast::error::RecvError::Lagged(n) => RecvError::Lagged(n),
         })
     }
+
+    fn into_stream(self) -> impl Stream<Item = Result<MeasurementBuffer, StreamRecvError>> {
+        use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
+        use tokio_stream::StreamExt;
+
+        BroadcastStream::new(self).map(|item| {
+            item.map_err(|e| match e {
+                BroadcastStreamRecvError::Lagged(n) => StreamRecvError::Lagged(n),
+            })
+        })
+    }
 }
 
 impl MeasurementReceiver for mpsc::Receiver<MeasurementBuffer> {
@@ -43,6 +63,11 @@ impl MeasurementReceiver for mpsc::Receiver<MeasurementBuffer> {
             Some(buf) => Ok(buf),
             None => Err(RecvError::Closed),
         }
+    }
+
+    fn into_stream(self) -> impl Stream<Item = Result<MeasurementBuffer, StreamRecvError>> {
+        use tokio_stream::{wrappers::ReceiverStream, StreamExt};
+        ReceiverStream::new(self).map(Ok)
     }
 }
 

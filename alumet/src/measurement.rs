@@ -376,6 +376,23 @@ impl<'a> IntoIterator for &'a MeasurementBuffer {
     }
 }
 
+impl IntoIterator for MeasurementBuffer {
+    type Item = MeasurementPoint;
+    type IntoIter = std::vec::IntoIter<MeasurementPoint>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.points.into_iter()
+    }
+}
+
+impl FromIterator<MeasurementPoint> for MeasurementBuffer {
+    fn from_iter<T: IntoIterator<Item = MeasurementPoint>>(iter: T) -> Self {
+        Self {
+            points: Vec::from_iter(iter),
+        }
+    }
+}
+
 impl std::fmt::Debug for MeasurementBuffer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MeasurementBuffer")

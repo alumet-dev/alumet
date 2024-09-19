@@ -37,7 +37,7 @@ pub struct MeasurementPipeline {
 pub struct Builder {
     sources: Vec<(PluginName, elements::SourceBuilder)>,
     transforms: Vec<(PluginName, Box<dyn elements::TransformBuilder>)>,
-    outputs: Vec<(PluginName, Box<dyn elements::OutputBuilder>)>,
+    outputs: Vec<(PluginName, output::builder::OutputBuilder)>,
 
     /// Constraints to apply to the TriggerSpec of managed sources.
     trigger_constraints: TriggerConstraints,
@@ -172,29 +172,6 @@ pub mod elements {
     pub trait TransformBuilder: FnOnce(&mut dyn TransformBuildContext) -> anyhow::Result<TransformRegistration> {}
     impl<F> TransformBuilder for F where F: FnOnce(&mut dyn TransformBuildContext) -> anyhow::Result<TransformRegistration> {}
 
-    /// Trait for output builders.
-    ///
-    ///  # Example
-    /// ```
-    /// use alumet::pipeline::builder::elements::{OutputBuilder, OutputRegistration};
-    /// use alumet::pipeline::builder::context::{OutputBuildContext};
-    /// use alumet::pipeline::{trigger, Output};
-    ///
-    /// fn build_my_output() -> anyhow::Result<Box<dyn Output>> {
-    ///     todo!("build a new output")
-    /// }
-    ///
-    /// let builder: &dyn OutputBuilder = &|ctx: &mut dyn OutputBuildContext| {
-    ///     let output = build_my_output()?;
-    ///     Ok(OutputRegistration {
-    ///         name: ctx.output_name("my-output"),
-    ///         output,
-    ///     })
-    /// };
-    /// ```
-    pub trait OutputBuilder: FnOnce(&mut dyn OutputBuildContext) -> anyhow::Result<OutputRegistration> {}
-    impl<F> OutputBuilder for F where F: FnOnce(&mut dyn OutputBuildContext) -> anyhow::Result<OutputRegistration> {}
-
     /// A source builder, for a managed or autonomous source.
     ///
     /// Use this type in the pipeline Builder.
@@ -237,12 +214,6 @@ pub mod elements {
     pub struct TransformRegistration {
         pub name: TransformName,
         pub transform: Box<dyn transform::Transform>,
-    }
-
-    /// Information required to register a new output to the measurement pipeline.
-    pub struct OutputRegistration {
-        pub name: OutputName,
-        pub output: Box<dyn output::Output>,
     }
 
     impl std::fmt::Debug for SourceBuilder {
@@ -372,7 +343,7 @@ impl Builder {
     }
 
     /// Adds an output to the pipeline, with a dedicated builder.
-    pub fn add_output_builder(&mut self, plugin: PluginName, builder: Box<dyn elements::OutputBuilder>) {
+    pub fn add_output_builder(&mut self, plugin: PluginName, builder: output::builder::OutputBuilder) {
         self.outputs.push((plugin, builder))
     }
 
@@ -396,10 +367,9 @@ impl Builder {
     ///
     /// The new pipeline is immediately started.
     pub fn build(mut self) -> anyhow::Result<MeasurementPipeline> {
-        use context::OutputBuildContext;
-        use elements::OutputRegistration;
+        use output::builder::{BlockingOutputBuildContext, BlockingOutputRegistration};
 
-        fn dummy_output_builder(ctx: &mut dyn OutputBuildContext) -> anyhow::Result<OutputRegistration> {
+        fn dummy_output_builder(ctx: &mut BlockingOutputBuildContext) -> anyhow::Result<BlockingOutputRegistration> {
             use crate::pipeline::{elements::error::WriteError, Output};
 
             struct DummyOutput;
@@ -409,7 +379,7 @@ impl Builder {
                 }
             }
 
-            Ok(OutputRegistration {
+            Ok(BlockingOutputRegistration {
                 name: ctx.output_name("dummy"),
                 output: Box::new(DummyOutput),
             })
@@ -463,7 +433,8 @@ impl Builder {
         if self.outputs.is_empty() {
             log::warn!("No output has been registered. A dummy output will be added to make the pipeline work, but you probably want to add a true output.");
             let no_plugin = PluginName(String::from("_"));
-            self.outputs.push((no_plugin, Box::new(dummy_output_builder)));
+            let builder = output::builder::OutputBuilder::Blocking(Box::new(dummy_output_builder));
+            self.outputs.push((no_plugin, builder));
         }
 
         if self.outputs.len() == 1 && self.transforms.is_empty() {

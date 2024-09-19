@@ -8,11 +8,11 @@ use std::task::{Context, Poll};
 use futures::task::AtomicWaker;
 use tokio_stream::Stream;
 
-/// A [`Stream`] wrapper that allows to pause and stop the stream.
+/// A [`Stream`] wrapper that allows to pause, unpause and stop the stream.
 ///
 /// Use [`state()`](Self::state) to obtain an `Arc` that points to the state of the stream,
 /// then [`SharedState::set`] to update it.
-pub struct ControlledStream<T, S: Stream<Item = T>> {
+pub struct ControlledStream<S: Stream> {
     inner: S,
     state: Arc<SharedStreamState>,
 }
@@ -39,7 +39,7 @@ impl SharedStreamState {
     }
 }
 
-impl<T, S: Stream<Item = T>> ControlledStream<T, S> {
+impl<S: Stream> ControlledStream<S> {
     /// Creates new controlled stream with the initial state [`StreamState::Run`].
     pub fn new(inner: S) -> Self {
         Self::with_initial_state(inner, StreamState::Run)
@@ -64,8 +64,8 @@ impl<T, S: Stream<Item = T>> ControlledStream<T, S> {
     }
 }
 
-impl<T, S: Stream<Item = T>> Stream for ControlledStream<T, S> {
-    type Item = T;
+impl<S: Stream> Stream for ControlledStream<S> {
+    type Item = S::Item;
 
     fn poll_next(self: std::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> std::task::Poll<Option<Self::Item>> {
         // pin-project the fields

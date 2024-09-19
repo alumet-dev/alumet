@@ -1,11 +1,13 @@
+//! Phases of the plugins lifecycle.
 use std::marker::PhantomData;
 
 use crate::metrics::MetricRegistry;
-use crate::pipeline::builder::context::{MetricListenerBuildContext, OutputBuildContext};
+use crate::pipeline::builder::context::MetricListenerBuildContext;
 use crate::pipeline::builder::elements::{
     AutonomousSourceBuilder, ManagedSourceBuilder, ManagedSourceRegistration, MetricListenerRegistration,
-    OutputBuilder, OutputRegistration, SourceBuilder, TransformBuilder, TransformRegistration,
+    SourceBuilder, TransformBuilder, TransformRegistration,
 };
+use crate::pipeline::elements::output;
 use crate::pipeline::{builder, registry};
 use crate::{
     measurement::{MeasurementType, WrappedMeasurementType},
@@ -177,15 +179,16 @@ impl<'a> AlumetPluginStart<'a> {
     }
 
     /// Adds an output to the Alumet pipeline.
-    pub fn add_output(&mut self, output: Box<dyn Output>) {
+    pub fn add_blocking_output(&mut self, output: Box<dyn Output>) {
         let plugin = self.current_plugin_name();
-        let builder = |ctx: &mut dyn OutputBuildContext| {
-            Ok(OutputRegistration {
+        let build = |ctx: &mut output::builder::BlockingOutputBuildContext| {
+            Ok(output::builder::BlockingOutputRegistration {
                 name: ctx.output_name(""),
                 output,
             })
         };
-        self.pipeline_builder.add_output_builder(plugin, Box::new(builder));
+        let builder = output::builder::OutputBuilder::Blocking(Box::new(build));
+        self.pipeline_builder.add_output_builder(plugin, builder);
     }
 
     /// Adds the builder of an output to the Alumet pipeline.
@@ -196,9 +199,16 @@ impl<'a> AlumetPluginStart<'a> {
     /// in order to use an async library.
     ///
     /// In general, you should prefer to use [`add_output`](Self::add_output) if possible.
-    pub fn add_output_builder<F: OutputBuilder + 'static>(&mut self, builder: F) {
+    pub fn add_blocking_output_builder<F: output::builder::BlockingOutputBuilder + 'static>(&mut self, builder: F) {
         let plugin = self.current_plugin_name();
-        self.pipeline_builder.add_output_builder(plugin, Box::new(builder));
+        let builder = output::builder::OutputBuilder::Blocking(Box::new(builder));
+        self.pipeline_builder.add_output_builder(plugin, builder);
+    }
+
+    pub fn add_async_output_builder<F: output::builder::AsyncOutputBuilder + 'static>(&mut self, builder: F) {
+        let plugin = self.current_plugin_name();
+        let builder = output::builder::OutputBuilder::Async(Box::new(builder));
+        self.pipeline_builder.add_output_builder(plugin, builder);
     }
 
     pub fn on_pipeline_start<F: PostStartAction + 'static>(&mut self, action: F) {

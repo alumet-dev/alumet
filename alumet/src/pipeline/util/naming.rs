@@ -119,6 +119,8 @@ pub struct ElementNameParts {
     pub(super) element: String,
 }
 
+// TODO for the name, I could use a &'static str (or a const perhaps?) for the type of the element.
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceName(pub(super) ElementNameParts);
 
