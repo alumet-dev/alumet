@@ -1,0 +1,11 @@
+[report]
+out = ["Html", "Xml", "Lcov"]
+output-dir = "target/tarpaulin"
+
+[test]
+skip-clean = true
+include-tests = true
+follow-exec = true
+workspace = true
+timeout = "5m"
+all-features = true

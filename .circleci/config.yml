@@ -138,6 +138,60 @@ jobs:
           command: "cd alumet && cargo +nightly miri test -- ffi"
           environment:
             SKIP_BINDGEN: true
+  coverage:
+    machine: true
+    steps:
+      - checkout
+
+      - run:
+          name: Create concatenated cache key
+          command: |
+            find -name 'Cargo\.toml' | xargs cat > .combined_cache_key
+            if [ -f .cargo/config.toml ]; then
+              cat .cargo/config.toml >> .combined_cache_key
+            fi
+            if [ -f Cargo.lock ]; then
+              cat Cargo.lock >> .combined_cache_key
+            fi
+
+      - run:
+          name: Install required packages.
+          command: sudo apt-get update && sudo apt-get install llvm-dev libclang-dev protobuf-compiler --no-install-recommends
+      
+      - restore_cache:
+          keys:
+            - v1-cache-{{ checksum ".combined_cache_key" }}
+
+      - run:
+          name: Install Rust
+          command: |
+            curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh -s -- -y
+            echo 'export PATH=$HOME/.cargo/bin:$PATH' >> $BASH_ENV
+
+      - run:
+          name: Install Tarpaulin
+          command: cargo install cargo-tarpaulin
+
+      - run:
+          name: Run Tests (including doc tests)
+          command: "CONTINUE_TEST_IF_NO_POWERCAP=true cargo tarpaulin"
+
+      - run:
+          name: Installing cargo-cache
+          command: "cargo install cargo-cache --no-default-features --features ci-autoclean cargo-cache"
+
+      - run:
+          name: Optimizing the cache
+          command: "cargo cache"
+
+      - save_cache:
+          key: v1-cache-{{ checksum ".combined_cache_key" }}
+          paths:
+            - ~/.cargo
+
+      - store_artifacts:
+          path: target/tarpaulin/tarpaulin-report.html
+          destination: tarpaulin-report.html
 
 workflows:
   test_and_lint:
@@ -146,3 +200,4 @@ workflows:
       - build_on_musl
       - lint
       - miri_test
+      - coverage
