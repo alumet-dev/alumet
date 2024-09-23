@@ -3,6 +3,7 @@
 use std::{fmt::Debug, sync::Arc};
 
 use anyhow::Context;
+use listener::{MetricListenerBuilder, MetricListenerRegistration};
 use tokio::{
     runtime,
     sync::{
@@ -15,11 +16,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::metrics::{Metric, MetricCreationError, MetricRegistry, RawMetricId};
 
-use super::{
-    builder::elements::{MetricListenerBuilder, MetricListenerRegistration},
-    util::naming::{ListenerName, NameGenerator, ScopedNameGenerator},
-    PluginName,
-};
+use super::{util::naming::NameGenerator, PluginName};
 
 /// A message that can be sent to the task that controls the [`MetricRegistry`],
 /// for instance via [`MetricSender`].
@@ -31,7 +28,7 @@ pub enum ControlMessage {
         Option<oneshot::Sender<Vec<Result<RawMetricId, MetricCreationError>>>>,
     ),
     /// Adds a new listener that will be notified on new metric registration.
-    Subscribe(PluginName, Box<dyn MetricListenerBuilder + Send>),
+    Subscribe(PluginName, Box<dyn listener::MetricListenerBuilder + Send>),
 }
 
 /// A strategy to handle duplicate metrics.
@@ -43,29 +40,62 @@ pub enum DuplicateStrategy {
     Rename { suffix: String },
 }
 
-/// A callback that gets notified of new metrics.
-pub trait MetricListener: FnMut(Vec<(RawMetricId, Metric)>) -> anyhow::Result<()> + Send {}
-impl<F> MetricListener for F where F: FnMut(Vec<(RawMetricId, Metric)>) -> anyhow::Result<()> + Send {}
-
 /// Controls the central registry of metrics.
 pub(crate) struct MetricRegistryControl {
     registry: Arc<RwLock<MetricRegistry>>,
-    listeners: Vec<MetricListenerRegistration>,
+    listeners: Vec<listener::MetricListenerRegistration>,
     listener_names: NameGenerator,
 }
 
-struct ListenerBuildContext<'a> {
-    rt: &'a tokio::runtime::Handle,
-    namegen: &'a mut ScopedNameGenerator,
-}
+pub mod listener {
+    use crate::{
+        metrics::{Metric, RawMetricId},
+        pipeline::util::naming::{ListenerName, PluginElementNamespace},
+    };
 
-impl super::builder::context::MetricListenerBuildContext for ListenerBuildContext<'_> {
-    fn listener_name(&mut self, name: &str) -> ListenerName {
-        self.namegen.listener_name(name)
+    /// A callback that gets notified of new metrics.
+    pub trait MetricListener: FnMut(Vec<(RawMetricId, Metric)>) -> anyhow::Result<()> + Send {}
+    impl<F> MetricListener for F where F: FnMut(Vec<(RawMetricId, Metric)>) -> anyhow::Result<()> + Send {}
+
+    pub(super) struct BuildContext<'a> {
+        pub(super) rt: &'a tokio::runtime::Handle,
+        pub(super) namegen: &'a mut PluginElementNamespace,
     }
 
-    fn async_runtime(&self) -> &tokio::runtime::Handle {
-        self.rt
+    /// Context accessible when building a metric listener.
+    pub trait MetricListenerBuildContext {
+        /// Generates a name for the listener.
+        fn listener_name(&mut self, name: &str) -> ListenerName;
+        /// Returns a handle to the async runtime on which the listener will be executed.
+        fn async_runtime(&self) -> &tokio::runtime::Handle;
+    }
+
+    impl MetricListenerBuildContext for BuildContext<'_> {
+        fn listener_name(&mut self, name: &str) -> ListenerName {
+            ListenerName(self.namegen.insert_deduplicate(name))
+        }
+
+        fn async_runtime(&self) -> &tokio::runtime::Handle {
+            self.rt
+        }
+    }
+
+    /// Information required to register a new metric listener.
+    pub struct MetricListenerRegistration {
+        pub name: ListenerName,
+        pub listener: Box<dyn MetricListener>,
+    }
+
+    /// Trait for builders of metric listeners.
+    ///
+    /// Similar to the other builders.
+    pub trait MetricListenerBuilder:
+        FnOnce(&mut dyn MetricListenerBuildContext) -> anyhow::Result<MetricListenerRegistration>
+    {
+    }
+    impl<F> MetricListenerBuilder for F where
+        F: FnOnce(&mut dyn MetricListenerBuildContext) -> anyhow::Result<MetricListenerRegistration>
+    {
     }
 }
 
@@ -90,9 +120,9 @@ impl MetricRegistryControl {
     ) -> anyhow::Result<()> {
         self.listeners.reserve_exact(builders.len());
         for (plugin, builder) in builders {
-            let mut ctx = ListenerBuildContext {
+            let mut ctx = listener::BuildContext {
                 rt,
-                namegen: self.listener_names.namegen_for_scope(&plugin),
+                namegen: self.listener_names.plugin_namespace(&plugin),
             };
             let reg = builder(&mut ctx)
                 .with_context(|| format!("error in listener creation requested by plugin {plugin}"))?;

@@ -1,10 +1,8 @@
 //! On-the-fly modification of the pipeline.
-use super::builder::elements::{
-    AutonomousSourceBuilder, ManagedSourceBuilder, ManagedSourceRegistration, SendSourceBuilder,
-};
 use super::elements::source::CreateManyMessage;
 use super::elements::{output, source, transform};
-use super::{builder, trigger, PluginName, Source};
+use super::{trigger, PluginName, Source};
+
 use thiserror::Error;
 use tokio::runtime;
 use tokio::sync::mpsc::{self, Receiver, Sender};
@@ -64,7 +62,7 @@ pub struct ScopedControlHandle {
 /// in order to handle the errors. The drop implementation silently ignores flushing errors.
 pub struct SourceCreationBuffer<'a> {
     inner: &'a mut ScopedControlHandle,
-    buffer: Vec<builder::elements::SendSourceBuilder>,
+    buffer: Vec<source::builder::SendSourceBuilder>,
 }
 
 /// A message that can be sent "to the pipeline" (I'm simplifying here) in order to control it.
@@ -194,10 +192,13 @@ impl ScopedControlHandle {
     ///
     /// # Bulk registration of sources
     /// To add multiple sources, it is more efficient to use [`source_buffer`](Self::source_buffer) instead of many `add_source_builder`.
-    pub fn add_source_builder<F: ManagedSourceBuilder + Send + 'static>(&self, builder: F) -> Result<(), ControlError> {
+    pub fn add_source_builder<F: source::builder::ManagedSourceBuilder + Send + 'static>(
+        &self,
+        builder: F,
+    ) -> Result<(), ControlError> {
         let message = ControlMessage::Source(source::ControlMessage::CreateOne(source::CreateOneMessage {
             plugin: self.plugin.clone(),
-            builder: SendSourceBuilder::Managed(Box::new(builder)),
+            builder: source::builder::SendSourceBuilder::Managed(Box::new(builder)),
         }));
         self.inner.try_send(message).map_err(|e| e.into())
     }
@@ -209,13 +210,13 @@ impl ScopedControlHandle {
     ///
     /// # Bulk registration of sources
     /// To add multiple sources, it is more efficient to use [`source_buffer`](Self::source_buffer) instead of many `add_source_builder`.
-    pub fn add_autonomous_source_builder<F: AutonomousSourceBuilder + Send + 'static>(
+    pub fn add_autonomous_source_builder<F: source::builder::AutonomousSourceBuilder + Send + 'static>(
         &self,
         builder: F,
     ) -> Result<(), ControlError> {
         let message = ControlMessage::Source(source::ControlMessage::CreateOne(source::CreateOneMessage {
             plugin: self.plugin.clone(),
-            builder: SendSourceBuilder::Autonomous(Box::new(builder)),
+            builder: source::builder::SendSourceBuilder::Autonomous(Box::new(builder)),
         }));
         self.inner.try_send(message).map_err(|e| e.into())
     }
@@ -226,10 +227,12 @@ impl ScopedControlHandle {
         name: &str,
         trigger: trigger::TriggerSpec,
         source: Box<dyn Source>,
-    ) -> impl FnOnce(&mut dyn builder::context::SourceBuildContext) -> anyhow::Result<ManagedSourceRegistration> {
+    ) -> impl FnOnce(
+        &mut dyn source::builder::ManagedSourceBuildContext,
+    ) -> anyhow::Result<source::builder::ManagedSourceRegistration> {
         let source_name = name.to_owned();
-        move |ctx: &mut dyn builder::context::SourceBuildContext| {
-            Ok(ManagedSourceRegistration {
+        move |ctx: &mut dyn source::builder::ManagedSourceBuildContext| {
+            Ok(source::builder::ManagedSourceRegistration {
                 name: ctx.source_name(&source_name),
                 trigger_spec: trigger,
                 source,
@@ -262,14 +265,17 @@ impl SourceCreationBuffer<'_> {
     }
 
     /// Adds a source to the buffer, with an explicit builder.
-    pub fn add_source_builder<F: ManagedSourceBuilder + Send + 'static>(&mut self, builder: F) {
-        let builder = SendSourceBuilder::Managed(Box::new(builder));
+    pub fn add_source_builder<F: source::builder::ManagedSourceBuilder + Send + 'static>(&mut self, builder: F) {
+        let builder = source::builder::SendSourceBuilder::Managed(Box::new(builder));
         self.buffer.push(builder);
     }
 
     /// Adds an autonomous source builder to the buffer.
-    pub fn add_autonomous_source_builder<F: AutonomousSourceBuilder + Send + 'static>(&mut self, builder: F) {
-        let builder = SendSourceBuilder::Autonomous(Box::new(builder));
+    pub fn add_autonomous_source_builder<F: source::builder::AutonomousSourceBuilder + Send + 'static>(
+        &mut self,
+        builder: F,
+    ) {
+        let builder = source::builder::SendSourceBuilder::Autonomous(Box::new(builder));
         self.buffer.push(builder);
     }
 }

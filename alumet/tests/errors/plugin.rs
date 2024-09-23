@@ -2,12 +2,11 @@ use std::time::Duration;
 
 use super::points::{error_point, panic_point};
 use alumet::measurement::{MeasurementAccumulator, MeasurementBuffer, Timestamp};
-use alumet::pipeline::builder::elements::{ManagedSourceRegistration, TransformRegistration};
-use alumet::pipeline::elements::error::{TransformError, WriteError};
-use alumet::pipeline::elements::output::builder::BlockingOutputRegistration;
-use alumet::pipeline::elements::output::OutputContext;
-use alumet::pipeline::elements::transform::TransformContext;
-use alumet::pipeline::{elements::error::PollError, trigger::TriggerSpec};
+use alumet::pipeline::elements::error::{PollError, TransformError, WriteError};
+use alumet::pipeline::elements::output::{builder::BlockingOutputRegistration, OutputContext};
+use alumet::pipeline::elements::source::builder::ManagedSourceRegistration;
+use alumet::pipeline::elements::transform::{builder::TransformRegistration, TransformContext};
+use alumet::pipeline::trigger::TriggerSpec;
 use alumet::pipeline::{Output, Source, Transform};
 use alumet::plugin::{
     rust::{serialize_config, AlumetPlugin},

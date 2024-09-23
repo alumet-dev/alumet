@@ -20,15 +20,16 @@ impl NameDeduplicator {
         use std::fmt::Write;
 
         let suffix = always_suffix || name.is_empty();
+        let sep = if name.is_empty() { "" } else { "-" };
         match self.existing_names.get_mut(&name) {
             Some(n) => {
                 *n += 1;
-                write!(name, "-{n}").unwrap();
+                write!(name, "{sep}{n}").unwrap();
             }
             None => {
                 self.existing_names.insert(name.clone(), 0);
                 if suffix {
-                    write!(name, "-0").unwrap();
+                    write!(name, "{sep}0").unwrap();
                 }
                 self.existing_names.insert(name.clone(), 0);
             }
@@ -43,75 +44,45 @@ impl Default for NameDeduplicator {
     }
 }
 
-/// Generates names for the pipeline elements.
-pub struct ScopedNameGenerator {
-    source_dedup: NameDeduplicator,
-    transform_dedup: NameDeduplicator,
-    output_dedup: NameDeduplicator,
-    listener_dedup: NameDeduplicator,
+/// Generates names for the pipeline elements of a particular plugin.
+pub struct PluginElementNamespace {
+    dedup: NameDeduplicator,
     plugin: PluginName,
 }
 
-impl ScopedNameGenerator {
+impl PluginElementNamespace {
     pub fn new(plugin: PluginName) -> Self {
         Self {
-            source_dedup: NameDeduplicator::new(),
-            transform_dedup: NameDeduplicator::new(),
-            output_dedup: NameDeduplicator::new(),
-            listener_dedup: NameDeduplicator::new(),
+            dedup: NameDeduplicator::new(),
             plugin,
         }
     }
 
-    pub fn source_name(&mut self, name: &str) -> SourceName {
-        SourceName(ElementNameParts {
+    pub fn insert_deduplicate(&mut self, name: &str) -> ElementNameParts {
+        ElementNameParts {
             plugin: self.plugin.0.clone(),
-            element: self.source_dedup.insert_deduplicate(name.to_owned(), false),
-        })
-    }
-
-    pub fn transform_name(&mut self, name: &str) -> TransformName {
-        TransformName(ElementNameParts {
-            plugin: self.plugin.0.clone(),
-            element: self.transform_dedup.insert_deduplicate(name.to_owned(), false),
-        })
-    }
-
-    pub fn output_name(&mut self, name: &str) -> OutputName {
-        OutputName(ElementNameParts {
-            plugin: self.plugin.0.clone(),
-            element: self.output_dedup.insert_deduplicate(name.to_owned(), false),
-        })
-    }
-
-    pub fn listener_name(&mut self, name: &str) -> ListenerName {
-        ListenerName(ElementNameParts {
-            plugin: self.plugin.0.clone(),
-            element: self.listener_dedup.insert_deduplicate(name.to_owned(), false),
-        })
+            element: self.dedup.insert_deduplicate(name.to_owned(), false),
+        }
     }
 }
 
 pub struct NameGenerator {
-    namegen_by_plugin: HashMap<PluginName, ScopedNameGenerator>,
+    namespaces: HashMap<PluginName, PluginElementNamespace>,
 }
 
 impl NameGenerator {
     pub fn new() -> Self {
         Self {
-            namegen_by_plugin: HashMap::new(),
+            namespaces: HashMap::new(),
         }
     }
 
-    pub fn namegen_for_scope(&mut self, plugin: &PluginName) -> &mut ScopedNameGenerator {
-        self.namegen_by_plugin
+    pub fn plugin_namespace(&mut self, plugin: &PluginName) -> &mut PluginElementNamespace {
+        self.namespaces
             .entry(plugin.clone())
-            .or_insert_with(|| ScopedNameGenerator::new(plugin.clone()))
+            .or_insert_with(|| PluginElementNamespace::new(plugin.clone()))
     }
 }
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct PluginName(pub String);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ElementNameParts {
@@ -119,47 +90,30 @@ pub struct ElementNameParts {
     pub(super) element: String,
 }
 
-// TODO for the name, I could use a &'static str (or a const perhaps?) for the type of the element.
+macro_rules! typed_name {
+    ($i:ident, $x:expr) => {
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        pub struct $i(pub(crate) ElementNameParts);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceName(pub(super) ElementNameParts);
+        impl fmt::Display for $i {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "{}/{}/{}", self.0.plugin, $x, self.0.element)
+            }
+        }
+    };
+}
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TransformName(pub(super) ElementNameParts);
+typed_name!(SourceName, "source");
+typed_name!(TransformName, "transform");
+typed_name!(OutputName, "output");
+typed_name!(ListenerName, "listener");
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OutputName(pub(super) ElementNameParts);
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ListenerName(pub(super) ElementNameParts);
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PluginName(pub String);
 
 impl fmt::Display for PluginName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)
-    }
-}
-
-impl fmt::Display for SourceName {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}/source/{}", self.0.plugin, self.0.element)
-    }
-}
-
-impl fmt::Display for TransformName {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}/transform/{}", self.0.plugin, self.0.element)
-    }
-}
-
-impl fmt::Display for OutputName {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}/output/{}", self.0.plugin, self.0.element)
-    }
-}
-
-impl fmt::Display for ListenerName {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}/listener/{}", self.0.plugin, self.0.element)
     }
 }
 

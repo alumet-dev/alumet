@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use anyhow::Context;
+use builder::BuildContext;
 use tokio::task::JoinError;
 use tokio::{
     runtime,
@@ -12,10 +13,9 @@ use tokio::{
 };
 
 use super::error::TransformError;
-use crate::pipeline::builder::elements::{TransformBuilder, TransformRegistration};
 use crate::pipeline::util::matching::TransformSelector;
-use crate::pipeline::util::naming::{NameGenerator, ScopedNameGenerator, TransformName};
-use crate::pipeline::{builder, PluginName};
+use crate::pipeline::util::naming::{NameGenerator, TransformName};
+use crate::pipeline::PluginName;
 use crate::{measurement::MeasurementBuffer, metrics::MetricRegistry, pipeline::registry::MetricReader};
 
 /// Transforms measurements (arbitrary transformation).
@@ -52,24 +52,19 @@ struct TaskManager {
     names_by_bitset_position: Vec<TransformName>,
 }
 
-struct BuildContext<'a> {
-    metrics: &'a MetricRegistry,
-    namegen: &'a mut ScopedNameGenerator,
-}
-
 impl TransformControl {
     pub fn empty() -> Self {
         Self { tasks: None }
     }
 
     pub fn with_transforms(
-        transforms: Vec<(PluginName, Box<dyn TransformBuilder>)>,
+        transforms: Vec<(PluginName, Box<dyn builder::TransformBuilder>)>,
         metrics: MetricReader,
         rx: mpsc::Receiver<MeasurementBuffer>,
         tx: broadcast::Sender<MeasurementBuffer>,
         rt_normal: &runtime::Handle,
     ) -> anyhow::Result<Self> {
-        let built: anyhow::Result<Vec<TransformRegistration>> = {
+        let built: anyhow::Result<Vec<builder::TransformRegistration>> = {
             let metrics_r = metrics.blocking_read();
             let mut namegen = NameGenerator::new();
             transforms
@@ -77,7 +72,7 @@ impl TransformControl {
                 .map(|(plugin, builder)| {
                     let mut ctx = BuildContext {
                         metrics: &metrics_r,
-                        namegen: namegen.namegen_for_scope(&plugin),
+                        namegen: namegen.plugin_namespace(&plugin),
                     };
                     builder(&mut ctx)
                         .context("transform creation failed")
@@ -125,7 +120,7 @@ impl TransformControl {
 
 impl TaskManager {
     pub fn spawn(
-        transforms: Vec<TransformRegistration>,
+        transforms: Vec<builder::TransformRegistration>,
         metrics_r: MetricReader,
         rx: mpsc::Receiver<MeasurementBuffer>,
         tx: broadcast::Sender<MeasurementBuffer>,
@@ -168,13 +163,64 @@ impl TaskManager {
     }
 }
 
-impl builder::context::TransformBuildContext for BuildContext<'_> {
-    fn metric_by_name(&self, name: &str) -> Option<(crate::metrics::RawMetricId, &crate::metrics::Metric)> {
-        self.metrics.by_name(name)
+pub mod builder {
+    use crate::{
+        metrics::{Metric, MetricRegistry, RawMetricId},
+        pipeline::util::naming::{PluginElementNamespace, TransformName},
+    };
+
+    /// Trait for transform builders.
+    ///
+    ///  # Example
+    /// ```
+    /// use alumet::pipeline::elements::transform::builder::{TransformBuilder, TransformRegistration, TransformBuildContext};
+    /// use alumet::pipeline::{trigger, Transform};
+    ///
+    /// fn build_my_transform() -> anyhow::Result<Box<dyn Transform>> {
+    ///     todo!("build a new transform")
+    /// }
+    ///
+    /// let builder: &dyn TransformBuilder = &|ctx: &mut dyn TransformBuildContext| {
+    ///     let transform = build_my_transform()?;
+    ///     Ok(TransformRegistration {
+    ///         name: ctx.transform_name("my-transform"),
+    ///         transform,
+    ///     })
+    /// };
+    /// ```
+    pub trait TransformBuilder:
+        FnOnce(&mut dyn TransformBuildContext) -> anyhow::Result<TransformRegistration>
+    {
+    }
+    impl<F> TransformBuilder for F where F: FnOnce(&mut dyn TransformBuildContext) -> anyhow::Result<TransformRegistration> {}
+
+    /// Information required to register a new transform to the measurement pipeline.
+    pub struct TransformRegistration {
+        pub name: TransformName,
+        pub transform: Box<dyn super::Transform>,
     }
 
-    fn transform_name(&mut self, name: &str) -> TransformName {
-        self.namegen.transform_name(name)
+    pub(super) struct BuildContext<'a> {
+        pub(super) metrics: &'a MetricRegistry,
+        pub(super) namegen: &'a mut PluginElementNamespace,
+    }
+
+    /// Context accessible when building a transform.
+    pub trait TransformBuildContext {
+        /// Retrieves a metric by its name.
+        fn metric_by_name(&self, name: &str) -> Option<(RawMetricId, &Metric)>;
+        /// Generates a name for the transform.
+        fn transform_name(&mut self, name: &str) -> TransformName;
+    }
+
+    impl TransformBuildContext for BuildContext<'_> {
+        fn metric_by_name(&self, name: &str) -> Option<(crate::metrics::RawMetricId, &crate::metrics::Metric)> {
+            self.metrics.by_name(name)
+        }
+
+        fn transform_name(&mut self, name: &str) -> TransformName {
+            TransformName(self.namegen.insert_deduplicate(name))
+        }
     }
 }
 
@@ -194,7 +240,7 @@ pub enum TaskState {
 }
 
 async fn run_all_in_order(
-    mut transforms: Vec<TransformRegistration>,
+    mut transforms: Vec<builder::TransformRegistration>,
     mut rx: mpsc::Receiver<MeasurementBuffer>,
     tx: broadcast::Sender<MeasurementBuffer>,
     active_flags: Arc<AtomicU64>,
@@ -214,7 +260,7 @@ async fn run_all_in_order(
             for (i, t) in &mut transforms.iter_mut().enumerate() {
                 let t_flag = 1 << i;
                 if current_flags & t_flag != 0 {
-                    let TransformRegistration { name, transform } = t;
+                    let builder::TransformRegistration { name, transform } = t;
                     match transform.apply(&mut measurements, &ctx) {
                         Ok(()) => (),
                         Err(TransformError::UnexpectedInput(e)) => {

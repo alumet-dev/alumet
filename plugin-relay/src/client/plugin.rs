@@ -2,9 +2,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use alumet::pipeline::{
-    builder::elements::MetricListenerRegistration,
     elements::output::{builder::AsyncOutputRegistration, BoxedAsyncOutput},
-    registry::MetricListener,
+    registry::listener::{MetricListener, MetricListenerRegistration},
 };
 use alumet::plugin::{
     rust::{deserialize_config, serialize_config, AlumetPlugin},
@@ -49,7 +48,7 @@ mod config {
                 client_name: default_client_name(),
                 collector_uri: default_collector_uri(),
                 buffer_size: 4096,
-                buffer_timeout: Duration::from_secs(60),
+                buffer_timeout: Duration::from_secs(30),
             }
         }
     }

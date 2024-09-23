@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 
 use alumet::{
-    pipeline::builder::elements::AutonomousSourceRegistration,
+    pipeline::elements::source::builder::AutonomousSourceRegistration,
     plugin::{
         rust::{deserialize_config, serialize_config, AlumetPlugin},
         AlumetPluginStart, ConfigTable,

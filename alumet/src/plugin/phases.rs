@@ -2,13 +2,8 @@
 use std::marker::PhantomData;
 
 use crate::metrics::MetricRegistry;
-use crate::pipeline::builder::context::MetricListenerBuildContext;
-use crate::pipeline::builder::elements::{
-    AutonomousSourceBuilder, ManagedSourceBuilder, ManagedSourceRegistration, MetricListenerRegistration,
-    SourceBuilder, TransformBuilder, TransformRegistration,
-};
-use crate::pipeline::elements::output;
-use crate::pipeline::{builder, registry};
+use crate::pipeline::elements::{output, source, transform};
+use crate::pipeline::registry;
 use crate::{
     measurement::{MeasurementType, WrappedMeasurementType},
     metrics::{Metric, MetricCreationError, RawMetricId, TypedMetricId},
@@ -81,15 +76,15 @@ impl<'a> AlumetPluginStart<'a> {
     /// Adds a measurement source to the Alumet pipeline.
     pub fn add_source(&mut self, source: Box<dyn Source>, trigger: trigger::TriggerSpec) {
         let plugin = self.current_plugin_name();
-        let builder = |ctx: &mut dyn builder::context::SourceBuildContext| {
-            Ok(ManagedSourceRegistration {
+        let builder = |ctx: &mut dyn source::builder::ManagedSourceBuildContext| {
+            Ok(source::builder::ManagedSourceRegistration {
                 name: ctx.source_name(""),
                 trigger_spec: trigger,
                 source,
             })
         };
         self.pipeline_builder
-            .add_source_builder(plugin, SourceBuilder::Managed(Box::new(builder)))
+            .add_source_builder(plugin, source::builder::SourceBuilder::Managed(Box::new(builder)))
     }
 
     /// Adds the builder of a measurement source to the Alumet pipeline.
@@ -100,10 +95,10 @@ impl<'a> AlumetPluginStart<'a> {
     ///
     /// The downside is a more complicated code.
     /// In general, you should prefer to use [`add_source`](Self::add_source) if possible.
-    pub fn add_source_builder<F: ManagedSourceBuilder + 'static>(&mut self, builder: F) {
+    pub fn add_source_builder<F: source::builder::ManagedSourceBuilder + 'static>(&mut self, builder: F) {
         let plugin = self.current_plugin_name();
         self.pipeline_builder
-            .add_source_builder(plugin, SourceBuilder::Managed(Box::new(builder)));
+            .add_source_builder(plugin, source::builder::SourceBuilder::Managed(Box::new(builder)));
     }
 
     /// Adds the builder of an autonomous source to the Alumet pipeline.
@@ -121,7 +116,7 @@ impl<'a> AlumetPluginStart<'a> {
     /// use std::time::SystemTime;
     /// use alumet::measurement::{MeasurementBuffer, MeasurementPoint, Timestamp};
     /// use alumet::units::Unit;
-    /// use alumet::pipeline::builder::elements::AutonomousSourceRegistration;
+    /// use alumet::pipeline::elements::source::builder::AutonomousSourceRegistration;
     /// # use alumet::plugin::AlumetPluginStart;
     ///
     /// # let alumet: &AlumetPluginStart = todo!();
@@ -154,17 +149,17 @@ impl<'a> AlumetPluginStart<'a> {
     ///     })
     /// })
     /// ```
-    pub fn add_autonomous_source_builder<F: AutonomousSourceBuilder + 'static>(&mut self, builder: F) {
+    pub fn add_autonomous_source_builder<F: source::builder::AutonomousSourceBuilder + 'static>(&mut self, builder: F) {
         let plugin = self.current_plugin_name();
         self.pipeline_builder
-            .add_source_builder(plugin, SourceBuilder::Autonomous(Box::new(builder)));
+            .add_source_builder(plugin, source::builder::SourceBuilder::Autonomous(Box::new(builder)));
     }
 
     /// Adds a transform step to the Alumet pipeline.
     pub fn add_transform(&mut self, transform: Box<dyn Transform>) {
         let plugin = self.current_plugin_name();
-        let builder = |ctx: &mut dyn builder::context::TransformBuildContext| {
-            Ok(TransformRegistration {
+        let builder = |ctx: &mut dyn transform::builder::TransformBuildContext| {
+            Ok(transform::builder::TransformRegistration {
                 name: ctx.transform_name(""),
                 transform,
             })
@@ -173,7 +168,7 @@ impl<'a> AlumetPluginStart<'a> {
     }
 
     /// todo doc
-    pub fn add_transform_builder<F: TransformBuilder + 'static>(&mut self, builder: F) {
+    pub fn add_transform_builder<F: transform::builder::TransformBuilder + 'static>(&mut self, builder: F) {
         let plugin = self.current_plugin_name();
         self.pipeline_builder.add_transform_builder(plugin, Box::new(builder));
     }
@@ -181,7 +176,7 @@ impl<'a> AlumetPluginStart<'a> {
     /// Adds an output to the Alumet pipeline.
     pub fn add_blocking_output(&mut self, output: Box<dyn Output>) {
         let plugin = self.current_plugin_name();
-        let build = |ctx: &mut output::builder::BlockingOutputBuildContext| {
+        let build = |ctx: &mut dyn output::builder::BlockingOutputBuildContext| {
             Ok(output::builder::BlockingOutputRegistration {
                 name: ctx.output_name(""),
                 output,
@@ -235,9 +230,9 @@ impl<'a> AlumetPreStart<'a> {
     }
 
     /// Registers a metric listener, which will be notified of all the new registered metrics.
-    pub fn add_metric_listener<F: registry::MetricListener + Send + 'static>(&mut self, listener: F) {
-        let builder = |ctx: &mut dyn MetricListenerBuildContext| {
-            Ok(MetricListenerRegistration {
+    pub fn add_metric_listener<F: registry::listener::MetricListener + Send + 'static>(&mut self, listener: F) {
+        let builder = |ctx: &mut dyn registry::listener::MetricListenerBuildContext| {
+            Ok(registry::listener::MetricListenerRegistration {
                 name: ctx.listener_name(""),
                 listener: Box::new(listener),
             })
@@ -249,7 +244,7 @@ impl<'a> AlumetPreStart<'a> {
 
     /// Registers a metric listener builder, which will construct a listener that
     /// will be notified of all the new registered metrics.
-    pub fn add_metric_listener_builder<F: builder::elements::MetricListenerBuilder + Send + 'static>(
+    pub fn add_metric_listener_builder<F: registry::listener::MetricListenerBuilder + Send + 'static>(
         &mut self,
         builder: F,
     ) {
