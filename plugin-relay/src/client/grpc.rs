@@ -122,29 +122,27 @@ impl RelayClient {
         let grpc_client = self.grpc_client;
         let metric_ids = self.metric_ids;
 
-        let converted_stream = measurements
+        let filtered_stream = measurements
             .0
-            .filter_map(move |maybe_buf| {
-                let metric_ids = metric_ids.clone();
-                async move {
-                    if let Ok(buf) = maybe_buf {
-                        let metric_ids = metric_ids.lock().unwrap();
-                        let converted: Vec<protocol::MeasurementPoint> = buf
-                            .into_iter()
-                            .map(|m| convert_alumet_to_protobuf(m, &metric_ids))
-                            .collect();
-                        let iterated = futures::stream::iter(converted);
-                        Some(iterated)
-                        // TODO(opt) optimize the inner stream away by creating a special version of
-                        // `chunks_timeout` that keep the buffers (to avoid copies) but counts the number of points
-                    } else {
-                        None
-                    }
+            .filter_map(move |maybe_buf| async move {
+                match maybe_buf {
+                    Ok(buf) => Some(futures::stream::iter(buf)),
+                    Err(_) => None,
                 }
             })
             .flatten();
-        let buffered_stream = tokio_stream::StreamExt::chunks_timeout(converted_stream, buffer_size, buffer_timeout)
-            .map(|points| protocol::MeasurementBuffer { points });
+        // TODO(opt) optimize the inner stream away by creating a special version of
+        // `chunks_timeout` that keep the buffers (to avoid copies) but counts the number of points
+        let buffered_stream = tokio_stream::StreamExt::chunks_timeout(filtered_stream, buffer_size, buffer_timeout);
+        let converted_stream = buffered_stream.map(move |points| {
+            let metric_ids = metric_ids.clone();
+            let metric_ids = metric_ids.lock().unwrap();
+            let points = points
+                .into_iter()
+                .map(|m| convert_alumet_to_protobuf(m, &metric_ids))
+                .collect();
+            protocol::MeasurementBuffer { points }
+        });
 
         // This function is necessary for the type inference to work,
         // otherwise the compiler cannot prove that the type of the future returned by the tonic function is correct
@@ -163,7 +161,7 @@ impl RelayClient {
         }
         // TODO add the client name in the header
 
-        ingest(grpc_client, buffered_stream)
+        ingest(grpc_client, converted_stream)
     }
 
     /// Sends metric registration requests via gRPC.
