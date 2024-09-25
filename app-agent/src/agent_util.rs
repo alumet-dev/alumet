@@ -24,12 +24,17 @@ pub fn run(agent: RunningAgent) {
 
 /// Executes a process and stops the agent when the process exits.
 pub fn exec(agent: RunningAgent, program: String, args: Vec<String>) {
-    // Wait for the process to exit.
+    // At least one measurement.
+    if let Err(e) = exec_process::trigger_measurement_now(&agent.pipeline) {
+        log::error!("Could not trigger one last measurement after the child's exit: {e}");
+    }
+
+    // Spawn the process and wait for it to exit.
     let exit_status = exec_process::exec_child(program, args).expect("the child should be waitable");
     log::info!("Child process exited with status {exit_status}, Alumet will now stop.");
 
     // One last measurement.
-    if let Err(e) = exec_process::trigger_last_measurement(&agent.pipeline) {
+    if let Err(e) = exec_process::trigger_measurement_now(&agent.pipeline) {
         log::error!("Could not trigger one last measurement after the child's exit: {e}");
     }
 

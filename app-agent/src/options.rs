@@ -32,7 +32,7 @@ pub mod cli {
         /// Applies the common CLI args to the agent.
         fn apply_to(self, agent: &mut Agent, _: &mut AgentConfig) {
             if let Some(max_update_interval) = self.max_update_interval {
-                agent.sources_max_update_interval(max_update_interval);
+                agent.source_trigger_constraints().max_update_interval = max_update_interval;
             }
         }
     }
@@ -66,7 +66,7 @@ pub mod config {
     impl super::AgentModifier for CommonArgs {
         /// Applies the common CLI args to the agent.
         fn apply_to(self, agent: &mut Agent, _: &mut AgentConfig) {
-            agent.sources_max_update_interval(self.max_update_interval);
+            agent.source_trigger_constraints().max_update_interval = self.max_update_interval;
         }
     }
 

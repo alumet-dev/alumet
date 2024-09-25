@@ -807,7 +807,7 @@ pub(crate) async fn run_managed(
             }
         }
     }
-    
+
     // source stopped, flush the buffer
     if !buffer.is_empty() {
         flush(buffer, &tx, &source_name);

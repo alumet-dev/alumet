@@ -16,7 +16,7 @@ pub(super) fn build_and_run(plugins: Vec<PluginMetadata>) -> anyhow::Result<()> 
     let global_config = catch_error_point!(agent_default_config, || { agent.default_config() });
 
     let agent_config = catch_error_point!(agent_config_from, move || { AgentConfig::try_from(global_config) });
-    agent.sources_max_update_interval(Duration::from_millis(100));
+    agent.source_trigger_constraints().max_update_interval = Duration::from_millis(100);
 
     let agent = catch_error_point!(agent_start, || { agent.start(agent_config) });
 
