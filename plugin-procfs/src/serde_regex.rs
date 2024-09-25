@@ -49,8 +49,8 @@ pub mod option {
 
 #[cfg(test)]
 mod tests {
-    use pretty_assertions::{assert_eq, assert_ne};
-    use regex::{Regex, RegexBuilder};
+    use pretty_assertions::assert_eq;
+    use regex::Regex;
     use serde::{Deserialize, Serialize};
     use toml;
 

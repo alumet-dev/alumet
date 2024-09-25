@@ -9,7 +9,7 @@ use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint},
     metrics::TypedMetricId,
     pipeline::elements::error::PollError,
-    plugin::util::{CounterDiff, CounterDiffUpdate},
+    plugin::util::CounterDiff,
     plugin::AlumetPluginStart,
     resources::Resource,
     units::Unit,

@@ -64,6 +64,7 @@ pub struct ExpectedCatchPoints {
     pub agent_default_config: Expect,
     pub agent_config_from: Expect,
     pub agent_start: Expect,
+    #[allow(unused)]
     pub runtime: Expect,
     pub shutdown: Expect,
     pub wait_for_shutdown: Expect,
@@ -110,7 +111,7 @@ pub enum CatchResult<T> {
 
 pub enum PointCheckResult<T> {
     Ok(T),
-    ExpectedErrorOrPanic(anyhow::Error),
+    ExpectedErrorOrPanic(()),
     UnexpectedErrorOrPanic(anyhow::Error),
 }
 
@@ -188,13 +189,11 @@ pub fn process_catch_point<R>(name: &str, expected: &Expect, actual: CatchResult
         (Expect::Error, CatchResult::Panic(e)) => PointCheckResult::UnexpectedErrorOrPanic(anyhow!(
             "expected error at {name}, got panic (see backtrace below): {e:?}"
         )),
-        (Expect::Error, CatchResult::Err(e)) => PointCheckResult::ExpectedErrorOrPanic(e),
+        (Expect::Error, CatchResult::Err(_)) => PointCheckResult::ExpectedErrorOrPanic(()),
         (Expect::Panic, CatchResult::Ok(_)) => {
             PointCheckResult::UnexpectedErrorOrPanic(anyhow!("expected panic at {name}, got Ok(...)"))
         }
-        (Expect::Panic, CatchResult::Panic(_)) => {
-            PointCheckResult::ExpectedErrorOrPanic(anyhow!("{name} panicked as expected, all good"))
-        }
+        (Expect::Panic, CatchResult::Panic(_)) => PointCheckResult::ExpectedErrorOrPanic(()),
         (Expect::Panic, CatchResult::Err(e)) => {
             PointCheckResult::UnexpectedErrorOrPanic(anyhow!("expected panic at {name}, got error: {e}"))
         }

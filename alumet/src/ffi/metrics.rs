@@ -159,6 +159,7 @@ pub extern "C" fn mpoint_consumer_id(point: &MeasurementPoint) -> AString {
 }
 
 #[repr(C)]
+#[allow(unused)]
 pub enum FfiMeasurementValue {
     U64(u64),
     F64(f64),
