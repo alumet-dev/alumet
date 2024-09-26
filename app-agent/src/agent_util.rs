@@ -8,7 +8,7 @@ use alumet::{
 };
 use serde::Deserialize;
 
-use crate::{exec_process, options::AgentModifier, resolve_application_path};
+use crate::{exec_process, options::AgentModifier, relative_app_path_string};
 
 pub fn regen_config(agent: Agent) {
     agent
@@ -43,8 +43,7 @@ pub fn start(agent: Agent, config: AgentConfig) -> alumet::agent::RunningAgent {
     agent.start(config).unwrap_or_else(|err| {
         log::error!("{err:?}");
         if let Some(_) = err.downcast_ref::<InvalidConfig>() {
-            let exe_path = resolve_application_path().unwrap_or_else(|_| "path/to/alumet-agent".into());
-            log::error!("HINT: You could try to regenerate the configuration by running `{} regen-config` (use --help to get more information).", exe_path.display());
+            hint_regen_config();
         }
         panic!("ALUMET agent failed to start: {err}");
     })
@@ -56,12 +55,16 @@ pub fn load_config<'de, Conf: AgentModifier + Deserialize<'de>, Args: AgentModif
     cli_args: Args,
 ) -> AgentConfig {
     // Parse the config or get the default.
-    let mut config = agent.load_config().expect("could not load the agent configuration");
+    let mut config = agent
+        .load_config()
+        .inspect_err(|_| hint_regen_config())
+        .expect("could not load the agent configuration");
 
     // Extract the non-plugin part of the config.
     let app_config: Conf = config
         .take_app_config()
         .try_into()
+        .inspect_err(|_| hint_regen_config())
         .expect("could not parse the agent configuration");
 
     // Modify the agent with the config.
@@ -71,4 +74,9 @@ pub fn load_config<'de, Conf: AgentModifier + Deserialize<'de>, Args: AgentModif
     cli_args.apply_to(agent, &mut config);
 
     config
+}
+
+fn hint_regen_config() {
+    let exe_path = relative_app_path_string();
+    log::error!("HINT: You could try to regenerate the configuration by running `{} regen-config` (use --help to get more information).", exe_path.display());
 }

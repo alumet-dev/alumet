@@ -11,6 +11,18 @@ pub fn resolve_application_path() -> std::io::Result<PathBuf> {
     std::env::current_exe()?.canonicalize()
 }
 
+pub fn relative_app_path_string() -> PathBuf {
+    resolve_application_path()
+        .map(|exe| {
+            std::env::current_dir()
+                .ok()
+                .and_then(|wdir| exe.strip_prefix(wdir).ok())
+                .map(|p| p.to_path_buf())
+                .unwrap_or(exe)
+        })
+        .unwrap_or_else(|_| "path/to/alumet-agent".into())
+}
+
 /// Initializes the global logger.
 ///
 /// Call this first!

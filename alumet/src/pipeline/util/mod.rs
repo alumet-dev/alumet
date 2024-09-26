@@ -2,6 +2,7 @@ pub mod channel;
 pub mod matching;
 pub mod naming;
 pub mod scope;
+pub mod stream;
 pub mod threading;
 
 /// Check (at compile-time) that `T` is [`Send`].

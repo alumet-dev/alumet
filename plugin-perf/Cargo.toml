@@ -7,11 +7,12 @@ edition = "2021"
 
 [dependencies]
 alumet = { path = "../alumet" }
-anyhow = "1.0.82"
-itertools = "0.12.1"
-log = "0.4.21"
-perf-event2 = "0.7.2"
-serde = { version = "1.0.199", features = ["derive"] }
+anyhow = "1.0.88"
+humantime-serde = "1.1.1"
+itertools = "0.13.0"
+log = "0.4.22"
+perf-event2 = "0.7.4"
+serde = { version = "1.0.210", features = ["derive"] }
 
 [lints]
 workspace = true

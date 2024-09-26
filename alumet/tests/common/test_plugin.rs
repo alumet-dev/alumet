@@ -89,7 +89,7 @@ impl Plugin for TestPlugin {
         let trigger = trigger::builder::time_interval(Duration::from_secs(1)).build().unwrap();
         alumet.add_source(source, trigger);
         alumet.add_transform(Box::new(TestTransform));
-        alumet.add_output(Box::new(TestOutput));
+        alumet.add_blocking_output(Box::new(TestOutput));
 
         // Update state (for testing purposes)
         self.state.set(State::Started);

@@ -7,12 +7,12 @@ edition = "2021"
 
 [dependencies]
 alumet = { path = "../alumet" }
-anyhow = "1.0.79"
+anyhow = "1.0.88"
 gethostname = "0.5.0"
-log = "0.4.20"
-reqwest = { version = "0.12", features = ["json"] }
-tokio = "1.37.0"
-serde = { version = "1.0.198", features = ["derive"] }
+log = "0.4.22"
+reqwest = { version = "0.12.7", features = ["json"] }
+tokio = "1.40.0"
+serde = { version = "1.0.210", features = ["derive"] }
 serde_json = "1.0"
 humantime-serde = "1.1.1"
 notify = "6.1.1"

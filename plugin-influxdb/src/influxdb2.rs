@@ -72,6 +72,7 @@ pub struct LineProtocolBuilder {
     after_first_field: bool,
 }
 
+#[allow(unused)]
 impl LineProtocolBuilder {
     pub fn new() -> Self {
         Self {

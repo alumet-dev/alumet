@@ -54,7 +54,7 @@ impl AlumetPlugin for InfluxDbPlugin {
         log::info!("Test successfull.");
 
         // Create the output.
-        alumet.add_output(Box::new(InfluxDbOutput {
+        alumet.add_blocking_output(Box::new(InfluxDbOutput {
             client: influx_client,
             org: config.org,
             bucket: config.bucket,

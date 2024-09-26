@@ -1,25 +1,28 @@
 [package]
 name = "plugin-relay"
-version = "0.2.0"
+version = "0.4.0"
 edition = "2021"
 
 [features]
-# default = ["client", "server"]
+default = ["client", "server"]
 client = []
 server = []
 
 [dependencies]
 alumet = { path = "../alumet" }
-anyhow = "1.0.82"
+anyhow = "1.0.88"
 hostname = "0.4.0"
-log = "0.4.21"
-prost = "0.12.4"
-serde = { version = "1.0.198", features = ["derive"] }
-tokio = { version = "1.37.0", features = ["rt"] }
-tonic = "0.11.0"
+log = "0.4.22"
+serde = { version = "1.0.210", features = ["derive"] }
+tokio = { version = "1.40.0", features = ["rt"] }
+tonic = "0.12.2"
+prost = "0.13" # required because we include generated code that depends on prost in lib.rs
+tokio-stream = "0.1.16"
+futures = "0.3.30"
+humantime-serde = "1.1.1"
 
 [build-dependencies]
-tonic-build = "0.11.0"
+tonic-build = "0.12.2"
 
 [lints]
 workspace = true

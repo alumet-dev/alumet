@@ -148,10 +148,9 @@ pub fn parse(command: &str) -> anyhow::Result<Command> {
 
 #[cfg(test)]
 mod tests {
-    use std::{any::Any, time::Duration};
+    use std::time::Duration;
 
     use alumet::pipeline::{
-        builder::elements::SendSourceBuilder,
         control::ControlMessage,
         elements::{output, source, transform},
         matching::{NamePattern, NamePatterns, OutputSelector, SourceSelector, TransformSelector},
@@ -257,6 +256,9 @@ mod tests {
     }
 
     fn control_message_eq(a: &ControlMessage, b: &ControlMessage) -> bool {
+        use source::builder::SendSourceBuilder;
+        use std::any::Any;
+
         fn source_builder_eq(a: &SendSourceBuilder, b: &SendSourceBuilder) -> bool {
             match (a, b) {
                 (SendSourceBuilder::Managed(b1), SendSourceBuilder::Managed(b2)) => b1.type_id() == b2.type_id(),

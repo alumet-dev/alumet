@@ -95,5 +95,5 @@ pub extern "C" fn alumet_add_output(
         write_fn: output_write_fn,
         drop_fn: output_drop_fn,
     });
-    alumet.add_output(output);
+    alumet.add_blocking_output(output);
 }
