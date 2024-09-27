@@ -41,6 +41,7 @@ fn main() {
             agent_util::run(agent);
         }
         Command::Exec(ExecArgs { program, args }) => {
+            agent.source_trigger_constraints().allow_manual_trigger = true;
             let config = agent_util::load_config::<AppConfig, _>(&mut agent, cli_args.common);
             let agent = agent_util::start(agent, config);
             agent_util::exec(agent, program, args);

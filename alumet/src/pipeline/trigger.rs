@@ -56,7 +56,14 @@ pub(crate) struct TriggerConfig {
 
 /// Constraints that can be applied to a [`TriggerSpec`] after its construction.
 pub struct TriggerConstraints {
+    /// Sets the maximum interval between two updates of the commands processed by
+    /// each measurement [`Source`](crate::pipeline::Source).
+    ///
+    /// This only applies to the sources that are triggered by a time interval
+    /// managed by Alumet, i.e. the "managed sources".
     pub max_update_interval: time::Duration,
+
+    /// If `true`, forces all managed sources to be triggered on-demand by a signal.
     pub allow_manual_trigger: bool,
 }
 

@@ -33,8 +33,8 @@ pub fn exec_child(external_command: String, args: Vec<String>) -> anyhow::Result
     Ok(status)
 }
 
-// Triggers one last measurement (on all sources that support manual trigger).
-pub fn trigger_last_measurement(pipeline: &MeasurementPipeline) -> anyhow::Result<()> {
+// Triggers one measurement (on all sources that support manual trigger).
+pub fn trigger_measurement_now(pipeline: &MeasurementPipeline) -> anyhow::Result<()> {
     let control_handle = pipeline.control_handle();
     let send_task = control_handle.send(ControlMessage::Source(source::ControlMessage::TriggerManually(
         TriggerMessage {

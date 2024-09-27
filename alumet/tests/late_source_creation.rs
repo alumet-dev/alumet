@@ -76,7 +76,7 @@ fn late_source_creation_test() -> anyhow::Result<()> {
     // Start Alumet
     let global_config = agent.default_config()?;
     let agent_config = AgentConfig::try_from(global_config)?;
-    agent.sources_max_update_interval(Duration::from_millis(100));
+    agent.source_trigger_constraints().max_update_interval = Duration::from_millis(100);
     let agent = agent.start(agent_config)?;
 
     // Wait for the source to be registered

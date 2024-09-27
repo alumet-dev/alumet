@@ -409,13 +409,9 @@ impl Agent {
         }
     }
 
-    /// Sets the maximum interval between two updates of the commands processed by
-    /// each measurement [`Source`](crate::pipeline::Source).
-    ///
-    /// This only applies to the sources that are triggered by a time interval
-    /// managed by Alumet.
-    pub fn sources_max_update_interval(&mut self, max_update_interval: Duration) {
-        self.settings.source_constraints.max_update_interval = max_update_interval;
+    /// Updates the constraints that will be applied to all managed sources.
+    pub fn source_trigger_constraints(&mut self) -> &mut TriggerConstraints {
+        &mut self.settings.source_constraints
     }
 }
 

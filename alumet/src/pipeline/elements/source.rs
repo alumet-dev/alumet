@@ -146,6 +146,7 @@ impl SourceControl {
     }
 
     pub async fn handle_message(&mut self, msg: ControlMessage) -> anyhow::Result<()> {
+        log::trace!("handling {msg:?}");
         match msg {
             ControlMessage::Configure(msg) => self.tasks.reconfigure(msg),
             ControlMessage::CreateOne(msg) => self.create_sources(msg.plugin, vec![msg.builder]).await?,
@@ -277,11 +278,14 @@ impl TaskManager {
 
     fn trigger_manually(&mut self, msg: TriggerMessage) {
         let selector = msg.selector;
+        let mut matches = 0;
         for (name, source_controller) in &mut self.controllers {
             if selector.matches(name) {
+                matches += 1;
                 source_controller.trigger_now();
             }
         }
+        log::trace!("TriggerMessage matched {matches} sources.");
     }
 }
 
@@ -803,6 +807,12 @@ pub(crate) async fn run_managed(
             }
         }
     }
+
+    // source stopped, flush the buffer
+    if !buffer.is_empty() {
+        flush(buffer, &tx, &source_name);
+    }
+
     Ok(())
 }
 
