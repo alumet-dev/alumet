@@ -23,13 +23,26 @@ plugin-perf = { path = "../plugin-perf", optional = true }
 plugin-rapl = { path = "../plugin-rapl", optional = true }
 plugin-socket-control = { path = "../plugin-socket-control", optional = true }
 plugin-relay = { path = "../plugin-relay", optional = true }
+plugin-procfs = { path = "../plugin-procfs", optional = true }
 
 [features]
 # local non-relay mode for x86 processors
-local_x86 = ["dep:plugin-rapl", "dep:plugin-perf", "dep:plugin-csv", "dep:plugin-socket-control"]
+local_x86 = [
+    "dep:plugin-rapl",
+    "dep:plugin-perf",
+    "dep:plugin-procfs",
+    "dep:plugin-csv",
+    "dep:plugin-socket-control",
+]
 
 # relay mode
-relay_client = ["dep:plugin-relay", "plugin-relay/client", "dep:plugin-rapl", "dep:plugin-perf", "dep:plugin-socket-control"]
+relay_client = [
+    "dep:plugin-relay",
+    "plugin-relay/client",
+    "dep:plugin-rapl",
+    "dep:plugin-perf",
+    "dep:plugin-socket-control",
+]
 relay_server = ["dep:plugin-relay", "plugin-relay/server", "dep:plugin-csv"]
 
 [[bin]]

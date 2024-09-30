@@ -64,7 +64,7 @@ pub mod config {
     }
 
     impl super::AgentModifier for CommonArgs {
-        /// Applies the common CLI args to the agent.
+        /// Applies the common config options to the agent.
         fn apply_to(self, agent: &mut Agent, _: &mut AgentConfig) {
             agent.source_trigger_constraints().max_update_interval = self.max_update_interval;
         }
