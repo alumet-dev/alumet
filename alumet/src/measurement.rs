@@ -26,7 +26,6 @@
 //! ```
 
 use core::fmt;
-use std::time::UNIX_EPOCH;
 use fxhash::FxBuildHasher;
 use smallvec::SmallVec;
 use std::borrow::Cow;
@@ -41,7 +40,7 @@ use super::resources::Resource;
 ///
 /// Measurement points may also have attributes.
 /// Only certain types of values and attributes are allowed, see [`MeasurementType`] and [`AttributeValue`].
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct MeasurementPoint {
     /// The metric that has been measured.
     pub metric: RawMetricId,
@@ -169,10 +168,6 @@ impl Timestamp {
     /// Returns a `Timestamp` representing the current system time.
     pub fn now() -> Self {
         Self(SystemTime::now())
-    }
-
-    pub fn get_sec(&self) -> u64 {
-        self.0.duration_since(UNIX_EPOCH).unwrap().as_secs()
     }
 }
 

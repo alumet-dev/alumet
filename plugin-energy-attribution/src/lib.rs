@@ -2,9 +2,9 @@ use std::sync::{Arc, Mutex};
 
 use alumet::{
     metrics::{RawMetricId, TypedMetricId},
+    plugin::rust::{serialize_config, AlumetPlugin},
     plugin::{AlumetPreStart, ConfigTable},
     units::Unit,
-    plugin::rust::{serialize_config, AlumetPlugin},
 };
 
 use serde::{Deserialize, Serialize};

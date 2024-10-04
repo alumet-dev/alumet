@@ -1,20 +1,14 @@
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use alumet::{
-    measurement::{
-        MeasurementBuffer,
-        MeasurementPoint,
-        WrappedMeasurementValue
-    },
+    measurement::{MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue},
     pipeline::{
+        elements::{error::TransformError, transform::TransformContext},
         Transform,
-        elements::{
-            transform::TransformContext,
-            error::TransformError,
-        },
     },
     resources::Resource,
 };
@@ -109,10 +103,7 @@ impl EnergyAttributionTransform {
 
 impl Transform for EnergyAttributionTransform {
     /// Applies the transform on the measurements.
-    fn apply(
-        &mut self,
-        measurements: &mut MeasurementBuffer,
-        _ctx: &TransformContext) -> Result<(), TransformError> {
+    fn apply(&mut self, measurements: &mut MeasurementBuffer, _ctx: &TransformContext) -> Result<(), TransformError> {
         // Retrieve the pod_id and the rapl_id.
         // Using a nested scope to reduce the lock time.
         let (pod_id, rapl_id) = {
@@ -130,7 +121,7 @@ impl Transform for EnergyAttributionTransform {
                 match m.resource {
                     // If the metric is rapl then we insert only the cpu package one in the buffer.
                     Resource::CpuPackage { id: _ } => {
-                        let id = m.timestamp.get_sec();
+                        let id = SystemTime::from(m.timestamp).duration_since(UNIX_EPOCH)?.as_secs();
 
                         self.buffer_rapl.insert(id, m.clone());
                     }
@@ -140,7 +131,7 @@ impl Transform for EnergyAttributionTransform {
                 // Else, if the metric is pod, then we keep only the ones that are prefixed with "pod"
                 // before inserting them in the buffer.
                 if m.attributes().any(|(_, value)| value.to_string().starts_with("pod")) {
-                    let id = m.timestamp.get_sec();
+                    let id = SystemTime::from(m.timestamp).duration_since(UNIX_EPOCH)?.as_secs();
                     match self.buffer_pod.get_mut(&id) {
                         Some(vec_points) => {
                             vec_points.push(m.clone());
