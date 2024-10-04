@@ -5,7 +5,7 @@ use std::{
 };
 
 use alumet::{
-    measurement::{MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue},
+    measurement::{AttributeValue, MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue},
     pipeline::{
         elements::{error::TransformError, transform::TransformContext},
         Transform,
@@ -76,8 +76,15 @@ impl EnergyAttributionTransform {
                     WrappedMeasurementValue::U64(ux) => ux as f64,
                 };
 
+                // Extract the attributes of the current point to add them
+                // to the new measurement point.
+                let point_attributes = point
+                    .attributes()
+                    .map(|(key, value)| (key.to_owned(), value.clone()))
+                    .collect();
+
                 // We create the new MeasurementPoint for the energy attribution.
-                let mut new_m = MeasurementPoint::new(
+                let new_m = MeasurementPoint::new(
                     rapl_point.timestamp,
                     metric_id,
                     point.resource.clone(),
@@ -86,13 +93,8 @@ impl EnergyAttributionTransform {
                         WrappedMeasurementValue::F64(fx) => cur_tot_time_f64 / tot_time_sum * fx,
                         WrappedMeasurementValue::U64(ux) => cur_tot_time_f64 / tot_time_sum * (ux as f64),
                     },
-                );
-
-                // Then we copy every attributes of the pod to the new MeasurementPoint.
-                point
-                    .clone()
-                    .attributes()
-                    .for_each(|(key, value)| new_m = new_m.clone().with_attr(key.to_owned(), value.clone()));
+                )
+                .with_attr_vec(point_attributes);
 
                 // And finally, the MeasurementPoint is pushed to the MeasurementBuffer.
                 measurements.push(new_m.clone());
