@@ -70,11 +70,10 @@ impl AlumetPlugin for EnergyAttributionPlugin {
         /// Finds the RawMetricId with the name of the metric.
         /// Will only run once, just before the pipeline starts.
         fn find_metric_by_name(alumet: &mut AlumetPreStart, name: &str) -> anyhow::Result<RawMetricId> {
-            let (id, _metric) = alumet
-                .metrics()
-                .into_iter()
-                .find(|m| m.1.name == name)
-                .expect(&format!("Cannot find metric {name}, is the 'rapl' plugin loaded?").to_string());
+            let (id, _metric) =
+                alumet.metrics().into_iter().find(|m| m.1.name == name).expect(
+                    &format!("Cannot find metric {name}, are the 'rapl' and 'k8s' plugins loaded?").to_string(),
+                );
             Ok(id.to_owned())
         }
 
@@ -82,7 +81,7 @@ impl AlumetPlugin for EnergyAttributionPlugin {
         let mut metrics = self.metrics.lock().unwrap();
 
         metrics.rapl_consumed_energy = Some(find_metric_by_name(alumet, "rapl_consumed_energy")?);
-        metrics.cpu_usage_per_pod = Some(find_metric_by_name(alumet, "total_usage_usec")?);
+        metrics.cpu_usage_per_pod = Some(find_metric_by_name(alumet, "cgroup_cpu_usage_user")?);
         Ok(())
     }
 
