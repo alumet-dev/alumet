@@ -1,24 +1,37 @@
-use alumet::agent::{AgentBuilder, AgentConfig};
-use alumet::plugin::PluginMetadata;
+use alumet::{agent, pipeline, plugin::PluginMetadata};
 
 use anyhow::Context;
 use std::{thread, time, time::Duration};
 
 use super::points::{catch_error_point, catch_panic_point};
 
-pub(super) fn build_and_run(plugins: Vec<PluginMetadata>) -> anyhow::Result<()> {
-    // Create an agent with the plugin
-    let mut agent = catch_panic_point!(agent_build, move || {
-        AgentBuilder::new(plugins).config_value(toml::Table::new()).build()
+pub(super) fn build_and_run(mut plugins: Vec<PluginMetadata>) -> anyhow::Result<()> {
+    // Generate the default configuration
+    let mut config = catch_error_point!(agent_default_config, || {
+        let mut config = toml::Table::new();
+        agent::config::insert_default_plugin_configs(&plugins, &mut config)?;
+        Ok(config)
     });
 
-    // Start Alumet
-    let global_config = catch_error_point!(agent_default_config, || { agent.default_config() });
+    // Build an agent with the plugins and their configs.
+    let agent = catch_error_point!(agent_build_and_start, move || {
+        let mut pipeline_builder = pipeline::Builder::new();
+        pipeline_builder.trigger_constraints_mut().max_update_interval = Duration::from_millis(100);
 
-    let agent_config = catch_error_point!(agent_config_from, move || { AgentConfig::try_from(global_config) });
-    agent.source_trigger_constraints().max_update_interval = Duration::from_millis(100);
+        let mut agent_builder = agent::Builder::new(pipeline_builder);
 
-    let agent = catch_error_point!(agent_start, || { agent.start(agent_config) });
+        let config_per_plugin = agent::config::extract_plugin_configs(&mut config).expect("config should be valid");
+        for (plugin_name, (enabled, config)) in config_per_plugin {
+            let i = plugins
+                .iter()
+                .position(|p| p.name == plugin_name)
+                .expect("plugin should exist");
+            let plugin = plugins.swap_remove(i);
+            agent_builder.add_plugin_with_info(plugin, enabled, config);
+        }
+
+        agent_builder.build_and_start()
+    });
 
     // Wait for the source to be registered and run a bit
     thread::sleep(time::Duration::from_secs(1));

@@ -64,9 +64,10 @@ impl Builder {
         }
     }
 
-    /// Defines constraints that will be applied, on build, to every registered trigger.
-    pub fn set_trigger_constraints(&mut self, constraints: TriggerConstraints) {
-        self.trigger_constraints = constraints;
+    /// Returns a mutable reference to the constraints that will be applied, on build,
+    /// to every registered trigger (i.e. to all managed sources).
+    pub fn trigger_constraints_mut(&mut self) -> &mut TriggerConstraints {
+        &mut self.trigger_constraints
     }
 
     /// Registers a listener that will be notified of the metrics that are created while the pipeline is running,

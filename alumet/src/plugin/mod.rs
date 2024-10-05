@@ -91,13 +91,15 @@
 //!
 //! WIP
 //!
+use std::fmt::Debug;
+
 use self::rust::AlumetPlugin;
 
 #[cfg(feature = "dynamic")]
 pub mod dynload;
 
 pub mod event;
-mod phases;
+pub(crate) mod phases;
 pub mod rust;
 pub mod util;
 pub(crate) mod version;
@@ -130,6 +132,15 @@ impl PluginMetadata {
             init: Box::new(|conf| P::init(conf).map(|p| p as _)),
             default_config: Box::new(P::default_config),
         }
+    }
+}
+
+impl Debug for PluginMetadata {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PluginMetadata")
+            .field("name", &self.name)
+            .field("version", &self.version)
+            .finish()
     }
 }
 

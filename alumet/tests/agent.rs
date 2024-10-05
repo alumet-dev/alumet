@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use alumet::{
-    agent::{AgentBuilder, AgentConfig},
+    agent, pipeline,
     plugin::{
         rust::{serialize_config, AlumetPlugin},
         AlumetPluginStart, ConfigTable, PluginMetadata,
@@ -31,8 +31,8 @@ fn static_plugin_macro() {
 #[test]
 fn default_config_no_plugin() {
     let plugins = static_plugins![];
-    let agent = AgentBuilder::new(plugins).build();
-    let config = agent.default_config().unwrap();
+    let mut config = toml::Table::new();
+    agent::config::insert_default_plugin_configs(&plugins, &mut config).unwrap();
 
     let expected = toml::Table::from_iter(vec![(String::from("plugins"), toml::Value::Table(toml::Table::new()))]);
     assert_eq!(expected, config);
@@ -42,8 +42,8 @@ fn default_config_no_plugin() {
 fn default_config_1_plugin() {
     {
         let plugins = static_plugins![MyPlugin];
-        let agent = AgentBuilder::new(plugins).build();
-        let config = agent.default_config().unwrap();
+        let mut config = toml::Table::new();
+        agent::config::insert_default_plugin_configs(&plugins, &mut config).unwrap();
 
         let mut expected = toml::Table::new();
         let mut expected_plugins_confs = toml::Table::new();
@@ -59,12 +59,10 @@ fn default_config_1_plugin() {
     }
     {
         let plugins = static_plugins![MyPlugin];
-        let mut default_agent_config = toml::Table::new();
-        default_agent_config.insert(String::from("key"), toml::Value::String(String::from("value")));
-        let agent = AgentBuilder::new(plugins)
-            .default_app_config(default_agent_config)
-            .build();
-        let config = agent.default_config().unwrap();
+        let mut config = toml::Table::new();
+        config.insert(String::from("key"), toml::Value::String(String::from("value")));
+
+        agent::config::insert_default_plugin_configs(&plugins, &mut config).unwrap();
 
         let mut expected = toml::Table::new();
         let mut expected_plugins_confs = toml::Table::new();
@@ -109,14 +107,16 @@ fn test_plugin_lifecycle() {
     let (state1_pre_op, state2_pre_op) = (state1.clone(), state2.clone());
     let (state1_op, state2_op) = (state1.clone(), state2.clone());
 
-    let agent = AgentBuilder::new(plugins)
-        .config_value(toml::Table::new())
-        .after_plugin_init(move |_| {
+    let pipeline_builder = pipeline::Builder::new();
+    let mut builder = agent::Builder::new(pipeline_builder);
+    builder
+        .add_plugins(plugins)
+        .after_plugins_init(move |_| {
             // check plugin initialization
             assert_eq!(state1_init.get(), State::Initialized);
             assert_eq!(state2_init.get(), State::Initialized);
         })
-        .after_plugin_start(move |builder| {
+        .after_plugins_start(move |builder| {
             // check plugin startup
             assert_eq!(state1_start.get(), State::Started);
             assert_eq!(state2_start.get(), State::Started);
@@ -155,21 +155,22 @@ fn test_plugin_lifecycle() {
             // check pipeline startup
             assert_eq!(state1_op.get(), State::PostPipelineStart);
             assert_eq!(state2_op.get(), State::PostPipelineStart);
-        })
-        .build();
+        });
+    let agent = builder.build_and_start().expect("agent should start fine");
+
+    // Check that the plugins have been enabled
+    assert!(agent
+        .initialized_plugins
+        .iter()
+        .find(|p| p.name() == "plugin1")
+        .is_some());
+    assert!(agent
+        .initialized_plugins
+        .iter()
+        .find(|p| p.name() == "plugin2")
+        .is_some());
 
     // Stop the pipeline
-    let global_config = agent.default_config().unwrap();
-    let agent_config = AgentConfig::try_from(global_config).unwrap();
-    assert!(
-        !agent_config.is_plugin_disabled("plugin1"),
-        "the plugins should be enabled"
-    );
-    assert!(
-        !agent_config.is_plugin_disabled("plugin2"),
-        "the plugins should be enabled"
-    );
-    let agent = agent.start(agent_config).unwrap();
     agent.pipeline.control_handle().shutdown();
     agent.wait_for_shutdown(Duration::from_secs(2)).unwrap();
 

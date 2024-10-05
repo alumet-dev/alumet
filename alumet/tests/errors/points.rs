@@ -60,10 +60,8 @@ impl Default for Expect {
 #[derive(Default)]
 pub struct ExpectedCatchPoints {
     pub init: Expect,
-    pub agent_build: Expect,
+    pub agent_build_and_start: Expect,
     pub agent_default_config: Expect,
-    pub agent_config_from: Expect,
-    pub agent_start: Expect,
     #[allow(unused)]
     pub runtime: Expect,
     pub shutdown: Expect,

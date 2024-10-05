@@ -4,9 +4,9 @@ use std::{
 };
 
 use alumet::{
-    agent::{AgentBuilder, AgentConfig},
+    agent,
     measurement::{MeasurementAccumulator, Timestamp},
-    pipeline::{elements::error::PollError, trigger::TriggerSpec},
+    pipeline::{self, elements::error::PollError, trigger::TriggerSpec},
     plugin::{
         rust::{serialize_config, AlumetPlugin},
         AlumetPluginStart, AlumetPostStart, ConfigTable,
@@ -71,13 +71,15 @@ fn late_source_creation_test() -> anyhow::Result<()> {
 
     // Create an agent with the plugin
     let plugins = static_plugins![TestPlugin];
-    let mut agent = AgentBuilder::new(plugins).config_value(toml::Table::new()).build();
+
+    let mut pipeline_builder = pipeline::Builder::new();
+    pipeline_builder.trigger_constraints_mut().max_update_interval = Duration::from_millis(100);
+
+    let mut agent_builder = agent::Builder::new(pipeline_builder);
+    agent_builder.add_plugins(plugins);
 
     // Start Alumet
-    let global_config = agent.default_config()?;
-    let agent_config = AgentConfig::try_from(global_config)?;
-    agent.source_trigger_constraints().max_update_interval = Duration::from_millis(100);
-    let agent = agent.start(agent_config)?;
+    let agent = agent_builder.build_and_start().expect("agent should start fine");
 
     // Wait for the source to be registered
     thread::sleep(time::Duration::from_secs(1));
