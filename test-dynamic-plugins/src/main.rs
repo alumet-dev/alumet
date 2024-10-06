@@ -58,10 +58,17 @@ fn run_with_plugin(
     // Check the config (print it here and assert_eq on the output in tests/test_plugins.rs)
     println!("[app] plugin config: {:?}", plugin_config);
 
-    // Build and agent with the plugin
+    // Prepare for checks
     let expected_plugin_name = expected_plugin_name.to_owned();
     let expected_plugin_version = expected_plugin_version.to_owned();
-    let mut agent_builder = agent::Builder::new(alumet::pipeline::Builder::new());
+
+    // Disable high-priority threads, they are useless for the dynamic plugin tests
+    // and don't work in CI.
+    let mut pipeline_builder = alumet::pipeline::Builder::new();
+    pipeline_builder.high_priority_threads(0);
+
+    // Build and agent with the plugin
+    let mut agent_builder = agent::Builder::new(pipeline_builder);
     agent_builder.add_plugin_with_info(plugin, true, plugin_config);
     agent_builder
         .after_plugins_init(move |plugins| {
