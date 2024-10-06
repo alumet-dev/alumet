@@ -140,13 +140,8 @@ impl OutputControl {
         self.handle_message(stop_msg)
             .expect("handle_message in shutdown should not fail");
 
-        // Wait for all outputs to finish
-        loop {
-            match self.tasks.spawned_tasks.join_next().await {
-                Some(res) => handle_task_result(res),
-                None => break,
-            }
-        }
+        // Close the channel and wait for all outputs to finish
+        self.tasks.shutdown(handle_task_result).await;
     }
 }
 
@@ -239,6 +234,23 @@ impl TaskManager {
             }
         }
     }
+
+    async fn shutdown<F>(self, handle_task_result: F)
+    where
+        F: Fn(Result<anyhow::Result<()>, tokio::task::JoinError>),
+    {
+        // Drop the rx_provider first in order to close the channel.
+        drop(self.rx_provider);
+        let mut spawned_tasks = self.spawned_tasks;
+
+        // Wait for all outputs to finish
+        loop {
+            match spawned_tasks.join_next().await {
+                Some(res) => handle_task_result(res),
+                None => break,
+            }
+        }
+    }
 }
 
 /// A control messages for outputs.
@@ -292,6 +304,7 @@ async fn run_blocking_output<Rx: channel::MeasurementReceiver>(
     ) -> anyhow::Result<ControlFlow<()>> {
         match maybe_measurements {
             Ok(measurements) => {
+                log::trace!("writing {} measurements to {name}", measurements.len());
                 let res = tokio::task::spawn_blocking(move || {
                     let ctx = OutputContext {
                         metrics: &metrics_r.blocking_read(),
@@ -324,7 +337,7 @@ async fn run_blocking_output<Rx: channel::MeasurementReceiver>(
 
     let config_change = &config.change_notifier;
     let mut receive = true;
-    let mut finish = true;
+    let mut finish = false;
     loop {
         tokio::select! {
             _ = config_change.notified() => {
@@ -337,10 +350,10 @@ async fn run_blocking_output<Rx: channel::MeasurementReceiver>(
                         receive = false;
                     }
                     TaskState::StopNow => {
-                        finish = false;
                         break; // stop the output and ignore the remaining data
                     }
                     TaskState::StopFinish => {
+                        finish = true;
                         break; // stop the output and empty the channel
                     }
                 }
@@ -348,6 +361,7 @@ async fn run_blocking_output<Rx: channel::MeasurementReceiver>(
             measurements = rx.recv(), if receive => {
                 let res = write_measurements(&name, guarded_output.clone(), metrics_reader.clone(), measurements).await?;
                 if res.is_break() {
+                    finish = false; // just in case
                     break
                 }
             }
@@ -355,14 +369,22 @@ async fn run_blocking_output<Rx: channel::MeasurementReceiver>(
     }
 
     if finish {
-        // Write the last measurements, ignore any lag.
+        // Write the last measurements, ignore any lag (the latter is done in write_measurements).
         // This is useful when Alumet is stopped, to ensure that we don't discard any data.
         loop {
-            match rx.recv().await {
-                res @ (Ok(_) | Err(RecvError::Lagged(_))) => {
-                    write_measurements(&name, guarded_output.clone(), metrics_reader.clone(), res).await?;
+            log::trace!("{name} finishing...");
+            let received = rx.recv().await;
+            log::trace!(
+                "{name} finishing with {}",
+                match &received {
+                    Ok(buf) => format!("Ok(buf of size {})", buf.len()),
+                    Err(RecvError::Closed) => String::from("Err(Closed)"),
+                    Err(RecvError::Lagged(n)) => format!("Err(Lagged({n}))"),
                 }
-                Err(RecvError::Closed) => break,
+            );
+            let res = write_measurements(&name, guarded_output.clone(), metrics_reader.clone(), received).await?;
+            if res.is_break() {
+                break;
             }
         }
     }
