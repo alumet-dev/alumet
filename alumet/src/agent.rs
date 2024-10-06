@@ -263,7 +263,7 @@ impl Builder {
 
             let mut ctx = AlumetPreStart {
                 current_plugin: pipeline::PluginName(p.name().to_owned()),
-                pipeline_builder: pipeline_builder,
+                pipeline_builder,
             };
             p.pre_pipeline_start(&mut ctx)
                 .with_context(|| format!("plugin pre_pipeline_start failed: {} v{}", p.name(), p.version()))
@@ -538,7 +538,7 @@ pub mod config {
             .entry(String::from("plugins"))
             .or_insert_with(|| toml::Value::Table(toml::Table::with_capacity(plugins.len())))
             .as_table_mut()
-            .with_context(|| format!("value 'plugins' should be a TOML table"))?;
+            .context("value 'plugins' should be a TOML table")?;
 
         for plugin in plugins {
             log::debug!("Generating default config for plugin {}", plugin.name);
