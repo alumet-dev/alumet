@@ -558,8 +558,6 @@ pub mod config {
     /// to generate a default configuration.
     ///
     /// This new configuration is saved to the file, then returned.
-    ///
-    /// ```
     pub fn parse_file_with_default<F: FnOnce() -> anyhow::Result<toml::Table>>(
         config_path: &Path,
         default: F,
@@ -574,8 +572,6 @@ pub mod config {
     /// to generate a default configuration.
     ///
     /// This new configuration is saved to the file, then returned.
-    ///
-    /// ```
     fn parse_file<F: FnOnce() -> anyhow::Result<toml::Table>>(
         config_path: &Path,
         default: Option<F>,

@@ -47,7 +47,7 @@ use std::marker::PhantomData;
 use super::measurement::{MeasurementType, WrappedMeasurementType};
 use super::units::PrefixedUnit;
 
-/// The complete definition of a metric (except its id).
+/// The complete definition of a metric (without its id).
 ///
 /// To register new metrics from your plugin, use
 /// [`AlumetPluginStart::create_metric`](crate::plugin::AlumetPluginStart::create_metric)

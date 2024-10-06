@@ -17,7 +17,7 @@ use crate::{
 /// such as registering new measurement sources.
 ///
 /// # Note for applications
-/// You should not create `AlumetPluginStart` manually, build an [`Agent`](crate::agent::Agent) instead.
+/// You cannot create `AlumetPluginStart` manually, build an agent with [`agent::Builder`](crate::agent::Builder) instead.
 pub struct AlumetPluginStart<'a> {
     pub(crate) current_plugin: PluginName,
     pub(crate) pipeline_builder: &'a mut pipeline::Builder,
@@ -35,6 +35,23 @@ impl<'a> AlumetPluginStart<'a> {
 
     /// Creates a new metric with a measurement type `T` (checked at compile time).
     /// Fails if a metric with the same name already exists.
+    ///
+    /// # Example
+    /// ```no_run
+    /// use alumet::units::{Unit, PrefixedUnit};
+    /// use alumet::metrics::TypedMetricId;
+    /// # use alumet::plugin::AlumetPluginStart;
+    ///
+    /// # fn f() -> anyhow::Result<()> {
+    /// # let alumet: &AlumetPluginStart = todo!();
+    /// let proc_exec_time: TypedMetricId<u64> = alumet
+    ///     .create_metric("process_execution_time", Unit::Second, "execution time of a process")?;
+    ///
+    /// let ram_power: TypedMetricId<u64> = alumet
+    ///     .create_metric("ram_electrical_power", PrefixedUnit::milli(Unit::Watt), "instantaneous power consumption of a memory module")?;
+    ///
+    /// # }
+    /// ```
     pub fn create_metric<T: MeasurementType>(
         &mut self,
         name: impl Into<String>,
@@ -73,7 +90,7 @@ impl<'a> AlumetPluginStart<'a> {
         self.pipeline_builder.metrics.register(m)
     }
 
-    /// Adds a measurement source to the Alumet pipeline.
+    /// Adds a _managed_ measurement source to the Alumet pipeline.
     pub fn add_source(&mut self, source: Box<dyn Source>, trigger: trigger::TriggerSpec) {
         let plugin = self.current_plugin_name();
         let builder = |ctx: &mut dyn source::builder::ManagedSourceBuildContext| {
@@ -87,7 +104,7 @@ impl<'a> AlumetPluginStart<'a> {
             .add_source_builder(plugin, source::builder::SourceBuilder::Managed(Box::new(builder)))
     }
 
-    /// Adds the builder of a measurement source to the Alumet pipeline.
+    /// Adds the builder of a _managed_ measurement source to the Alumet pipeline.
     ///
     /// Unlike [`add_source`](Self::add_source), the source is not created immediately but during the construction
     /// of the measurement pipeline. This allows to use some information about the pipeline while
@@ -101,8 +118,9 @@ impl<'a> AlumetPluginStart<'a> {
             .add_source_builder(plugin, source::builder::SourceBuilder::Managed(Box::new(builder)));
     }
 
-    /// Adds the builder of an autonomous source to the Alumet pipeline.
+    /// Adds the builder of an _autonomous_ source to the Alumet pipeline.
     ///
+    /// # Autonomous sources
     /// An autonomous source is not triggered by Alumet, but runs independently.
     /// It is given a [`Sender`](tokio::sync::mpsc::Sender) to send its measurements
     /// to the rest of the Alumet pipeline (transforms and outputs).
@@ -156,6 +174,31 @@ impl<'a> AlumetPluginStart<'a> {
     }
 
     /// Adds a transform step to the Alumet pipeline.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use alumet::pipeline::elements::transform::{Transform, TransformContext};
+    /// use alumet::pipeline::elements::error::TransformError;
+    /// use alumet::measurement::MeasurementBuffer;
+    /// # use alumet::plugin::AlumetPluginStart;
+    ///
+    /// // Define the transform
+    /// struct ExampleTransform;
+    /// impl Transform for ExampleTransform {
+    ///     fn apply(&mut self, m: &mut MeasurementBuffer, ctx: &TransformContext) -> Result<(), TransformError> {
+    ///         todo!(); // do something with the measurements
+    ///         Ok(())
+    ///     }
+    /// }
+    ///
+    /// # let alumet: &AlumetPluginStart = todo!();
+    /// #
+    /// // In start(&mut self, alumet: &mut AlumetPluginStart),
+    /// // add the transform to the pipeline.
+    /// let transform = ExampleTransform;
+    /// alumet.add_transform(Box::new(transform));
+    /// ```
     pub fn add_transform(&mut self, transform: Box<dyn Transform>) {
         let plugin = self.current_plugin_name();
         let builder = |ctx: &mut dyn transform::builder::TransformBuildContext| {
@@ -167,13 +210,60 @@ impl<'a> AlumetPluginStart<'a> {
         self.pipeline_builder.add_transform_builder(plugin, Box::new(builder));
     }
 
-    /// todo doc
+    /// Adds the builder of a transform step to the Alumet pipeline.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use alumet::pipeline::elements::transform::{
+    ///     Transform,
+    ///     builder::TransformRegistration
+    /// };
+    ///
+    /// # use alumet::plugin::AlumetPluginStart;
+    ///
+    /// # let alumet: &AlumetPluginStart = todo!();
+    /// alumet.add_transform_builder(move |ctx| {
+    ///     let name = ctx.transform_name("example");
+    ///     let transform: Box<dyn Transform> = todo!();
+    ///     Ok(TransformRegistration { name, transform })
+    /// });
+    /// ```
     pub fn add_transform_builder<F: transform::builder::TransformBuilder + 'static>(&mut self, builder: F) {
         let plugin = self.current_plugin_name();
         self.pipeline_builder.add_transform_builder(plugin, Box::new(builder));
     }
 
-    /// Adds an output to the Alumet pipeline.
+    /// Adds a _blocking_ output to the Alumet pipeline.
+    ///
+    /// # Example
+    /// ```no_run
+    /// use alumet::pipeline::elements::output::{Output, OutputContext};
+    /// use alumet::pipeline::elements::error::WriteError;
+    /// use alumet::measurement::MeasurementBuffer;
+    /// # use alumet::plugin::AlumetPluginStart;
+    ///
+    /// use anyhow::Context;
+    ///
+    /// // Define the output
+    /// struct ExampleOutput;
+    /// impl Output for ExampleOutput {
+    ///     fn write(&mut self, m: &MeasurementBuffer, ctx: &OutputContext) -> Result<(), WriteError> {
+    ///         // do something with the measurements
+    ///         for point in m.iter() {
+    ///             todo!()
+    ///         }
+    ///         Ok(())
+    ///     }
+    /// }
+    ///
+    /// # let alumet: &AlumetPluginStart = todo!();
+    /// #
+    /// // In start(&mut self, alumet: &mut AlumetPluginStart),
+    /// // add the output to the pipeline.
+    /// let output = ExampleOutput;
+    /// alumet.add_blocking_output(Box::new(output));
+    /// ```
     pub fn add_blocking_output(&mut self, output: Box<dyn Output>) {
         let plugin = self.current_plugin_name();
         let build = |ctx: &mut dyn output::builder::BlockingOutputBuildContext| {
@@ -186,26 +276,41 @@ impl<'a> AlumetPluginStart<'a> {
         self.pipeline_builder.add_output_builder(plugin, builder);
     }
 
-    /// Adds the builder of an output to the Alumet pipeline.
+    /// Adds the builder of a _blocking_ output to the Alumet pipeline.
     ///
-    /// Unlike [`add_output`](Self::add_output), the output is not created immediately but during the construction
+    /// Unlike [`add_blocking_output`](Self::add_blocking_output), the output is not created immediately but during the construction
     /// of the measurement pipeline. This allows to use some information about the pipeline while
-    /// creating the output. A good use case is to access the tokio runtime [`Handle`](tokio::runtime::Handle)
-    /// in order to use an async library.
+    /// creating the output.
     ///
-    /// In general, you should prefer to use [`add_output`](Self::add_output) if possible.
+    /// # Async outputs
+    /// If you intend to use async functions to implement your output, consider using [`add_async_output_builder`](Self::add_async_output_builder)
+    /// instead.
     pub fn add_blocking_output_builder<F: output::builder::BlockingOutputBuilder + 'static>(&mut self, builder: F) {
         let plugin = self.current_plugin_name();
         let builder = output::builder::OutputBuilder::Blocking(Box::new(builder));
         self.pipeline_builder.add_output_builder(plugin, builder);
     }
 
+    /// Adds the builder of an _async_ output to the Alumet pipeline.
     pub fn add_async_output_builder<F: output::builder::AsyncOutputBuilder + 'static>(&mut self, builder: F) {
         let plugin = self.current_plugin_name();
         let builder = output::builder::OutputBuilder::Async(Box::new(builder));
         self.pipeline_builder.add_output_builder(plugin, builder);
     }
 
+    /// Registers a callback that will run just after the pipeline startup.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use alumet::plugin::AlumetPluginStart;
+    /// # let alumet: &AlumetPluginStart = todo!();
+    /// alumet.on_pipeline_start(|ctx| {
+    ///     // ctx is a `&mut AlumetPostStart`
+    ///     let control_handle = ctx.pipeline_control();
+    ///     todo!();
+    ///     Ok(())
+    /// })
+    /// ```
     pub fn on_pipeline_start<F: PostStartAction + 'static>(&mut self, action: F) {
         let plugin = self.current_plugin_name();
         self.post_start_actions.push((plugin, Box::new(action)));

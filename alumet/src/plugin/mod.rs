@@ -85,7 +85,7 @@
 //!
 //! Finally, modify the measurement application in the following ways:
 //! 1. Add a dependency to your plugin crate (for example with `cargo add my-plugin --path=path/to/my-plugin`).
-//! 2. Modify your `main` to initialize and load the plugin. See [`Agent`](crate::agent::Agent).
+//! 2. Modify your `main` to initialize and load the plugin. See [`agent::Builder`](crate::agent::Builder).
 //!
 //! # Dynamic plugins
 //!

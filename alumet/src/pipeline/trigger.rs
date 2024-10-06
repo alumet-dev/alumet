@@ -69,7 +69,7 @@ pub struct TriggerConstraints {
 
 /// Builder for source triggers.
 ///
-/// See [`builder::time_interval`](time_interval()).
+/// See [`builder::time_interval`].
 pub mod builder {
     use core::fmt;
     use std::time::{Duration, Instant};
