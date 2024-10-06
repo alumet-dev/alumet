@@ -2,7 +2,10 @@
 name = "alumet"
 version = "0.6.0"
 edition = "2021"
-description = "Core of ALUMET, which includes an async measurement pipeline for use in applications, a plugin API, and an automatically generated C header for dynamic plugins."
+description = "Modular framework for hardware and software measurement (including energy consumption and more)."
+license = " EUPL-1.2"
+homepage = "https://alumet.dev"
+repository = "https://github.com/alumet-dev/alumet"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
@@ -38,7 +41,8 @@ serde = { version = "1.0.210", features = ["derive"] }
 
 # Dependencies for the build script (build.rs).
 [build-dependencies]
-cbindgen = { git = "https://github.com/TheElectronWill/cbindgen.git", branch = "symbols-files" }
+# cbindgen = { git = "https://github.com/TheElectronWill/cbindgen.git", branch = "symbols-files" }
+cbindgen = "0.27.0"
 
 [lints]
 workspace = true

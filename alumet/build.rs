@@ -13,7 +13,7 @@ fn main() {
     let out_dir = Path::new("generated");
     fs::create_dir_all(out_dir).unwrap();
     let out_file_path = out_dir.join("alumet-api.h");
-    let sym_file_path = out_dir.join("alumet-symbols.txt");
+    // let sym_file_path = out_dir.join("alumet-symbols.txt");
 
     // Configure cbindgen for C
     let mut cbindgen_config = cbindgen::Config {
@@ -33,7 +33,6 @@ fn main() {
     cbindgen_config.parse.expand.crates.push(String::from("alumet"));
 
     // Generate the bindings
-
     let bindings = with_rustc_bootstrap(|| {
         cbindgen::Builder::new()
             .with_crate(crate_dir)
@@ -43,7 +42,9 @@ fn main() {
     });
 
     // Write the list of symbols for the linker (useful during the compilation of `app-agent`)
-    bindings.generate_symfile(sym_file_path);
+    // DISABLED HERE (cannot publish to crates.io with git dependency, and need
+    // https://github.com/mozilla/cbindgen/pull/916 to be merged to run the script)
+    // bindings.generate_symfile(sym_file_path);
 
     // Write the C bindings.
     bindings.write_to_file(out_file_path);
