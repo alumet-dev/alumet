@@ -18,7 +18,7 @@ use tokio::task::{JoinError, JoinSet};
 
 use crate::measurement::MeasurementBuffer;
 use crate::metrics::MetricRegistry;
-use crate::pipeline::util::channel;
+use crate::pipeline::util::channel::{self, RecvError};
 use crate::pipeline::util::matching::OutputSelector;
 use crate::pipeline::util::naming::{NameGenerator, OutputName};
 use crate::pipeline::util::stream::{ControlledStream, SharedStreamState};
@@ -135,7 +135,7 @@ impl OutputControl {
         // If the output is paused, it needs to be stopped with a command.
         let stop_msg = ControlMessage {
             selector: OutputSelector::all(),
-            new_state: TaskState::Stop,
+            new_state: TaskState::StopFinish,
         };
         self.handle_message(stop_msg)
             .expect("handle_message in shutdown should not fail");
@@ -256,18 +256,21 @@ pub struct ControlMessage {
 pub enum TaskState {
     Run,
     Pause,
-    Stop,
+    StopNow,
+    StopFinish,
 }
 
 impl From<u8> for TaskState {
     fn from(value: u8) -> Self {
         const RUN: u8 = TaskState::Run as u8;
         const PAUSE: u8 = TaskState::Pause as u8;
+        const STOP_FINISH: u8 = TaskState::StopFinish as u8;
 
         match value {
             RUN => TaskState::Run,
             PAUSE => TaskState::Pause,
-            _ => TaskState::Stop,
+            STOP_FINISH => TaskState::StopFinish,
+            _ => TaskState::StopNow,
         }
     }
 }
@@ -321,6 +324,7 @@ async fn run_blocking_output<Rx: channel::MeasurementReceiver>(
 
     let config_change = &config.change_notifier;
     let mut receive = true;
+    let mut finish = true;
     loop {
         tokio::select! {
             _ = config_change.notified() => {
@@ -332,8 +336,12 @@ async fn run_blocking_output<Rx: channel::MeasurementReceiver>(
                     TaskState::Pause => {
                         receive = false;
                     }
-                    TaskState::Stop => {
-                        break; // stop the output
+                    TaskState::StopNow => {
+                        finish = false;
+                        break; // stop the output and ignore the remaining data
+                    }
+                    TaskState::StopFinish => {
+                        break; // stop the output and empty the channel
                     }
                 }
             },
@@ -345,6 +353,20 @@ async fn run_blocking_output<Rx: channel::MeasurementReceiver>(
             }
         }
     }
+
+    if finish {
+        // Write the last measurements, ignore any lag.
+        // This is useful when Alumet is stopped, to ensure that we don't discard any data.
+        loop {
+            match rx.recv().await {
+                res @ (Ok(_) | Err(RecvError::Lagged(_))) => {
+                    write_measurements(&name, guarded_output.clone(), metrics_reader.clone(), res).await?;
+                }
+                Err(RecvError::Closed) => break,
+            }
+        }
+    }
+
     Ok(())
 }
 
