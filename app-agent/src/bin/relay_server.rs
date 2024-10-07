@@ -10,7 +10,7 @@ use clap::{Parser, Subcommand};
 type AgentConfig = CommonOpts;
 
 fn main() {
-    let plugins = static_plugins![plugin_relay::server::RelayServerPlugin, plugin_csv::CsvPlugin, plugin_energy_estimation_tdp::MyPlugin];
+    let plugins = static_plugins![plugin_relay::server::RelayServerPlugin, plugin_csv::CsvPlugin, plugin_energy_estimation_tdp::EnergyEstimationTdpPlugin];
 
     init_logger();
     const BINARY: &str = env!("CARGO_BIN_NAME");
