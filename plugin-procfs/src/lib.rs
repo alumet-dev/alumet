@@ -189,7 +189,7 @@ mod config {
     use regex::Regex;
     use serde::{Deserialize, Serialize};
 
-    #[derive(Serialize, Deserialize)]
+    #[derive(Serialize, Deserialize, Default)]
     pub struct Config {
         pub kernel: KernelStatsMonitoring,
         pub memory: MeminfoMonitoring,
@@ -318,16 +318,6 @@ mod config {
                     poll_interval: Duration::from_secs(1),
                     flush_interval: Duration::from_secs(4),
                 },
-            }
-        }
-    }
-
-    impl Default for Config {
-        fn default() -> Self {
-            Self {
-                kernel: KernelStatsMonitoring::default(),
-                memory: MeminfoMonitoring::default(),
-                processes: ProcessMonitoring::default(),
             }
         }
     }

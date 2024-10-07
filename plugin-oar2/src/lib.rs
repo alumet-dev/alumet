@@ -162,9 +162,9 @@ impl AlumetPlugin for Oar2Plugin {
                             let job_separated = job_name.split_once('_');
                             let job_id = job_separated.context("Invalid oar cgroup")?.1.parse()?;
 
-                            let cpu_path = job_detect.config_path.join("cpuacct/oar").join(&job_name);
+                            let cpu_path = job_detect.config_path.join("cpuacct/oar").join(job_name);
                             log::debug!("CPU path {cpu_path:?}");
-                            let memory_path = job_detect.config_path.join("memory/oar").join(&job_name);
+                            let memory_path = job_detect.config_path.join("memory/oar").join(job_name);
                             log::debug!("Memory path {memory_path:?}");
 
                             let cpu_file_path = cpu_path.join("cpuacct.usage");

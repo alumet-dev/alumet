@@ -163,11 +163,7 @@ impl AlumetPlugin for RelayClientPlugin {
         let metric_ids = self.metric_ids.clone();
 
         // Clone the existing metrics (which have been registered by the `start` methods of all the plugins).
-        let existing_metrics = alumet
-            .metrics()
-            .iter()
-            .map(|(id, def)| (id.clone(), def.clone()))
-            .collect();
+        let existing_metrics = alumet.metrics().iter().map(|(id, def)| (*id, def.clone())).collect();
 
         // Get notified of late metric registration. (TODO: is this the best way? Would it be faster to inspect the points in the output instead?)
         // Also register the existing metrics on the async pipeline.

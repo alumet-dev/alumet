@@ -5,7 +5,7 @@ use std::{
 };
 
 use alumet::{
-    measurement::{AttributeValue, MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue},
+    measurement::{MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue},
     pipeline::{
         elements::{error::TransformError, transform::TransformContext},
         Transform,
@@ -141,7 +141,7 @@ impl Transform for EnergyAttributionTransform {
                         None => {
                             // If the buffer does not have any value for the current id (timestamp)
                             // then we create the vec with its first value.
-                            self.buffer_pod.insert(id.clone(), vec![m.clone()]);
+                            self.buffer_pod.insert(id, vec![m.clone()]);
                         }
                     }
                 }

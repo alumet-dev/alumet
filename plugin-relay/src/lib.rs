@@ -61,7 +61,7 @@ pub fn resolve_socket_address(
                 .collect();
             // deduplicate but preserve order (the addresses should be tried in the order returned by the system, see man getaddrinfo)
             let mut seen: HashSet<SocketAddr> = HashSet::with_capacity(addresses.len());
-            addresses.retain(|addr| seen.insert(addr.clone()));
+            addresses.retain(|addr| seen.insert(*addr));
             if addresses.is_empty() {
                 Err(anyhow!(
                     "no address matches ({address}, {port}) and ipv6 scope id {}",

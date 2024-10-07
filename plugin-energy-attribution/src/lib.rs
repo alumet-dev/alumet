@@ -70,10 +70,11 @@ impl AlumetPlugin for EnergyAttributionPlugin {
         /// Finds the RawMetricId with the name of the metric.
         /// Will only run once, just before the pipeline starts.
         fn find_metric_by_name(alumet: &mut AlumetPreStart, name: &str) -> anyhow::Result<RawMetricId> {
-            let (id, _metric) =
-                alumet.metrics().into_iter().find(|m| m.1.name == name).expect(
-                    &format!("Cannot find metric {name}, are the 'rapl' and 'k8s' plugins loaded?").to_string(),
-                );
+            let (id, _metric) = alumet
+                .metrics()
+                .into_iter()
+                .find(|m| m.1.name == name)
+                .unwrap_or_else(|| panic!("Cannot find metric {name}, are the 'rapl' and 'k8s' plugins loaded?"));
             Ok(id.to_owned())
         }
 

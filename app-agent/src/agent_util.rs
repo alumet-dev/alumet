@@ -26,7 +26,7 @@ pub fn load_config<'de, C: Deserialize<'de> + Serialize + ContextDefault>(
     config_path: &Path,
     plugins: &[PluginMetadata],
 ) -> anyhow::Result<(C, HashMap<String, (bool, toml::Table)>)> {
-    let generate_default = || default_config(&plugins, C::default_with_context(&plugins));
+    let generate_default = || default_config(plugins, C::default_with_context(plugins));
     let mut config = alumet::agent::config::parse_file_with_default(config_path, generate_default)?;
     let plugin_configs = alumet::agent::config::extract_plugin_configs(&mut config)?;
     let non_plugin_config = toml::Value::Table(config).try_into::<C>()?;
@@ -84,7 +84,7 @@ impl Configurator for PluginsInfo {
 pub fn start(agent_builder: agent::Builder) -> agent::RunningAgent {
     agent_builder.build_and_start().unwrap_or_else(|err| {
         log::error!("{err:?}");
-        if let Some(_) = err.downcast_ref::<InvalidConfig>() {
+        if err.downcast_ref::<InvalidConfig>().is_some() {
             hint_regen_config();
         }
         panic!("ALUMET agent failed to start: {err}");

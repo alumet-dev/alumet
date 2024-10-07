@@ -154,30 +154,22 @@ impl FromStr for ElementSelector {
                 name: NamePattern::Any,
             })),
             [plugin] => Ok(ElementSelector::Any(NamePatterns {
-                plugin: plugin
-                    .parse()
-                    .map_err(|e| SelectorParseError::InvalidPluginNamePattern(e))?,
+                plugin: plugin.parse().map_err(SelectorParseError::InvalidPluginNamePattern)?,
                 name: NamePattern::Any,
             })),
             [plugin, kind] => {
-                let kind = parse_kind(kind).map_err(|e| SelectorParseError::InvalidKind(e))?;
+                let kind = parse_kind(kind).map_err(SelectorParseError::InvalidKind)?;
                 let patterns = NamePatterns {
-                    plugin: plugin
-                        .parse()
-                        .map_err(|e| SelectorParseError::InvalidPluginNamePattern(e))?,
+                    plugin: plugin.parse().map_err(SelectorParseError::InvalidPluginNamePattern)?,
                     name: NamePattern::Any,
                 };
                 Ok(ElementSelector::new(patterns, kind))
             }
             [plugin, kind, name] => {
-                let kind = parse_kind(kind).map_err(|e| SelectorParseError::InvalidKind(e))?;
+                let kind = parse_kind(kind).map_err(SelectorParseError::InvalidKind)?;
                 let patterns = NamePatterns {
-                    plugin: plugin
-                        .parse()
-                        .map_err(|e| SelectorParseError::InvalidPluginNamePattern(e))?,
-                    name: name
-                        .parse()
-                        .map_err(|e| SelectorParseError::InvalidElementNamePattern(e))?,
+                    plugin: plugin.parse().map_err(SelectorParseError::InvalidPluginNamePattern)?,
+                    name: name.parse().map_err(SelectorParseError::InvalidElementNamePattern)?,
                 };
                 Ok(ElementSelector::new(patterns, kind))
             }
