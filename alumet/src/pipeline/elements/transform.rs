@@ -246,6 +246,14 @@ async fn run_all_in_order(
     active_flags: Arc<AtomicU64>,
     metrics_reader: MetricReader,
 ) -> anyhow::Result<()> {
+    log::trace!(
+        "Running transforms: {}",
+        transforms
+            .iter()
+            .map(|reg| reg.name.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
     loop {
         if let Some(mut measurements) = rx.recv().await {
             // Update the list of active transforms.

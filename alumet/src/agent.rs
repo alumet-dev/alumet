@@ -24,6 +24,7 @@
 //! # }
 //! ```
 
+use std::collections::BTreeMap;
 use std::{collections::HashMap, ops::DerefMut, time::Duration};
 
 use anyhow::{anyhow, Context};
@@ -72,8 +73,8 @@ pub struct RunningAgent {
 /// let agent = builder.build_and_start();
 /// ```
 pub struct Builder {
-    /// All the plugins (not initialized yet).
-    plugins: HashMap<String, UnitializedPlugin>,
+    /// All the plugins (not initialized yet), in order (the order must be preserved).
+    plugins: BTreeMap<String, UnitializedPlugin>,
 
     /// Builds the measurement pipeline.
     pipeline_builder: pipeline::Builder,
@@ -109,7 +110,7 @@ impl Default for Callbacks {
 impl Builder {
     pub fn new(pipeline_builder: pipeline::Builder) -> Self {
         Self {
-            plugins: HashMap::new(),
+            plugins: BTreeMap::new(),
             pipeline_builder,
             callbacks: Callbacks::default(),
         }
