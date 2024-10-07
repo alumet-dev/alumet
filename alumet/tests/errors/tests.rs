@@ -28,7 +28,7 @@ static LOCK: Mutex<()> = Mutex::new(());
 ///         // Expect the agent to return an error from Agent::start(),
 ///         // and stop the test at this point.
 ///         ExpectedCatchPoints {
-///            agent_start: Expect::Error,
+///            agent_build_and_start: Expect::Error,
 ///            ..Default::default()
 ///         },
 ///     );
@@ -115,7 +115,7 @@ fn panic_plugin_start() -> anyhow::Result<()> {
             ..Default::default()
         },
         ExpectedCatchPoints {
-            agent_start: Expect::Panic,
+            agent_build_and_start: Expect::Panic,
             ..Default::default()
         },
     );
@@ -131,7 +131,7 @@ fn error_plugin_start() -> anyhow::Result<()> {
             ..Default::default()
         },
         ExpectedCatchPoints {
-            agent_start: Expect::Error,
+            agent_build_and_start: Expect::Error,
             ..Default::default()
         },
     );
@@ -147,7 +147,7 @@ fn panic_plugin_post_pipeline_start() -> anyhow::Result<()> {
             ..Default::default()
         },
         ExpectedCatchPoints {
-            agent_start: Expect::Panic,
+            agent_build_and_start: Expect::Panic,
             ..Default::default()
         },
     );
@@ -163,7 +163,7 @@ fn error_plugin_post_pipeline_start() -> anyhow::Result<()> {
             ..Default::default()
         },
         ExpectedCatchPoints {
-            agent_start: Expect::Error,
+            agent_build_and_start: Expect::Error,
             ..Default::default()
         },
     );
@@ -228,7 +228,7 @@ fn error_source1_build() -> anyhow::Result<()> {
             ..Default::default()
         },
         ExpectedCatchPoints {
-            agent_start: Expect::Error,
+            agent_build_and_start: Expect::Error,
             ..Default::default()
         },
     );
@@ -244,7 +244,7 @@ fn panic_source1_build() -> anyhow::Result<()> {
             ..Default::default()
         },
         ExpectedCatchPoints {
-            agent_start: Expect::Panic,
+            agent_build_and_start: Expect::Panic,
             ..Default::default()
         },
     );
@@ -275,7 +275,7 @@ fn error_transform_build() -> anyhow::Result<()> {
             ..Default::default()
         },
         ExpectedCatchPoints {
-            agent_start: Expect::Error,
+            agent_build_and_start: Expect::Error,
             ..Default::default()
         },
     );
@@ -291,7 +291,7 @@ fn error_output_build() -> anyhow::Result<()> {
             ..Default::default()
         },
         ExpectedCatchPoints {
-            agent_start: Expect::Error,
+            agent_build_and_start: Expect::Error,
             ..Default::default()
         },
     );

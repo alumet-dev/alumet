@@ -78,7 +78,7 @@ fn check_app_output(output: String, plugin_name: &str, plugin_version: &str) {
         &format!("[app] dynamic plugin loaded: {plugin_name} version {plugin_version}"),
         lines[1]
     );
-    assert_str_eq!("[app] global config: {\"plugins\": Table({\"test-dynamic-plugin-c\": Table({\"custom_attribute\": String(\"42\")})})}", lines[2]);
+    assert_str_eq!("[app] plugin config: {\"custom_attribute\": String(\"42\")}", lines[2]);
 
     let plugin_init_regex = regex::Regex::new("plugin = 0x[0-9a-zA-Z]+, custom_attribute = 42").unwrap();
     assert!(plugin_init_regex.is_match(lines[3]), "wrong init: '{}'", lines[3]);

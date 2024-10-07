@@ -11,8 +11,9 @@ use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
     pipeline::{
-        control::{ScopedControlHandle, SourceCreationBuffer},
-        elements::error::PollError,
+        control::{ControlError, ScopedControlHandle, SourceCreationBuffer},
+        elements::{error::PollError, source},
+        matching::{NamePattern, NamePatterns, SourceSelector},
         trigger::TriggerSpec,
         Source,
     },
@@ -92,6 +93,7 @@ fn stop_if_io_not_found(err: io::Error) -> PollError {
 impl Source for ProcessStatsProbe {
     fn poll(&mut self, buffer: &mut MeasurementAccumulator, t: Timestamp) -> Result<(), PollError> {
         let consumer = ResourceConsumer::Process { pid: self.pid as u32 };
+        log::trace!("polled for consumer {consumer:?}");
 
         self.reader_stat.rewind().map_err(stop_if_io_not_found)?;
         self.reader_statm.rewind().map_err(stop_if_io_not_found)?;
@@ -219,14 +221,24 @@ impl DeltaCpuTime {
 pub struct ProcessWatcher {
     watched_processes: HashMap<i32, ProcessFingerprint>,
     alumet_handle: ScopedControlHandle,
-    monitoring: ProcessMonitoring,
+    monitoring: MultiProcessMonitoring,
 }
 
 /// Information required to setup the monitoring of individual processes.
-struct ProcessMonitoring {
+struct MultiProcessMonitoring {
+    source_spawner: ProcessSourceSpawner,
+    groups: Vec<(ProcessFilter, MonitoringSettings)>,
+}
+
+pub struct ManualProcessMonitor {
+    alumet_handle: ScopedControlHandle,
+    source_spawner: ProcessSourceSpawner,
+    settings: MonitoringSettings,
+}
+
+struct ProcessSourceSpawner {
     ms_per_ticks: u64,
     metrics: ProcessMetrics,
-    groups: Vec<(ProcessFilter, MonitoringSettings)>,
 }
 
 pub struct ProcessMetrics {
@@ -262,6 +274,38 @@ impl ProcessFingerprint {
     }
 }
 
+impl ManualProcessMonitor {
+    pub fn new(alumet_handle: ScopedControlHandle, metrics: ProcessMetrics, settings: MonitoringSettings) -> Self {
+        let tps = procfs::ticks_per_second();
+        let ms_per_ticks = 1000 / tps;
+        Self {
+            alumet_handle,
+            source_spawner: ProcessSourceSpawner { ms_per_ticks, metrics },
+            settings,
+        }
+    }
+
+    pub fn start_monitoring(&self, pid: i32, source_buf: &mut SourceCreationBuffer) -> anyhow::Result<()> {
+        let p = Process::new(pid).with_context(|| format!("could not acquire information about pid {pid}"))?;
+        self.source_spawner.create_source_in(p, &self.settings, source_buf)?;
+        // TODO find a more elegant way to immediately trigger a source that has just been created
+        let source_name = format!("pid-{pid}");
+        self.alumet_handle
+            .anonymous()
+            .try_send(alumet::pipeline::control::ControlMessage::Source(
+                source::ControlMessage::TriggerManually(source::TriggerMessage {
+                    selector: SourceSelector::from(NamePatterns {
+                        plugin: NamePattern::Exact(String::from("procfs")),
+                        name: NamePattern::Exact(source_name),
+                    }),
+                }),
+            ))
+            .map_err(ControlError::from)
+            .context("failed to trigger the new source")?;
+        Ok(())
+    }
+}
+
 impl ProcessWatcher {
     pub fn new(
         alumet_handle: ScopedControlHandle,
@@ -273,9 +317,8 @@ impl ProcessWatcher {
         Self {
             watched_processes: HashMap::new(),
             alumet_handle,
-            monitoring: ProcessMonitoring {
-                ms_per_ticks,
-                metrics,
+            monitoring: MultiProcessMonitoring {
+                source_spawner: ProcessSourceSpawner { ms_per_ticks, metrics },
                 groups,
             },
         }
@@ -336,7 +379,7 @@ impl ProcessWatcher {
     }
 }
 
-impl ProcessMonitoring {
+impl MultiProcessMonitoring {
     fn on_new_process(&mut self, p: Process, source_buf: &mut SourceCreationBuffer) -> anyhow::Result<()> {
         // find a group whose filter accepts the process
         let pid = p.pid;
@@ -345,7 +388,7 @@ impl ProcessMonitoring {
                 Ok(false) => (), // not accepted by this group filter, continue
                 Ok(true) => {
                     log::trace!("process {pid} matches filter {filter:?} with settings {settings:?}");
-                    self.start_monitoring(p, settings, source_buf)?;
+                    self.source_spawner.create_source_in(p, settings, source_buf)?;
                     return Ok(());
                 }
                 Err(ProcError::PermissionDenied(path)) => {
@@ -364,8 +407,10 @@ impl ProcessMonitoring {
         log::trace!("No process filter matches pid {}", p.pid);
         Ok(())
     }
+}
 
-    fn start_monitoring(
+impl ProcessSourceSpawner {
+    fn create_source_in(
         &self,
         p: Process,
         settings: &MonitoringSettings,

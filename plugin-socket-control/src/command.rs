@@ -99,7 +99,7 @@ pub fn parse(command: &str) -> anyhow::Result<Command> {
             },
             ["stop"] => match selector {
                 ElementSelector::Source(sel) => Ok(vec![msg_config_source(sel, source::ConfigureCommand::Stop)]),
-                ElementSelector::Output(sel) => Ok(vec![msg_config_output(sel, output::TaskState::Stop)]),
+                ElementSelector::Output(sel) => Ok(vec![msg_config_output(sel, output::TaskState::StopNow)]),
                 _ => Err(anyhow!(
                     "invalid control 'stop': it can only be applied to sources and outputs"
                 )),
@@ -203,7 +203,7 @@ mod tests {
             parse("control */out/* stop")?,
             vec![ControlMessage::Output(output::ControlMessage {
                 selector: OutputSelector::all(),
-                new_state: output::TaskState::Stop,
+                new_state: output::TaskState::StopNow,
             })],
         );
         assert_control_eq(

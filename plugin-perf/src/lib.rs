@@ -138,7 +138,7 @@ impl AlumetPlugin for PerfPlugin {
                     let config = config_cloned.lock().unwrap();
                     let mut builder = PerfEventSourceBuilder::observe(o)?;
                     for (event, metric) in config.hardware_events.iter().zip(&config.hardware_metrics) {
-                        builder.add(event.event.clone(), *metric).with_context(|| {
+                        builder.add(event.event, *metric).with_context(|| {
                             format!(
                                 "could not configure hardware event {} (code {})",
                                 event.name, event.event.0
@@ -146,7 +146,7 @@ impl AlumetPlugin for PerfPlugin {
                         })?;
                     }
                     for (event, metric) in config.software_events.iter().zip(&config.software_metrics) {
-                        builder.add(event.event.clone(), *metric).with_context(|| {
+                        builder.add(event.event, *metric).with_context(|| {
                             format!(
                                 "could not configure software event {} (code {})",
                                 event.name, event.event.0

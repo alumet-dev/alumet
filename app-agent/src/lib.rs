@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use env_logger::Env;
 
 pub mod agent_util;
+pub mod config_ops;
 pub mod exec_process;
 pub mod options;
 

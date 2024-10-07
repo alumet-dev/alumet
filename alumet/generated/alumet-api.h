@@ -22,7 +22,7 @@ typedef enum WrappedMeasurementType {
  * such as registering new measurement sources.
  *
  * # Note for applications
- * You should not create `AlumetPluginStart` manually, build an [`Agent`](crate::agent::Agent) instead.
+ * You cannot create `AlumetPluginStart` manually, build an agent with [`agent::Builder`](crate::agent::Builder) instead.
  */
 typedef struct AlumetPluginStart AlumetPluginStart;
 

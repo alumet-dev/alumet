@@ -1,20 +1,54 @@
-//! Options common to all agents.
+//! Options (CLI and TOML config) for all agents.
 
-use alumet::agent::{Agent, AgentConfig};
+use alumet::plugin::PluginMetadata;
 
-pub trait AgentModifier {
-    fn apply_to(self, agent: &mut Agent, config: &mut AgentConfig);
+pub trait Configurator {
+    #[allow(unused_variables)]
+    fn configure_pipeline(&mut self, pipeline: &mut alumet::pipeline::Builder) {}
+
+    #[allow(unused_variables)]
+    fn configure_agent(&mut self, agent: &mut alumet::agent::Builder) {}
 }
 
-/// Common CLI options.
+pub trait ContextDefault {
+    fn default_with_context(plugins: &[PluginMetadata]) -> Self;
+}
+
+impl<T: Default> ContextDefault for T {
+    fn default_with_context(_plugins: &[PluginMetadata]) -> Self {
+        T::default()
+    }
+}
+
+/// Common options for the command-line interface (CLI).
+///
+/// We use `clap` to parse these options, therefore the structs
+/// derive [`clap::Args`].
 pub mod cli {
-    use alumet::agent::{Agent, AgentConfig};
     use clap::Args;
     use std::time::Duration;
 
+    use super::Configurator;
+
     /// Common CLI arguments.
     ///
+    /// # Example and tip
     /// Use `#[command(flatten)]` to add these arguments to your args structure.
+    ///
+    /// See below:
+    ///
+    /// ```
+    /// use clap::Parser;
+    /// use app_agent::options::cli::CommonArgs;
+    ///
+    /// #[derive(Parser)]
+    /// struct Cli {
+    ///     #[command(flatten)]
+    ///     common: CommonArgs,
+    ///
+    ///     my_arg: String,
+    /// }
+    /// ```
     #[derive(Args, Clone)]
     pub struct CommonArgs {
         /// Path to the config file.
@@ -28,11 +62,11 @@ pub mod cli {
         pub max_update_interval: Option<Duration>,
     }
 
-    impl super::AgentModifier for CommonArgs {
-        /// Applies the common CLI args to the agent.
-        fn apply_to(self, agent: &mut Agent, _: &mut AgentConfig) {
+    impl Configurator for CommonArgs {
+        /// Applies the common CLI args to the pipeline.
+        fn configure_pipeline(&mut self, pipeline: &mut alumet::pipeline::Builder) {
             if let Some(max_update_interval) = self.max_update_interval {
-                agent.source_trigger_constraints().max_update_interval = max_update_interval;
+                pipeline.trigger_constraints_mut().max_update_interval = max_update_interval;
             }
         }
     }
@@ -51,26 +85,47 @@ pub mod cli {
 
 /// Common configuration options (for the app, not the plugins).
 ///
-/// Use `#[serde(flatten)]` to add these options to your options structure.
+/// We use `serde` to parse these options from the TOML config file,
+/// and to write the default configuration to the TOML config file,
+/// therefore the structs derive [`serde::Deserialize`] and [`serde::Serialize`].
 pub mod config {
-    use alumet::agent::{Agent, AgentConfig};
     use serde::{Deserialize, Serialize};
     use std::time::Duration;
 
+    use super::Configurator;
+
+    /// Common config options.
+    ///
+    /// # Example and tip
+    /// Use `#[serde(flatten)]` to add these options to your config structure.
+    ///
+    /// See below:
+    ///
+    /// ```
+    /// use serde::{Deserialize, Serialize};
+    /// use app_agent::options::config::CommonOpts;
+    ///
+    /// #[derive(Deserialize, Serialize)]
+    /// struct AgentConfig {
+    ///     #[serde(flatten)]
+    ///     common: CommonOpts,
+    ///
+    ///     my_option: String,
+    /// }
+    /// ```
     #[derive(Deserialize, Serialize)]
-    pub struct CommonArgs {
+    pub struct CommonOpts {
         #[serde(with = "humantime_serde")]
         max_update_interval: Duration,
     }
 
-    impl super::AgentModifier for CommonArgs {
-        /// Applies the common CLI args to the agent.
-        fn apply_to(self, agent: &mut Agent, _: &mut AgentConfig) {
-            agent.source_trigger_constraints().max_update_interval = self.max_update_interval;
+    impl Configurator for CommonOpts {
+        fn configure_pipeline(&mut self, pipeline: &mut alumet::pipeline::Builder) {
+            pipeline.trigger_constraints_mut().max_update_interval = self.max_update_interval;
         }
     }
 
-    impl Default for CommonArgs {
+    impl Default for CommonOpts {
         fn default() -> Self {
             Self {
                 max_update_interval: Duration::from_millis(500),

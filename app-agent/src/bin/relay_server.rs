@@ -1,11 +1,13 @@
-use alumet::{agent::AgentBuilder, static_plugins};
+use std::path::PathBuf;
+
+use alumet::static_plugins;
 use app_agent::{
     agent_util, init_logger,
-    options::{cli, config, AgentModifier},
+    options::{cli, config::CommonOpts, Configurator},
 };
 use clap::{Parser, Subcommand};
 
-type AppConfig = config::CommonArgs;
+type AgentConfig = CommonOpts;
 
 fn main() {
     let plugins = static_plugins![plugin_relay::server::RelayServerPlugin, plugin_csv::CsvPlugin];
@@ -18,22 +20,22 @@ fn main() {
     // Parse command-line arguments.
     let cli_args = Cli::parse();
 
-    // Prepare the plugins and the config.
-    let mut agent = AgentBuilder::new(plugins)
-        .config_path(&cli_args.common.config)
-        .default_app_config(AppConfig::default())
-        .build();
+    // Get the config path.
+    let config_path = PathBuf::from(cli_args.common.config.clone());
 
     // Execute the command.
     let command = cli_args.command.unwrap_or(Command::Run);
     match command {
         Command::Run => {
-            let config = agent_util::load_config::<AppConfig, _>(&mut agent, cli_args.common);
-            let agent = agent_util::start(agent, config);
-            agent_util::run(agent);
+            let (agent_config, plugin_configs) =
+                agent_util::load_config::<AgentConfig>(&config_path, &plugins).unwrap();
+            let plugins_info = agent_util::PluginsInfo::new(plugins, plugin_configs);
+            let agent_builder = agent_util::new_agent(plugins_info, agent_config, cli_args.common);
+            let agent = agent_util::start(agent_builder);
+            agent_util::run_until_stop(agent);
         }
         Command::RegenConfig => {
-            agent_util::regen_config(agent);
+            agent_util::regen_config(&config_path, &plugins, AgentConfig::default());
         }
     }
 }
@@ -65,13 +67,16 @@ enum Command {
     RegenConfig,
 }
 
-impl AgentModifier for Cli {
-    fn apply_to(self, agent: &mut alumet::agent::Agent, config: &mut alumet::agent::AgentConfig) {
-        self.common.apply_to(agent, config);
+impl Configurator for Cli {
+    fn configure_pipeline(&mut self, pipeline: &mut alumet::pipeline::Builder) {
+        self.common.configure_pipeline(pipeline);
+    }
 
-        // Override the config with CLI args, if any.
-        if let Some(port) = self.port {
-            config
+    fn configure_agent(&mut self, agent: &mut alumet::agent::Builder) {
+        self.common.configure_agent(agent);
+        // Override some config options with the CLI args
+        if let Some(port) = self.port.take() {
+            agent
                 .plugin_config_mut("plugin-relay:server")
                 .unwrap()
                 .insert(String::from("port"), toml::Value::Integer(port.into()));

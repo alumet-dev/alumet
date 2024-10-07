@@ -1,6 +1,6 @@
 //! Resources (measurement perimeter).
 //!
-//! In Alumet, a "resource" represent a piece of hardware or software for which metrics can be gathered.
+//! In Alumet, a "resource" represents a piece of hardware or software for which measurements can be obtained.
 //! In other words, a resource gives the perimeter of a measurement.
 //! Are we measuring the energy consumption of a GPU, of the whole machine or of a process of our operating system?
 //!
@@ -39,7 +39,7 @@ use std::{borrow::Cow, fmt};
 /// Alias to a static cow. It helps to avoid the allocation of Strings.
 pub type StrCow = Cow<'static, str>;
 
-/// Hardware or software entity for which metrics can be gathered.
+/// Hardware or software entity that can be measured.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
@@ -58,7 +58,12 @@ pub enum Resource {
     Custom { kind: StrCow, id: StrCow },
 }
 
-/// Consumer of a [`resource`](Resource).
+/// Something that uses a [`Resource`].
+///
+/// Consumers are useful to track the consumption of resources with several levels of granularity.
+/// For instance, the memory consumption (`Dram` resource) can be measured at the OS level
+/// (total memory consumption, with consumer `LocalMachine`), or at the process level
+/// (process memory consumption, with consumer `Process { pid }`).
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]

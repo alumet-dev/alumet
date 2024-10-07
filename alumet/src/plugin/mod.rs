@@ -85,19 +85,21 @@
 //!
 //! Finally, modify the measurement application in the following ways:
 //! 1. Add a dependency to your plugin crate (for example with `cargo add my-plugin --path=path/to/my-plugin`).
-//! 2. Modify your `main` to initialize and load the plugin. See [`Agent`](crate::agent::Agent).
+//! 2. Modify your `main` to initialize and load the plugin. See [`agent::Builder`](crate::agent::Builder).
 //!
 //! # Dynamic plugins
 //!
 //! WIP
 //!
+use std::fmt::Debug;
+
 use self::rust::AlumetPlugin;
 
 #[cfg(feature = "dynamic")]
 pub mod dynload;
 
 pub mod event;
-mod phases;
+pub(crate) mod phases;
 pub mod rust;
 pub mod util;
 pub(crate) mod version;
@@ -130,6 +132,15 @@ impl PluginMetadata {
             init: Box::new(|conf| P::init(conf).map(|p| p as _)),
             default_config: Box::new(P::default_config),
         }
+    }
+}
+
+impl Debug for PluginMetadata {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PluginMetadata")
+            .field("name", &self.name)
+            .field("version", &self.version)
+            .finish()
     }
 }
 

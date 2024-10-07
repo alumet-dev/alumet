@@ -757,7 +757,7 @@ pub(crate) async fn run_managed(
                     Ok(()) => (),
                     Err(PollError::NormalStop) => {
                         log::info!("Source {source_name} stopped itself.");
-                        return Ok(());
+                        break 'run; // stop polling
                     }
                     Err(PollError::CanRetry(e)) => {
                         log::error!("Non-fatal error when polling {source_name} (will retry): {e:#}");
