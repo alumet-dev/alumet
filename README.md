@@ -4,6 +4,8 @@
 
 #
 
+![Crates.io Version](https://img.shields.io/crates/v/alumet)
+
 **Adaptive, Lightweight, Unified Metrics.**
 
 **ALUMET** is a modular tool that measures energy consumption and performance metrics. It offers a new standard framework for all your measurements, with a very low overhead. [Learn more on the website](https://alumet.dev).
