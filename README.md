@@ -4,7 +4,7 @@
 
 #
 
-![Crates.io Version](https://img.shields.io/crates/v/alumet)
+![Crates.io Version](https://img.shields.io/crates/v/alumet?link=https%3A%2F%2Fcrates.io%2Fcrates%2Falumet)
 
 **Adaptive, Lightweight, Unified Metrics.**
 
