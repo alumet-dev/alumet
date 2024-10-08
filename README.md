@@ -4,7 +4,7 @@
 
 #
 
-![Crates.io Version](https://img.shields.io/crates/v/alumet)
+<a href="https://crates.io/crates/alumet"><img src="https://img.shields.io/crates/v/alumet?link=https%3A%2F%2Fcrates.io%2Fcrates%2Falumet" /></a>
 
 **Adaptive, Lightweight, Unified Metrics.**
 
