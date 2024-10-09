@@ -26,7 +26,7 @@ jobs:
             - v1-cache-{{ checksum ".combined_cache_key" }}
       - run:
           name: Run Tests (including doc tests)
-          command: "CONTINUE_TEST_IF_NO_POWERCAP=true cargo test"
+          command: "CONTINUE_TEST_IF_NO_POWERCAP=true cargo test -- --exact --show-output"
       - run:
           name: Installing cargo-cache
           command: "cargo install cargo-cache --no-default-features --features ci-autoclean cargo-cache"

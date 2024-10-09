@@ -18,19 +18,19 @@ fn main() {
     log::info!("Starting ALUMET agent '{BINARY}' v{VERSION}");
 
     // Parse command-line arguments.
-    let cli_args = Cli::parse();
+    let mut cli_args = Cli::parse();
 
     // Get the config path.
     let config_path = PathBuf::from(cli_args.common.config.clone());
 
     // Execute the command.
-    let command = cli_args.command.unwrap_or(Command::Run);
+    let command = cli_args.command.take().unwrap_or(Command::Run);
     match command {
         Command::Run => {
             let (agent_config, plugin_configs) =
                 agent_util::load_config::<AgentConfig>(&config_path, &plugins).unwrap();
             let plugins_info = agent_util::PluginsInfo::new(plugins, plugin_configs);
-            let agent_builder = agent_util::new_agent(plugins_info, agent_config, cli_args.common);
+            let agent_builder = agent_util::new_agent(plugins_info, agent_config, cli_args);
             let agent = agent_util::start(agent_builder);
             agent_util::run_until_stop(agent);
         }
