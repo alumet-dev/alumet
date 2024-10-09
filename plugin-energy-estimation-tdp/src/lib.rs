@@ -96,7 +96,7 @@ impl AlumetPlugin for EnergyEstimationTdpPlugin {
         // Create the energy attribution metric and add its id to the
         // transform plugin metrics' list.
         metrics.pod_estimate_attributed_energy = Some(alumet.create_metric(
-            "estimate_attributed_energy",
+            "pod_estimate_attributed_energy",
             Unit::Joule,
             "Energy consumption estimated to the pod",
         )?);
@@ -106,26 +106,6 @@ impl AlumetPlugin for EnergyEstimationTdpPlugin {
         Ok(())
     }
 
-    // // The start function is here to register metrics, sources and output.
-    // fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
-    //     let byte_metric =
-    //         alumet.create_metric::<u64>("random_byte", Unit::Byte, "A random number")?;
-    //     // We create a source from ThePluginSource structure.
-    //     let initial_source = Box::new(EnergyEstimationTdpPluginSource {
-    //         byte_metric
-    //     });
-
-    //     log::trace!("EZC: read tdp value: {}", self.config.tdp);
-
-    //     // Then we add it to the alumet sources, adding the poll_interval value previously defined in the config.
-    //     alumet.add_source(
-    //         initial_source,
-    //         TriggerSpec::at_interval(self.config.poll_interval),
-    //     );
-
-    //     Ok(())
-        
-    // }
 
     fn pre_pipeline_start(&mut self, alumet: &mut AlumetPreStart) -> anyhow::Result<()> {
         /// Finds the RawMetricId with the name of the metric.
@@ -142,7 +122,7 @@ impl AlumetPlugin for EnergyEstimationTdpPlugin {
         // Lock the metrics mutex to apply its modifications.
         let mut metrics = self.metrics.lock().unwrap();
 
-        //metrics.cpu_usage_per_pod = Some(find_metric_by_name(alumet, "cpu_usage_per_pod")?);
+        metrics.cpu_usage_per_pod = Some(find_metric_by_name(alumet, "cgroup_cpu_usage_user")?);
         Ok(())
     }
 
@@ -167,37 +147,7 @@ impl Default for Config {
     }
 }
 
-// impl Source for EnergyEstimationTdpPluginSource {
-//     fn poll(
-//         &mut self,
-//         measurements: &mut MeasurementAccumulator,
-//         timestamp: Timestamp,
-//     ) -> Result<(), PollError> {
-//         let mut rng = File::open("/dev/urandom")?; // Open the "/dev/urandom" file to obtain random data
 
-//         let mut buffer = [0u8; 8]; // Create a mutable buffer of type [u8; 8] (an array of 8 unsigned 8-bit integer)
-//         rng.read_exact(&mut buffer)?; // Read enough byte from the file and store the value in the buffer
-//         let value = u64::from_le_bytes(buffer);
-
-//         //let tdpLocal: u32= self.config.tdp;
-
-//         log::debug!("EZC: enter in poll");
-//         let measurement = MeasurementPoint::new(
-//             timestamp,
-//             self.byte_metric,
-//             Resource::LocalMachine,
-//             ResourceConsumer::LocalMachine,
-//             value,
-//         )
-//         .with_attr("double", value.div_euclid(2));
-
-//         log::trace!("EZC: metric value: {} ", measurement.metric.as_u64());
-//         //measurements.push(measurement );
-        
-
-//         Ok(())
-//     }
-// }
 #[cfg(test)]
 mod tests {
     use super::*;

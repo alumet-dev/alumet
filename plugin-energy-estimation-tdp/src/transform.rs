@@ -1,17 +1,18 @@
+use core::f64;
 use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-    time::{SystemTime, UNIX_EPOCH},
+    clone, collections::HashMap, sync::{Arc, Mutex}, time::{SystemTime, UNIX_EPOCH},
 };
 
 use alumet::{
-    measurement::{MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue},
+    measurement::{AttributeValue, MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue},
     pipeline::{
         elements::{error::TransformError, transform::TransformContext},
         Transform,
     },
     resources::Resource,
 };
+
+use serde::de::value;
 
 pub struct EnergyEstimationTdpTransform {
     pub metrics: Arc<Mutex<super::Metrics>>,
@@ -27,35 +28,6 @@ impl EnergyEstimationTdpTransform {
         }
     }
 
-    /// Empties the buffers and send the energy attribution points to the MeasurementBuffer.
-    fn buffer_bouncer(&mut self, measurements: &mut alumet::measurement::MeasurementBuffer) {
-        // Retrieving the metric_id of the energy attribution.
-        // Using a nested scope to reduce the lock time.
-        log::trace!("EZC: enter in buffer_bouncer");
-        let metric_id = {
-            let metrics = self.metrics.lock().unwrap();
-            metrics.pod_estimate_attributed_energy.unwrap()
-        };
-
-        // If the buffers do have enough (every) MeasurementPoints,
-        // then we compute the estimate energy attribution.
-        while self.buffer_pod.len() >= 2 {
-            
-            // Compute the sum of every `total_usage_usec` for the given timestamp: `rapl_mini_id`.
-            //let pod_point = self.buffer_pod.remove(1).unwrap();
-                        
-            // Then for every points in the buffer_pod estimate the power consumption
-            for (key, point) in &self.buffer_pod {
-            log::trace!("EZC: read pod cpu usage, key: {}", key);
-            // let cur_tot_time_f64 = match point.value {
-            //     WrappedMeasurementValue::F64(fx) => fx,
-            //     WrappedMeasurementValue::U64(ux) => ux as f64,
-            // };
-
-            log::trace!("EZC: read 1 point");
-            }
-        }
-    }        
 }
 
 impl Transform for EnergyEstimationTdpTransform {
@@ -65,20 +37,67 @@ impl Transform for EnergyEstimationTdpTransform {
         // Using a nested scope to reduce the lock time.
         log::trace!("EZC: enter in apply transform function");
 
-        log::trace!("EZC: enter in apply transform function: {}",self.buffer_pod.len());
+        // for 1st version, the tdp is hardcoded
+        let tdp:f64 = 1.0;
 
-        if self.buffer_pod.len() > 0
-        {
-            //read the pod_id
+        let pod_id = {
             let metrics = self.metrics.lock().unwrap();
-            let pod_id = metrics.cpu_usage_per_pod.unwrap().as_u64();
-            log::trace!("EZC: pode_id: {}", pod_id);
-        }
-        
-        
-        // Emptying the buffers and pushing the energy attribution to the MeasurementBuffer
-        //self.buffer_bouncer(measurements);
 
-        Ok(())
+            let pod_id = metrics.cpu_usage_per_pod.unwrap().as_u64();
+            pod_id
+        };
+
+        let metric_id = {
+            let metrics = self.metrics.lock().unwrap();
+            metrics.pod_estimate_attributed_energy.unwrap()
+        };
+
+        log::trace!("EZC: enter in apply transform function, number of measurements: {}",measurements.len());
+
+        for point in measurements.clone().iter() {
+
+            if point.metric.as_u64() == pod_id {                
+                let id = SystemTime::from(point.timestamp).duration_since(UNIX_EPOCH)?.as_secs();
+                log::trace!("EZC: we get a measurement with timestamp: {}", id);
+
+                let mut estimated_energy: f64 = 0.0;
+
+                let value = match point.value {
+                    WrappedMeasurementValue::F64(x) => x.to_string(),
+                    WrappedMeasurementValue::U64(x) => x.to_string(),
+                };
+
+                // from k8s plugin we get the cpu_usage_per_pod in micro second
+                // energy = cpu_usage_per_pod * tdp 
+                estimated_energy = value.parse().unwrap();
+                estimated_energy = estimated_energy*tdp;
+
+                log::trace!("EZC: we get a measurement with resource:{}", point.resource.id_display().to_string());
+                log::trace!("EZC: we get a measurement with consummer:{}", point.consumer.id_display().to_string());
+                log::trace!("EZC: we get a measurement with value:{}", value);
+                log::trace!("EZC: estimate energy consumption:{}", estimated_energy);             
+                
+                let point_attributes = point
+                .attributes()
+                .map(|(key, value)| (key.to_owned(), value.clone()))
+                .collect();
+
+                let new_m = MeasurementPoint::new(
+                    point.timestamp,
+                    metric_id,
+                    point.resource.clone(),
+                    point.consumer.clone(),
+                    estimated_energy).with_attr_vec(point_attributes);
+                
+                measurements.push(new_m.clone());
+
+            }  
+        }      
+        Ok(())                                  
+    }    
+    
+              
+
     }
-}
+        
+
