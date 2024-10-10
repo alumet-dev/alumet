@@ -1,30 +1,36 @@
-use std::{
-    process::{Command, Output, Stdio},
-    time::Duration,
-};
+use std::process::{Command, Output, Stdio};
 
 #[test]
 fn help_local() {
-    cargo_run_fine("alumet-local-agent", &["local_x86"], &["--help"]);
+    let status = cargo_run("alumet-local-agent", &["local_x86"], &["--help"]);
+    assert!(status.success());
 }
 
 #[test]
 fn help_relay_client() {
-    cargo_run_fine("alumet-relay-client", &["relay_client"], &["--help"]);
+    let status = cargo_run("alumet-relay-client", &["relay_client"], &["--help"]);
+    assert!(status.success());
 }
 
 #[test]
 fn help_relay_server() {
-    cargo_run_fine("alumet-relay-server", &["relay_server"], &["--help"]);
+    let status = cargo_run("alumet-relay-server", &["relay_server"], &["--help"]);
+    assert!(status.success());
 }
 
 #[test]
 fn client_bad_collector_uri() {
-    let out = cargo_run_timeout(
+    let out = cargo_run_capture_output(
         "alumet-relay-client",
         &["relay_client"],
-        &["--plugins", "relay-client", "--collector-uri", "BADuri#é"],
-        Duration::from_secs(5),
+        &[
+            "--plugins",
+            "relay-client",
+            "--collector-uri",
+            "BADuri#é",
+            "exec",
+            "sleep 1",
+        ],
     );
     assert!(
         !out.status.success(),
@@ -42,7 +48,7 @@ fn client_bad_collector_uri() {
     );
 }
 
-fn cargo_run_fine(binary: &str, features: &[&str], bin_args: &[&str]) {
+fn cargo_run(binary: &str, features: &[&str], bin_args: &[&str]) -> std::process::ExitStatus {
     let mut cmd = Command::new("cargo");
     cmd.args(["run", "--bin", binary]);
     if !features.is_empty() {
@@ -53,15 +59,13 @@ fn cargo_run_fine(binary: &str, features: &[&str], bin_args: &[&str]) {
         cmd.arg("--");
         cmd.args(bin_args);
     }
-    let exit_status = cmd
-        .spawn()
+    cmd.spawn()
         .unwrap_or_else(|_| panic!("could not spawn process: {cmd:?}"))
         .wait()
-        .unwrap_or_else(|_| panic!("could not wait for process: {cmd:?}"));
-    assert!(exit_status.success(), "command failed: {cmd:?}");
+        .unwrap_or_else(|_| panic!("could not wait for process: {cmd:?}"))
 }
 
-fn cargo_run_timeout(binary: &str, features: &[&str], bin_args: &[&str], timeout: Duration) -> Output {
+fn cargo_run_capture_output(binary: &str, features: &[&str], bin_args: &[&str]) -> Output {
     let mut cmd = Command::new("cargo");
     cmd.args(["run", "--bin", binary]);
     if !features.is_empty() {
@@ -73,26 +77,11 @@ fn cargo_run_timeout(binary: &str, features: &[&str], bin_args: &[&str], timeout
         cmd.args(bin_args);
     }
 
-    let mut child = cmd
+    let child = cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap_or_else(|_| panic!("could not spawn process: {cmd:?}"));
 
-    const STEP: Duration = Duration::from_millis(100);
-    let step: usize = STEP.as_millis().try_into().unwrap();
-    let limit: u64 = timeout
-        .as_millis()
-        .try_into()
-        .expect("number of ms should fit in 64bits");
-    for _ in (0..=limit).step_by(step) {
-        std::thread::sleep(STEP);
-        if let Some(_) = child.try_wait().unwrap() {
-            return child.wait_with_output().unwrap();
-        }
-    }
-    child
-        .kill()
-        .expect("should be able to kill process that takes too long to run");
-    panic!("process timeout exceeded: {timeout:?}");
+    child.wait_with_output().unwrap()
 }
