@@ -2,7 +2,9 @@ use std::path::PathBuf;
 
 use alumet::static_plugins;
 use app_agent::{
-    agent_util, init_logger,
+    agent_util,
+    config_ops::config_mix,
+    init_logger,
     options::{cli, config::CommonOpts, Configurator},
 };
 use clap::{Parser, Subcommand};
@@ -18,24 +20,26 @@ fn main() {
     log::info!("Starting ALUMET agent '{BINARY}' v{VERSION}");
 
     // Parse command-line arguments.
-    let cli_args = Cli::parse();
+    let mut cli_args = Cli::parse();
 
     // Get the config path.
     let config_path = PathBuf::from(cli_args.common.config.clone());
 
     // Execute the command.
-    let command = cli_args.command.unwrap_or(Command::Run);
+    let command = cli_args.command.take().unwrap_or(Command::Run);
+    let config_override = cli_args.common.config_override_table(&plugins).unwrap();
     match command {
         Command::Run => {
             let (agent_config, plugin_configs) =
-                agent_util::load_config::<AgentConfig>(&config_path, &plugins).unwrap();
+                agent_util::load_config::<AgentConfig>(&config_path, &plugins, config_override).unwrap();
             let plugins_info = agent_util::PluginsInfo::new(plugins, plugin_configs);
-            let agent_builder = agent_util::new_agent(plugins_info, agent_config, cli_args.common);
+            let agent_builder = agent_util::new_agent(plugins_info, agent_config, cli_args);
             let agent = agent_util::start(agent_builder);
             agent_util::run_until_stop(agent);
         }
         Command::RegenConfig => {
-            agent_util::regen_config(&config_path, &plugins, AgentConfig::default());
+            let additional = config_mix(AgentConfig::default(), config_override).unwrap();
+            agent_util::regen_config(&config_path, &plugins, additional);
         }
     }
 }

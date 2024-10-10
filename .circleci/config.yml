@@ -4,7 +4,9 @@ jobs:
   build_and_test:
     resource_class: large
     docker:
-      - image: cimg/rust:1.78.0
+      - image: cimg/rust:1.81.0
+    environment:
+      RUSTFLAGS: -Awarnings
     steps:
       - checkout
       - run: cargo --version
@@ -26,7 +28,8 @@ jobs:
             - v1-cache-{{ checksum ".combined_cache_key" }}
       - run:
           name: Run Tests (including doc tests)
-          command: "CONTINUE_TEST_IF_NO_POWERCAP=true cargo test"
+          command: "CONTINUE_TEST_IF_NO_POWERCAP=true cargo test -- --exact --show-output"
+          no_output_timeout: 30s
       - run:
           name: Installing cargo-cache
           command: "cargo install cargo-cache --no-default-features --features ci-autoclean cargo-cache"
@@ -41,7 +44,7 @@ jobs:
   lint:
     resource_class: medium
     docker:
-      - image: cimg/rust:1.78.0
+      - image: cimg/rust:1.81.0
     steps:
       - checkout
       - run: cargo --version
@@ -81,7 +84,9 @@ jobs:
   miri_test:
     resource_class: medium
     docker:
-      - image: cimg/rust:1.78.0
+      - image: cimg/rust:1.81.0
+    environment:
+      RUSTFLAGS: -Awarnings
     steps:
       - checkout
       - run: cargo --version && rustup --version
