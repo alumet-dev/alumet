@@ -4,7 +4,7 @@ jobs:
   build_and_test:
     resource_class: large
     docker:
-      - image: cimg/rust:1.78.0
+      - image: cimg/rust:1.81.0
     steps:
       - checkout
       - run: cargo --version
@@ -41,7 +41,7 @@ jobs:
   lint:
     resource_class: medium
     docker:
-      - image: cimg/rust:1.78.0
+      - image: cimg/rust:1.81.0
     steps:
       - checkout
       - run: cargo --version
@@ -81,7 +81,7 @@ jobs:
   miri_test:
     resource_class: medium
     docker:
-      - image: cimg/rust:1.78.0
+      - image: cimg/rust:1.81.0
     steps:
       - checkout
       - run: cargo --version && rustup --version

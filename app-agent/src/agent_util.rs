@@ -14,22 +14,34 @@ use crate::{
     relative_app_path_string,
 };
 
-pub fn default_config<C: Serialize>(plugins: &[PluginMetadata], additional: C) -> anyhow::Result<toml::Table> {
+pub fn default_config(plugins: &[PluginMetadata], additional: toml::Table) -> anyhow::Result<toml::Table> {
     let mut config = toml::Table::new();
     alumet::agent::config::insert_default_plugin_configs(plugins, &mut config)?;
-    let config_override = toml::Table::try_from(additional)?;
-    super::config_ops::merge_override(&mut config, config_override);
+    super::config_ops::merge_override(&mut config, additional);
     Ok(config)
 }
 
 pub fn load_config<'de, C: Deserialize<'de> + Serialize + ContextDefault>(
     config_path: &Path,
     plugins: &[PluginMetadata],
+    config_override: Option<toml::Table>,
 ) -> anyhow::Result<(C, HashMap<String, (bool, toml::Table)>)> {
-    let generate_default = || default_config(plugins, C::default_with_context(plugins));
+    // parse the file or generate a default one
+    let generate_default = || {
+        let additional = toml::Table::try_from(C::default_with_context(plugins))?;
+        default_config(plugins, additional)
+    };
     let mut config = alumet::agent::config::parse_file_with_default(config_path, generate_default)?;
+
+    // override some values
+    if let Some(overrider) = config_override {
+        super::config_ops::merge_override(&mut config, overrider);
+    }
+
+    // separate plugin configs from the rest of the config
     let plugin_configs = alumet::agent::config::extract_plugin_configs(&mut config)?;
     let non_plugin_config = toml::Value::Table(config).try_into::<C>()?;
+
     Ok((non_plugin_config, plugin_configs))
 }
 
@@ -91,7 +103,7 @@ pub fn start(agent_builder: agent::Builder) -> agent::RunningAgent {
     })
 }
 
-pub fn regen_config<C: Serialize>(config_path: &Path, plugins: &[PluginMetadata], additional: C) {
+pub fn regen_config(config_path: &Path, plugins: &[PluginMetadata], additional: toml::Table) {
     let config = default_config(plugins, additional).expect("failed to generate the default configuration");
     std::fs::write(config_path, config.to_string())
         .unwrap_or_else(|e| panic!("failed to write the default configuration to {config_path:?}: {e:?}"));

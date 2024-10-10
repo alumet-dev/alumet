@@ -24,6 +24,7 @@ plugin-rapl = { path = "../plugin-rapl", optional = true }
 plugin-socket-control = { path = "../plugin-socket-control", optional = true }
 plugin-relay = { path = "../plugin-relay", optional = true }
 plugin-procfs = { path = "../plugin-procfs", optional = true }
+plugin-cgroupv2 = { path = "../plugin-cgroupv2", optional = true }
 
 [features]
 # local non-relay mode for x86 processors
@@ -42,6 +43,7 @@ relay_client = [
     "dep:plugin-rapl",
     "dep:plugin-perf",
     "dep:plugin-socket-control",
+    "dep:plugin-cgroupv2",
 ]
 relay_server = ["dep:plugin-relay", "plugin-relay/server", "dep:plugin-csv"]
 

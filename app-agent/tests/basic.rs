@@ -23,7 +23,7 @@ fn client_bad_collector_uri() {
     let out = cargo_run_timeout(
         "alumet-relay-client",
         &["relay_client"],
-        &["--collector-uri", "BADuri#é"],
+        &["--plugins", "relay-client", "--collector-uri", "BADuri#é"],
         Duration::from_secs(5),
     );
     assert!(
@@ -32,9 +32,9 @@ fn client_bad_collector_uri() {
     );
     let stdout = String::from_utf8(out.stdout).unwrap();
     let stderr = String::from_utf8(out.stderr).unwrap();
-    println!("{stdout}");
-    println!("---------");
-    println!("{stderr}");
+    // println!("{stdout}");
+    // println!("---------");
+    // println!("{stderr}");
     let msg = "invalid uri BADuri#é";
     assert!(
         stderr.contains(msg) || stdout.contains(msg),
@@ -73,30 +73,26 @@ fn cargo_run_timeout(binary: &str, features: &[&str], bin_args: &[&str], timeout
         cmd.args(bin_args);
     }
 
-    let thread = std::thread::spawn(move || {
-        let mut child = cmd
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap_or_else(|_| panic!("could not spawn process: {cmd:?}"));
+    let mut child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|_| panic!("could not spawn process: {cmd:?}"));
 
-        const STEP: Duration = Duration::from_millis(100);
-        let step: usize = STEP.as_millis().try_into().unwrap();
-        let limit: u64 = timeout
-            .as_millis()
-            .try_into()
-            .expect("number of ms should fit in 64bits");
-        for _ in (0..=limit).step_by(step) {
-            std::thread::sleep(STEP);
-            // if let Some(_) = child.try_wait().unwrap() {
-            //     return child.wait_with_output().unwrap();
-            // }
+    const STEP: Duration = Duration::from_millis(100);
+    let step: usize = STEP.as_millis().try_into().unwrap();
+    let limit: u64 = timeout
+        .as_millis()
+        .try_into()
+        .expect("number of ms should fit in 64bits");
+    for _ in (0..=limit).step_by(step) {
+        std::thread::sleep(STEP);
+        if let Some(_) = child.try_wait().unwrap() {
             return child.wait_with_output().unwrap();
         }
-        child
-            .kill()
-            .expect("should be able to kill process that takes too long to run");
-        panic!("process timeout exceeded: {timeout:?}");
-    });
-    return thread.join().expect("thread should terminate fine");
+    }
+    child
+        .kill()
+        .expect("should be able to kill process that takes too long to run");
+    panic!("process timeout exceeded: {timeout:?}");
 }

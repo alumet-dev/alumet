@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use alumet::static_plugins;
 use app_agent::{
     agent_util::{self, PluginsInfo},
+    config_ops::config_mix,
     init_logger,
     options::{
         cli::{CommonArgs, ExecArgs},
@@ -19,6 +20,7 @@ fn main() {
         plugin_perf::PerfPlugin,
         plugin_socket_control::SocketControlPlugin,
         plugin_relay::client::RelayClientPlugin,
+        plugin_cgroupv2::K8sPlugin,
     ];
 
     init_logger();
@@ -34,10 +36,11 @@ fn main() {
 
     // Execute the command.
     let command = cli_args.command.take().unwrap_or(Command::Run);
+    let config_override = cli_args.common.config_override_table(&plugins).unwrap();
     match command {
         Command::Run => {
             let (agent_config, plugin_configs) =
-                agent_util::load_config::<AgentConfig>(&config_path, &plugins).unwrap();
+                agent_util::load_config::<AgentConfig>(&config_path, &plugins, config_override).unwrap();
             let plugins_info = PluginsInfo::new(plugins, plugin_configs);
             let agent_builder = agent_util::new_agent(plugins_info, agent_config, cli_args);
             let agent = agent_util::start(agent_builder);
@@ -45,7 +48,7 @@ fn main() {
         }
         Command::Exec(ExecArgs { program, args }) => {
             let (mut agent_config, plugin_configs) =
-                agent_util::load_config::<AgentConfig>(&config_path, &plugins).unwrap();
+                agent_util::load_config::<AgentConfig>(&config_path, &plugins, config_override).unwrap();
             let plugins_info = PluginsInfo::new(plugins, plugin_configs);
             agent_config.exec_mode = true;
             let agent_builder = agent_util::new_agent(plugins_info, agent_config, cli_args);
@@ -53,7 +56,8 @@ fn main() {
             agent_util::exec_process(agent, program, args);
         }
         Command::RegenConfig => {
-            agent_util::regen_config(&config_path, &plugins, AgentConfig::default());
+            let additional = config_mix(AgentConfig::default(), config_override).unwrap();
+            agent_util::regen_config(&config_path, &plugins, additional);
         }
     }
 }
