@@ -18,6 +18,7 @@ pub struct RelayServerPlugin {
 }
 
 #[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct Config {
     /// Address to listen on.
     /// The default value is ip6-localhost = `::1`.

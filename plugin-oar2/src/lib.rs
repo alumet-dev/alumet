@@ -32,6 +32,7 @@ pub struct Metrics {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
 struct Config {
     path: PathBuf,
     #[serde(with = "humantime_serde")]

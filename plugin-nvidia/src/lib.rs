@@ -131,6 +131,7 @@ impl NvidiaPlugin {
 }
 
 #[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct Config {
     /// Initial interval between two Nvidia measurements.
     #[serde(with = "humantime_serde")]

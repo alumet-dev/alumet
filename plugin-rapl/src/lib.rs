@@ -266,6 +266,7 @@ fn setup_powercap_probe(
 }
 
 #[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct Config {
     /// Initial interval between two RAPL measurements.
     #[serde(with = "humantime_serde")]

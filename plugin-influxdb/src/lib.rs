@@ -172,6 +172,7 @@ impl Output for InfluxDbOutput {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Config {
     host: String,
     token: String,

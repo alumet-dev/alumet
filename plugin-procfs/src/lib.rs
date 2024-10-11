@@ -190,6 +190,7 @@ mod config {
     use serde::{Deserialize, Serialize};
 
     #[derive(Serialize, Deserialize, Default)]
+    #[serde(deny_unknown_fields)]
     pub struct Config {
         pub kernel: KernelStatsMonitoring,
         pub memory: MeminfoMonitoring,

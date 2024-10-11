@@ -22,6 +22,7 @@ pub struct OARPlugin {
 }
 
 #[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct OAR3Config {
     path: PathBuf,
     /// Initial interval between two cgroup measurements.

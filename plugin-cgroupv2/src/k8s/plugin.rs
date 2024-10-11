@@ -30,6 +30,7 @@ pub struct K8sPlugin {
 }
 
 #[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct K8sConfig {
     path: PathBuf,
     /// Initial interval between two cgroup measurements.

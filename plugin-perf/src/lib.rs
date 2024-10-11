@@ -182,6 +182,7 @@ impl AlumetPlugin for PerfPlugin {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Config {
     #[serde(with = "humantime_serde")]
     poll_interval: Duration,

@@ -24,6 +24,7 @@ mod config {
     use crate::client::AsciiString;
 
     #[derive(Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
     pub struct Config {
         /// The name that this client will use to identify itself to the collector server.
         /// Defaults to the hostname.
