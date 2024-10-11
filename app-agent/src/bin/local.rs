@@ -82,6 +82,7 @@ struct Cli {
     common: CommonArgs,
 
     /// Output to save the measurement to.
+    #[arg(long)]
     output: Option<String>,
 }
 
@@ -136,7 +137,7 @@ impl Configurator for Cli {
                 let config = agent
                     .plugin_config_mut("csv")
                     .expect("plugin csv is enabled and should have a config");
-                config.insert(String::from("output"), toml::Value::String(output));
+                config.insert(String::from("output_path"), toml::Value::String(output));
             }
         }
     }
