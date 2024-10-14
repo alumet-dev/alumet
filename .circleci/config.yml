@@ -34,25 +34,11 @@ jobs:
           command: sudo apt-get update && sudo apt-get install llvm-dev libclang-dev protobuf-compiler --no-install-recommends
       - restore_cache:
           keys:
-            - v3-build-cache-{{ checksum ".combined_cache_key" }}
-            - v3-build-cache
-            - v2-build-cache-{{ checksum ".combined_cache_key" }} # previous cache version (better than nothing)
-            - v2-build-cache
-      - restore_cache:
-          keys:
             - v2-dependency-cache-{{ checksum ".combined_cache_key" }}
             - v2-dependency-cache
       - run:
           name: Compile Alumet core
           command: "cargo build -p alumet"
-          # it's faster do build first and then test
-          # BUT caching everything is too big.
-          # => compromise: only cache the compilation result of alumet core + its dependencies
-      - save_cache:
-          key: v3-build-cache-{{ checksum ".combined_cache_key" }}
-          paths:
-            - target/
-
       - run:
           name: Build all libraries
           command: "cargo build"
