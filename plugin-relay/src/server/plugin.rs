@@ -1,4 +1,4 @@
-use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
+use std::net::SocketAddr;
 
 use alumet::{
     pipeline::elements::source::builder::AutonomousSourceRegistration,
@@ -21,7 +21,9 @@ pub struct RelayServerPlugin {
 #[serde(deny_unknown_fields)]
 struct Config {
     /// Address to listen on.
-    /// The default value is ip6-localhost = `::1`.
+    /// The default value is "IPv6 any", i.e. `::`.
+    ///
+    /// For information, ip6-localhost is `::1`.
     ///
     /// To listen to all your network interfaces please use `0.0.0.0` or `::`.
     address: String,
@@ -36,7 +38,7 @@ struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            address: String::from("::1"), // "any" on ipv6
+            address: String::from("::"), // "any" on ipv6
             port: 50051,
             ipv6_scope_id: None,
         }

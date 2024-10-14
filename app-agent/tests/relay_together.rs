@@ -15,7 +15,30 @@ mod common;
 ///
 /// Note: we use a limited set of plugins so that it works in the CI environment.
 #[test]
-fn client_to_server_to_csv() -> anyhow::Result<()> {
+fn client_to_server_to_csv_ipv4() {
+    // works in CI
+    client_to_server_to_csv_on_address(Some(("localhost", "50051"))).unwrap()
+}
+
+#[test]
+fn client_to_server_to_csv_ipv6() {
+    if std::env::var_os("NO_IPV6").is_some() {
+        println!("IPv6 test disabled by environment variable.");
+    } else {
+        client_to_server_to_csv_on_address(Some(("::1", "50051"))).unwrap()
+    }
+}
+
+#[test]
+fn client_to_server_to_csv_default() {
+    if std::env::var_os("NO_IPV6").is_some() {
+        println!("IPv6 test disabled by environment variable.");
+    } else {
+        client_to_server_to_csv_on_address(None).unwrap()
+    }
+}
+
+fn client_to_server_to_csv_on_address(addr_and_port: Option<(&'static str, &'static str)>) -> anyhow::Result<()> {
     let tmp_dir = std::env::temp_dir().join(format!("{}-client_to_server_to_csv", env!("CARGO_CRATE_NAME")));
     let _ = std::fs::remove_dir_all(&tmp_dir);
     std::fs::create_dir(&tmp_dir)?;
@@ -49,28 +72,26 @@ fn client_to_server_to_csv() -> anyhow::Result<()> {
         .wait()?;
 
     // Spawn the server
-    let server_process: process::Child = command_cargo_run(
-        "alumet-relay-server",
-        &["relay_server"],
-        &[
-            "--config",
-            &server_config_str,
-            // specify a socketaddr that works in the CI (The IPv6 localhost ::1 doesn't work)
-            "--address",
-            "localhost",
-            // only enable some plugins
-            "--plugins=relay-server,csv",
-            // ensure that the CSV plugin flushes the buffer to the file ASAP
-            "--config-override",
-            "plugins.csv.force_flush=true",
-            // set the CSV output to the file we want
-            "--config-override",
-            &format!("plugins.csv.output_path='''{server_output_str}'''"),
-        ],
-    )
-    .stdout(Stdio::piped())
-    .stderr(Stdio::piped())
-    .spawn()?;
+    let server_csv_output_conf = format!("plugins.csv.output_path='''{server_output_str}'''");
+    let mut server_args = Vec::from_iter([
+        "--config",
+        &server_config_str,
+        // only enable some plugins
+        "--plugins=relay-server,csv",
+        // ensure that the CSV plugin flushes the buffer to the file ASAP
+        "--config-override",
+        "plugins.csv.force_flush=true",
+        // set the CSV output to the file we want
+        "--config-override",
+        &server_csv_output_conf,
+    ]);
+    if let Some((server_addr, server_port)) = addr_and_port {
+        server_args.extend_from_slice(&["--address", server_addr, "--port", server_port]);
+    }
+    let server_process: process::Child = command_cargo_run("alumet-relay-server", &["relay_server"], &server_args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
     let mut server_process = ChildGuard::new(server_process);
     println!("spawned server process {}", server_process.id());
 
@@ -87,34 +108,45 @@ fn client_to_server_to_csv() -> anyhow::Result<()> {
     std::thread::sleep(Duration::from_millis(250));
 
     // Start the client
-    let client_process = command_cargo_run(
-        "alumet-relay-client",
-        &["relay_client"],
-        &[
-            // use a different config than the server
-            "--config",
-            &client_config_str,
+    let mut client_args: Vec<String> = Vec::from_iter([
+        // use a different config than the server
+        "--config",
+        &client_config_str,
+        // only enable some plugins
+        "--plugins=relay-client,procfs",
+        // override the config to lower the poll_interval (so that the test is faster)
+        "--config-override",
+        "plugins.procfs.kernel.poll_interval='50ms'",
+        "--config-override",
+        "plugins.procfs.memory.poll_interval='50ms'",
+        "--config-override",
+        "plugins.procfs.processes.enabled=false",
+        // don't buffer the relay output (because we want to check the final output after a short delay)
+        "--config-override",
+        "plugins.relay-client.buffer_size=1",
+    ])
+    .into_iter()
+    .map(String::from)
+    .collect();
+    if let Some((server_addr, port)) = addr_and_port {
+        let addr_in_uri = if server_addr.contains(':') {
+            format!("[{server_addr}]")
+        } else {
+            server_addr.to_owned()
+        };
+        client_args.extend_from_slice(&[
             // specify an URI that works in the CI
-            "--collector-uri",
-            "http://localhost:50051",
-            // only enable some plugins
-            "--plugins=relay-client,procfs",
-            // override the config to lower the poll_interval (so that the test is faster)
-            "--config-override",
-            "plugins.procfs.kernel.poll_interval='50ms'",
-            "--config-override",
-            "plugins.procfs.memory.poll_interval='50ms'",
-            "--config-override",
-            "plugins.procfs.processes.enabled=false",
-            // don't buffer the relay output (because we want to check the final output after a short delay)
-            "--config-override",
-            "plugins.relay-client.buffer_size=1",
-        ],
-    )
-    // .stdout(Stdio::piped())
-    // .stderr(Stdio::piped())
-    .env("RUST_LOG", "debug")
-    .spawn()?;
+            "--collector-uri".into(),
+            format!("http://{addr_in_uri}:{port}"),
+        ]);
+    }
+    let client_args: Vec<&str> = client_args.iter().map(|s| s.as_str()).collect();
+
+    let client_process = command_cargo_run("alumet-relay-client", &["relay_client"], &client_args)
+        // .stdout(Stdio::piped())
+        // .stderr(Stdio::piped())
+        .env("RUST_LOG", "debug")
+        .spawn()?;
     let mut client_process = ChildGuard::new(client_process);
     println!("spawned client process {}", client_process.id());
 

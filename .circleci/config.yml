@@ -25,6 +25,7 @@ jobs:
     environment:
       RUSTFLAGS: -Awarnings
       CONTINUE_TEST_IF_NO_POWERCAP: true
+      NO_IPV6: true
     steps:
       - checkout
       - run: cargo --version
