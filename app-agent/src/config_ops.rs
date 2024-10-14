@@ -1,5 +1,3 @@
-use serde::Serialize;
-
 /// Merges two toml tables by overriding the content of `original`
 /// with the content of `overrides`.
 ///
@@ -25,14 +23,6 @@ pub fn merge_override(original: &mut toml::Table, overrider: toml::Table) {
             }
         };
     }
-}
-
-pub fn config_mix<C: Serialize>(object: C, overrider: Option<toml::Table>) -> anyhow::Result<toml::Table> {
-    let mut t = toml::Table::try_from(object)?;
-    if let Some(o) = overrider {
-        merge_override(&mut t, o);
-    }
-    Ok(t)
 }
 
 #[cfg(test)]

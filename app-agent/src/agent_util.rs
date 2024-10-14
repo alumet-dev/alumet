@@ -1,11 +1,12 @@
 //! Agent commands.
 
-use std::{collections::HashMap, path::Path, time::Duration};
+use std::{collections::HashMap, path::PathBuf, time::Duration};
 
 use alumet::{
     agent,
     plugin::{rust::InvalidConfig, PluginMetadata},
 };
+use anyhow::{anyhow, Context};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -13,6 +14,35 @@ use crate::{
     options::{Configurator, ContextDefault},
     relative_app_path_string,
 };
+
+pub struct ConfigLoadOptions<'a> {
+    pub config_path: PathBuf,
+    pub plugins: &'a [PluginMetadata],
+    pub config_override: Option<toml::Table>,
+    pub on_missing_config: MissingConfigStrategy,
+}
+
+pub enum MissingConfigStrategy {
+    GenerateDefault,
+    ReturnError,
+}
+
+impl<'a> ConfigLoadOptions<'a> {
+    pub fn new(cli_args: &mut super::options::cli::CommonArgs, plugins: &'a [PluginMetadata]) -> anyhow::Result<Self> {
+        let config_override = cli_args.take_config_override_table(plugins)?;
+        let on_missing_config = if cli_args.no_default_config {
+            MissingConfigStrategy::ReturnError
+        } else {
+            MissingConfigStrategy::GenerateDefault
+        };
+        Ok(Self {
+            config_path: PathBuf::from(cli_args.config.clone()),
+            plugins,
+            config_override,
+            on_missing_config,
+        })
+    }
+}
 
 pub fn default_config(plugins: &[PluginMetadata], additional: toml::Table) -> anyhow::Result<toml::Table> {
     let mut config = toml::Table::new();
@@ -22,19 +52,23 @@ pub fn default_config(plugins: &[PluginMetadata], additional: toml::Table) -> an
 }
 
 pub fn load_config<'de, C: Deserialize<'de> + Serialize + ContextDefault>(
-    config_path: &Path,
-    plugins: &[PluginMetadata],
-    config_override: Option<toml::Table>,
+    options: ConfigLoadOptions<'_>,
 ) -> anyhow::Result<(C, HashMap<String, (bool, toml::Table)>)> {
+    let plugins = options.plugins;
+    let config_path = &options.config_path;
+
     // parse the file or generate a default one
-    let generate_default = || {
-        let additional = toml::Table::try_from(C::default_with_context(plugins))?;
-        default_config(plugins, additional)
+    let generate_default = || match options.on_missing_config {
+        MissingConfigStrategy::ReturnError => Err(anyhow!("missing config file: {config_path:?}")),
+        MissingConfigStrategy::GenerateDefault => {
+            let additional = toml::Table::try_from(C::default_with_context(plugins))?;
+            default_config(plugins, additional)
+        }
     };
     let mut config = alumet::agent::config::parse_file_with_default(config_path, generate_default)?;
 
     // override some values
-    if let Some(overrider) = config_override {
+    if let Some(overrider) = options.config_override {
         super::config_ops::merge_override(&mut config, overrider);
     }
 
@@ -103,11 +137,22 @@ pub fn start(agent_builder: agent::Builder) -> agent::RunningAgent {
     })
 }
 
-pub fn regen_config(config_path: &Path, plugins: &[PluginMetadata], additional: toml::Table) {
-    let config = default_config(plugins, additional).expect("failed to generate the default configuration");
+pub fn regen_config<'a, C: Serialize + ContextDefault>(options: ConfigLoadOptions<'a>) -> anyhow::Result<()> {
+    let additional = toml::Table::try_from(C::default_with_context(options.plugins))?;
+    let mut config = default_config(options.plugins, additional)?;
+
+    // overrides some values if asked to
+    if let Some(overrider) = options.config_override {
+        super::config_ops::merge_override(&mut config, overrider);
+    }
+
+    let config_path = &options.config_path;
     std::fs::write(config_path, config.to_string())
-        .unwrap_or_else(|e| panic!("failed to write the default configuration to {config_path:?}: {e:?}"));
+        .with_context(|| format!("failed to write the default configuration to {config_path:?}"))?;
+
     log::info!("Configuration file (re)generated to: {}", config_path.display());
+
+    Ok(())
 }
 
 /// Keeps the agent running until the program stops.

@@ -59,6 +59,10 @@ pub mod cli {
         #[arg(long, default_value = "alumet-config.toml")]
         pub config: String, // not used in Configurator, but directly by main()
 
+        /// If set, the config file must exist, otherwise the agent will fail to start with an error.
+        #[arg(long, default_value_t = false)]
+        pub no_default_config: bool,
+
         /// Config options overrides.
         ///
         /// Use dots to separate TOML levels, ex. `plugins.rapl.poll_interval='1ms'`
@@ -80,7 +84,10 @@ pub mod cli {
     }
 
     impl CommonArgs {
-        pub fn config_override_table(&mut self, plugins: &[PluginMetadata]) -> anyhow::Result<Option<toml::Table>> {
+        pub fn take_config_override_table(
+            &mut self,
+            plugins: &[PluginMetadata],
+        ) -> anyhow::Result<Option<toml::Table>> {
             if self.config_override.is_none() && self.plugins.is_none() {
                 // nothing to override
                 return Ok(None);

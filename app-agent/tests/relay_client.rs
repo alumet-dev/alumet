@@ -1,4 +1,4 @@
-use common::{cargo_run, cargo_run_tee};
+use common::run::{cargo_run, cargo_run_tee};
 
 mod common;
 
@@ -34,4 +34,19 @@ fn args_bad_collector_uri() {
         stderr.contains(msg) || stdout.contains(msg),
         "The incorrect URI should show up in the logs"
     );
+}
+
+#[test]
+fn args_bad_config_no_folder() -> anyhow::Result<()> {
+    common::tests::args_bad_config_no_folder("alumet-relay-client", &["relay_client"])
+}
+
+#[test]
+fn args_bad_config_missing_file_no_default() -> anyhow::Result<()> {
+    common::tests::args_bad_config_missing_file_no_default("alumet-relay-client", &["relay_client"])
+}
+
+#[test]
+fn args_regen_config() -> anyhow::Result<()> {
+    common::tests::args_regen_config("alumet-relay-client", &["relay_client"])
 }
