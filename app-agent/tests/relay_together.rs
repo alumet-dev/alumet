@@ -1,0 +1,189 @@
+//! Integration tests for the relay mode, client and server together.
+
+use std::{
+    process::{self, ExitStatus, Stdio},
+    time::Duration,
+};
+
+use anyhow::{anyhow, Context};
+use common::run::{command_cargo_build, command_cargo_run, ChildGuard};
+
+mod common;
+
+/// Check that the client can send measurements to the server,
+/// which will write them to a CSV file.
+///
+/// Note: we use a limited set of plugins so that it works in the CI environment.
+#[test]
+fn client_to_server_to_csv() -> anyhow::Result<()> {
+    let tmp_dir = std::env::temp_dir().join(format!("{}-client_to_server_to_csv", env!("CARGO_CRATE_NAME")));
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    std::fs::create_dir(&tmp_dir)?;
+
+    let server_config = tmp_dir.join("server.toml");
+    let client_config = tmp_dir.join("client.toml");
+    let server_output = tmp_dir.join("output.csv");
+    assert!(
+        matches!(std::fs::exists(&server_config), Ok(false)),
+        "server config should not exist"
+    );
+    assert!(
+        matches!(std::fs::exists(&client_config), Ok(false)),
+        "client config should not exist"
+    );
+    assert!(
+        matches!(std::fs::exists(&server_output), Ok(false)),
+        "server output file should not exist"
+    );
+
+    let server_config_str = server_config.to_str().unwrap().to_owned();
+    let client_config_str = client_config.to_str().unwrap().to_owned();
+    let server_output_str = server_output.to_str().unwrap().to_owned();
+
+    // Build before run to avoid delays too big.
+    command_cargo_build("alumet-relay-server", &["relay_server"])
+        .spawn()?
+        .wait()?;
+    command_cargo_build("alumet-relay-client", &["relay_client"])
+        .spawn()?
+        .wait()?;
+
+    // Spawn the server
+    let server_process: process::Child = command_cargo_run(
+        "alumet-relay-server",
+        &["relay_server"],
+        &[
+            "--config",
+            &server_config_str,
+            // specify a socketaddr that works in the CI (The IPv6 localhost ::1 doesn't work)
+            "--address",
+            "localhost",
+            // only enable some plugins
+            "--plugins=relay-server,csv",
+            // ensure that the CSV plugin flushes the buffer to the file ASAP
+            "--config-override",
+            "plugins.csv.force_flush=true",
+            // set the CSV output to the file we want
+            "--config-override",
+            &format!("plugins.csv.output_path='''{server_output_str}'''"),
+        ],
+    )
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .spawn()?;
+    let mut server_process = ChildGuard::new(server_process);
+    println!("spawned server process {}", server_process.id());
+
+    // Wait for the server to start
+    let mut loop_limit = 50;
+    while !std::fs::exists(&server_config).context("could not check existence of config")? {
+        if loop_limit == 0 {
+            let _ = server_process.kill();
+            panic!("The server config is not generated! Config path: {server_config_str}");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+        loop_limit -= 1;
+    }
+    std::thread::sleep(Duration::from_millis(250));
+
+    // Start the client
+    let client_process = command_cargo_run(
+        "alumet-relay-client",
+        &["relay_client"],
+        &[
+            // use a different config than the server
+            "--config",
+            &client_config_str,
+            // specify an URI that works in the CI
+            "--collector-uri",
+            "http://localhost:50051",
+            // only enable some plugins
+            "--plugins=relay-client,procfs",
+            // override the config to lower the poll_interval (so that the test is faster)
+            "--config-override",
+            "plugins.procfs.kernel.poll_interval='50ms'",
+            "--config-override",
+            "plugins.procfs.memory.poll_interval='50ms'",
+            "--config-override",
+            "plugins.procfs.processes.enabled=false",
+            // don't buffer the relay output (because we want to check the final output after a short delay)
+            "--config-override",
+            "plugins.relay-client.buffer_size=1",
+        ],
+    )
+    // .stdout(Stdio::piped())
+    // .stderr(Stdio::piped())
+    .env("RUST_LOG", "debug")
+    .spawn()?;
+    let mut client_process = ChildGuard::new(client_process);
+    println!("spawned client process {}", client_process.id());
+
+    // Wait a little bit
+    let delta = Duration::from_millis(1000);
+    std::thread::sleep(delta);
+
+    // Check that the processes still run
+    assert!(
+        matches!(client_process.try_wait(), Ok(None)),
+        "the client should still run after a while"
+    );
+    assert!(
+        matches!(server_process.try_wait(), Ok(None)),
+        "the server should still run after a while"
+    );
+
+    // Check that we've obtained some measurements
+    let output_content_before_stop = std::fs::read_to_string(&server_output)?;
+    assert!(
+        !output_content_before_stop.is_empty(),
+        "some measurements should have been written after {delta:?}"
+    );
+
+    // Stop the client
+    kill_gracefully(&mut client_process)?;
+
+    // Wait for the client to stop (TODO: a timeout would be nice, but it's no so simple to have)
+    let client_status = client_process.take().wait()?;
+    assert!(
+        stopped_gracefully(client_status),
+        "the client should exit in a controlled way, but had status {client_status}"
+    );
+
+    // Check that we still have measurements
+    let output_content_after_stop = std::fs::read_to_string(&server_output)?;
+    assert!(
+        !output_content_after_stop.is_empty(),
+        "some measurements should have been written after the client shutdown"
+    );
+
+    // Stop the server
+    kill_gracefully(&mut server_process)?;
+
+    // Wait for the server to be stopped.
+    let server_output = server_process.take().wait_with_output()?;
+    let server_status = server_output.status;
+    println!(
+        "vvvvvvvvvvvv server output below vvvvvvvvvvvv\n{}\n------\n{}\n------\n",
+        String::from_utf8(server_output.stdout).unwrap(),
+        String::from_utf8(server_output.stderr).unwrap()
+    );
+    assert!(
+        stopped_gracefully(server_status),
+        "the server should exit in a controlled way, but had status {server_status}"
+    );
+    Ok(())
+}
+
+fn stopped_gracefully(status: ExitStatus) -> bool {
+    use std::os::unix::process::ExitStatusExt;
+    status.success() || status.signal().is_some()
+}
+
+fn kill_gracefully(child: &mut process::Child) -> anyhow::Result<()> {
+    let res = unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
+    if res == 0 {
+        Ok(())
+    } else {
+        Err(anyhow!("failed to kill process {}", child.id()))
+    }
+}

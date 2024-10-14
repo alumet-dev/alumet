@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
 
 use alumet::{
     pipeline::elements::source::builder::AutonomousSourceRegistration,
@@ -23,7 +23,7 @@ struct Config {
     /// Address to listen on.
     /// The default value is ip6-localhost = `::1`.
     ///
-    /// To listen all your network interfaces please use `0.0.0.0` or `::`.
+    /// To listen to all your network interfaces please use `0.0.0.0` or `::`.
     address: String,
 
     /// Port on which to serve.

@@ -1,11 +1,12 @@
 use std::{
     io::{Read, Write},
-    process::{Command, Output, Stdio},
+    ops::{Deref, DerefMut},
+    process::{Child, Command, Output, Stdio},
     thread,
 };
 
 /// Constructs a `Command` that will do `cargo run --bin ${binary} [--features ${features}] [-- ${bin_args}]`
-fn command_cargo_run(binary: &str, features: &[&str], bin_args: &[&str]) -> Command {
+pub fn command_cargo_run(binary: &str, features: &[&str], bin_args: &[&str]) -> Command {
     let mut cmd = Command::new("cargo");
     cmd.args(["run", "--bin", binary]);
     if !features.is_empty() {
@@ -15,6 +16,17 @@ fn command_cargo_run(binary: &str, features: &[&str], bin_args: &[&str]) -> Comm
     if !bin_args.is_empty() {
         cmd.arg("--");
         cmd.args(bin_args);
+    }
+    cmd
+}
+
+/// Constructs a `Command` that will do `cargo build --bin ${binary} [--features ${features}]`
+pub fn command_cargo_build(binary: &str, features: &[&str]) -> Command {
+    let mut cmd = Command::new("cargo");
+    cmd.args(["build", "--bin", binary]);
+    if !features.is_empty() {
+        cmd.arg("--features");
+        cmd.args(features);
     }
     cmd
 }
@@ -50,11 +62,12 @@ pub fn cargo_run_capture_output(binary: &str, features: &[&str], bin_args: &[&st
 /// and to two buffers. In essence, it does "both" `cargo_run` and `cargo_run_capture_output`.
 pub fn cargo_run_tee(binary: &str, features: &[&str], bin_args: &[&str]) -> anyhow::Result<Output> {
     let mut cmd = command_cargo_run(binary, features, bin_args);
-    let mut child = cmd
+    let child = cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap_or_else(|_| panic!("could not spawn process: {cmd:?}"));
+    let mut child = ChildGuard::new(child);
 
     let child_stdout = child.stdout.take().expect("could not attach to child stdout");
     let child_stderr = child.stderr.take().expect("could not attach to child stderr");
@@ -92,4 +105,41 @@ pub fn cargo_run_tee(binary: &str, features: &[&str], bin_args: &[&str]) -> anyh
 
     let status = child.wait()?;
     Ok(Output { status, stdout, stderr })
+}
+
+/// A wrapper around a child process that kills the child on drop.
+pub struct ChildGuard(Option<Child>);
+
+impl ChildGuard {
+    pub fn new(process: Child) -> Self {
+        Self(Some(process))
+    }
+
+    pub fn take(&mut self) -> Child {
+        self.0.take().unwrap()
+    }
+}
+
+impl Drop for ChildGuard {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.0.take() {
+            if let Err(e) = child.kill() {
+                println!("ERROR: failed to kill child {} on drop: {e}", child.id());
+            }
+        }
+    }
+}
+
+impl Deref for ChildGuard {
+    type Target = Child;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref().unwrap()
+    }
+}
+
+impl DerefMut for ChildGuard {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0.as_mut().unwrap()
+    }
 }

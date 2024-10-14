@@ -50,6 +50,10 @@ struct Cli {
     /// The port to use when biding, for example `50051`.
     #[arg(long)]
     port: Option<u16>,
+
+    /// The socket address to use when binding, without the port.
+    #[arg(long)]
+    address: Option<String>,
 }
 
 #[derive(Subcommand, Clone)]
@@ -75,9 +79,15 @@ impl Configurator for Cli {
         // Override some config options with the CLI args
         if let Some(port) = self.port.take() {
             agent
-                .plugin_config_mut("plugin-relay:server")
+                .plugin_config_mut("relay-server")
                 .unwrap()
                 .insert(String::from("port"), toml::Value::Integer(port.into()));
+        }
+        if let Some(address) = self.address.take() {
+            agent
+                .plugin_config_mut("relay-server")
+                .unwrap()
+                .insert(String::from("address"), toml::Value::String(address));
         }
     }
 }

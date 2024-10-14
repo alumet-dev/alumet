@@ -18,6 +18,7 @@ fn main() {
         plugin_socket_control::SocketControlPlugin,
         plugin_relay::client::RelayClientPlugin,
         plugin_cgroupv2::K8sPlugin,
+        plugin_procfs::ProcfsPlugin,
     ];
 
     init_logger();

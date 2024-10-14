@@ -1,3 +1,4 @@
+//! Integration tests for the "relay client" agent.
 use common::run::{cargo_run, cargo_run_tee};
 
 mod common;

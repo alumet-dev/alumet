@@ -817,7 +817,8 @@ pub(crate) async fn run_managed(
 }
 
 pub async fn run_autonomous(source_name: SourceName, source: AutonomousSource) -> anyhow::Result<()> {
-    source
-        .await
-        .map_err(|e| e.context(format!("error in autonomous source {}", source_name)))
+    source.await.map_err(|e| {
+        log::error!("Error in autonomous source {source_name} (will stop running): {e:?}");
+        e.context(format!("error in autonomous source {source_name}"))
+    })
 }

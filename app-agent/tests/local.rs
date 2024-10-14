@@ -1,3 +1,4 @@
+//! Integration tests for the local agent.
 use anyhow::Context;
 use common::run::{cargo_run, cargo_run_tee};
 

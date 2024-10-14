@@ -29,6 +29,7 @@ jobs:
       - checkout
       - run: cargo --version
       - generate_cargo_cache_key
+      - run: cat /etc/hosts
       - run:
           name: Install required packages.
           command: sudo apt-get update && sudo apt-get install llvm-dev libclang-dev protobuf-compiler --no-install-recommends

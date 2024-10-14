@@ -98,8 +98,8 @@ pub mod cli {
             // apply config overrides
             if let Some(config_override) = self.config_override.take() {
                 for o in config_override {
-                    let overrider =
-                        toml::Table::try_from(&o).with_context(|| format!("invalid config override `{o}`"))?;
+                    let overrider: toml::Table =
+                        toml::from_str(&o).with_context(|| format!("invalid config override `{o}`"))?;
                     config_ops::merge_override(&mut res, overrider);
                 }
             }

@@ -44,6 +44,7 @@ relay_client = [
     "dep:plugin-perf",
     "dep:plugin-socket-control",
     "dep:plugin-cgroupv2",
+    "dep:plugin-procfs",
 ]
 relay_server = ["dep:plugin-relay", "plugin-relay/server", "dep:plugin-csv"]
 
@@ -64,3 +65,6 @@ required-features = ["relay_server"]
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+libc = "0.2.159"
