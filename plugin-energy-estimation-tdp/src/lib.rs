@@ -100,7 +100,7 @@ impl AlumetPlugin for EnergyEstimationTdpPlugin {
         // Lock the metrics mutex to apply its modifications.
         let mut metrics = self.metrics.lock().unwrap();
 
-        metrics.cpu_usage_per_pod = Some(find_metric_by_name(alumet, "cgroup_cpu_usage_user")?);
+        metrics.cpu_usage_per_pod = Some(find_metric_by_name(alumet, "cgroup_cpu_usage_total")?);
         Ok(())
     }
 
@@ -113,7 +113,9 @@ impl AlumetPlugin for EnergyEstimationTdpPlugin {
 
 // for 1st version, tdp,vcpu, cpu are defined in configuration plugin
 #[derive(Serialize, Deserialize)]
-struct Config {    
+struct Config {  
+    #[serde(with = "humantime_serde")]
+    poll_interval: Duration,  
     tdp: f64,
     nb_vcpu: f64,
     nb_cpu: f64,
@@ -121,7 +123,8 @@ struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Self {            
+        Self {
+            poll_interval: Duration::from_secs(1), // 1Hz                     
             tdp: 100.0,
             nb_vcpu: 1.0,
             nb_cpu: 1.0
