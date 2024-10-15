@@ -1,14 +1,14 @@
 [package]
 name = "alumet"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
+rust-version = "1.76"
 
 description = "Modular framework for hardware and software measurement (including energy consumption and more)."
 license = " EUPL-1.2"
 homepage = "https://alumet.dev"
 repository = "https://github.com/alumet-dev/alumet"
 keywords = ["rapl", "energy", "monitoring", "profiling"]
-
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]

@@ -393,7 +393,10 @@ async fn run_blocking_output<Rx: channel::MeasurementReceiver>(
 }
 
 async fn run_async_output(name: OutputName, output: BoxedAsyncOutput) -> anyhow::Result<()> {
-    output.await.with_context(|| format!("error in async output {}", name))
+    output.await.map_err(|e| {
+        log::error!("Error when asynchronously writing to {name} (will stop running): {e:#}");
+        e.context(format!("error in async output {name}"))
+    })
 }
 
 mod control_state {

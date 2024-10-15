@@ -1,90 +1,105 @@
 version: 2.1
 
+# reusable commands (see https://circleci.com/docs/reusing-config/)
+commands:
+  generate_cargo_cache_key:
+    steps:
+      - run:
+          name: Create combined cache key
+          command: |
+            find -name 'Cargo\.toml' | xargs cat > .combined_cache_key
+            if [ -f .cargo/config.toml ]; then
+              cat .cargo/config.toml >> .combined_cache_key
+            fi
+            if [ -f Cargo.lock ]; then
+              cat Cargo.lock >> .combined_cache_key
+            fi
+            cargo --version >> .combined_cache_key
+
+# CI jobs
 jobs:
   build_and_test:
     resource_class: large
     docker:
-      - image: cimg/rust:1.78.0
+      - image: cimg/rust:1.81.0
+    environment:
+      RUSTFLAGS: -Awarnings
+      CONTINUE_TEST_IF_NO_POWERCAP: true
+      NO_IPV6: true
     steps:
       - checkout
       - run: cargo --version
-      - run:
-          name: Create concatenated cache key
-          command: |
-            find -name 'Cargo\.toml' | xargs cat > .combined_cache_key
-            if [ -f .cargo/config.toml ]; then
-              cat .cargo/config.toml >> .combined_cache_key
-            fi
-            if [ -f Cargo.lock ]; then
-              cat Cargo.lock >> .combined_cache_key
-            fi
+      - generate_cargo_cache_key
+      - run: cat /etc/hosts
       - run:
           name: Install required packages.
           command: sudo apt-get update && sudo apt-get install llvm-dev libclang-dev protobuf-compiler --no-install-recommends
       - restore_cache:
           keys:
-            - v1-cache-{{ checksum ".combined_cache_key" }}
+            - v2-dependency-cache-{{ checksum ".combined_cache_key" }}
+            - v2-dependency-cache
+      - run:
+          name: Compile Alumet core
+          command: "cargo build -p alumet"
+      - run:
+          name: Build all libraries
+          command: "cargo build"
       - run:
           name: Run Tests (including doc tests)
-          command: "CONTINUE_TEST_IF_NO_POWERCAP=true cargo test"
-      - run:
-          name: Installing cargo-cache
-          command: "cargo install cargo-cache --no-default-features --features ci-autoclean cargo-cache"
-      - run:
-          name: Optimizing the cache
-          command: "cargo cache"
+          command: "cargo test -- --exact --show-output"
+          no_output_timeout: 30s
+
+      # Caching "target" makes "build_and_test" faster (because we compile almost nothing),
+      # but it makes other jobs slower (because it takes 20-30s to extract the cache and it's not
+      # beneficial to the other jobs in the end).
+      # => separate the two caches
       - save_cache:
-          key: v1-cache-{{ checksum ".combined_cache_key" }}
+          key: v2-dependency-cache-{{ checksum ".combined_cache_key" }}
           paths:
-            - ~/.cargo
-            #- {{ .Environment.CARGO_HOME }}
+            # .cargo/registry/src is removed by 'cargo cache' and uncompressed from .cargo/registry/cache
+            - ~/.cargo/.crates.toml
+            - ~/.cargo/.crates2.json
+            - ~/.cargo/bin/
+            - ~/.cargo/registry/index/
+            - ~/.cargo/registry/cache/
+            - ~/.cargo/git/db/
+
   lint:
     resource_class: medium
     docker:
-      - image: cimg/rust:1.78.0
+      - image: cimg/rust:1.81.0
     steps:
       - checkout
       - run: cargo --version
-      - run:
-          name: Create concatenated cache key
-          command: |
-            find -name 'Cargo\.toml' | xargs cat > .combined_cache_key
-            if [ -f .cargo/config.toml ]; then
-              cat .cargo/config.toml >> .combined_cache_key
-            fi
-            if [ -f Cargo.lock ]; then
-              cat Cargo.lock >> .combined_cache_key
-            fi
+      - generate_cargo_cache_key
       - run:
           name: Install required packages.
           command: sudo apt-get update && sudo apt-get install llvm-dev libclang-dev protobuf-compiler --no-install-recommends
       - restore_cache:
           keys:
-            - v1-cache-{{ checksum ".combined_cache_key" }}
+            - v2-dependency-cache-{{ checksum ".combined_cache_key" }}
+            - v2-dependency-cache
       - run:
           name: Check formatting
           command: "cargo fmt --check"
       - run:
           name: Run Clippy
           command: "cargo clippy --no-deps"
-      - run:
-          name: Installing cargo-cache
-          command: "cargo install cargo-cache --no-default-features --features ci-autoclean cargo-cache"
-      - run:
-          name: Optimizing the cache
-          command: "cargo cache"
-      - save_cache:
-          key: v1-cache-{{ checksum ".combined_cache_key" }}
-          paths:
-            - ~/.cargo
-            #- {{ .Environment.CARGO_HOME }}
   miri_test:
     resource_class: medium
     docker:
-      - image: cimg/rust:1.78.0
+      - image: cimg/rust:1.81.0
+    environment:
+      RUSTFLAGS: -Awarnings
+      CONTINUE_TEST_IF_NO_POWERCAP: true
     steps:
       - checkout
       - run: cargo --version && rustup --version
+      - generate_cargo_cache_key
+      - restore_cache:
+          keys:
+            - v2-dependency-cache-{{ checksum ".combined_cache_key" }}
+            - v2-dependency-cache
       - run:
           name: Install Miri on nightly rust
           command: "rustup +nightly component add miri"

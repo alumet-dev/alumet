@@ -52,6 +52,7 @@ impl AlumetPlugin for CsvPlugin {
 }
 
 #[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct Config {
     output_path: PathBuf,
     force_flush: bool,

@@ -1,8 +1,6 @@
-use std::path::PathBuf;
-
 use alumet::static_plugins;
 use app_agent::{
-    agent_util::{self, PluginsInfo},
+    agent_util::{self, ConfigLoadOptions, PluginsInfo},
     init_logger,
     options::{
         cli::{CommonArgs, ExecArgs},
@@ -19,6 +17,8 @@ fn main() {
         plugin_perf::PerfPlugin,
         plugin_socket_control::SocketControlPlugin,
         plugin_relay::client::RelayClientPlugin,
+        plugin_cgroupv2::K8sPlugin,
+        plugin_procfs::ProcfsPlugin,
     ];
 
     init_logger();
@@ -27,33 +27,31 @@ fn main() {
     log::info!("Starting ALUMET agent '{BINARY}' v{VERSION}");
 
     // Parse command-line arguments.
-    let cli_args = Cli::parse();
+    let mut cli_args = Cli::parse();
 
-    // Get the config path.
-    let config_path = PathBuf::from(cli_args.common.config.clone());
+    // Extract options
+    let command = cli_args.command.take().unwrap_or(Command::Run);
+    let load_options = ConfigLoadOptions::new(&mut cli_args.common, &plugins).unwrap();
 
     // Execute the command.
-    let command = cli_args.command.unwrap_or(Command::Run);
     match command {
         Command::Run => {
-            let (agent_config, plugin_configs) =
-                agent_util::load_config::<AgentConfig>(&config_path, &plugins).unwrap();
+            let (agent_config, plugin_configs) = agent_util::load_config::<AgentConfig>(load_options).unwrap();
             let plugins_info = PluginsInfo::new(plugins, plugin_configs);
-            let agent_builder = agent_util::new_agent(plugins_info, agent_config, cli_args.common);
+            let agent_builder = agent_util::new_agent(plugins_info, agent_config, cli_args);
             let agent = agent_util::start(agent_builder);
             agent_util::run_until_stop(agent);
         }
         Command::Exec(ExecArgs { program, args }) => {
-            let (mut agent_config, plugin_configs) =
-                agent_util::load_config::<AgentConfig>(&config_path, &plugins).unwrap();
-            let plugins_info = PluginsInfo::new(plugins, plugin_configs);
+            let (mut agent_config, plugin_configs) = agent_util::load_config::<AgentConfig>(load_options).unwrap();
             agent_config.exec_mode = true;
-            let agent_builder = agent_util::new_agent(plugins_info, agent_config, cli_args.common);
+            let plugins_info = PluginsInfo::new(plugins, plugin_configs);
+            let agent_builder = agent_util::new_agent(plugins_info, agent_config, cli_args);
             let agent = agent_util::start(agent_builder);
             agent_util::exec_process(agent, program, args);
         }
         Command::RegenConfig => {
-            agent_util::regen_config(&config_path, &plugins, AgentConfig::default());
+            agent_util::regen_config::<AgentConfig>(load_options).expect("failed to regenerate the config");
         }
     }
 }
