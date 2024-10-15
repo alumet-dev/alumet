@@ -5,6 +5,7 @@ Atos
 cbindgen
 cdylib
 Cgroups
+cgroupv
 cguest
 CNRS
 cpuacct
@@ -14,6 +15,7 @@ Eviden
 FSCREDS
 giga
 humantime
+hwinfo
 hwmon
 ITLB
 Mispredicted
