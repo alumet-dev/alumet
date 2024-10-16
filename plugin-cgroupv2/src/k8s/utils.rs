@@ -26,6 +26,8 @@ pub struct CgroupV2MetricFile {
     pub path: PathBuf,
     /// Opened file descriptor.
     pub file: File,
+    /// Opened memory file descriptor.
+    pub memory_file: File,
     /// UID of the pod.
     pub uid: String,
     /// Namespace of the pod.
@@ -57,6 +59,7 @@ fn list_metric_file_in_dir(
     for entry in entries {
         let path = entry?.path();
         let mut path_cloned = path.clone();
+        let mut path_cloned_mem = path.clone();
 
         if path.is_dir() {
             let path_mf = path_cloned.clone();
@@ -83,6 +86,7 @@ fn list_metric_file_in_dir(
             new_prefix.push('-');
             let uid = dir_uid_mod.strip_prefix(&new_prefix).unwrap_or(dir_uid_mod);
             path_cloned.push("cpu.stat");
+            path_cloned_mem.push("memory.current");
             let name_to_seek_raw = uid.strip_prefix("pod").unwrap_or(uid);
             let name_to_seek = name_to_seek_raw.replace('_', "-"); // Replace _ with - to match with hashmap
 
@@ -94,11 +98,14 @@ fn list_metric_file_in_dir(
 
             let file: File =
                 File::open(&path_cloned).with_context(|| format!("failed to open file {}", path_cloned.display()))?;
+            let memory_file: File =
+                File::open(&path_cloned_mem).with_context(|| format!("failed to open file {}", path_cloned_mem.display()))?;
             // Let's create the new metric and push it to the vector of metrics
             vec_file_metric.push(CgroupV2MetricFile {
                 name: name.clone(),
                 path: path_mf,
                 file,
+                memory_file,
                 uid: uid.to_owned(),
                 namespace: namespace.clone(),
                 node: node.clone(),
@@ -155,6 +162,13 @@ pub fn gather_value(file: &mut CgroupV2MetricFile, content_buffer: &mut String) 
         .read_to_string(content_buffer)
         .with_context(|| format!("Unable to gather cgroup v2 metrics by reading file {}", file.name))?;
     file.file.rewind()?;
+
+    content_buffer.push_str("\nmemory_current ");
+
+    file.memory_file
+        .read_to_string(content_buffer)
+        .with_context(|| format!("Unable to gather cgroup v2 metrics by reading file {}", file.name))?;
+    file.memory_file.rewind()?;
     let mut new_metric =
         CgroupV2Metric::from_str(content_buffer).with_context(|| format!("failed to parse {}", file.name))?;
     new_metric.name = file.name.clone();
@@ -462,9 +476,19 @@ mod tests {
             ),
         )
         .unwrap();
+        let path_file_mem = a.join("memory.current");
+        std::fs::write(
+            path_file.clone(),
+            format!("2366025728"),
+        )
+        .unwrap();
 
         let file = match File::open(&path_file) {
             Err(why) => panic!("couldn't open {}: {}", path_file.display(), why),
+            Ok(file) => file,
+        };
+        let memory_file = match File::open(&path_file_mem) {
+            Err(why) => panic!("couldn't open {}: {}", path_file_mem.display(), why),
             Ok(file) => file,
         };
 
@@ -472,6 +496,7 @@ mod tests {
             name: "testing_pod".to_string(),
             path: path_file,
             file,
+            memory_file,
             uid: "uid_test".to_string(),
             namespace: "namespace_test".to_string(),
             node: "node_test".to_owned(),
@@ -486,6 +511,7 @@ mod tests {
             uid: _uid,
             namespace: _ns,
             node: _nd,
+            memory_used,
         }) = res_metric
         {
             assert_eq!(name, "testing_pod".to_owned());

@@ -100,12 +100,14 @@ impl AlumetPlugin for K8sPlugin {
             let counter_tmp_tot: CounterDiff = CounterDiff::with_max_value(crate::cgroupv2::CGROUP_MAX_TIME_COUNTER);
             let counter_tmp_usr: CounterDiff = CounterDiff::with_max_value(crate::cgroupv2::CGROUP_MAX_TIME_COUNTER);
             let counter_tmp_sys: CounterDiff = CounterDiff::with_max_value(crate::cgroupv2::CGROUP_MAX_TIME_COUNTER);
+            let counter_tmp_mem: CounterDiff = CounterDiff::with_max_value(crate::cgroupv2::CGROUP_MAX_TIME_COUNTER);
             let probe = K8SProbe::new(
                 self.metrics.as_ref().expect("Metrics is not available").clone(),
                 metric_file,
                 counter_tmp_tot,
                 counter_tmp_sys,
                 counter_tmp_usr,
+                counter_tmp_mem,
             )?;
             alumet.add_source(Box::new(probe), TriggerSpec::at_interval(self.config.poll_interval));
         }
@@ -171,6 +173,7 @@ impl AlumetPlugin for K8sPlugin {
                                 let pod_uid = pod_uid.to_str().expect("Can't retrieve the pod uid value");
                                 // We open a File Descriptor to the newly created file
                                 let mut path_cpu = path.clone();
+                                let mut path_memory = path.clone();
                                 let full_name_to_seek = pod_uid.strip_suffix(".slice").unwrap_or(pod_uid);
                                 let parts: Vec<&str> = full_name_to_seek.split("pod").collect();
                                 let name_to_seek_raw = *(parts.last().unwrap_or(&full_name_to_seek));
@@ -198,10 +201,15 @@ impl AlumetPlugin for K8sPlugin {
                                 let file = File::open(&path_cpu)
                                     .with_context(|| format!("failed to open file {}", path_cpu.display()))?;
 
+                                path_memory.push("memory.current");
+                                let memory_file = File::open(&path_memory)
+                                    .with_context(|| format!("failed to open file {}", path_memory.display()))?;
+
                                 let metric_file = CgroupV2MetricFile {
                                     name: name.to_owned(),
                                     path: path_cpu,
                                     file,
+                                    memory_file,
                                     uid: uid.to_owned(),
                                     namespace: namespace.to_owned(),
                                     node: node.to_owned(),
@@ -210,12 +218,14 @@ impl AlumetPlugin for K8sPlugin {
                                 let counter_tmp_tot: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
                                 let counter_tmp_usr: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
                                 let counter_tmp_sys: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
+                                let counter_tmp_mem: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
                                 let probe: K8SProbe = K8SProbe::new(
                                     detector.metrics.clone(),
                                     metric_file,
                                     counter_tmp_tot,
                                     counter_tmp_sys,
                                     counter_tmp_usr,
+                                    counter_tmp_mem,
                                 )?;
 
                                 // Add the probe to the sources

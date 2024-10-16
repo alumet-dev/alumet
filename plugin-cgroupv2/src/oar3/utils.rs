@@ -217,6 +217,7 @@ mod tests {
             uid: _uid,
             namespace: _ns,
             node: _nd,
+            memory_used,
         }) = res_metric
         {
             assert_eq!(name, "testing_pod".to_owned());

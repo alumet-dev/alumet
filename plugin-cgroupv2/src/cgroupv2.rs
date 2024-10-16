@@ -17,6 +17,7 @@ pub struct CgroupV2Metric {
     pub time_used_tot: u64,
     pub time_used_user_mode: u64,
     pub time_used_system_mode: u64,
+    pub memory_used: u64,
 }
 
 impl FromStr for CgroupV2Metric {
@@ -31,7 +32,9 @@ impl FromStr for CgroupV2Metric {
             time_used_tot: 0,
             time_used_user_mode: 0,
             time_used_system_mode: 0,
+            memory_used: 0,
         };
+        log::debug!("from_str received {s}");
         for line in s.lines() {
             let parts: Vec<&str> = line.split_ascii_whitespace().collect();
             if parts.len() >= 2 {
@@ -44,6 +47,9 @@ impl FromStr for CgroupV2Metric {
                     }
                     "system_usec" => {
                         cgroup_struc_to_ret.time_used_system_mode = parts[1].parse::<u64>()?;
+                    }
+                    "memory_current" => {
+                        cgroup_struc_to_ret.memory_used = parts[1].parse::<u64>()?;
                     }
                     &_ => continue,
                 }
@@ -58,11 +64,13 @@ pub struct Metrics {
     pub time_used_tot: TypedMetricId<u64>,
     pub time_used_user_mode: TypedMetricId<u64>,
     pub time_used_system_mode: TypedMetricId<u64>,
+    pub memory_used: TypedMetricId<u64>,
 }
 
 impl Metrics {
     pub fn new(alumet: &mut AlumetPluginStart) -> Result<Self, MetricCreationError> {
         let usec: PrefixedUnit = PrefixedUnit::micro(Unit::Second);
+        let byte: PrefixedUnit = Unit::Byte.into();
         Ok(Self {
             time_used_tot: alumet.create_metric::<u64>(
                 "cgroup_cpu_usage_total",
@@ -78,6 +86,11 @@ impl Metrics {
                 "cgroup_cpu_usage_system",
                 usec.clone(),
                 "CPU in system mode usage time by the cgroup",
+            )?,
+            memory_used: alumet.create_metric::<u64>(
+                "memory_used", 
+                byte.clone(), 
+                "current memory used by the pod",
             )?,
         })
     }

@@ -16,9 +16,11 @@ pub struct K8SProbe {
     pub time_tot: CounterDiff,
     pub time_usr: CounterDiff,
     pub time_sys: CounterDiff,
+    pub time_mem: CounterDiff,
     pub time_used_tot: TypedMetricId<u64>,
     pub time_used_user_mode: TypedMetricId<u64>,
     pub time_used_system_mode: TypedMetricId<u64>,
+    pub memory_used: TypedMetricId<u64>,
 }
 
 impl K8SProbe {
@@ -28,15 +30,18 @@ impl K8SProbe {
         counter_tot: CounterDiff,
         counter_sys: CounterDiff,
         counter_usr: CounterDiff,
+        counter_mem: CounterDiff
     ) -> anyhow::Result<K8SProbe> {
         Ok(K8SProbe {
             cgroup_v2_metric_file: metric_file,
             time_tot: counter_tot,
             time_usr: counter_usr,
             time_sys: counter_sys,
+            time_mem: counter_mem,
             time_used_tot: metric.time_used_tot,
             time_used_system_mode: metric.time_used_system_mode,
             time_used_user_mode: metric.time_used_user_mode,
+            memory_used: metric.memory_used,
         })
     }
 }
@@ -94,6 +99,20 @@ impl alumet::pipeline::Source for K8SProbe {
 
             measurements.push(p_sys);
         }
+        let p_mem: MeasurementPoint = MeasurementPoint::new(
+            timestamp,
+            self.memory_used,
+            Resource::LocalMachine,
+            consumer.clone(),
+            metrics.memory_used,
+        )
+        .with_attr("uid", AttributeValue::String(metrics.uid.clone()))
+        .with_attr("name", AttributeValue::String(metrics.name.clone()))
+        .with_attr("namespace", AttributeValue::String(metrics.namespace.clone()))
+        .with_attr("node", AttributeValue::String(metrics.node.clone()));
+
+        measurements.push(p_mem);
+        
         Ok(())
     }
 }
