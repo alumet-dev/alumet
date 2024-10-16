@@ -64,6 +64,31 @@ jobs:
             - ~/.cargo/registry/cache/
             - ~/.cargo/git/db/
 
+  build_on_musl:
+    resource_class: medium
+    docker:
+      - image: cimg/rust:1.81.0
+    steps:
+      - checkout
+      - run: cargo --version
+      - generate_cargo_cache_key
+      - run: cat /etc/hosts
+      - run:
+          name: Install required packages.
+          command: sudo apt-get update && sudo apt-get install llvm-dev libclang-dev --no-install-recommends
+      - run:
+          name: Install MUSL toolchain
+          command: rustup target add x86_64-unknown-linux-musl
+      - restore_cache:
+          keys:
+            - v2-dependency-cache-{{ checksum ".combined_cache_key" }}
+            - v2-dependency-cache
+      - run:
+          name: Compile Alumet local agent a a static MUSL binary
+          command: "cargo build -p app-agent --target=x86_64-unknown-linux-musl --bin=alumet-local-agent --features=local_x86"
+          environment:
+            RUSTFLAGS: "-C target-feature=+crt-static"
+
   lint:
     resource_class: medium
     docker:
@@ -85,6 +110,7 @@ jobs:
       - run:
           name: Run Clippy
           command: "cargo clippy --no-deps"
+
   miri_test:
     resource_class: medium
     docker:
@@ -113,5 +139,6 @@ workflows:
   test_and_lint:
     jobs:
       - build_and_test
+      - build_on_musl
       - lint
       - miri_test

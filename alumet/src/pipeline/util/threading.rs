@@ -13,28 +13,37 @@ use tokio::runtime::Runtime;
 
 /// Sets the scheduling priority of the current thread to be closer to "real time".
 pub fn use_realtime_scheduling() -> std::io::Result<()> {
-    #[cfg(target_os = "linux")]
+    // On Linux, the simplest thing would be to call libc::sched_setscheduler(0, libc::SCHED_FIFO, &params).
+    // However, it doesn't work on musl, nor on other UNIX-like systems such as MacOS.
+    #[cfg(any(target_family = "unix"))]
     {
-        let priority = 55; // from table https://access.redhat.com/documentation/fr-fr/red_hat_enterprise_linux_for_real_time/8/html/optimizing_rhel_8_for_real_time_for_low_latency_operation/assembly_viewing-scheduling-priorities-of-running-threads_optimizing-rhel8-for-real-time-for-low-latency-operation
-        let params = libc::sched_param {
-            sched_priority: priority,
-        };
-        let res = unsafe { libc::sched_setscheduler(0, libc::SCHED_FIFO, &params) };
-        if res < 0 {
-            Err(std::io::Error::last_os_error())
-        } else {
-            Ok(())
-        }
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let max_prio = unsafe { libc::sched_get_priority_max(libc::SCHED_FIFO) };
         let min_prio = unsafe { libc::sched_get_priority_min(libc::SCHED_FIFO) };
-        let priority = (max_prio * 55 / 100).clamp(min_prio, max_prio);
-        let params = libc::sched_param {
-            sched_priority: priority,
-        };
+        let max_prio = unsafe { libc::sched_get_priority_max(libc::SCHED_FIFO) };
+
+        // On Linux the priority will be 55, which is what we want.
+        // See https://access.redhat.com/documentation/fr-fr/red_hat_enterprise_linux_for_real_time/8/html/optimizing_rhel_8_for_real_time_for_low_latency_operation/assembly_viewing-scheduling-priorities-of-running-threads_optimizing-rhel8-for-real-time-for-low-latency-operation
+        let priority = (max_prio * 56 / 100).clamp(min_prio, max_prio);
+
+        #[cfg(target_env = "musl")]
+        fn sched_params(priority: i32) -> libc::sched_param {
+            // With musl, the sched_param struct contains additional fields that we don't know how to initialize
+            // (they are an implementation details and/or reserved fields for later use).
+            // Hence, we simply initialize the whold struct to zeros.
+            // SAFETY: zero is a valid value for each field of the C struct.
+            let mut params: libc::sched_param = unsafe { std::mem::zeroed() };
+            params.sched_priority = priority;
+            params
+        }
+
+        #[cfg(not(target_env = "musl"))]
+        fn sched_params(priority: i32) -> libc::sched_param {
+            libc::sched_param {
+                sched_priority: priority,
+            }
+        }
+
         let thread = unsafe { libc::pthread_self() };
+        let params = sched_params(priority);
         let res = unsafe { libc::pthread_setschedparam(thread, libc::SCHED_FIFO, &params) };
         if res < 0 {
             Err(std::io::Error::last_os_error())
@@ -42,7 +51,8 @@ pub fn use_realtime_scheduling() -> std::io::Result<()> {
             Ok(())
         }
     }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+
+    #[cfg(not(target_family = "unix"))]
     Err(std::io::Error::new(
         std::io::ErrorKind::Unsupported,
         "cannot increase the thread priority on this platform",
