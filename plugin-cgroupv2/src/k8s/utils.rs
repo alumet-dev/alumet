@@ -66,6 +66,11 @@ fn list_metric_file_in_dir(
                 .to_str()
                 .with_context(|| format!("Filename is not valid UTF-8: {:?}", path))?;
 
+            // If the dir_uid doesn't end with .slice, we will not find the right files
+            if !dir_uid.ends_with(".slice") {
+                continue;
+            }
+
             let dir_uid_mod = dir_uid.strip_suffix(".slice").unwrap_or(dir_uid);
 
             let root_file_name = root_directory_path
