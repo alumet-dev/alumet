@@ -20,3 +20,8 @@ base64 = "0.22.1"
 
 [lints]
 workspace = true
+
+[profile.release]
+opt-level = 1
+lto = true
+codegen-units = 1

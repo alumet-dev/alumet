@@ -12,7 +12,6 @@ use notify::{Event, EventHandler, EventKind, RecommendedWatcher, RecursiveMode, 
 use serde::{Deserialize, Serialize};
 use std::{fs::File, path::PathBuf, time::Duration};
 
-//
 use crate::{
     cgroupv2::{Metrics, CGROUP_MAX_TIME_COUNTER},
     k8s::utils::get_pod_name,
@@ -142,9 +141,6 @@ impl AlumetPlugin for K8sPlugin {
                     detector: &mut PodDetector,
                     event: Result<Event, notify::Error>,
                 ) -> Result<(), anyhow::Error> {
-                    // The events look like the following
-                    // Handle_Event: Ok(Event { kind: Create(Folder), paths: ["/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/TESTTTTT"], attr:tracker: None, attr:flag: None, attr:info: None, attr:source: None })
-                    // Handle_Event: Ok(Event { kind: Remove(Folder), paths: ["/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/TESTTTTT"], attr:tracker: None, attr:flag: None, attr:info: None, attr:source: None })
                     if let Ok(Event {
                         kind: EventKind::Create(notify::event::CreateKind::Folder),
                         paths,
@@ -172,6 +168,7 @@ impl AlumetPlugin for K8sPlugin {
                                 let pod_uid = pod_uid.to_str().expect("Can't retrieve the pod uid value");
                                 // We open a File Descriptor to the newly created file
                                 let mut path_cpu = path.clone();
+                                let mut path_memory = path.clone();
                                 let full_name_to_seek = pod_uid.strip_suffix(".slice").unwrap_or(pod_uid);
                                 let parts: Vec<&str> = full_name_to_seek.split("pod").collect();
                                 let name_to_seek_raw = *(parts.last().unwrap_or(&full_name_to_seek));
@@ -196,13 +193,19 @@ impl AlumetPlugin for K8sPlugin {
                                     .with_context(|| "Block on failed returned an error")?;
 
                                 path_cpu.push("cpu.stat");
-                                let file = File::open(&path_cpu)
+                                let file_cpu = File::open(&path_cpu)
                                     .with_context(|| format!("failed to open file {}", path_cpu.display()))?;
+
+                                path_memory.push("memory.stat");
+                                let file_memory = File::open(&path_memory)
+                                    .with_context(|| format!("failed to open file {}", path_memory.display()))?;
 
                                 let metric_file = CgroupV2MetricFile {
                                     name: name.to_owned(),
-                                    path: path_cpu,
-                                    file,
+                                    path_cpu: path_cpu,
+                                    file_cpu: file_cpu,
+                                    path_memory: path_memory,
+                                    file_memory: file_memory,
                                     uid: uid.to_owned(),
                                     namespace: namespace.to_owned(),
                                     node: node.to_owned(),
