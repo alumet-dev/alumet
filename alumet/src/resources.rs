@@ -207,30 +207,16 @@ impl ResourceConsumer {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum InvalidResourceError {
+    #[error("invalid resource identifier for kind {0}")]
     InvalidId(StrCow),
 }
 
-impl fmt::Display for InvalidResourceError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            InvalidResourceError::InvalidId(kind) => write!(f, "invalid resource identifier for kind {kind}"),
-        }
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum InvalidConsumerError {
+    #[error("invalid consumer identifier for kind {0}")]
     InvalidId(StrCow),
-}
-
-impl fmt::Display for InvalidConsumerError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            InvalidConsumerError::InvalidId(kind) => write!(f, "invalid consumer identifier for kind {kind}"),
-        }
-    }
 }
 
 enum LazyDisplayable<'a> {

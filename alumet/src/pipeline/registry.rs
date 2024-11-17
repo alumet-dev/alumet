@@ -38,6 +38,8 @@ pub enum DuplicateStrategy {
     Error,
     /// Rename the duplicate metrics by appending a suffix and an integer to its name.
     Rename { suffix: String },
+    // TODO distinguish between "strictly rejecting the metric if one with the same name exists"
+    // and "rejecting the metric if one with the same name _and_ a different definiton exists"
 }
 
 /// Controls the central registry of metrics.
@@ -270,6 +272,8 @@ pub enum SendWithReplyError {
     Recv(oneshot::error::RecvError),
 }
 
+// TODO for some method calls, don't return a SendError that can contain the message (it can cause issues with conversion to anyhow::Error)
+
 impl Debug for SendError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -341,11 +345,16 @@ impl MetricSender {
 
     /// Registers new metrics.
     ///
-    /// # Errors
-    /// The registration of a metric fails if another metric with the same unique name has already been registered.
+    /// # Duplicates
+    ///
+    /// Duplicates are handled according to the provided [`DuplicateStrategy`].
+    ///
+    /// If the strategy is `Error`, the registration of each metric will fail if another metric
+    /// with the same unique name has already been registered.
     /// For each metric, a `Result<RawMetricId, MetricCreationError>` is returned.
     ///
-    /// `create_metrics` can also fail if the control message cannot be sent, or if the registration reply cannot be received.
+    /// # Other errors
+    /// Regardless of the duplicate strategy, `create_metrics` can also fail if the control message cannot be sent, or if the registration reply cannot be received.
     pub async fn create_metrics(
         &self,
         metrics: Vec<Metric>,

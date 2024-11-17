@@ -7,11 +7,10 @@ use alumet::{
         AlumetPluginStart, ConfigTable,
     },
 };
-use anyhow::Context;
 use serde::{Deserialize, Serialize};
-use tonic::transport::Server;
+use tokio::net::TcpListener;
 
-use crate::{resolve_socket_address, server::grpc};
+use crate::{server::source, util::resolve_socket_address};
 
 pub struct RelayServerPlugin {
     config: Config,
@@ -70,20 +69,16 @@ impl AlumetPlugin for RelayServerPlugin {
         let config_address = std::mem::take(&mut self.config.address);
         let addr: SocketAddr = resolve_socket_address(config_address, self.config.port, self.config.ipv6_scope_id)?[0];
 
-        log::info!("Starting gRPC server with on socket {addr}");
         alumet.add_autonomous_source_builder(move |ctx, cancel_token, out_tx| {
+            log::info!("Starting relay server on socket {addr}");
             let metrics_tx = ctx.metrics_sender();
-            let collector = grpc::MetricCollectorImpl::new(out_tx, metrics_tx);
             let source = Box::pin(async move {
-                Server::builder()
-                    .add_service(collector.into_service())
-                    .serve_with_shutdown(addr, cancel_token.cancelled_owned())
-                    .await
-                    .context("gRPC server error")?;
-                Ok(())
+                let listener = TcpListener::bind(addr).await?;
+                let server = source::TcpServer::new(cancel_token, listener, out_tx, metrics_tx);
+                server.accept_loop().await
             });
             Ok(AutonomousSourceRegistration {
-                name: ctx.source_name("grpc-server"),
+                name: ctx.source_name("relay-server"),
                 source,
             })
         });
