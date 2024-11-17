@@ -3,18 +3,12 @@ use std::future::Future;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::protocol::metric_collector_client::MetricCollectorClient;
-use crate::protocol::{self, RegisterReply};
-
 use alumet::measurement::{AttributeValue, MeasurementPoint, WrappedMeasurementType, WrappedMeasurementValue};
 use alumet::metrics::{Metric, RawMetricId};
 use alumet::pipeline::elements::output::AsyncOutputStream;
 
 use anyhow::{anyhow, Context};
 use futures::Stream;
-use tonic::service::interceptor::InterceptedService;
-use tonic::service::Interceptor;
-use tonic::transport::Channel;
 
 use super::AsciiString;
 

@@ -21,11 +21,15 @@ use crate::{
 pub struct AlumetPluginStart<'a> {
     pub(crate) current_plugin: PluginName,
     pub(crate) pipeline_builder: &'a mut pipeline::Builder,
+    pub(crate) pre_start_actions: &'a mut Vec<(PluginName, Box<dyn PreStartAction>)>,
     pub(crate) post_start_actions: &'a mut Vec<(PluginName, Box<dyn PostStartAction>)>,
 }
 
 pub trait PostStartAction: FnOnce(&mut AlumetPostStart) -> anyhow::Result<()> {}
 impl<F> PostStartAction for F where F: FnOnce(&mut AlumetPostStart) -> anyhow::Result<()> {}
+
+pub trait PreStartAction: FnOnce(&mut AlumetPreStart) -> anyhow::Result<()> {}
+impl<F> PreStartAction for F where F: FnOnce(&mut AlumetPreStart) -> anyhow::Result<()> {}
 
 impl<'a> AlumetPluginStart<'a> {
     /// Returns the name of the plugin that is being started.
@@ -300,6 +304,9 @@ impl<'a> AlumetPluginStart<'a> {
 
     /// Registers a callback that will run just after the pipeline startup.
     ///
+    /// If you have some data to move to the pipeline start phase, it's easier
+    /// to use this method than [`crate::plugin::Plugin::post_pipeline_start`].
+    ///
     /// # Example
     /// ```no_run
     /// # use alumet::plugin::AlumetPluginStart;
@@ -314,6 +321,15 @@ impl<'a> AlumetPluginStart<'a> {
     pub fn on_pipeline_start<F: PostStartAction + 'static>(&mut self, action: F) {
         let plugin = self.current_plugin_name();
         self.post_start_actions.push((plugin, Box::new(action)));
+    }
+
+    /// Registers a callback that will run just before the pipeline startup.
+    ///
+    /// If you have some data to move to the pipeline start phase, it's easier
+    /// to use this method than [`crate::plugin::Plugin::pre_pipeline_start`].
+    pub fn on_pre_pipeline_start<F: PreStartAction + 'static>(&mut self, action: F) {
+        let plugin = self.current_plugin_name();
+        self.pre_start_actions.push((plugin, Box::new(action)));
     }
 }
 

@@ -34,10 +34,9 @@ pub trait Output: Send {
 }
 
 /// An asynchronous stream of measurements, to be used by an asynchronous output.
-pub struct AsyncOutputStream(
-    pub Pin<Box<dyn Stream<Item = Result<MeasurementBuffer, channel::StreamRecvError>> + Send>>,
-); // TODO make opaque?
+pub struct AsyncOutputStream(pub Pin<Box<dyn Stream<Item = Result<MeasurementBuffer, StreamRecvError>> + Send>>); // TODO make opaque?
 
+pub type StreamRecvError = channel::StreamRecvError;
 pub type BoxedAsyncOutput = Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send + 'static>>;
 
 /// Shared data that can be accessed by outputs.
@@ -394,7 +393,7 @@ async fn run_blocking_output<Rx: channel::MeasurementReceiver>(
 
 async fn run_async_output(name: OutputName, output: BoxedAsyncOutput) -> anyhow::Result<()> {
     output.await.map_err(|e| {
-        log::error!("Error when asynchronously writing to {name} (will stop running): {e:#}");
+        log::error!("Error when asynchronously writing to {name} (will stop running): {e:?}");
         e.context(format!("error in async output {name}"))
     })
 }
