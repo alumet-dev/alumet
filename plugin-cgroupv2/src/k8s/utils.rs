@@ -1,3 +1,6 @@
+//! # utils file for k8s module of cgroupv2 plugin
+//!
+
 use anyhow::*;
 use reqwest::{self, header};
 use serde_json::Value;
@@ -14,9 +17,12 @@ use std::{
 use crate::cgroupv2::CgroupV2Metric;
 use super::token::Token;
 
-/// CgroupV2MetricFile represents a file containing cgroup v2 data about cpu usage.
+/// # Structure
+/// 
+/// Public structure `CgroupV2MetricFile` creating a log file containing cgroupv2 data about :
+/// - cpu usage
+/// - Memory usage
 ///
-/// Note that the file contains multiple metrics.
 #[derive(Debug)]
 pub struct CgroupV2MetricFile {
     /// Name of the pod.
@@ -176,8 +182,6 @@ pub fn gather_value(file: &mut CgroupV2MetricFile, content_buffer: &mut String) 
         .read_to_string(content_buffer)
         .with_context(|| format!("Unable to gather cgroup v2 metrics by reading file {}", file.name))?;
     file.file_memory.rewind()?;
-
-    //println!("-------------- {:?}", content_buffer);
 
     let mut new_metric = CgroupV2Metric::from_str(content_buffer)
                                             .with_context(|| format!("failed to parse {}", file.name))?;
@@ -394,4 +398,177 @@ pub async fn get_pod_name(
         log::debug!("No items found in the JSON response.");
     }
     Ok(("".to_string(), "".to_string(), "".to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{super::plugin::TokenRetrieval, *};
+
+    #[test]
+    fn test_is_cgroups_v2() {
+        let tmp: PathBuf = std::env::temp_dir();
+        let root: std::path::PathBuf = tmp.join("test-alumet-plugin-k8s/is_cgroupv2");
+
+        if root.exists() {
+            std::fs::remove_dir_all(&root).unwrap();
+        }
+
+        let cgroupv2_dir: PathBuf = root.join("myDirCgroup");
+        std::fs::create_dir_all(&cgroupv2_dir).unwrap();
+        assert!(is_accessible_dir(Path::new(&cgroupv2_dir)));
+        assert!(!is_accessible_dir(std::path::Path::new(
+            "test-alumet-plugin-k8s/is_cgroupv2/myDirCgroup_bad"
+        )));
+    }
+
+    #[test]
+    fn test_list_metric_file_in_dir() {
+        let tmp: PathBuf = std::env::temp_dir();
+        let root: std::path::PathBuf = tmp.join("test-alumet-plugin-k8s/kubepods-folder.slice/");
+        if root.exists() {
+            std::fs::remove_dir_all(&root).unwrap();
+        }
+        let burstable_dir = root.join("kubepods-burstable.slice/");
+        std::fs::create_dir_all(&burstable_dir).unwrap();
+
+        let a: PathBuf = burstable_dir.join("kubepods-burstable-pod32a1942cb9a81912549c152a49b5f9b1.slice/");
+        let b: PathBuf = burstable_dir.join("kubepods-burstable-podd9209de2b4b526361248c9dcf3e702c0.slice/");
+        let c: PathBuf = burstable_dir.join("kubepods-burstable-podccq5da1942a81912549c152a49b5f9b1.slice/");
+        let d: PathBuf = burstable_dir.join("kubepods-burstable-podd87dz3z8z09de2b4b526361248c902c0.slice/");
+
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        std::fs::create_dir_all(&c).unwrap();
+        std::fs::create_dir_all(&d).unwrap();
+
+        std::fs::write(a.join("cpu.stat"), "en").unwrap();
+        std::fs::write(b.join("cpu.stat"), "fr").unwrap();
+        std::fs::write(c.join("cpu.stat"), "sv").unwrap();
+        std::fs::write(d.join("cpu.stat"), "ne").unwrap();
+
+        let list_met_file: anyhow::Result<Vec<CgroupV2MetricFile>> =
+            list_metric_file_in_dir(&burstable_dir, "", "", &Token::new(TokenRetrieval::Kubectl));
+
+        let list_pod_name = [
+            "pod32a1942cb9a81912549c152a49b5f9b1",
+            "podd9209de2b4b526361248c9dcf3e702c0",
+            "podccq5da1942a81912549c152a49b5f9b1",
+            "podd87dz3z8z09de2b4b526361248c902c0",
+        ];
+
+        match list_met_file {
+            Ok(unwrap_list) => {
+                assert_eq!(unwrap_list.len(), 4);
+                for pod in unwrap_list {
+                    if !list_pod_name.contains(&pod.uid.as_str()) {
+                        log::error!("Pod name not in the list: {}", pod.uid);
+                        assert!(false);
+                    }
+                }
+            }
+            Err(err) => {
+                log::error!("Error reading list_met_file: {:?}", err);
+                assert!(false);
+            }
+        }
+        assert!(true);
+    }
+
+    #[test]
+    fn test_gather_value() {
+        let tmp: PathBuf = std::env::temp_dir();
+        let root: std::path::PathBuf = tmp.join("test-alumet-plugin-k8s/kubepods-gather.slice/");
+        if root.exists() {
+            std::fs::remove_dir_all(&root).unwrap();
+        }
+
+        let burstable_dir = root.join("kubepods-burstable.slice/");
+        std::fs::create_dir_all(&burstable_dir).unwrap();
+
+        let burstable_sub_dir: PathBuf = burstable_dir.join("kubepods-burstable-pod32a1942cb9a81912549c152a49b5f9b1.slice/");
+
+        std::fs::create_dir_all(&burstable_sub_dir).unwrap();
+
+        let path_cpu: PathBuf = burstable_sub_dir.join("cpu.stat");
+        std::fs::write(
+            path_cpu.clone(),
+            format!("
+                usage_usec 8335557927\n
+                user_usec 4728882396\n
+                system_usec 3606675531\n
+                nr_periods 0\n
+                nr_throttled 0\n
+                throttled_usec 0"),
+        ).unwrap();
+
+        let path_memory: PathBuf = burstable_sub_dir.join("memory.stat");
+        std::fs::write(
+            path_memory.clone(),
+            format!("
+                anon 8335557927
+                file 4728882396
+                kernel_stack 3686400
+                pagetables 3739648
+                percpu 16317568
+                sock 12288
+                shmem 233824256
+                file_mapped 0
+                file_dirty 20480,
+                ...."),
+        ).unwrap();
+
+        // CPU stat file
+        let file_cpu = match File::open(&path_cpu) {
+            Err(why) => panic!("couldn't open {}: {}", path_cpu.display(), why),
+            Ok(file_cpu) => file_cpu,
+        };
+
+        // Memory stat file
+        let file_memory = match File::open(&path_memory) {
+            Err(why) => panic!("couldn't open {}: {}", path_memory.display(), why),
+            Ok(file_memory) => file_memory,
+        };
+
+        let cgroup_v2_metric_file = CgroupV2MetricFile {
+            name: "testing_pod".to_string(),
+            path_cpu: path_cpu,
+            file_cpu: file_cpu,
+            path_memory: path_memory,
+            file_memory: file_memory,
+            uid: "uid_test".to_string(),
+            namespace: "namespace_test".to_string(),
+            node: "node_test".to_owned(),
+        };
+
+        let mut cgroup_test_file: CgroupV2MetricFile = cgroup_v2_metric_file;
+        let mut content_file = String::new();
+        let res_metric = gather_value(&mut cgroup_test_file, &mut content_file);
+
+        if let Ok(CgroupV2Metric {
+            name,
+            uid: _uid,
+            namespace: _ns,
+            node: _nd,
+            time_used_tot,
+            time_used_user_mode,
+            time_used_system_mode,
+            anon_used_mem,
+            file_mem,
+            shared_mem,
+            file_mapped_mem,
+            total_mem,
+        }) = res_metric {
+            assert_eq!(name, "testing_pod".to_owned());
+            assert_eq!(time_used_tot, 8335557927);
+            assert_eq!(time_used_user_mode, 4728882396);
+            assert_eq!(time_used_system_mode, 3606675531);
+            assert_eq!(anon_used_mem, 8335557927);
+            assert_eq!(file_mem, 4728882396);
+            assert_eq!(shared_mem, 233824256);
+            assert_eq!(file_mapped_mem, 0);
+            assert_eq!(total_mem, 0);
+        } else {
+            assert!(false);
+        }
+    }
 }
