@@ -19,7 +19,10 @@ fn main() {
         plugin_perf::PerfPlugin,
         plugin_procfs::ProcfsPlugin,
         plugin_csv::CsvPlugin,
-        //plugin_socket_control::SocketControlPlugin,
+        plugin_socket_control::SocketControlPlugin,
+        plugin_cgroupv2::K8sPlugin,
+        plugin_energy_estimation_tdp::EnergyEstimationTdpPlugin,
+        plugin_energy_attribution::EnergyAttributionPlugin,
     ];
 
     init_logger();

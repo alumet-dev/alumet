@@ -24,8 +24,9 @@ plugin-rapl = { path = "../plugin-rapl", optional = true }
 plugin-socket-control = { path = "../plugin-socket-control", optional = true }
 plugin-relay = { path = "../plugin-relay", optional = true }
 plugin-procfs = { path = "../plugin-procfs", optional = true }
+plugin-energy-estimation-tdp = { path = "../plugin-energy-estimation-tdp", optional = true }
+plugin-energy-attribution = { path = "../plugin-energy-attribution", optional = true }
 plugin-cgroupv2 = { path = "../plugin-cgroupv2", optional = true }
-plugin-energy-estimation-tdp = { path = "../plugin-energy-estimation-tdp" }
 
 [features]
 # local non-relay mode for x86 processors
@@ -35,6 +36,9 @@ local_x86 = [
     "dep:plugin-procfs",
     "dep:plugin-csv",
     "dep:plugin-socket-control",
+    "dep:plugin-energy-estimation-tdp",
+    "dep:plugin-energy-attribution",
+    "dep:plugin-cgroupv2",
 ]
 
 # relay mode

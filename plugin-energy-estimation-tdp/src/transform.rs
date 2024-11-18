@@ -1,6 +1,6 @@
 use core::f64;
 use std::{
-    clone, collections::HashMap, sync::{Arc, Mutex}, time::{SystemTime, UNIX_EPOCH},
+    sync::{Arc, Mutex}, time::{SystemTime, UNIX_EPOCH},
 };
 
 use alumet::{
@@ -8,11 +8,8 @@ use alumet::{
     pipeline::{
         elements::{error::TransformError, transform::TransformContext},
         Transform,
-    },
-    resources::Resource,
+    }
 };
-
-use serde::de::value;
 
 use crate::Config;
 
@@ -37,13 +34,11 @@ impl Transform for EnergyEstimationTdpTransform {
     fn apply(&mut self, measurements: &mut MeasurementBuffer, _ctx: &TransformContext) -> Result<(), TransformError> {
         // Retrieve the pod_id and the rapl_id.
         // Using a nested scope to reduce the lock time.
-        log::trace!("EZC: enter in apply transform function");
+        log::trace!("enter in apply transform function");
 
         let pod_id = {
             let metrics = self.metrics.lock().unwrap();
-
-            let pod_id = metrics.cpu_usage_per_pod.unwrap().as_u64();
-            pod_id
+            metrics.cpu_usage_per_pod.unwrap().as_u64()
         };
 
         let metric_id = {
@@ -67,10 +62,10 @@ impl Transform for EnergyEstimationTdpTransform {
                 // from k8s plugin we get the cpu_usage_per_pod in micro second
                 // energy = cpu_usage_per_pod * nb_vcpu/nb_cpu * tdp / poll_interval
                 let mut estimated_energy = value.parse().unwrap();
-                estimated_energy = estimated_energy*self.config.nb_vcpu/self.config.nb_cpu*self.config.tdp / (1000000 as f64) / (self.config.poll_interval.as_secs() as f64);
+                estimated_energy = estimated_energy*self.config.nb_vcpu/self.config.nb_cpu*self.config.tdp / (1000000.0) / (self.config.poll_interval.as_secs() as f64);
 
                 log::trace!("we get a measurement with resource:{}", point.resource.id_display().to_string());
-                log::trace!("we get a measurement with consummer:{}", point.consumer.id_display().to_string());
+                log::trace!("we get a measurement with consumer:{}", point.consumer.id_display().to_string());
                 log::trace!("we get a measurement with value:{}", value);
                 log::trace!("estimate energy consumption:{}", estimated_energy);             
                 
@@ -79,14 +74,11 @@ impl Transform for EnergyEstimationTdpTransform {
                 .map(|(key, value)| (key.to_owned(), value.clone()))
                 .collect();
 
-                // // Sort the attributes by key
-                // let mut point_attributes = point.attributes().collect::<Vec<_>>();
-                // attr_sorted.sort_by_key(|(k, _)| *k);
-
-                for (key, valueAttr) in &point_attributes {
-                    log::trace!("read attribute key / value: {} / {}", key.as_str(), valueAttr.to_string());
-                    if (key.as_str().contains("node")) {
-                        let node_value: String = valueAttr.to_string();
+                // Sort the attributes by key
+                for (key, value_attr) in &point_attributes {
+                    log::trace!("read attribute key / value: {} / {}", key.as_str(), value_attr.to_string());
+                    if key.as_str().contains("node") {
+                        let node_value: String = value_attr.to_string();
                         log::trace!("read attribute node value: {}", node_value);
                     }
                 }
@@ -107,6 +99,6 @@ impl Transform for EnergyEstimationTdpTransform {
     
               
 
-    }
+}
         
 

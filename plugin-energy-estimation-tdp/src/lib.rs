@@ -1,9 +1,8 @@
 use alumet::{
-    agent::config, measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp}, metrics::{RawMetricId,TypedMetricId}, pipeline::{elements::error::PollError, trigger::TriggerSpec, Source}, plugin::{rust::{deserialize_config, serialize_config, AlumetPlugin}, AlumetPluginStart, AlumetPostStart, AlumetPreStart, ConfigTable}, resources::{Resource, ResourceConsumer}, units::{PrefixedUnit, Unit, UnitPrefix}
+    metrics::{RawMetricId,TypedMetricId}, plugin::{rust::{deserialize_config, serialize_config, AlumetPlugin}, AlumetPreStart, ConfigTable}, units::{Unit}
 };
 use serde::{Deserialize, Serialize};
-use std::{fs::File, io::Read, time::Duration};
-use log::{info, debug};
+use std::time::Duration;
 use std::sync::{Arc, Mutex};
 
 use transform::EnergyEstimationTdpTransform;
@@ -26,16 +25,10 @@ struct Metrics {
     pod_estimate_attributed_energy: Option<TypedMetricId<f64>>,
 }
 
-
-// #[derive(Debug)]
-// struct EnergyEstimationTdpPluginSource {
-//     byte_metric: TypedMetricId<u64>,
-// }
-
 impl AlumetPlugin for EnergyEstimationTdpPlugin {
     // So we define the name of the plugin.
     fn name() -> &'static str {
-        "EnergyEstimationTdpPlugin"
+        "EnergyEstimationTdp"
     }
 
     // We also define it's version.
@@ -47,16 +40,6 @@ impl AlumetPlugin for EnergyEstimationTdpPlugin {
     fn default_config() -> anyhow::Result<Option<ConfigTable>> {
         Ok(Some(serialize_config(Config::default())?))
     }
-
-    // // We also use the default config on initialization and we deserialize the config
-    // // to take in count if there is a different config than the default one.
-    // fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
-    //     let config = deserialize_config(config)?;
-    //     Ok(Box::new(EnergyEstimationTdpPlugin {
-    //         config,
-    //     }))
-
-    // }
 
     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
         let config = deserialize_config(config)?;
@@ -131,15 +114,4 @@ impl Default for Config {
         }
     }
     
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
 }
