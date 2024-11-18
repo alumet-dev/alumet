@@ -1,10 +1,14 @@
 use alumet::{
-    agent::config, measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp}, metrics::{RawMetricId,TypedMetricId}, pipeline::{elements::error::PollError, trigger::TriggerSpec, Source}, plugin::{rust::{deserialize_config, serialize_config, AlumetPlugin}, AlumetPluginStart, AlumetPostStart, AlumetPreStart, ConfigTable}, resources::{Resource, ResourceConsumer}, units::{PrefixedUnit, Unit, UnitPrefix}
+    metrics::{RawMetricId, TypedMetricId},
+    plugin::{
+        rust::{deserialize_config, serialize_config, AlumetPlugin},
+        AlumetPreStart, ConfigTable,
+    },
+    units::Unit,
 };
 use serde::{Deserialize, Serialize};
-use std::{fs::File, io::Read, time::Duration};
-use log::{info, debug};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use transform::EnergyEstimationTdpTransform;
 
@@ -12,7 +16,7 @@ mod transform;
 
 pub struct EnergyEstimationTdpPlugin {
     config: Option<Config>,
-    metrics: Arc<Mutex<Metrics>>
+    metrics: Arc<Mutex<Metrics>>,
 }
 
 #[derive(Default)]
@@ -26,16 +30,10 @@ struct Metrics {
     pod_estimate_attributed_energy: Option<TypedMetricId<f64>>,
 }
 
-
-// #[derive(Debug)]
-// struct EnergyEstimationTdpPluginSource {
-//     byte_metric: TypedMetricId<u64>,
-// }
-
 impl AlumetPlugin for EnergyEstimationTdpPlugin {
     // So we define the name of the plugin.
     fn name() -> &'static str {
-        "EnergyEstimationTdpPlugin"
+        "EnergyEstimationTdp"
     }
 
     // We also define it's version.
@@ -48,16 +46,6 @@ impl AlumetPlugin for EnergyEstimationTdpPlugin {
         Ok(Some(serialize_config(Config::default())?))
     }
 
-    // // We also use the default config on initialization and we deserialize the config
-    // // to take in count if there is a different config than the default one.
-    // fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
-    //     let config = deserialize_config(config)?;
-    //     Ok(Box::new(EnergyEstimationTdpPlugin {
-    //         config,
-    //     }))
-
-    // }
-
     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
         let config = deserialize_config(config)?;
         Ok(Box::new(EnergyEstimationTdpPlugin {
@@ -65,7 +53,6 @@ impl AlumetPlugin for EnergyEstimationTdpPlugin {
             metrics: Arc::new(Mutex::new(Metrics::default())),
         }))
     }
-
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
         let mut metrics = self.metrics.lock().unwrap();
@@ -80,10 +67,12 @@ impl AlumetPlugin for EnergyEstimationTdpPlugin {
         )?);
 
         // Add the transform now but fill its metrics later.
-        alumet.add_transform(Box::new(EnergyEstimationTdpTransform::new(config, self.metrics.clone())));
+        alumet.add_transform(Box::new(EnergyEstimationTdpTransform::new(
+            config,
+            self.metrics.clone(),
+        )));
         Ok(())
     }
-
 
     fn pre_pipeline_start(&mut self, alumet: &mut AlumetPreStart) -> anyhow::Result<()> {
         /// Finds the RawMetricId with the name of the metric.
@@ -113,9 +102,9 @@ impl AlumetPlugin for EnergyEstimationTdpPlugin {
 
 // for 1st version, tdp,vcpu, cpu are defined in configuration plugin
 #[derive(Serialize, Deserialize)]
-struct Config {  
+struct Config {
     #[serde(with = "humantime_serde")]
-    poll_interval: Duration,  
+    poll_interval: Duration,
     tdp: f64,
     nb_vcpu: f64,
     nb_cpu: f64,
@@ -124,22 +113,10 @@ struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            poll_interval: Duration::from_secs(1), // 1Hz                     
+            poll_interval: Duration::from_secs(1), // 1Hz
             tdp: 100.0,
             nb_vcpu: 1.0,
-            nb_cpu: 1.0
+            nb_cpu: 1.0,
         }
-    }
-    
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
     }
 }

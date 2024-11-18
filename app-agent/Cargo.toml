@@ -26,7 +26,6 @@ plugin-relay = { path = "../plugin-relay", optional = true }
 plugin-procfs = { path = "../plugin-procfs", optional = true }
 plugin-cgroupv2 = { path = "../plugin-cgroupv2", optional = true }
 plugin-influxdb = { path = "../plugin-influxdb", optional = true }
-plugin-energy-estimation-tdp = { path = "../plugin-energy-estimation-tdp" }
 
 [features]
 # local non-relay mode for x86 processors
