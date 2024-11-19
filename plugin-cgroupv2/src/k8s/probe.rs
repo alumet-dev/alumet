@@ -54,6 +54,22 @@ impl K8SProbe {
         })
     }
 
+    /// # Function
+    /// 
+    /// Automatically create a measurement point to push for a pod,
+    /// with pre-implemented settings :
+    /// - `uid` of the pod
+    /// - `name` of the pod
+    /// - `namespace` of the pod
+    /// - `node` of the pod
+    /// 
+    /// # Parameters
+    /// 
+    /// `timestamp` : Type Timestamp
+    /// `metric_id` : TypedMetricId<u64>
+    /// `resource_consumer` : Type ResourceConsumer
+    /// `value_measured` : Type u64
+    /// `metrics_param` : Type CgroupV2Metric
     fn create_measurement_point(
         &self,
         timestamp: Timestamp,
