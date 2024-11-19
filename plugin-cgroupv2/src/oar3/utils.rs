@@ -173,6 +173,7 @@ mod tests {
         }
         assert!(true);
     }
+
     #[test]
     fn test_gather_value() {
         let tmp = std::env::temp_dir();
@@ -189,14 +190,13 @@ mod tests {
         let path_file = a.join("cpu.stat");
         std::fs::write(
             path_file.clone(),
-            format!(
-                "usage_usec 8335557927\n
+            format!("
+                usage_usec 8335557927\n
                 user_usec 4728882396\n
                 system_usec 3606675531\n
                 nr_periods 0\n
                 nr_throttled 0\n
-                throttled_usec 0"
-            ),
+                throttled_usec 0"),
         )
         .unwrap();
 
@@ -214,6 +214,11 @@ mod tests {
             time_used_tot,
             time_used_user_mode,
             time_used_system_mode,
+            anon_used_mem,
+            file_mem,
+            shared_mem,
+            file_mapped_mem,
+            total_mem,
             uid: _uid,
             namespace: _ns,
             node: _nd,

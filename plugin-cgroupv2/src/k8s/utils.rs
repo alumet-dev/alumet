@@ -431,21 +431,22 @@ mod tests {
         let burstable_dir = root.join("kubepods-burstable.slice/");
         std::fs::create_dir_all(&burstable_dir).unwrap();
 
-        let a: PathBuf = burstable_dir.join("kubepods-burstable-pod32a1942cb9a81912549c152a49b5f9b1.slice/");
-        let b: PathBuf = burstable_dir.join("kubepods-burstable-podd9209de2b4b526361248c9dcf3e702c0.slice/");
-        let c: PathBuf = burstable_dir.join("kubepods-burstable-podccq5da1942a81912549c152a49b5f9b1.slice/");
-        let d: PathBuf = burstable_dir.join("kubepods-burstable-podd87dz3z8z09de2b4b526361248c902c0.slice/");
+        let burstable_sub_dir = [
+            burstable_dir.join("kubepods-burstable-pod32a1942cb9a81912549c152a49b5f9b1.slice/"),
+            burstable_dir.join("kubepods-burstable-podd9209de2b4b526361248c9dcf3e702c0.slice/"),
+            burstable_dir.join("kubepods-burstable-podccq5da1942a81912549c152a49b5f9b1.slice/"),
+            burstable_dir.join("kubepods-burstable-podd87dz3z8z09de2b4b526361248c902c0.slice/")
+        ];
 
-        std::fs::create_dir_all(&a).unwrap();
-        std::fs::create_dir_all(&b).unwrap();
-        std::fs::create_dir_all(&c).unwrap();
-        std::fs::create_dir_all(&d).unwrap();
+        for i in 0..4 {
+            std::fs::create_dir_all(&burstable_sub_dir[i]).unwrap();
+        }
 
-        std::fs::write(a.join("cpu.stat"), "en").unwrap();
-        std::fs::write(b.join("cpu.stat"), "fr").unwrap();
-        std::fs::write(c.join("cpu.stat"), "sv").unwrap();
-        std::fs::write(d.join("cpu.stat"), "ne").unwrap();
-
+        for i in 0..4 {
+            std::fs::write(burstable_sub_dir[i].join("cpu.stat"), "test_cpu").unwrap();
+            std::fs::write(burstable_sub_dir[i].join("memory.stat"), "test_memory").unwrap()
+        }
+    
         let list_met_file: anyhow::Result<Vec<CgroupV2MetricFile>> =
             list_metric_file_in_dir(&burstable_dir, "", "", &Token::new(TokenRetrieval::Kubectl));
 
@@ -478,6 +479,7 @@ mod tests {
     fn test_gather_value() {
         let tmp: PathBuf = std::env::temp_dir();
         let root: std::path::PathBuf = tmp.join("test-alumet-plugin-k8s/kubepods-gather.slice/");
+
         if root.exists() {
             std::fs::remove_dir_all(&root).unwrap();
         }

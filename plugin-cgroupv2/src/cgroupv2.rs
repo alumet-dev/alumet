@@ -1,8 +1,7 @@
 //! # cgroupv2 file for k8s and oar3 module
 //!
-//! This module provides functionality to formating metrics.
+//! This module provides functionality for formatting metrics.
 //!
-
 use std::str::FromStr;
 
 use alumet::{
@@ -15,18 +14,18 @@ pub(crate) const CGROUP_MAX_TIME_COUNTER: u64 = u64::MAX;
 
 /// # Structure
 /// 
-/// * `CgroupV2Metric` - Public structure storing identifier of each CPU and memory data
+/// * `CgroupV2Metric` - Public structure storing CPU and memory data
 ///
 /// # Parameters
 ///
 /// * `name` - Name of a Kubernetes pod
-/// * `uid` - Identification of a Kubernetes pod
-/// * `namespace` - Path name of a Kubernetes pod
+/// * `uid` - Unique identification of a Kubernetes pod
+/// * `namespace` - Resoucres isolation of a Kubernetes pod
 /// * `node` - Kubernetes pod node
 /// * `time_used_tot` - Total CPU usage time by the cgroup
 /// * `time_used_user_mode` - CPU in user mode usage time by the cgroup
 /// * `time_used_system_mode` - CPU in system mode usage time by the cgroup
-/// * `anon_used_mem` - Anonyme used memory, corresponding to running process and various allocated memory
+/// * `anon_used_mem` - Anonymous used memory, corresponding to running process and various allocated memory
 /// * `file_mem` - Files memory, corresponding to open files and descriptors
 /// * `shared_mem` - Interprocess communication shared memory
 /// * `file_mapped_mem` - Mapped files in memory
@@ -199,5 +198,75 @@ impl Metrics {
                 "Total memory used by cgroup",
             )?
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parser() {
+        let str1 = format!("
+            usage_usec 1111\n
+            user_usec 222222222222222222\n
+            system_usec 33\n
+            nr_periods 0\n
+            nr_throttled 0\n
+            throttled_usec 0");
+        let result: CgroupV2Metric = CgroupV2Metric::from_str(&str1).unwrap();
+        assert_eq!(result.name, "");
+        assert_eq!(result.time_used_tot, 1111 as u64);
+        assert_eq!(result.time_used_user_mode, 222222222222222222 as u64);
+        assert_eq!(result.time_used_system_mode, 33 as u64);
+
+        let str2 = format!("
+            nr_throttled 0\n
+            usage_usec 1111\n
+            system_usec 33");
+        let result: CgroupV2Metric = CgroupV2Metric::from_str(&str2).unwrap();
+        assert_eq!(result.name, "");
+        assert_eq!(result.time_used_tot, 1111 as u64);
+        assert_eq!(result.time_used_user_mode, 0 as u64);
+        assert_eq!(result.time_used_system_mode, 33 as u64);
+
+        let str3 = format!(
+            "
+            system_usec 33"
+        );
+        let result: CgroupV2Metric = CgroupV2Metric::from_str(&str3).unwrap();
+        assert_eq!(result.name, "");
+        assert_eq!(result.time_used_tot, 0 as u64);
+        assert_eq!(result.time_used_user_mode, 0 as u64);
+        assert_eq!(result.time_used_system_mode, 33 as u64);
+
+        let str4 = format!("
+            usage_usec     1111\n
+            system_usec     33\n
+            user_usec       222222222222222222\n
+            throttled_usec  0");
+        let result: CgroupV2Metric = CgroupV2Metric::from_str(&str4).unwrap();
+        assert_eq!(result.name, "");
+        assert_eq!(result.time_used_tot, 1111 as u64);
+        assert_eq!(result.time_used_user_mode, 222222222222222222 as u64);
+        assert_eq!(result.time_used_system_mode, 33 as u64);
+
+        let str5 = format!("");
+        let result: CgroupV2Metric = CgroupV2Metric::from_str(&str5).unwrap();
+        assert_eq!(result.name, "");
+        assert_eq!(result.time_used_tot, 0 as u64);
+        assert_eq!(result.time_used_user_mode, 0 as u64);
+        assert_eq!(result.time_used_system_mode, 0 as u64);
+
+        let str6 = format!("
+            nr_periods 0\n
+            nr_throttled 0\n
+            throttled_usec 0");
+
+        let result: CgroupV2Metric = CgroupV2Metric::from_str(&str6).unwrap();
+        assert_eq!(result.name, "");
+        assert_eq!(result.time_used_tot, 0 as u64);
+        assert_eq!(result.time_used_user_mode, 0 as u64);
+        assert_eq!(result.time_used_system_mode, 0 as u64);
     }
 }

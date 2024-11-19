@@ -3,7 +3,6 @@
 //! This module provides functionality to publish structured data for alumet, 
 //! by pushing CPU and memory cgroup Kubernetes informations on Unix-based systems.
 //! 
-
 use alumet::{
     measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
