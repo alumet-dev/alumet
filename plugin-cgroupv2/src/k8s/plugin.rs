@@ -202,10 +202,10 @@ impl AlumetPlugin for K8sPlugin {
 
                                 let metric_file = CgroupV2MetricFile {
                                     name: name.to_owned(),
-                                    path_cpu: path_cpu,
-                                    file_cpu: file_cpu,
-                                    path_memory: path_memory,
-                                    file_memory: file_memory,
+                                    path_cpu,
+                                    file_cpu,
+                                    path_memory,
+                                    file_memory,
                                     uid: uid.to_owned(),
                                     namespace: namespace.to_owned(),
                                     node: node.to_owned(),

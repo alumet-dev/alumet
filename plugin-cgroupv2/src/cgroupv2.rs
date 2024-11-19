@@ -20,7 +20,7 @@ pub(crate) const CGROUP_MAX_TIME_COUNTER: u64 = u64::MAX;
 ///
 /// * `name` - Name of a Kubernetes pod
 /// * `uid` - Unique identification of a Kubernetes pod
-/// * `namespace` - Resoucres isolation of a Kubernetes pod
+/// * `namespace` - Resources isolation of a Kubernetes pod
 /// * `node` - Kubernetes pod node
 /// * `time_used_tot` - Total CPU usage time by the cgroup
 /// * `time_used_user_mode` - CPU in user mode usage time by the cgroup
@@ -126,7 +126,7 @@ impl FromStr for CgroupV2Metric {
 /// * `time_used_tot` - Total CPU usage time by the cgroup
 /// * `time_used_user_mode` - CPU in user mode usage time by the cgroup
 /// * `time_used_system_mode` - CPU in system mode usage time by the cgroup
-/// * `anon_used_mem` - Anonyme used memory, corresponding to running process and various allocated memory
+/// * `anon_used_mem` - Anonymous used memory, corresponding to running process and various allocated memory
 /// * `file_mem` - Files memory, corresponding to open files and descriptors
 /// * `shared_mem` - Interprocess communication shared memory
 /// * `file_mapped_mem` - Mapped files in memory
@@ -187,9 +187,9 @@ impl Metrics {
 
             // Memory cgroup data
             anon_used_mem: alumet.create_metric::<u64>(
-                "cgroup_memory_anonyme",
+                "cgroup_memory_anonymous",
                 kb.clone(),
-                "Anonyme used memory, corresponding to running process and various allocated memory",
+                "Anonymous used memory, corresponding to running process and various allocated memory",
             )?,
             file_mem: alumet.create_metric::<u64>(
                 "cgroup_memory_file",

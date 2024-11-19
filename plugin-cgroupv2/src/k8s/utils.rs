@@ -116,10 +116,10 @@ fn list_metric_file_in_dir(
             // Let's create the new metric and push it to the vector of metrics
             vec_file_metric.push(CgroupV2MetricFile {
                 name: name.clone(),
-                path_cpu: path_cpu,
-                file_cpu: file_cpu,
-                path_memory: path_memory,
-                file_memory: file_memory,
+                path_cpu,
+                file_cpu,
+                path_memory,
+                file_memory,
                 uid: uid.to_owned(),
                 namespace: namespace.clone(),
                 node: node.clone(),
