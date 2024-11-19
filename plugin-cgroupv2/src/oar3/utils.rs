@@ -190,13 +190,15 @@ mod tests {
         let path_file = a.join("cpu.stat");
         std::fs::write(
             path_file.clone(),
-            format!("
+            format!(
+                "
                 usage_usec 8335557927\n
                 user_usec 4728882396\n
                 system_usec 3606675531\n
                 nr_periods 0\n
                 nr_throttled 0\n
-                throttled_usec 0"),
+                throttled_usec 0"
+            ),
         )
         .unwrap();
 

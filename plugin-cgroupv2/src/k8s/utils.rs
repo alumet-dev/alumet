@@ -242,7 +242,8 @@ pub async fn get_existing_pods(
 
     // let's check if the items' part contain pods to look at
     if let Some(items) = data.get("items") {
-        let size = items.as_array().unwrap_or(&vec![]).len(); // If the node was not found i.e. no item in the response, we call the API again with all nodes
+        // If the node was not found i.e. no item in the response, we call the API again with all nodes
+        let size = items.as_array().unwrap_or(&vec![]).len();
         if size == 0 && selector {
             // Ask again the api, with all nodes
             let Ok(response) = client.get(api_url_root).send().await else {
@@ -494,19 +495,22 @@ mod tests {
         let path_cpu: PathBuf = burstable_sub_dir.join("cpu.stat");
         std::fs::write(
             path_cpu.clone(),
-            format!("
+            format!(
+                "
                 usage_usec 8335557927\n
                 user_usec 4728882396\n
                 system_usec 3606675531\n
                 nr_periods 0\n
                 nr_throttled 0\n
-                throttled_usec 0"),
+                throttled_usec 0"
+            ),
         ).unwrap();
 
         let path_memory: PathBuf = burstable_sub_dir.join("memory.stat");
         std::fs::write(
             path_memory.clone(),
-            format!("
+            format!(
+                "
                 anon 8335557927
                 file 4728882396
                 kernel_stack 3686400
@@ -516,7 +520,8 @@ mod tests {
                 shmem 233824256
                 file_mapped 0
                 file_dirty 20480,
-                ...."),
+                ...."
+            ),
         ).unwrap();
 
         // CPU stat file
