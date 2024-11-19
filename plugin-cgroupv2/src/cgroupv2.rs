@@ -13,7 +13,7 @@ use alumet::{
 pub(crate) const CGROUP_MAX_TIME_COUNTER: u64 = u64::MAX;
 
 /// # Structure
-/// 
+///
 /// * `CgroupV2Metric` - Public structure storing CPU and memory data
 ///
 /// # Parameters
@@ -30,7 +30,7 @@ pub(crate) const CGROUP_MAX_TIME_COUNTER: u64 = u64::MAX;
 /// * `shared_mem` - Interprocess communication shared memory
 /// * `file_mapped_mem` - Mapped files in memory
 /// * `total_mem` - Total memory used by cgroup
-/// 
+///
 #[derive(Debug, PartialEq, Clone)]
 pub struct CgroupV2Metric {
     pub name: String,
@@ -44,13 +44,13 @@ pub struct CgroupV2Metric {
     pub file_mem: u64,
     pub shared_mem: u64,
     pub file_mapped_mem: u64,
-    pub total_mem: u64
+    pub total_mem: u64,
 }
 
 impl FromStr for CgroupV2Metric {
     type Err = anyhow::Error;
     /// # Function
-    /// 
+    ///
     /// * `from_str` - Function provides functionality to parse a string by whitespaces places.
     ///
     /// # Arguments
@@ -74,7 +74,7 @@ impl FromStr for CgroupV2Metric {
             file_mem: 0,
             shared_mem: 0,
             file_mapped_mem: 0,
-            total_mem: 0
+            total_mem: 0,
         };
 
         for line in s.lines() {
@@ -82,19 +82,33 @@ impl FromStr for CgroupV2Metric {
             if parts.len() >= 2 {
                 match parts[0] {
                     // Total CPU usage time by the cgroup
-                    "usage_usec" => { cgroup_struc_to_ret.time_used_tot = parts[1].parse::<u64>()?; }
+                    "usage_usec" => {
+                        cgroup_struc_to_ret.time_used_tot = parts[1].parse::<u64>()?;
+                    }
                     // CPU in user mode usage time by the cgroup
-                    "user_usec" => { cgroup_struc_to_ret.time_used_user_mode = parts[1].parse::<u64>()?; }
+                    "user_usec" => {
+                        cgroup_struc_to_ret.time_used_user_mode = parts[1].parse::<u64>()?;
+                    }
                     // CPU in system mode usage time by the cgroup
-                    "system_usec" => { cgroup_struc_to_ret.time_used_system_mode = parts[1].parse::<u64>()?; }
+                    "system_usec" => {
+                        cgroup_struc_to_ret.time_used_system_mode = parts[1].parse::<u64>()?;
+                    }
                     // Anonyme used memory, corresponding to running process and various allocated memory
-                    "anon" => { cgroup_struc_to_ret.anon_used_mem = parts[1].parse::<u64>()?; }
+                    "anon" => {
+                        cgroup_struc_to_ret.anon_used_mem = parts[1].parse::<u64>()?;
+                    }
                     // Files memory, corresponding to open files and descriptors
-                    "file" => { cgroup_struc_to_ret.file_mem = parts[1].parse::<u64>()?; }
+                    "file" => {
+                        cgroup_struc_to_ret.file_mem = parts[1].parse::<u64>()?;
+                    }
                     // Interprocess communication shared memory
-                    "shmem" => { cgroup_struc_to_ret.shared_mem = parts[1].parse::<u64>()?; }
+                    "shmem" => {
+                        cgroup_struc_to_ret.shared_mem = parts[1].parse::<u64>()?;
+                    }
                     // Mapped files in memory measure
-                    "file_mapped" => { cgroup_struc_to_ret.file_mapped_mem = parts[1].parse::<u64>()?; }
+                    "file_mapped" => {
+                        cgroup_struc_to_ret.file_mapped_mem = parts[1].parse::<u64>()?;
+                    }
                     &_ => continue,
                 }
             }
@@ -104,7 +118,7 @@ impl FromStr for CgroupV2Metric {
 }
 
 /// # Structure
-/// 
+///
 /// * `Metrics` - Public structure storing identifier of each CPU and memory data
 ///
 /// # Parameters
@@ -127,12 +141,12 @@ pub struct Metrics {
     pub file_mem: TypedMetricId<u64>,
     pub shared_mem: TypedMetricId<u64>,
     pub file_mapped_mem: TypedMetricId<u64>,
-    pub total_mem: TypedMetricId<u64>
+    pub total_mem: TypedMetricId<u64>,
 }
 
 impl Metrics {
     /// # Function
-    /// 
+    ///
     /// * `new` - Public function provides a information base to create metric before sending CPU and memory data,
     /// with `name`, `unit` and `description` parameters.
     ///
@@ -192,11 +206,7 @@ impl Metrics {
                 kb.clone(),
                 "Mapped files in memory",
             )?,
-            total_mem: alumet.create_metric::<u64>(
-                "cgroup_memory_total",
-                kb.clone(),
-                "Total memory used by cgroup",
-            )?
+            total_mem: alumet.create_metric::<u64>("cgroup_memory_total", kb.clone(), "Total memory used by cgroup")?,
         })
     }
 }
@@ -264,7 +274,8 @@ mod tests {
         assert_eq!(result.time_used_user_mode, 0 as u64);
         assert_eq!(result.time_used_system_mode, 0 as u64);
 
-        let str6 = format!("
+        let str6 = format!(
+            "
             nr_periods 0\n
             nr_throttled 0\n
             throttled_usec 0"

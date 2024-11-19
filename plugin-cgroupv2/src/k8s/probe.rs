@@ -1,8 +1,8 @@
 //! # Probe file for k8s module
 //!
-//! This module provides functionality to publish structured data for alumet, 
+//! This module provides functionality to publish structured data for alumet,
 //! by pushing CPU and memory cgroup Kubernetes informations on Unix-based systems.
-//! 
+//!
 use alumet::{
     measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
@@ -12,8 +12,8 @@ use alumet::{
 };
 use anyhow::Result;
 
-use crate::cgroupv2::{CgroupV2Metric, Metrics};
 use super::utils::{gather_value, CgroupV2MetricFile};
+use crate::cgroupv2::{CgroupV2Metric, Metrics};
 
 pub struct K8SProbe {
     pub cgroup_v2_metric_file: CgroupV2MetricFile,
@@ -27,7 +27,7 @@ pub struct K8SProbe {
     pub file_mem: TypedMetricId<u64>,
     pub shared_mem: TypedMetricId<u64>,
     pub file_mapped_mem: TypedMetricId<u64>,
-    pub total_mem: TypedMetricId<u64>
+    pub total_mem: TypedMetricId<u64>,
 }
 
 impl K8SProbe {
@@ -50,21 +50,21 @@ impl K8SProbe {
             file_mem: metric.file_mem,
             shared_mem: metric.shared_mem,
             file_mapped_mem: metric.file_mapped_mem,
-            total_mem: metric.total_mem
+            total_mem: metric.total_mem,
         })
     }
 
     /// # Function
-    /// 
+    ///
     /// Automatically create a measurement point to push for a pod,
     /// with pre-implemented settings :
     /// - `uid` of the pod
     /// - `name` of the pod
     /// - `namespace` of the pod
     /// - `node` of the pod
-    /// 
+    ///
     /// # Parameters
-    /// 
+    ///
     /// `timestamp` : Type Timestamp
     /// `metric_id` : TypedMetricId<u64>
     /// `resource_consumer` : Type ResourceConsumer
@@ -108,93 +108,101 @@ impl alumet::pipeline::Source for K8SProbe {
 
         // Memory ressource consumer for memory.stat file in cgroup
         let consumer_memory: ResourceConsumer = ResourceConsumer::ControlGroup {
-            path: (self.cgroup_v2_metric_file.path_memory.to_string_lossy().to_string().into()),
+            path: (self
+                .cgroup_v2_metric_file
+                .path_memory
+                .to_string_lossy()
+                .to_string()
+                .into()),
         };
 
         // Push cpu total usage measure for user and system
         if let Some(value_tot) = diff_tot {
-            let p_tot: MeasurementPoint = self.create_measurement_point(
-                timestamp, 
-                self.time_used_tot, 
-                consumer_cpu.clone(), 
-                value_tot, 
-                &metrics);
+            let p_tot: MeasurementPoint =
+                self.create_measurement_point(timestamp, self.time_used_tot, consumer_cpu.clone(), value_tot, &metrics);
             measurements.push(p_tot);
         }
 
         // Push cpu usage measure for user
         if let Some(value_usr) = diff_usr {
             let p_usr: MeasurementPoint = self.create_measurement_point(
-                timestamp, 
-                self.time_used_user_mode, 
-                consumer_cpu.clone(), 
-                value_usr, 
-                &metrics);
+                timestamp,
+                self.time_used_user_mode,
+                consumer_cpu.clone(),
+                value_usr,
+                &metrics,
+            );
             measurements.push(p_usr);
         }
 
         // Push cpu usage measure for system
         if let Some(value_sys) = diff_sys {
             let p_sys: MeasurementPoint = self.create_measurement_point(
-                timestamp, 
-                self.time_used_system_mode, 
-                consumer_cpu.clone(), 
-                value_sys, 
-                &metrics);
+                timestamp,
+                self.time_used_system_mode,
+                consumer_cpu.clone(),
+                value_sys,
+                &metrics,
+            );
             measurements.push(p_sys);
         }
 
         // Push anonymous used memory measure corresponding to running process and various allocated memory
         let diff_mem_anon_value = metrics.anon_used_mem;
         let m_anon: MeasurementPoint = self.create_measurement_point(
-            timestamp, 
-            self.anon_used_mem, 
-            consumer_memory.clone(), 
-            diff_mem_anon_value / 1000, 
-            &metrics);
+            timestamp,
+            self.anon_used_mem,
+            consumer_memory.clone(),
+            diff_mem_anon_value / 1000,
+            &metrics,
+        );
         measurements.push(m_anon);
 
         // Push files memory measure, corresponding to open files and descriptors
         let diff_mem_file_value = metrics.file_mem;
         let m_file: MeasurementPoint = self.create_measurement_point(
-            timestamp, 
-            self.file_mem, 
-            consumer_memory.clone(), 
-            diff_mem_file_value / 1000, 
-            &metrics);
+            timestamp,
+            self.file_mem,
+            consumer_memory.clone(),
+            diff_mem_file_value / 1000,
+            &metrics,
+        );
         measurements.push(m_file);
 
         // Push interprocess communication shared memory measure
         let diff_mem_shared_value = metrics.shared_mem;
         let m_shared: MeasurementPoint = self.create_measurement_point(
-            timestamp, 
-            self.shared_mem, 
-            consumer_memory.clone(), 
-            diff_mem_shared_value / 1000, 
-            &metrics);
+            timestamp,
+            self.shared_mem,
+            consumer_memory.clone(),
+            diff_mem_shared_value / 1000,
+            &metrics,
+        );
         measurements.push(m_shared);
 
         // Push mapped files in memory measure
         let diff_mem_file_mapped_value = metrics.file_mapped_mem;
         let m_file_mapped: MeasurementPoint = self.create_measurement_point(
-            timestamp, 
-            self.file_mapped_mem, 
-            consumer_memory.clone(), 
-            diff_mem_file_mapped_value / 1000, 
-            &metrics);
+            timestamp,
+            self.file_mapped_mem,
+            consumer_memory.clone(),
+            diff_mem_file_mapped_value / 1000,
+            &metrics,
+        );
         measurements.push(m_file_mapped);
 
         // Push total memory used by cgroup measure
-        let diff_mem_total_value = (diff_mem_anon_value + diff_mem_file_value 
-            + diff_mem_shared_value + diff_mem_file_mapped_value) / 1000;
+        let diff_mem_total_value =
+            (diff_mem_anon_value + diff_mem_file_value + diff_mem_shared_value + diff_mem_file_mapped_value) / 1000;
         let m_total: MeasurementPoint = self.create_measurement_point(
-            timestamp, 
-            self.total_mem, 
-            consumer_memory.clone(), 
-            diff_mem_total_value, 
-            &metrics);
+            timestamp,
+            self.total_mem,
+            consumer_memory.clone(),
+            diff_mem_total_value,
+            &metrics,
+        );
         measurements.push(m_total);
 
         Ok(())
     }
-} 
+}

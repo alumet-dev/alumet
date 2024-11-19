@@ -14,11 +14,11 @@ use std::{
     vec,
 };
 
-use crate::cgroupv2::CgroupV2Metric;
 use super::token::Token;
+use crate::cgroupv2::CgroupV2Metric;
 
 /// # Structure
-/// 
+///
 /// Public structure `CgroupV2MetricFile` creating a log file containing cgroupv2 data about :
 /// - cpu usage
 /// - Memory usage
@@ -109,9 +109,9 @@ fn list_metric_file_in_dir(
             };
 
             let file_cpu: File = File::open(&path_cloned_cpu)
-                                    .with_context(|| format!("failed to open file {}", path_cloned_cpu.display()))?;
+                .with_context(|| format!("failed to open file {}", path_cloned_cpu.display()))?;
             let file_memory: File = File::open(&path_cloned_memory)
-                                    .with_context(|| format!("failed to open file {}", path_cloned_memory.display()))?;
+                .with_context(|| format!("failed to open file {}", path_cloned_memory.display()))?;
 
             // Let's create the new metric and push it to the vector of metrics
             vec_file_metric.push(CgroupV2MetricFile {
@@ -183,8 +183,8 @@ pub fn gather_value(file: &mut CgroupV2MetricFile, content_buffer: &mut String) 
         .with_context(|| format!("Unable to gather cgroup v2 metrics by reading file {}", file.name))?;
     file.file_memory.rewind()?;
 
-    let mut new_metric = CgroupV2Metric::from_str(content_buffer)
-                                            .with_context(|| format!("failed to parse {}", file.name))?;
+    let mut new_metric =
+        CgroupV2Metric::from_str(content_buffer).with_context(|| format!("failed to parse {}", file.name))?;
 
     new_metric.name = file.name.clone();
     new_metric.namespace = file.namespace.clone();
@@ -349,7 +349,8 @@ pub async fn get_pod_name(
 
     // let's check if the items' part contain pods to look at
     if let Some(items) = data.get("items") {
-        let size = items.as_array().unwrap_or(&vec![]).len(); // If the node was not found i.e. no item in the response, we call the API again with all nodes
+        // If the node was not found i.e. no item in the response, we call the API again with all nodes
+        let size = items.as_array().unwrap_or(&vec![]).len();
         if size == 0 && selector {
             // Ask again the api, with all nodes
             let Ok(response) = client.get(api_url_root).send().await else {
@@ -436,7 +437,7 @@ mod tests {
             burstable_dir.join("kubepods-burstable-pod32a1942cb9a81912549c152a49b5f9b1.slice/"),
             burstable_dir.join("kubepods-burstable-podd9209de2b4b526361248c9dcf3e702c0.slice/"),
             burstable_dir.join("kubepods-burstable-podccq5da1942a81912549c152a49b5f9b1.slice/"),
-            burstable_dir.join("kubepods-burstable-podd87dz3z8z09de2b4b526361248c902c0.slice/")
+            burstable_dir.join("kubepods-burstable-podd87dz3z8z09de2b4b526361248c902c0.slice/"),
         ];
 
         for i in 0..4 {
@@ -447,7 +448,7 @@ mod tests {
             std::fs::write(burstable_sub_dir[i].join("cpu.stat"), "test_cpu").unwrap();
             std::fs::write(burstable_sub_dir[i].join("memory.stat"), "test_memory").unwrap()
         }
-    
+
         let list_met_file: anyhow::Result<Vec<CgroupV2MetricFile>> =
             list_metric_file_in_dir(&burstable_dir, "", "", &Token::new(TokenRetrieval::Kubectl));
 
@@ -488,7 +489,8 @@ mod tests {
         let burstable_dir = root.join("kubepods-burstable.slice/");
         std::fs::create_dir_all(&burstable_dir).unwrap();
 
-        let burstable_sub_dir: PathBuf = burstable_dir.join("kubepods-burstable-pod32a1942cb9a81912549c152a49b5f9b1.slice/");
+        let burstable_sub_dir: PathBuf =
+            burstable_dir.join("kubepods-burstable-pod32a1942cb9a81912549c152a49b5f9b1.slice/");
 
         std::fs::create_dir_all(&burstable_sub_dir).unwrap();
 
@@ -504,7 +506,8 @@ mod tests {
                 nr_throttled 0\n
                 throttled_usec 0"
             ),
-        ).unwrap();
+        )
+        .unwrap();
 
         let path_memory: PathBuf = burstable_sub_dir.join("memory.stat");
         std::fs::write(
@@ -522,7 +525,8 @@ mod tests {
                 file_dirty 20480,
                 ...."
             ),
-        ).unwrap();
+        )
+        .unwrap();
 
         // CPU stat file
         let file_cpu = match File::open(&path_cpu) {
@@ -564,7 +568,8 @@ mod tests {
             shared_mem,
             file_mapped_mem,
             total_mem,
-        }) = res_metric {
+        }) = res_metric
+        {
             assert_eq!(name, "testing_pod".to_owned());
             assert_eq!(time_used_tot, 8335557927);
             assert_eq!(time_used_user_mode, 4728882396);
