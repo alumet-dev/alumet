@@ -12,55 +12,25 @@ use alumet::{
 
 pub(crate) const CGROUP_MAX_TIME_COUNTER: u64 = u64::MAX;
 
-/// # Structure
-///
-/// * `CgroupV2Metric` - Public structure storing CPU and memory data
-///
-/// # Parameters
-///
-/// * `name` - Name of a Kubernetes pod
-/// * `uid` - Unique identification of a Kubernetes pod
-/// * `namespace` - Resources isolation of a Kubernetes pod
-/// * `node` - Kubernetes pod node
-/// * `time_used_tot` - Total CPU usage time by the cgroup
-/// * `time_used_user_mode` - CPU in user mode usage time by the cgroup
-/// * `time_used_system_mode` - CPU in system mode usage time by the cgroup
-/// * `anon_used_mem` - Anonymous used memory, corresponding to running process and various allocated memory
-/// * `file_mem` - Files memory, corresponding to open files and descriptors
-/// * `shared_mem` - Interprocess communication shared memory
-/// * `file_mapped_mem` - Mapped files in memory
-/// * `total_mem` - Total memory used by cgroup
-///
 #[derive(Debug, PartialEq, Clone)]
 pub struct CgroupV2Metric {
-    pub name: String,
-    pub uid: String,
-    pub namespace: String,
-    pub node: String,
-    pub time_used_tot: u64,
-    pub time_used_user_mode: u64,
-    pub time_used_system_mode: u64,
-    pub anon_used_mem: u64,
-    pub file_mem: u64,
-    pub shared_mem: u64,
-    pub file_mapped_mem: u64,
-    pub total_mem: u64,
+    pub name: String,               // Name of a Kubernetes pod
+    pub uid: String,                // Unique identification of a Kubernetes pod
+    pub namespace: String,          // Resources isolation of a Kubernetes pod
+    pub node: String,               // Kubernetes pod node
+    pub time_used_tot: u64,         // Total CPU usage time by the cgroup
+    pub time_used_user_mode: u64,   // CPU in user mode usage time by the cgroup
+    pub time_used_system_mode: u64, // CPU in system mode usage time by the cgroup
+    pub anon_used_mem: u64, // Anonymous used memory, corresponding to running process and various allocated memory
+    pub file_mem: u64,      // Files memory, corresponding to open files and descriptors
+    pub kernel_mem: u64,    // Memory reserved for kernel operations
+    pub pagetables_mem: u64, // Memory used to manage correspondence between virtual and physical addresses
+    pub total_mem: u64,     // Total memory used by cgroup
 }
 
 impl FromStr for CgroupV2Metric {
     type Err = anyhow::Error;
-    /// # Function
-    ///
-    /// * `from_str` - Function provides functionality to parse a string by whitespaces places.
-    ///
-    /// # Arguments
-    ///
-    /// * `s` - String will be parsed.
-    ///
-    /// # Returns
-    ///
-    /// * `Result` - Type representing success `Ok` or failure `Err` from parsing.
-    ///
+
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut cgroup_struc_to_ret = CgroupV2Metric {
             name: "".to_owned(),
@@ -72,8 +42,8 @@ impl FromStr for CgroupV2Metric {
             time_used_system_mode: 0,
             anon_used_mem: 0,
             file_mem: 0,
-            shared_mem: 0,
-            file_mapped_mem: 0,
+            kernel_mem: 0,
+            pagetables_mem: 0,
             total_mem: 0,
         };
 
@@ -93,7 +63,7 @@ impl FromStr for CgroupV2Metric {
                     "system_usec" => {
                         cgroup_struc_to_ret.time_used_system_mode = parts[1].parse::<u64>()?;
                     }
-                    // Anonyme used memory, corresponding to running process and various allocated memory
+                    // Anonymous used memory, corresponding to running process and various allocated memory
                     "anon" => {
                         cgroup_struc_to_ret.anon_used_mem = parts[1].parse::<u64>()?;
                     }
@@ -101,13 +71,13 @@ impl FromStr for CgroupV2Metric {
                     "file" => {
                         cgroup_struc_to_ret.file_mem = parts[1].parse::<u64>()?;
                     }
-                    // Interprocess communication shared memory
-                    "shmem" => {
-                        cgroup_struc_to_ret.shared_mem = parts[1].parse::<u64>()?;
+                    // Reserved memory for kernel operations
+                    "kernel_stack" => {
+                        cgroup_struc_to_ret.kernel_mem = parts[1].parse::<u64>()?;
                     }
-                    // Mapped files in memory measure
-                    "file_mapped" => {
-                        cgroup_struc_to_ret.file_mapped_mem = parts[1].parse::<u64>()?;
+                    // Used memory to manage correspondence between virtual and physical addresses
+                    "pagetables" => {
+                        cgroup_struc_to_ret.pagetables_mem = parts[1].parse::<u64>()?;
                     }
                     &_ => continue,
                 }
@@ -117,31 +87,16 @@ impl FromStr for CgroupV2Metric {
     }
 }
 
-/// # Structure
-///
-/// * `Metrics` - Public structure storing identifier of each CPU and memory data
-///
-/// # Parameters
-///
-/// * `time_used_tot` - Total CPU usage time by the cgroup
-/// * `time_used_user_mode` - CPU in user mode usage time by the cgroup
-/// * `time_used_system_mode` - CPU in system mode usage time by the cgroup
-/// * `anon_used_mem` - Anonymous used memory, corresponding to running process and various allocated memory
-/// * `file_mem` - Files memory, corresponding to open files and descriptors
-/// * `shared_mem` - Interprocess communication shared memory
-/// * `file_mapped_mem` - Mapped files in memory
-/// * `total_mem` - Total memory used by cgroup
-///
 #[derive(Clone)]
 pub struct Metrics {
-    pub time_used_tot: TypedMetricId<u64>,
-    pub time_used_user_mode: TypedMetricId<u64>,
-    pub time_used_system_mode: TypedMetricId<u64>,
-    pub anon_used_mem: TypedMetricId<u64>,
-    pub file_mem: TypedMetricId<u64>,
-    pub shared_mem: TypedMetricId<u64>,
-    pub file_mapped_mem: TypedMetricId<u64>,
-    pub total_mem: TypedMetricId<u64>,
+    pub time_used_tot: TypedMetricId<u64>,         // Total CPU usage time by the cgroup
+    pub time_used_user_mode: TypedMetricId<u64>,   // CPU in user mode usage time by the cgroup
+    pub time_used_system_mode: TypedMetricId<u64>, // CPU in system mode usage time by the cgroup
+    pub anon_used_mem: TypedMetricId<u64>, // Anonymous used memory, corresponding to running process and various allocated memory
+    pub file_mem: TypedMetricId<u64>,      // Files memory, corresponding to open files and descriptors
+    pub kernel_mem: TypedMetricId<u64>,    // Memory reserved for kernel operations
+    pub pagetables_mem: TypedMetricId<u64>, // Memory used to manage correspondence between virtual and physical addresses
+    pub total_mem: TypedMetricId<u64>,      // Total memory used by cgroup
 }
 
 impl Metrics {
@@ -158,10 +113,6 @@ impl Metrics {
     ///
     /// * `Result` - Type representing success `Ok` or failure `Err`.
     /// * `MetricCreationError` - Error which can occur when creating a new metric.
-    ///
-    /// # Dependencies
-    ///
-    /// This function relies on the `PrefixedUnit` crate provides base unit and a scale.
     ///
     pub fn new(alumet: &mut AlumetPluginStart) -> Result<Self, MetricCreationError> {
         let usec: PrefixedUnit = PrefixedUnit::micro(Unit::Second);
@@ -196,94 +147,82 @@ impl Metrics {
                 kb.clone(),
                 "Files memory, corresponding to open files and descriptors",
             )?,
-            shared_mem: alumet.create_metric::<u64>(
-                "cgroup_memory_shared",
+            kernel_mem: alumet.create_metric::<u64>(
+                "cgroup_memory_kernel_stack",
                 kb.clone(),
-                "Interprocess communication shared memory",
+                "Memory reserved for kernel operations",
             )?,
-            file_mapped_mem: alumet.create_metric::<u64>(
-                "cgroup_memory_file_mapped",
+            pagetables_mem: alumet.create_metric::<u64>(
+                "cgroup_memory_pagetables",
                 kb.clone(),
-                "Mapped files in memory",
+                "Memory used to manage correspondence between virtual and physical addresses",
             )?,
             total_mem: alumet.create_metric::<u64>("cgroup_memory_total", kb.clone(), "Total memory used by cgroup")?,
         })
     }
 }
 
+/** Unitary test for CPU and Memory cgroup files parser **/
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_parser() {
-        let str1 = format!(
+        let test_cgroup_cpu: String = format!(
             "
-            usage_usec 1111\n
-            user_usec 222222222222222222\n
+            usage_usec      1111\n
+            user_usec     222222222222222222\n
             system_usec 33\n
             nr_periods 0\n
             nr_throttled 0\n
             throttled_usec 0"
         );
-        let result: CgroupV2Metric = CgroupV2Metric::from_str(&str1).unwrap();
+        let result: CgroupV2Metric = CgroupV2Metric::from_str(&test_cgroup_cpu).unwrap();
         assert_eq!(result.name, "");
         assert_eq!(result.time_used_tot, 1111 as u64);
         assert_eq!(result.time_used_user_mode, 222222222222222222 as u64);
         assert_eq!(result.time_used_system_mode, 33 as u64);
 
-        let str2 = format!(
-            "
-            nr_throttled 0\n
-            usage_usec 1111\n
-            system_usec 33"
-        );
-        let result: CgroupV2Metric = CgroupV2Metric::from_str(&str2).unwrap();
-        assert_eq!(result.name, "");
-        assert_eq!(result.time_used_tot, 1111 as u64);
-        assert_eq!(result.time_used_user_mode, 0 as u64);
-        assert_eq!(result.time_used_system_mode, 33 as u64);
-
-        let str3 = format!(
+        let test2_cgroup_cpu: String = format!(
             "
             system_usec 33"
         );
-        let result: CgroupV2Metric = CgroupV2Metric::from_str(&str3).unwrap();
+        let result: CgroupV2Metric = CgroupV2Metric::from_str(&test2_cgroup_cpu).unwrap();
         assert_eq!(result.name, "");
         assert_eq!(result.time_used_tot, 0 as u64);
         assert_eq!(result.time_used_user_mode, 0 as u64);
         assert_eq!(result.time_used_system_mode, 33 as u64);
 
-        let str4 = format!(
+        let test_cgroup_memory: String = format!(
             "
-            usage_usec     1111\n
-            system_usec     33\n
-            user_usec       222222222222222222\n
-            throttled_usec  0"
+            anon 222222222222222222
+            file        4728882396
+            kernel_stack  3686400
+            pagetables 0
+            percpu 16317568
+            sock 12288
+            shmem 233824256
+            file_mapped 0
+            file_dirty 20480,
+            ...."
         );
-        let result: CgroupV2Metric = CgroupV2Metric::from_str(&str4).unwrap();
+        let result: CgroupV2Metric = CgroupV2Metric::from_str(&test_cgroup_memory).unwrap();
         assert_eq!(result.name, "");
-        assert_eq!(result.time_used_tot, 1111 as u64);
-        assert_eq!(result.time_used_user_mode, 222222222222222222 as u64);
-        assert_eq!(result.time_used_system_mode, 33 as u64);
+        assert_eq!(result.anon_used_mem, 222222222222222222 as u64);
+        assert_eq!(result.file_mem, 4728882396 as u64);
+        assert_eq!(result.kernel_mem, 3686400 as u64);
+        assert_eq!(result.pagetables_mem, 0 as u64);
 
-        let str5 = format!("");
-        let result: CgroupV2Metric = CgroupV2Metric::from_str(&str5).unwrap();
+        let test_cgroup_files: String = format!("");
+        let result: CgroupV2Metric = CgroupV2Metric::from_str(&test_cgroup_files).unwrap();
         assert_eq!(result.name, "");
         assert_eq!(result.time_used_tot, 0 as u64);
         assert_eq!(result.time_used_user_mode, 0 as u64);
         assert_eq!(result.time_used_system_mode, 0 as u64);
-
-        let str6 = format!(
-            "
-            nr_periods 0\n
-            nr_throttled 0\n
-            throttled_usec 0"
-        );
-        let result: CgroupV2Metric = CgroupV2Metric::from_str(&str6).unwrap();
-        assert_eq!(result.name, "");
-        assert_eq!(result.time_used_tot, 0 as u64);
-        assert_eq!(result.time_used_user_mode, 0 as u64);
-        assert_eq!(result.time_used_system_mode, 0 as u64);
+        assert_eq!(result.anon_used_mem, 0 as u64);
+        assert_eq!(result.file_mem, 0 as u64);
+        assert_eq!(result.kernel_mem, 0 as u64);
+        assert_eq!(result.pagetables_mem, 0 as u64);
     }
 }

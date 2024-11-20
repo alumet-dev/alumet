@@ -17,27 +17,21 @@ use std::{
 use super::token::Token;
 use crate::cgroupv2::CgroupV2Metric;
 
-/// # Structure
-///
-/// Public structure `CgroupV2MetricFile` creating a log file containing cgroupv2 data about :
-/// - cpu usage
-/// - Memory usage
-///
 #[derive(Debug)]
 pub struct CgroupV2MetricFile {
-    /// Name of the pod.
+    /// Name of the pod
     pub name: String,
-    /// Path to the file.
+    /// Path to the file
     pub path_cpu: PathBuf,
     pub path_memory: PathBuf,
-    /// Opened file descriptor.
+    /// Opened file descriptor
     pub file_cpu: File,
     pub file_memory: File,
-    /// UID of the pod.
+    /// UID of the pod
     pub uid: String,
-    /// Namespace of the pod.
+    /// Namespace of the pod
     pub namespace: String,
-    /// Node of the pod.
+    /// Node of the pod
     pub node: String,
 }
 
@@ -517,7 +511,7 @@ mod tests {
                 anon 8335557927
                 file 4728882396
                 kernel_stack 3686400
-                pagetables 3739648
+                pagetables 0
                 percpu 16317568
                 sock 12288
                 shmem 233824256
@@ -542,10 +536,10 @@ mod tests {
 
         let cgroup_v2_metric_file = CgroupV2MetricFile {
             name: "testing_pod".to_string(),
-            path_cpu: path_cpu,
-            file_cpu: file_cpu,
-            path_memory: path_memory,
-            file_memory: file_memory,
+            path_cpu,
+            file_cpu,
+            path_memory,
+            file_memory,
             uid: "uid_test".to_string(),
             namespace: "namespace_test".to_string(),
             node: "node_test".to_owned(),
@@ -565,8 +559,8 @@ mod tests {
             time_used_system_mode,
             anon_used_mem,
             file_mem,
-            shared_mem,
-            file_mapped_mem,
+            kernel_mem,
+            pagetables_mem,
             total_mem,
         }) = res_metric
         {
@@ -576,8 +570,8 @@ mod tests {
             assert_eq!(time_used_system_mode, 3606675531);
             assert_eq!(anon_used_mem, 8335557927);
             assert_eq!(file_mem, 4728882396);
-            assert_eq!(shared_mem, 233824256);
-            assert_eq!(file_mapped_mem, 0);
+            assert_eq!(kernel_mem, 3686400);
+            assert_eq!(pagetables_mem, 0);
             assert_eq!(total_mem, 0);
         } else {
             assert!(false);

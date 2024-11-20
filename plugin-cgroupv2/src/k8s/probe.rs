@@ -25,8 +25,8 @@ pub struct K8SProbe {
     pub time_used_system_mode: TypedMetricId<u64>,
     pub anon_used_mem: TypedMetricId<u64>,
     pub file_mem: TypedMetricId<u64>,
-    pub shared_mem: TypedMetricId<u64>,
-    pub file_mapped_mem: TypedMetricId<u64>,
+    pub kernel_mem: TypedMetricId<u64>,
+    pub pagetables_mem: TypedMetricId<u64>,
     pub total_mem: TypedMetricId<u64>,
 }
 
@@ -48,16 +48,15 @@ impl K8SProbe {
             time_used_user_mode: metric.time_used_user_mode,
             anon_used_mem: metric.anon_used_mem,
             file_mem: metric.file_mem,
-            shared_mem: metric.shared_mem,
-            file_mapped_mem: metric.file_mapped_mem,
+            kernel_mem: metric.kernel_mem,
+            pagetables_mem: metric.pagetables_mem,
             total_mem: metric.total_mem,
         })
     }
 
     /// # Function
     ///
-    /// Automatically create a measurement point to push for a pod,
-    /// with pre-implemented settings :
+    /// Automatically create a measurement point to push for a pod, with pre-implemented settings :
     /// - `uid` of the pod
     /// - `name` of the pod
     /// - `namespace` of the pod
@@ -65,11 +64,12 @@ impl K8SProbe {
     ///
     /// # Parameters
     ///
-    /// `timestamp` : Type Timestamp
-    /// `metric_id` : TypedMetricId<u64>
-    /// `resource_consumer` : Type ResourceConsumer
-    /// `value_measured` : Type u64
-    /// `metrics_param` : Type CgroupV2Metric
+    /// - `timestamp` : Type Timestamp
+    /// - `metric_id` : TypedMetricId<u64>
+    /// - `resource_consumer` : Type ResourceConsumer
+    /// - `value_measured` : Type u64
+    /// - `metrics_param` : Type CgroupV2Metric
+    ///
     fn create_measurement_point(
         &self,
         timestamp: Timestamp,
@@ -93,6 +93,19 @@ impl K8SProbe {
 }
 
 impl alumet::pipeline::Source for K8SProbe {
+    /// # Function
+    ///
+    /// The `poll` function allows to obtain a measurement determined by a data point, format it and transmit it
+    ///
+    /// # Parameters
+    ///
+    /// - `measurements` : An accumulator stores measured data points
+    /// - `timestamp` : Time recorded at the time of measurement
+    ///
+    /// # Return
+    ///
+    /// Success or and error which can occur during `Source::poll`
+    ///
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         let mut file_buffer: String = String::new();
         let metrics: CgroupV2Metric = gather_value(&mut self.cgroup_v2_metric_file, &mut file_buffer)?;
@@ -148,60 +161,59 @@ impl alumet::pipeline::Source for K8SProbe {
         }
 
         // Push anonymous used memory measure corresponding to running process and various allocated memory
-        let diff_mem_anon_value = metrics.anon_used_mem;
+        let mem_anon_value = metrics.anon_used_mem;
         let m_anon: MeasurementPoint = self.create_measurement_point(
             timestamp,
             self.anon_used_mem,
             consumer_memory.clone(),
-            diff_mem_anon_value / 1000,
+            mem_anon_value / 1000,
             &metrics,
         );
         measurements.push(m_anon);
 
         // Push files memory measure, corresponding to open files and descriptors
-        let diff_mem_file_value = metrics.file_mem;
+        let mem_file_value = metrics.file_mem;
         let m_file: MeasurementPoint = self.create_measurement_point(
             timestamp,
             self.file_mem,
             consumer_memory.clone(),
-            diff_mem_file_value / 1000,
+            mem_file_value / 1000,
             &metrics,
         );
         measurements.push(m_file);
 
-        // Push interprocess communication shared memory measure
-        let diff_mem_shared_value = metrics.shared_mem;
-        let m_shared: MeasurementPoint = self.create_measurement_point(
+        // Push kernel memory measure
+        let mem_kernel_value = metrics.kernel_mem;
+        let m_ker: MeasurementPoint = self.create_measurement_point(
             timestamp,
-            self.shared_mem,
+            self.kernel_mem,
             consumer_memory.clone(),
-            diff_mem_shared_value / 1000,
+            mem_kernel_value / 1000,
             &metrics,
         );
-        measurements.push(m_shared);
+        measurements.push(m_ker);
 
-        // Push mapped files in memory measure
-        let diff_mem_file_mapped_value = metrics.file_mapped_mem;
-        let m_file_mapped: MeasurementPoint = self.create_measurement_point(
+        // Push pagetables memory measure
+        let mem_pagetables_value = metrics.pagetables_mem;
+        let m_pgt: MeasurementPoint = self.create_measurement_point(
             timestamp,
-            self.file_mapped_mem,
+            self.pagetables_mem,
             consumer_memory.clone(),
-            diff_mem_file_mapped_value / 1000,
+            mem_pagetables_value / 1000,
             &metrics,
         );
-        measurements.push(m_file_mapped);
+        measurements.push(m_pgt);
 
         // Push total memory used by cgroup measure
-        let diff_mem_total_value =
-            (diff_mem_anon_value + diff_mem_file_value + diff_mem_shared_value + diff_mem_file_mapped_value) / 1000;
-        let m_total: MeasurementPoint = self.create_measurement_point(
+        let mem_total_value = (mem_anon_value + mem_file_value + mem_kernel_value + mem_pagetables_value) / 1000;
+        let m_tot: MeasurementPoint = self.create_measurement_point(
             timestamp,
             self.total_mem,
             consumer_memory.clone(),
-            diff_mem_total_value,
+            mem_total_value,
             &metrics,
         );
-        measurements.push(m_total);
+        measurements.push(m_tot);
 
         Ok(())
     }
