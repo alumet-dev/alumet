@@ -222,7 +222,7 @@ mod tests {
             usec.to_string(),
             "Total CPU usage time by the cgroup",
         )?;
-        
+
         let time_used_user_mode: TypedMetricId<u64> = alumet.create_metric::<u64>(
             "cgroup_cpu_usage_user",
             usec.to_string(),
@@ -287,7 +287,7 @@ mod tests {
 
         // CPU stat file
         let file_cpu = File::open(&path_cpu).expect("couldn't open cpu.stat file");
-        
+
         // Memory stat file
         let file_memory = File::open(&path_memory).expect("couldn't open memory.stat file");
 

@@ -565,7 +565,7 @@ mod tests {
             anon_used_mem,
             file_mem,
             kernel_mem,
-            pagetables_mem
+            pagetables_mem,
         }) = res_metric
         {
             assert_eq!(name, "testing_pod".to_owned());

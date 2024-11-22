@@ -62,7 +62,11 @@ impl FromStr for CgroupV2Metric {
                 match parts[1].parse::<f64>() {
                     Ok(value) => {
                         // Check if value is unsigned
-                        let res: u64 = if value < 0.0 || value.fract() != 0.0 { 0 } else { value as u64 };
+                        let res: u64 = if value < 0.0 || value.fract() != 0.0 {
+                            0
+                        } else {
+                            value as u64
+                        };
 
                         match parts[0] {
                             "usage_usec" => {
@@ -88,7 +92,7 @@ impl FromStr for CgroupV2Metric {
                             }
                             &_ => continue,
                         }
-                    },
+                    }
                     Err(_) => {
                         // if test failed, initialization to 0
                         match parts[0] {
@@ -115,7 +119,7 @@ impl FromStr for CgroupV2Metric {
                             }
                             &_ => continue,
                         }
-                    },
+                    }
                 }
             }
         }
@@ -140,7 +144,7 @@ pub struct Metrics {
     /// Memory used to manage correspondence between virtual and physical addresses.
     pub pagetables_mem: TypedMetricId<u64>,
     /// Total memory used by cgroup.
-    pub total_mem: TypedMetricId<u64>,      
+    pub total_mem: TypedMetricId<u64>,
 }
 
 impl Metrics {
@@ -226,7 +230,7 @@ mod parser_test {
         assert_eq!(result.time_used_user_mode, 0);
         assert_eq!(result.time_used_system_mode, 0);
     }
-    
+
     #[test]
     fn test_large_values() {
         let str: String = format!(
@@ -257,14 +261,14 @@ mod parser_test {
             user_usec -20000
             system_usec -30000"
         );
-    
+
         let result: CgroupV2Metric = CgroupV2Metric::from_str(&str).unwrap();
 
         assert_eq!(result.time_used_tot, 10000);
         assert_eq!(result.time_used_user_mode, 0);
         assert_eq!(result.time_used_system_mode, 0);
     }
-    
+
     #[test]
     fn test_invalid_values() {
         let str: String = format!(
@@ -276,7 +280,7 @@ mod parser_test {
         );
 
         let result: CgroupV2Metric = CgroupV2Metric::from_str(&str).unwrap();
-    
+
         assert_eq!(result.anon_used_mem, 0);
         assert_eq!(result.file_mem, 0);
         assert_eq!(result.kernel_mem, 0);
