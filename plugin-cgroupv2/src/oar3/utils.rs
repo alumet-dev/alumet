@@ -220,7 +220,6 @@ mod tests {
             file_mem,
             kernel_mem,
             pagetables_mem,
-            total_mem,
             uid: _uid,
             namespace: _ns,
             node: _nd,

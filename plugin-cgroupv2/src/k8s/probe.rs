@@ -2,7 +2,6 @@
 //!
 //! This module provides functionality to publish structured data for alumet,
 //! by pushing CPU and memory cgroup Kubernetes informations on Unix-based systems.
-//!
 use alumet::{
     measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
@@ -54,8 +53,6 @@ impl K8SProbe {
         })
     }
 
-    /// # Function
-    ///
     /// Automatically create a measurement point to push for a pod, with pre-implemented settings :
     /// - `uid` of the pod
     /// - `name` of the pod
@@ -93,19 +90,6 @@ impl K8SProbe {
 }
 
 impl alumet::pipeline::Source for K8SProbe {
-    /// # Function
-    ///
-    /// The `poll` function allows to obtain a measurement determined by a data point, format it and transmit it
-    ///
-    /// # Parameters
-    ///
-    /// - `measurements` : An accumulator stores measured data points
-    /// - `timestamp` : Time recorded at the time of measurement
-    ///
-    /// # Return
-    ///
-    /// Success or and error which can occur during `Source::poll`
-    ///
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         let mut file_buffer: String = String::new();
         let metrics: CgroupV2Metric = gather_value(&mut self.cgroup_v2_metric_file, &mut file_buffer)?;
@@ -218,3 +202,119 @@ impl alumet::pipeline::Source for K8SProbe {
         Ok(())
     }
 }
+
+// ------------------ //
+// --- UNIT TESTS --- //
+// ------------------ //
+/*#[cfg(test)]
+mod tests {
+    use super::*;
+    use alumet::measurement::MeasurementAccumulator;
+    use alumet::metrics::MetricTypeError;
+    use alumet::pipeline::Source;
+    use alumet::pipeline::elements::error::PollError;
+    use std::fs::File;
+    use std::path::PathBuf;
+
+    fn create_fake_metrics(usec: &str) -> Result<Metrics, MetricTypeError> {
+        let time_used_tot: TypedMetricId<u64> = alumet.create_metric::<u64>(
+            "cgroup_cpu_usage_total",
+            usec.to_string(),
+            "Total CPU usage time by the cgroup",
+        )?;
+        
+        let time_used_user_mode: TypedMetricId<u64> = alumet.create_metric::<u64>(
+            "cgroup_cpu_usage_user",
+            usec.to_string(),
+            "CPU in user mode usage time by the cgroup",
+        )?;
+
+        let time_used_system_mode: TypedMetricId<u64> = alumet.create_metric::<u64>(
+            "cgroup_cpu_usage_system",
+            usec.to_string(),
+            "CPU in system mode usage time by the cgroup",
+        )?;
+
+        let anon_used_mem: TypedMetricId<u64> = alumet.create_metric::<u64>(
+            "cgroup_memory_anon",
+            usec.to_string(),
+            "Anonymous used memory by the cgroup",
+        )?;
+
+        let file_mem: TypedMetricId<u64> = alumet.create_metric::<u64>(
+            "cgroup_memory_file",
+            usec.to_string(),
+            "Files memory used by the cgroup",
+        )?;
+
+        let kernel_mem: TypedMetricId<u64> = alumet.create_metric::<u64>(
+            "cgroup_memory_kernel",
+            usec.to_string(),
+            "Kernel memory used by the cgroup",
+        )?;
+
+        let pagetables_mem: TypedMetricId<u64> = alumet.create_metric::<u64>(
+            "cgroup_memory_pagetables",
+            usec.to_string(),
+            "Memory used for page tables by the cgroup",
+        )?;
+
+        let total_mem: TypedMetricId<u64> = alumet.create_metric::<u64>(
+            "cgroup_memory_total",
+            usec.to_string(),
+            "Total memory used by the cgroup",
+        )?;
+
+        Ok(Metrics {
+            time_used_tot,
+            time_used_user_mode,
+            time_used_system_mode,
+            anon_used_mem,
+            file_mem,
+            kernel_mem,
+            pagetables_mem,
+            total_mem,
+        })
+    }
+
+    #[test]
+    fn test_k8s_probe_poll() -> Result<(), PollError> {
+        let usec = "some_unique_identifier";
+        let metrics = create_fake_metrics(usec)?;
+
+        let path_cpu: PathBuf = "/path/to/cpu.stat".into();
+        let path_memory: PathBuf = "/path/to/memory.stat".into();
+
+        // CPU stat file
+        let file_cpu = File::open(&path_cpu).expect("couldn't open cpu.stat file");
+        
+        // Memory stat file
+        let file_memory = File::open(&path_memory).expect("couldn't open memory.stat file");
+
+        let metric_file = CgroupV2MetricFile {
+            path_cpu,
+            path_memory,
+            file_cpu,
+            file_memory,
+            name: "metric_name".to_string(),
+            uid: "uid_test".to_string(),
+            namespace: "namespace_test".to_string(),
+            node: "node_test".to_string(),
+        };
+
+        let counter_tot = CounterDiff::with_max_value(0);
+        let counter_usr = CounterDiff::with_max_value(0);
+        let counter_sys = CounterDiff::with_max_value(0);
+
+        let mut probe = K8SProbe::new(metrics, metric_file, counter_tot, counter_sys, counter_usr)?;
+        let mut measurements = MeasurementAccumulator::new();
+
+        let timestamp = Timestamp::now();
+        probe.poll(&mut measurements, timestamp)?;
+
+        assert!(!measurements.is_empty(), "The measuring accumulator must not be empty.");
+        assert!(measurements.len() > 0, "There should be at least one measuring point.");
+
+        Ok(())
+    }
+}*/

@@ -19,19 +19,21 @@ use crate::cgroupv2::CgroupV2Metric;
 
 #[derive(Debug)]
 pub struct CgroupV2MetricFile {
-    /// Name of the pod
+    /// Name of the pod.
     pub name: String,
-    /// Path to the file
+    /// Path to the cgroup cpu stat file.
     pub path_cpu: PathBuf,
+    /// Path to the cgroup memory stat file.
     pub path_memory: PathBuf,
-    /// Opened file descriptor
+    /// Opened file descriptor for cgroup cpu stat.
     pub file_cpu: File,
+    /// Opened file descriptor for cgroup memory stat.
     pub file_memory: File,
-    /// UID of the pod
+    /// UID of the pod.
     pub uid: String,
-    /// Namespace of the pod
+    /// Namespace of the pod.
     pub namespace: String,
-    /// Node of the pod
+    /// Node of the pod.
     pub node: String,
 }
 
@@ -396,6 +398,9 @@ pub async fn get_pod_name(
     Ok(("".to_string(), "".to_string(), "".to_string()))
 }
 
+// ------------------ //
+// --- UNIT TESTS --- //
+// ------------------ //
 #[cfg(test)]
 mod tests {
     use super::{super::plugin::TokenRetrieval, *};
@@ -560,8 +565,7 @@ mod tests {
             anon_used_mem,
             file_mem,
             kernel_mem,
-            pagetables_mem,
-            total_mem,
+            pagetables_mem
         }) = res_metric
         {
             assert_eq!(name, "testing_pod".to_owned());
@@ -572,7 +576,6 @@ mod tests {
             assert_eq!(file_mem, 4728882396);
             assert_eq!(kernel_mem, 3686400);
             assert_eq!(pagetables_mem, 0);
-            assert_eq!(total_mem, 0);
         } else {
             assert!(false);
         }
