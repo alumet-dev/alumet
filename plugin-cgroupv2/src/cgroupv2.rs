@@ -211,9 +211,11 @@ impl Metrics {
 // --- UNIT TESTS --- //
 // ------------------ //
 #[cfg(test)]
-mod parser_test {
+mod tests {
     use super::*;
 
+    // Test `from_str` function with in extracted result,
+    // null values for each parameters
     #[test]
     fn test_zero_values() {
         let str: String = format!(
@@ -231,6 +233,8 @@ mod parser_test {
         assert_eq!(result.time_used_system_mode, 0);
     }
 
+    // Test `from_str` function with in extracted result,
+    // extremely big values for each parameters to test overflow
     #[test]
     fn test_large_values() {
         let str: String = format!(
@@ -246,13 +250,14 @@ mod parser_test {
             ...."
         );
         let result: CgroupV2Metric = CgroupV2Metric::from_str(&str).unwrap();
-
         assert_eq!(result.anon_used_mem, 18446744073709551615);
         assert_eq!(result.file_mem, 18446744073709551615);
         assert_eq!(result.kernel_mem, 18446744073709551615);
         assert_eq!(result.pagetables_mem, 18446744073709551615);
     }
 
+    // Test `from_str` function with in extracted result,
+    // negatives values to test representation
     #[test]
     fn test_signed_values() {
         let str: String = format!(
@@ -261,14 +266,14 @@ mod parser_test {
             user_usec -20000
             system_usec -30000"
         );
-
         let result: CgroupV2Metric = CgroupV2Metric::from_str(&str).unwrap();
-
         assert_eq!(result.time_used_tot, 10000);
         assert_eq!(result.time_used_user_mode, 0);
         assert_eq!(result.time_used_system_mode, 0);
     }
-
+    
+    // Test `from_str` function with in extracted result,
+    // null, empty or incompatibles strings
     #[test]
     fn test_invalid_values() {
         let str: String = format!(
@@ -278,20 +283,19 @@ mod parser_test {
             pagetables -123abc
             ..."
         );
-
         let result: CgroupV2Metric = CgroupV2Metric::from_str(&str).unwrap();
-
         assert_eq!(result.anon_used_mem, 0);
         assert_eq!(result.file_mem, 0);
         assert_eq!(result.kernel_mem, 0);
         assert_eq!(result.pagetables_mem, 0);
     }
 
+    // Test `from_str` function with in extracted result,
+    // empty string result
     #[test]
     fn test_empty_values() {
         let str: String = format!("");
         let result: CgroupV2Metric = CgroupV2Metric::from_str(&str).unwrap();
-
         // Memory file str
         assert_eq!(result.anon_used_mem, 0);
         assert_eq!(result.file_mem, 0);
@@ -301,5 +305,84 @@ mod parser_test {
         assert_eq!(result.time_used_tot, 0);
         assert_eq!(result.time_used_user_mode, 0);
         assert_eq!(result.time_used_system_mode, 0);
+    }
+
+    // Test `from_str` function with in extracted result,
+    // null string
+    #[test]
+    fn test_null_values() {
+        let null_str: Option<&str> = None;
+
+        let result: Result<CgroupV2Metric, _> = match null_str {
+            Some(s) => CgroupV2Metric::from_str(s),
+            None => Ok(CgroupV2Metric {
+                name: "".to_owned(),
+                uid: "".to_owned(),
+                namespace: "".to_owned(),
+                node: "".to_owned(),
+                time_used_tot: 0,
+                time_used_user_mode: 0,
+                time_used_system_mode: 0,
+                anon_used_mem: 0,
+                file_mem: 0,
+                kernel_mem: 0,
+                pagetables_mem: 0,
+            }),
+        };
+    
+        let expected: CgroupV2Metric = CgroupV2Metric {
+            name: "".to_owned(),
+            uid: "".to_owned(),
+            namespace: "".to_owned(),
+            node: "".to_owned(),
+            time_used_tot: 0,
+            time_used_user_mode: 0,
+            time_used_system_mode: 0,
+            anon_used_mem: 0,
+            file_mem: 0,
+            kernel_mem: 0,
+            pagetables_mem: 0,
+        };
+        
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    // Test for calculating `mem_total` with structure parameters
+    #[test]
+    fn test_calc_mem(){
+        let result: CgroupV2Metric = CgroupV2Metric {
+            name: "".to_owned(),
+            uid: "test_pod_uid".to_owned(),
+            namespace: "test_pod_namespace".to_owned(),
+            node: "test_pod_node".to_owned(),
+            time_used_tot: 0,
+            time_used_user_mode: 0,
+            time_used_system_mode: 0,
+            anon_used_mem: 1024,
+            file_mem: 256,
+            kernel_mem: 4096,
+            pagetables_mem: 512,
+        };
+        assert_eq!(result.name, "");
+        assert_eq!(result.uid, "test_pod_uid");
+        assert_eq!(result.namespace, "test_pod_namespace");
+        assert_eq!(result.node, "test_pod_node");
+
+        let mem_total: u64 = result.anon_used_mem + result.file_mem + result.kernel_mem + result.pagetables_mem;
+        assert_eq!(mem_total, 5888);
+    }
+
+    #[test]
+    fn test_parsing_empty_string() {
+        let input: &str = "";
+        let result: CgroupV2Metric = CgroupV2Metric::from_str(input).unwrap();
+
+        assert_eq!(result.time_used_tot, 0);
+        assert_eq!(result.time_used_user_mode, 0);
+        assert_eq!(result.time_used_system_mode, 0);
+        assert_eq!(result.anon_used_mem, 0);
+        assert_eq!(result.file_mem, 0);
+        assert_eq!(result.kernel_mem, 0);
+        assert_eq!(result.pagetables_mem, 0);
     }
 }

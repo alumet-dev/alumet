@@ -74,7 +74,7 @@ impl AlumetPlugin for K8sPlugin {
     }
 
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
-        let v2_used: bool = super::utils::is_accessible_dir(&PathBuf::from("/sys/fs/cgroup/"));
+        let v2_used: bool = super::utils::is_accessible_dir(&PathBuf::from("/sys/fs/cgroup/"))?;
         if !v2_used {
             anyhow::bail!("Cgroups v2 are not being used!");
         }

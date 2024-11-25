@@ -37,9 +37,32 @@ pub struct CgroupV2MetricFile {
     pub node: String,
 }
 
-/// Check if a specific file is a dir. Used to know if cgroup v2 are used
-pub fn is_accessible_dir(path: &Path) -> bool {
-    path.is_dir()
+/// Check if a specific file is a dir. 
+/// Used to know if cgroup v2 are used
+/// 
+/// # Arguments
+/// - `path` : Path of file or directory to check
+/// 
+/// # Return
+/// - Boolean error ocurres when path of a file or directory is not available
+/// - Error ocurres when an other kind of issue appears on the path
+pub fn is_accessible_dir(path: &Path) -> Result<bool, std::io::Error> {
+    match std::fs::metadata(path) {
+        Ok(metadata) => {
+            if metadata.is_dir() {
+                Ok(true) // Directory available
+            } else {
+                Ok(false) // Not a directory
+            }
+        },
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                Ok(false) // Path not exist
+            } else {
+                Err(e) // Permissions errors or other
+            }
+        }
+    }
 }
 
 /// Returns a Vector of CgroupV2MetricFile associated to pods available under a given directory.
@@ -404,54 +427,71 @@ pub async fn get_pod_name(
 #[cfg(test)]
 mod tests {
     use super::{super::plugin::TokenRetrieval, *};
+    use std::fs::File;
+    use std::path::PathBuf;
 
+    // Tests to evaluate existing files and dir
     #[test]
     fn test_is_cgroups_v2() {
         let tmp: PathBuf = std::env::temp_dir();
-        let root: std::path::PathBuf = tmp.join("test-alumet-plugin-k8s/is_cgroupv2");
+        let root: PathBuf = tmp.join("test-alumet-plugin-k8s/is_cgroupv2");
 
         if root.exists() {
             std::fs::remove_dir_all(&root).unwrap();
         }
 
-        let cgroupv2_dir: PathBuf = root.join("myDirCgroup");
-        std::fs::create_dir_all(&cgroupv2_dir).unwrap();
-        assert!(is_accessible_dir(Path::new(&cgroupv2_dir)));
-        assert!(!is_accessible_dir(std::path::Path::new(
-            "test-alumet-plugin-k8s/is_cgroupv2/myDirCgroup_bad"
-        )));
+        let dir: PathBuf = root.join("myDirCgroup");
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(is_accessible_dir(&dir).unwrap());
+
+        let non_existent_path: PathBuf = root.join("non_existent_dir");
+        assert!(!is_accessible_dir(&non_existent_path).unwrap());
+
+        let file_path: PathBuf = root.join("test_file.txt");
+        std::fs::write(&file_path, "This is a test file.").unwrap();
+        assert!(!is_accessible_dir(&file_path).unwrap());
+
+        assert!(!is_accessible_dir(&PathBuf::new()).unwrap());
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
+    // Test to simulate arborescence of kubernetes pods
     #[test]
     fn test_list_metric_file_in_dir() {
         let tmp: PathBuf = std::env::temp_dir();
         let root: std::path::PathBuf = tmp.join("test-alumet-plugin-k8s/kubepods-folder.slice/");
+
         if root.exists() {
             std::fs::remove_dir_all(&root).unwrap();
         }
-        let burstable_dir = root.join("kubepods-burstable.slice/");
-        std::fs::create_dir_all(&burstable_dir).unwrap();
 
-        let burstable_sub_dir = [
-            burstable_dir.join("kubepods-burstable-pod32a1942cb9a81912549c152a49b5f9b1.slice/"),
-            burstable_dir.join("kubepods-burstable-podd9209de2b4b526361248c9dcf3e702c0.slice/"),
-            burstable_dir.join("kubepods-burstable-podccq5da1942a81912549c152a49b5f9b1.slice/"),
-            burstable_dir.join("kubepods-burstable-podd87dz3z8z09de2b4b526361248c902c0.slice/"),
+        let dir: PathBuf = root.join("kubepods-burstable.slice/");
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(is_accessible_dir(&dir).unwrap());
+
+        let sub_dir: [PathBuf; 4] = [
+            dir.join("kubepods-burstable-pod32a1942cb9a81912549c152a49b5f9b1.slice/"),
+            dir.join("kubepods-burstable-podd9209de2b4b526361248c9dcf3e702c0.slice/"),
+            dir.join("kubepods-burstable-podccq5da1942a81912549c152a49b5f9b1.slice/"),
+            dir.join("kubepods-burstable-podd87dz3z8z09de2b4b526361248c902c0.slice/"),
         ];
 
         for i in 0..4 {
-            std::fs::create_dir_all(&burstable_sub_dir[i]).unwrap();
+            std::fs::create_dir_all(&sub_dir[i]).unwrap();
+            assert!(is_accessible_dir(&sub_dir[i]).unwrap());
         }
 
         for i in 0..4 {
-            std::fs::write(burstable_sub_dir[i].join("cpu.stat"), "test_cpu").unwrap();
-            std::fs::write(burstable_sub_dir[i].join("memory.stat"), "test_memory").unwrap()
+            std::fs::write(sub_dir[i].join("cpu.stat"), "test_cpu").unwrap();
+            assert!(is_accessible_dir(&sub_dir[i]).unwrap());
+            std::fs::write(sub_dir[i].join("memory.stat"), "test_memory").unwrap();
+            assert!(is_accessible_dir(&sub_dir[i]).unwrap());
         }
 
         let list_met_file: anyhow::Result<Vec<CgroupV2MetricFile>> =
-            list_metric_file_in_dir(&burstable_dir, "", "", &Token::new(TokenRetrieval::Kubectl));
+            list_metric_file_in_dir(&dir, "", "", &Token::new(TokenRetrieval::Kubectl));
 
-        let list_pod_name = [
+        let list_pod_name: [&str; 4] = [
             "pod32a1942cb9a81912549c152a49b5f9b1",
             "podd9209de2b4b526361248c9dcf3e702c0",
             "podccq5da1942a81912549c152a49b5f9b1",
@@ -580,4 +620,5 @@ mod tests {
             assert!(false);
         }
     }
+
 }

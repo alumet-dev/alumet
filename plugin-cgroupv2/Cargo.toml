@@ -17,11 +17,7 @@ serde_json = "1.0"
 humantime-serde = "1.1.1"
 notify = "6.1.1"
 base64 = "0.22.1"
+tempfile = "3.5"
 
 [lints]
 workspace = true
-
-[profile.release]
-opt-level = 1
-lto = true
-codegen-units = 1
