@@ -88,7 +88,7 @@ impl Output for MongoDbOutput {
             doc.insert("resource_kind", m.resource.kind());
             doc.insert("resource_id", m.resource.id_string().unwrap_or_default());
             doc.insert("resource_consumer_kind", m.consumer.kind());
-            doc.insert("resource_consumer_id", &m.consumer.id_string().unwrap_or_default());
+            doc.insert("resource_consumer_id", m.consumer.id_string().unwrap_or_default());
 
             // Alumer attributes are translated to fields
             // Some field keys are reserved by Alumet and will trigger a renaming

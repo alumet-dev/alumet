@@ -13,7 +13,7 @@ pub fn build_mongo_uri(config: &Config) -> String {
             config.port
         );
     }
-    return format!("mongodb://{}:{}/", config.host, config.port);
+    format!("mongodb://{}:{}/", config.host, config.port)
 }
 
 pub fn convert_timestamp(timestamp: Timestamp) -> String {
