@@ -1,0 +1,19 @@
+[package]
+name = "plugin-mongodb"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alumet = { path = "../alumet" }
+anyhow = "1.0.93"
+log = "0.4.22"
+serde = "1.0.215"
+tokio = "1.41.1"
+
+[dependencies.mongodb]
+version = "3.1.0"
+features = ["sync"]
+
+
+[lints]
+workspace = true
