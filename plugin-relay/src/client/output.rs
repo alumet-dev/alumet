@@ -1,4 +1,7 @@
-use std::{future::Future, io};
+use std::{
+    future::Future,
+    time::{Duration, Instant},
+};
 
 use alumet::{
     measurement::MeasurementBuffer,
@@ -12,19 +15,28 @@ use crate::{protocol, serde_impl};
 
 /// Exports Alumet measurements to a relay server via TCP.
 pub struct TcpOutput {
-    client_name: String,
+    settings: TcpOutputSettings,
     in_measurements: AsyncOutputStream,
     in_metrics: mpsc::UnboundedReceiver<Vec<(RawMetricId, Metric)>>,
     out_relay: protocol::MessageStream<TcpStream>,
+    buffer: MeasurementBuffer,
+    buffer_last_send: Instant,
+}
+
+pub struct TcpOutputSettings {
+    pub client_name: String,
+    pub buffer_initial_capacity: usize,
+    pub buffer_max_length: usize,
+    pub buffer_timeout: Duration,
 }
 
 impl TcpOutput {
     /// Opens a connection to a remote relay server.
     pub async fn connect(
-        client_name: String,
-        remote_addr: String,
         in_measurements: AsyncOutputStream,
         in_metrics: mpsc::UnboundedReceiver<Vec<(RawMetricId, Metric)>>,
+        remote_addr: String,
+        settings: TcpOutputSettings,
     ) -> anyhow::Result<TcpOutput> {
         // establish TCP connection
         let stream = TcpStream::connect(remote_addr).await?;
@@ -33,7 +45,7 @@ impl TcpOutput {
         // send greeting
         out_relay
             .write_message(protocol::MessageBody {
-                sender: client_name.clone(),
+                sender: settings.client_name.clone(),
                 content: protocol::MessageEnum::Greet(protocol::Greet {
                     alumet_core_version: String::from(alumet::VERSION),
                     relay_plugin_version: String::from(crate::PLUGIN_VERSION),
@@ -66,25 +78,48 @@ impl TcpOutput {
             }
         }
 
+        // Create a buffer for sending measurements in a more efficient way.
+        let buffer = MeasurementBuffer::with_capacity(settings.buffer_initial_capacity);
+
         Ok(TcpOutput {
-            client_name,
+            settings,
             in_measurements,
             in_metrics,
             out_relay,
+            buffer,
+            buffer_last_send: Instant::now(),
         })
     }
 
     /// Serialize the measurements and send the result via TCP.
-    async fn send_measurements(&mut self, measurements: MeasurementBuffer) -> Result<(), protocol::Error> {
-        // TODO add a buffer to reduce the number of send operations.
-        self.out_relay
-            .write_message(protocol::MessageBody {
-                sender: self.client_name.clone(),
-                content: protocol::MessageEnum::SendMeasurements(protocol::SendMeasurements {
-                    buf: serde_impl::SerializableMeasurementBuffer(measurements),
-                }),
-            })
-            .await
+    async fn send_measurements(&mut self, mut measurements: MeasurementBuffer) -> Result<(), protocol::Error> {
+        let now = Instant::now();
+        let size_limit_reached = self.buffer.len() + measurements.len() > self.settings.buffer_max_length;
+        let timeout_expired = (now - self.buffer_last_send) > self.settings.buffer_timeout;
+
+        log::trace!("size_limit_reached={size_limit_reached}, timeout_expired={timeout_expired}, now={now:?}");
+
+        if !size_limit_reached {
+            self.buffer.merge(&mut measurements);
+        }
+        // TODO it would be better to use a transform step for the buffering, wouldn't it?
+
+        if size_limit_reached || timeout_expired {
+            self.buffer_last_send = now;
+            self.out_relay
+                .write_message(protocol::MessageBody {
+                    sender: self.settings.client_name.clone(),
+                    content: protocol::MessageEnum::SendMeasurements(protocol::SendMeasurements {
+                        buf: serde_impl::SerdeMeasurementBuffer::Borrowed(&self.buffer),
+                    }),
+                })
+                .await?;
+            self.buffer.clear();
+            if size_limit_reached {
+                self.buffer.merge(&mut measurements);
+            }
+        }
+        Ok(())
     }
 
     /// Sends metric definitions via TCP.
@@ -98,7 +133,7 @@ impl TcpOutput {
         });
         self.out_relay
             .write_message(protocol::MessageBody {
-                sender: self.client_name.clone(),
+                sender: self.settings.client_name.clone(),
                 content: protocol::MessageEnum::RegisterMetrics(protocol::RegisterMetrics {
                     metrics: to_send.collect(),
                 }),
@@ -120,7 +155,7 @@ impl TcpOutput {
                     biased;
                     n_metrics = self.in_metrics.recv_many(&mut metrics_buf, 8) => {
                         if n_metrics == 0 {
-                            break; // the channel has been closed
+                            break; // the metrics channel has been closed, which means that Alumet is shutting down
                         }
                         self.send_metrics(&mut metrics_buf).await?;
                     }

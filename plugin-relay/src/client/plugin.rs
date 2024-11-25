@@ -7,8 +7,10 @@ use alumet::plugin::{
 use anyhow::Context;
 use tokio::sync::mpsc;
 
+use super::output::TcpOutputSettings;
+
 pub struct RelayClientPlugin {
-    config: config::Config,
+    config: Option<config::Config>,
 }
 
 mod config {
@@ -29,7 +31,7 @@ mod config {
         pub relay_server: String,
 
         /// Maximum number of elements to keep in the output buffer before sending it.
-        pub buffer_size: usize,
+        pub buffer_max_length: usize,
 
         /// Maximum amount of time to wait before sending the measurements to the server.
         #[serde(with = "humantime_serde")]
@@ -41,7 +43,7 @@ mod config {
             Self {
                 client_name: default_client_name(),
                 relay_server: default_relay_server_address(),
-                buffer_size: 4096,
+                buffer_max_length: 4096,
                 buffer_timeout: Duration::from_secs(30),
             }
         }
@@ -76,16 +78,19 @@ impl AlumetPlugin for RelayClientPlugin {
         let config = deserialize_config::<config::Config>(config)?;
 
         // Return initialized plugin.
-        Ok(Box::new(Self { config }))
+        Ok(Box::new(Self { config: Some(config) }))
     }
 
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         // Prepare the values that will be moved to the closure.
-        let collector_uri = self.config.relay_server.clone();
-        let client_name = self.config.client_name.clone();
-
-        let buffer_size = self.config.buffer_size;
-        let buffer_timeout = self.config.buffer_timeout;
+        let config = self.config.take().unwrap();
+        let server_address = config.relay_server;
+        let client_settings = TcpOutputSettings {
+            client_name: config.client_name,
+            buffer_max_length: config.buffer_max_length,
+            buffer_timeout: config.buffer_timeout,
+            buffer_initial_capacity: 512,
+        };
 
         // Create a channel for the metrics.
         // We want only one task to use the TcpOutput, otherwise it would cause interleaving writes and mess up the messages we send.
@@ -93,15 +98,15 @@ impl AlumetPlugin for RelayClientPlugin {
 
         // The output is async :)
         alumet.add_async_output_builder(move |ctx, stream| {
-            log::info!("Connecting to relay server {collector_uri}...");
+            log::info!("Connecting to relay server {server_address}...");
 
             let tcp = ctx
                 .async_runtime()
                 .block_on(super::output::TcpOutput::connect(
-                    client_name,
-                    collector_uri,
                     stream,
                     metrics_rx,
+                    server_address,
+                    client_settings,
                 ))
                 .context("relay connection error")?;
 

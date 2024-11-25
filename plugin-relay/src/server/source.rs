@@ -26,18 +26,28 @@ pub struct TcpServer {
 }
 
 impl TcpSource {
-    async fn process_message(&mut self, msg: MessageBody) -> anyhow::Result<()> {
+    async fn process_message(&mut self, msg: MessageBody<'_>) -> anyhow::Result<()> {
         match msg.content {
             MessageEnum::Greet(greet) => {
-                // Ensure that the server is compatible and respond.
+                // Ensure that the client and server are compatible and respond.
                 log::debug!("Received {greet:?}");
                 let accept = greet.protocol_version == PROTOCOL_VERSION; // TODO check alumet and plugin are compatible?
-                if !accept {
-                    let remote_addr = self
-                        .tcp
-                        .peer_addr()
-                        .map_or_else(|err| format!("? ({err})"), |s| s.to_string());
-                    log::warn!("Client {remote_addr} uses protocol version {}, which is not compatible with our protocol version {}. Rejecting.", greet.protocol_version, PROTOCOL_VERSION);
+                let remote_addr = self
+                    .tcp
+                    .peer_addr()
+                    .map_or_else(|err| format!("? ({err})"), |s| s.to_string());
+                if accept {
+                    log::info!(
+                        "Client {remote_addr} is compatible: Alumet v{}, relay plugin v{}, protocol version{}",
+                        greet.alumet_core_version,
+                        greet.relay_plugin_version,
+                        greet.protocol_version
+                    );
+                } else {
+                    log::warn!(
+                        "Client {remote_addr} is NOT compatible: it uses protocol version {}, which is not compatible with our protocol version {}. Rejecting.",
+                        greet.protocol_version, PROTOCOL_VERSION
+                    );
                     return Ok(());
                 }
                 self.tcp
@@ -51,6 +61,9 @@ impl TcpSource {
                         }),
                     })
                     .await?;
+                if !accept {
+                    self.tcp.shutdown().await?;
+                }
             }
             MessageEnum::RegisterMetrics(register_metrics) => {
                 let mut metric_ids = Vec::with_capacity(register_metrics.metrics.len());
@@ -68,7 +81,7 @@ impl TcpSource {
                 self.metrics.register_from_client(metric_ids, metric_defs).await?;
             }
             MessageEnum::SendMeasurements(send_measurements) => {
-                let mut alumet_measurements = send_measurements.buf.0;
+                let mut alumet_measurements = send_measurements.buf.owned();
                 // convert the metrics
                 self.metrics.convert_all(&mut alumet_measurements)?;
                 // send them
@@ -145,7 +158,7 @@ impl TcpServer {
     }
 
     fn start_receiving(&mut self, tcp_stream: TcpStream, remote_addr: SocketAddr) {
-        log::info!("Accepting new client {remote_addr}");
+        log::info!("New incoming connection from {remote_addr}");
         let source = TcpSource {
             cancel_token: self.cancel_token.child_token(),
             tcp: MessageStream::new(tcp_stream),
