@@ -8,17 +8,52 @@ use alumet::{
 use anyhow::Context;
 use serde::{ser::SerializeSeq, Deserialize, Serialize};
 
+/// A measurement buffer than can be serialized and deserialized. This type is similar to [`std::borrow::Cow`].
+///
+/// When serializing, use [`SerdeMeasurementBuffer::Borrowed`] to pass a reference to a buffer,
+/// without copying it to the serializer.
+///
+/// When deserializing, you will get an owned buffer in [`SerdeMeasurementBuffer::Owned`].
 #[derive(Debug)]
-pub struct SerializableMeasurementBuffer(pub MeasurementBuffer);
+pub enum SerdeMeasurementBuffer<'a> {
+    Borrowed(&'a MeasurementBuffer),
+    Owned(MeasurementBuffer),
+}
 
-impl serde::Serialize for SerializableMeasurementBuffer {
+impl SerdeMeasurementBuffer<'_> {
+    /// Returns a references to the underlying buffer.
+    ///
+    /// This method always work, but is typically used in the **serialization** process.
+    pub fn borrowed(&self) -> &MeasurementBuffer {
+        match self {
+            SerdeMeasurementBuffer::Borrowed(m) => m,
+            SerdeMeasurementBuffer::Owned(m) => m,
+        }
+    }
+
+    /// Returns the owned buffer, if this is a [`Self::Owned`].
+    ///
+    /// This method is typically used in the **deserialization** process.
+    ///
+    /// # Panics
+    /// Panics if the self value is a `Borrowed`.
+    pub fn owned(self) -> MeasurementBuffer {
+        match self {
+            SerdeMeasurementBuffer::Borrowed(_) => panic!("this buffer is Borrowed, cannot return an owned value"),
+            SerdeMeasurementBuffer::Owned(buf) => buf,
+        }
+    }
+}
+
+impl<'a> serde::Serialize for SerdeMeasurementBuffer<'a> {
     /// Serializes a measurement buffer.
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
-        for point in self.0.iter() {
+        let buf = self.borrowed();
+        let mut seq = serializer.serialize_seq(Some(buf.len()))?;
+        for point in buf.iter() {
             let serializable = SerializableMeasurementPoint::from(point);
             seq.serialize_element(&serializable)?;
         }
@@ -26,7 +61,9 @@ impl serde::Serialize for SerializableMeasurementBuffer {
     }
 }
 
-impl<'de> serde::Deserialize<'de> for SerializableMeasurementBuffer {
+// It's important that the 'de lifetime is NOT related to 'a, otherwise it would indicate
+// that the deserialization result holds some reference to the input bytes.
+impl<'de, 'a> serde::Deserialize<'de> for SerdeMeasurementBuffer<'a> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -59,9 +96,8 @@ impl<'de> serde::Deserialize<'de> for SerializableMeasurementBuffer {
                 Ok(res)
             }
         }
-
         let inner = deserializer.deserialize_seq(BufVisitor)?;
-        Ok(SerializableMeasurementBuffer(inner))
+        Ok(SerdeMeasurementBuffer::Owned(inner))
     }
 }
 

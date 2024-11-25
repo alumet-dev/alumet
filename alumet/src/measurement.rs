@@ -352,6 +352,12 @@ impl MeasurementBuffer {
         self.points.push(point);
     }
 
+    /// Merges another buffer into this buffer.
+    /// All the measurement points of `other` are moved to `self`.
+    pub fn merge(&mut self, other: &mut MeasurementBuffer) {
+        self.points.append(&mut other.points);
+    }
+
     /// Clears the buffer, removing all the measurements.
     pub fn clear(&mut self) {
         self.points.clear();
@@ -370,6 +376,14 @@ impl MeasurementBuffer {
     /// Returns a `MeasurementAccumulator` that will push all measurements to this buffer.
     pub fn as_accumulator(&mut self) -> MeasurementAccumulator {
         MeasurementAccumulator(self)
+    }
+}
+
+impl Default for MeasurementBuffer {
+    fn default() -> Self {
+        Self {
+            points: Default::default(),
+        }
     }
 }
 

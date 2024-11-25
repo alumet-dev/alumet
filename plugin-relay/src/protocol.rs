@@ -27,6 +27,8 @@ pub const MAX_MESSAGE_BODY_SIZE: u32 = 32_000_000; // 32 MB
 /// Capacity (in bytes) of the serialization/deserialization buffer.
 const BUFFER_CAPACITY: usize = 8192;
 
+// TODO make the header 3 bytes instead of 4
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// An I/O error.
@@ -42,32 +44,21 @@ pub enum Error {
     Disconnected,
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct MessageHeader {
-    /// The size of the message's body, in bytes.
-    ///
-    /// Knowing the size upfront helps reading enough data before attempting to deserialize the message,
-    /// which improves performance.
-    #[serde(with = "postcard::fixint::be")]
-    size: u32,
-    // TODO make the header 3 bytes instead of 4
-}
-
 #[derive(Debug, Serialize, Deserialize)]
-pub struct MessageBody {
+pub struct MessageBody<'s> {
     /// The client id or server id.
     pub sender: String,
 
     /// The content of the message.
-    pub content: MessageEnum,
+    pub content: MessageEnum<'s>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub enum MessageEnum {
+pub enum MessageEnum<'s> {
     Greet(Greet),
     GreetResponse(GreetResponse),
     RegisterMetrics(RegisterMetrics),
-    SendMeasurements(SendMeasurements),
+    SendMeasurements(SendMeasurements<'s>),
 }
 
 /// Sent by the client at the beginning of the connection.
@@ -112,8 +103,8 @@ pub enum MetricType {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct SendMeasurements {
-    pub buf: serde_impl::SerializableMeasurementBuffer,
+pub struct SendMeasurements<'s> {
+    pub buf: serde_impl::SerdeMeasurementBuffer<'s>,
 }
 
 /// Allows to read/write protocol messages from/to an asynchronous IO stream.
@@ -136,7 +127,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> MessageStream<S> {
         }
     }
 
-    pub async fn write_message(&mut self, msg: MessageBody) -> Result<(), Error> {
+    pub async fn write_message(&mut self, msg: MessageBody<'_>) -> Result<(), Error> {
         // reserve 4 bytes for the msg length
         self.serializer.output.bytes.resize(4, 0);
 
@@ -159,11 +150,11 @@ impl<S: AsyncRead + AsyncWrite + Unpin> MessageStream<S> {
         Ok(())
     }
 
-    pub async fn read_timeout(&mut self, timeout: Duration) -> Result<Result<MessageBody, Error>, Elapsed> {
+    pub async fn read_timeout(&mut self, timeout: Duration) -> Result<Result<MessageBody<'static>, Error>, Elapsed> {
         tokio::time::timeout(timeout, self.read_message()).await
     }
 
-    pub async fn read_message(&mut self) -> Result<MessageBody, Error> {
+    pub async fn read_message(&mut self) -> Result<MessageBody<'static>, Error> {
         // First, deserialize the next message header. We need 4 bytes.
         // Then, deserialize the message body.
 
