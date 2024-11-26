@@ -336,17 +336,7 @@ mod tests {
 
     #[test]
     fn test_message_rw_simple() -> anyhow::Result<()> {
-        let msg = MessageBody {
-            sender: String::from("test"),
-            content: super::MessageEnum::Greet(super::Greet {
-                alumet_core_version: String::from("1.2.3-test"),
-                relay_plugin_version: String::from("0.0.0"),
-                protocol_version: PROTOCOL_VERSION,
-            }),
-        };
-        let mut buf = BytesMut::with_capacity(256);
-        // let stream = MessageStream::new(&mut buf);
-        todo!();
+        // TODO
         Ok(())
     }
 }
