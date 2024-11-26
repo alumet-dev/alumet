@@ -43,7 +43,7 @@ struct K8sConfig {
     token_retrieval: TokenRetrieval,
 }
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize, PartialEq, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum TokenRetrieval {
     Kubectl,
@@ -265,6 +265,9 @@ impl AlumetPlugin for K8sPlugin {
 impl Default for K8sConfig {
     fn default() -> Self {
         let root_path = PathBuf::from("/sys/fs/cgroup/kubepods.slice/");
+        if !root_path.exists() {
+            log::warn!("Path {} not exist.", root_path.display());
+        }
         Self {
             path: root_path,
             poll_interval: Duration::from_secs(1), // 1Hz
@@ -272,5 +275,37 @@ impl Default for K8sConfig {
             hostname: String::from(""),
             token_retrieval: TokenRetrieval::Kubectl,
         }
+    }
+}
+
+// ------------------ //
+// --- UNIT TESTS --- //
+// ------------------ //
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::Result;
+    use std::path::PathBuf;
+
+    // Test default on k8s plugin config
+    #[test]
+    fn test_default_k8s_config() {
+        let config = K8sConfig::default();
+        assert_eq!(config.path, PathBuf::from("/sys/fs/cgroup/kubepods.slice/"));
+        assert_eq!(config.poll_interval, Duration::from_secs(1));
+        assert_eq!(config.kubernetes_api_url, "https://127.0.0.1:8080");
+        assert!(config.hostname.is_empty());
+        assert_eq!(config.token_retrieval, TokenRetrieval::Kubectl);
+    }
+
+    //
+    #[test]
+    fn test_init_k8s_plugin() -> Result<()> {
+        let config_table = serialize_config(K8sConfig::default())?;
+        let plugin = K8sPlugin::init(config_table)?;
+        assert_eq!(plugin.config.kubernetes_api_url, "https://127.0.0.1:8080");
+        assert!(plugin.metrics.is_none());
+        assert!(plugin.watcher.is_none());
+        Ok(())
     }
 }

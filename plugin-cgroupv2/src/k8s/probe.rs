@@ -5,11 +5,11 @@
 use alumet::{
     measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
-    pipeline::elements::error::PollError,
+    pipeline::elements::error::{PollError, PollRetry},
     plugin::util::CounterDiff,
     resources::{Resource, ResourceConsumer},
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use super::utils::{gather_value, CgroupV2MetricFile};
 use crate::cgroupv2::{CgroupV2Metric, Metrics};
@@ -29,6 +29,7 @@ pub struct K8SProbe {
     pub total_mem: TypedMetricId<u64>,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl K8SProbe {
     pub fn new(
         metric: Metrics,
@@ -89,10 +90,13 @@ impl K8SProbe {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 impl alumet::pipeline::Source for K8SProbe {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         let mut file_buffer: String = String::new();
-        let metrics: CgroupV2Metric = gather_value(&mut self.cgroup_v2_metric_file, &mut file_buffer)?;
+        let metrics: CgroupV2Metric = gather_value(&mut self.cgroup_v2_metric_file, &mut file_buffer)
+            .context("Error get value")
+            .retry_poll()?;
 
         let diff_tot: Option<u64> = self.time_tot.update(metrics.time_used_tot).difference();
         let diff_usr: Option<u64> = self.time_usr.update(metrics.time_used_user_mode).difference();

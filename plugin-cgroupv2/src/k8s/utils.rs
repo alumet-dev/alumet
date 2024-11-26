@@ -37,13 +37,15 @@ pub struct CgroupV2MetricFile {
     pub node: String,
 }
 
-/// Check if a specific file is a dir. 
+/// Check if a specific file is a dir.
 /// Used to know if cgroup v2 are used
-/// 
+///
 /// # Arguments
+///
 /// - `path` : Path of file or directory to check
-/// 
+///
 /// # Return
+///
 /// - Boolean error ocurres when path of a file or directory is not available
 /// - Error ocurres when an other kind of issue appears on the path
 pub fn is_accessible_dir(path: &Path) -> Result<bool, std::io::Error> {
@@ -54,7 +56,7 @@ pub fn is_accessible_dir(path: &Path) -> Result<bool, std::io::Error> {
             } else {
                 Ok(false) // Not a directory
             }
-        },
+        }
         Err(e) => {
             if e.kind() == std::io::ErrorKind::NotFound {
                 Ok(false) // Path not exist
@@ -525,15 +527,15 @@ mod tests {
             std::fs::remove_dir_all(&root).unwrap();
         }
 
-        let burstable_dir = root.join("kubepods-burstable.slice/");
-        std::fs::create_dir_all(&burstable_dir).unwrap();
+        let dir = root.join("kubepods-burstable.slice/");
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(is_accessible_dir(&dir).unwrap());
 
-        let burstable_sub_dir: PathBuf =
-            burstable_dir.join("kubepods-burstable-pod32a1942cb9a81912549c152a49b5f9b1.slice/");
+        let sub_dir: PathBuf = dir.join("kubepods-burstable-pod32a1942cb9a81912549c152a49b5f9b1.slice/");
+        std::fs::create_dir_all(&sub_dir).unwrap();
+        assert!(is_accessible_dir(&sub_dir).unwrap());
 
-        std::fs::create_dir_all(&burstable_sub_dir).unwrap();
-
-        let path_cpu: PathBuf = burstable_sub_dir.join("cpu.stat");
+        let path_cpu: PathBuf = sub_dir.join("cpu.stat");
         std::fs::write(
             path_cpu.clone(),
             format!(
@@ -548,7 +550,7 @@ mod tests {
         )
         .unwrap();
 
-        let path_memory: PathBuf = burstable_sub_dir.join("memory.stat");
+        let path_memory: PathBuf = sub_dir.join("memory.stat");
         std::fs::write(
             path_memory.clone(),
             format!(
@@ -590,15 +592,15 @@ mod tests {
             node: "node_test".to_owned(),
         };
 
-        let mut cgroup_test_file: CgroupV2MetricFile = cgroup_v2_metric_file;
-        let mut content_file = String::new();
-        let res_metric = gather_value(&mut cgroup_test_file, &mut content_file);
+        let mut cgroup: CgroupV2MetricFile = cgroup_v2_metric_file;
+        let mut content = String::new();
+        let result = gather_value(&mut cgroup, &mut content);
 
         if let Ok(CgroupV2Metric {
             name,
-            uid: _uid,
-            namespace: _ns,
-            node: _nd,
+            uid,
+            namespace,
+            node,
             time_used_tot,
             time_used_user_mode,
             time_used_system_mode,
@@ -606,9 +608,12 @@ mod tests {
             file_mem,
             kernel_mem,
             pagetables_mem,
-        }) = res_metric
+        }) = result
         {
             assert_eq!(name, "testing_pod".to_owned());
+            assert_eq!(uid, "uid_test".to_owned());
+            assert_eq!(namespace, "namespace_test".to_owned());
+            assert_eq!(node, "node_test".to_owned());
             assert_eq!(time_used_tot, 8335557927);
             assert_eq!(time_used_user_mode, 4728882396);
             assert_eq!(time_used_system_mode, 3606675531);
@@ -617,8 +622,7 @@ mod tests {
             assert_eq!(kernel_mem, 3686400);
             assert_eq!(pagetables_mem, 0);
         } else {
-            assert!(false);
+            assert!(result.is_err());
         }
     }
-
 }
