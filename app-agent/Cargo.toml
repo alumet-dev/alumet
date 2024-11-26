@@ -25,6 +25,7 @@ plugin-socket-control = { path = "../plugin-socket-control", optional = true }
 plugin-relay = { path = "../plugin-relay", optional = true }
 plugin-procfs = { path = "../plugin-procfs", optional = true }
 plugin-cgroupv2 = { path = "../plugin-cgroupv2", optional = true }
+plugin-influxdb = { path = "../plugin-influxdb", optional = true }
 
 [features]
 # local non-relay mode for x86 processors
@@ -46,7 +47,12 @@ relay_client = [
     "dep:plugin-cgroupv2",
     "dep:plugin-procfs",
 ]
-relay_server = ["dep:plugin-relay", "plugin-relay/server", "dep:plugin-csv"]
+relay_server = [
+    "dep:plugin-relay",
+    "plugin-relay/server",
+    "dep:plugin-csv",
+    "dep:plugin-influxdb"
+]
 
 [[bin]]
 name = "alumet-local-agent"
