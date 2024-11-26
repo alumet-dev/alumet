@@ -41,9 +41,13 @@ jobs:
       - run:
           name: Compile Alumet core
           command: "cargo build -p alumet"
+      # build libraries and agents now to avoid a timeout in the tests
       - run:
           name: Build all libraries
           command: "cargo build"
+      - run:
+          name: Build the agent
+          command: "cargo build --bin alumet-local-agent --features local_x86"
       - run:
           name: Run Tests (including doc tests)
           command: "cargo test -- --exact --show-output"
