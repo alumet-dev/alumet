@@ -53,6 +53,11 @@ impl AlumetPlugin for OARPlugin {
         }))
     }
 
+    fn stop(&mut self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    #[cfg(not(tarpaulin_include))]
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         let v2_used: bool = super::utils::is_accessible_dir(&PathBuf::from("/sys/fs/cgroup/"));
         if !v2_used {
@@ -82,10 +87,7 @@ impl AlumetPlugin for OARPlugin {
         Ok(())
     }
 
-    fn stop(&mut self) -> anyhow::Result<()> {
-        Ok(())
-    }
-
+    #[cfg(not(tarpaulin_include))]
     fn post_pipeline_start(&mut self, alumet: &mut AlumetPostStart) -> anyhow::Result<()> {
         let control_handle = alumet.pipeline_control();
 
@@ -137,6 +139,7 @@ impl AlumetPlugin for OARPlugin {
                                         CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
                                     let counter_tmp_sys: CounterDiff =
                                         CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
+
                                     let probe: CgroupV2prob = CgroupV2prob::new(
                                         detector.metrics.clone(),
                                         metric_file,
@@ -188,9 +191,65 @@ impl AlumetPlugin for OARPlugin {
 impl Default for OAR3Config {
     fn default() -> Self {
         let root_path = PathBuf::from("/sys/fs/cgroup/");
+        if !root_path.exists() {
+            log::warn!("Error : Path '{}' not exist.", root_path.display());
+        }
         Self {
             path: root_path,
             poll_interval: Duration::from_secs(1), // 1Hz
         }
+    }
+}
+
+// ------------------ //
+// --- UNIT TESTS --- //
+// ------------------ //
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::Result;
+    use std::path::PathBuf;
+
+    // Create a fake plugin structure for oar3 plugin
+    fn create_mock_plugin() -> OARPlugin {
+        OARPlugin {
+            config: OAR3Config {
+                path: PathBuf::from("/sys/fs/cgroup/kubepods.slice/"),
+                poll_interval: Duration::from_secs(1),
+            },
+            watcher: None,
+            metrics: None,
+        }
+    }
+
+    // Test default configuration of oar3 plugin
+    #[test]
+    fn test_default_config() {
+        let result = OARPlugin::default_config().unwrap();
+        assert!(result.is_some(), "Expected Some(ConfigTable): result = None");
+
+        let config_table = result.unwrap();
+        let config: OAR3Config = deserialize_config(config_table).expect("Failed to deserialize config");
+
+        assert_eq!(config.path, PathBuf::from("/sys/fs/cgroup/"));
+        assert_eq!(config.poll_interval, Duration::from_secs(1));
+    }
+
+    // Test `init` function to initialize oar3 plugin configuration
+    #[test]
+    fn test_init() -> Result<()> {
+        let config_table: ConfigTable = serialize_config(OAR3Config::default())?;
+        let plugin: Box<OARPlugin> = OARPlugin::init(config_table)?;
+        assert!(plugin.metrics.is_none());
+        assert!(plugin.watcher.is_none());
+        Ok(())
+    }
+
+    // Test `stop` function to stop oar3 plugin
+    #[test]
+    fn test_stop() {
+        let mut plugin = create_mock_plugin();
+        let result = plugin.stop();
+        assert!(result.is_ok(), "Stop should complete without errors.");
     }
 }

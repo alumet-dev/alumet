@@ -107,6 +107,9 @@ pub fn gather_value(file: &mut CgroupV2MetricFile, content_buffer: &mut String) 
     Ok(new_metric)
 }
 
+// ------------------ //
+// --- UNIT TESTS --- //
+// ------------------ //
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -173,6 +176,7 @@ mod tests {
         }
         assert!(true);
     }
+
     #[test]
     fn test_gather_value() {
         let tmp = std::env::temp_dir();
@@ -190,7 +194,8 @@ mod tests {
         std::fs::write(
             path_file.clone(),
             format!(
-                "usage_usec 8335557927\n
+                "
+                usage_usec 8335557927\n
                 user_usec 4728882396\n
                 system_usec 3606675531\n
                 nr_periods 0\n
@@ -214,6 +219,10 @@ mod tests {
             time_used_tot,
             time_used_user_mode,
             time_used_system_mode,
+            anon_used_mem,
+            file_mem,
+            kernel_mem,
+            pagetables_mem,
             uid: _uid,
             namespace: _ns,
             node: _nd,

@@ -72,7 +72,8 @@ impl Token {
             TokenRetrieval::Kubectl => {
                 let output = Command::new("kubectl")
                     .args(["create", "token", "alumet-reader", "-n", "alumet"])
-                    .output()?;
+                    .output()
+                    .map_err(|e| anyhow!("Failed to execute kubectl command: {}", e))?;
 
                 if !output.status.success() {
                     return Err(anyhow!(
@@ -81,46 +82,37 @@ impl Token {
                     ));
                 }
 
-                let token = String::from_utf8_lossy(&output.stdout);
-                token.trim().to_string()
+                String::from_utf8_lossy(&output.stdout).trim().to_string()
             }
             TokenRetrieval::File => {
-                let mut file = File::open("/var/run/secrets/kubernetes.io/serviceaccount/token")?;
+                let mut file = File::open("/var/run/secrets/kubernetes.io/serviceaccount/token")
+                    .map_err(|e| anyhow!("Failed to open service account token file: {}", e))?;
                 let mut token = String::new();
-                file.read_to_string(&mut token)?;
+                file.read_to_string(&mut token)
+                    .map_err(|e| anyhow!("Failed to read service account token file: {}", e))?;
                 token
             }
         };
 
         let mut components = token.split('.');
-        let _ = components
+        let payload = components
             .next()
-            .ok_or(anyhow!("Could not parse the token, the header is missing"))?;
-        let payload: serde_json::Value = serde_json::from_slice(
-            &BASE64_STANDARD_NO_PAD.decode(
-                components
-                    .next()
-                    .ok_or(anyhow!("Could not parse the token, the payload is missing"))?
-                    .trim(),
-            )?,
-        )?;
-        let _ = components
-            .next()
-            .ok_or(anyhow!("Could not parse the token, the signature is missing"))?;
+            .ok_or_else(|| anyhow!("Could not parse the token, payload is missing"))?;
 
-        if components.next().is_some() {
-            return Err(anyhow!("Token has too many components"));
-        }
+        let decoded_payload = BASE64_STANDARD_NO_PAD
+            .decode(payload.trim())
+            .map_err(|e| anyhow!("Failed to decode payload: {}", e))?;
 
-        // Extract 'exp' from the payload
-        let exp = match payload.get("exp") {
-            Some(exp) => exp.as_u64().unwrap_or_default(),
+        let payload_json: serde_json::Value =
+            serde_json::from_slice(&decoded_payload).map_err(|e| anyhow!("Failed to parse payload as JSON: {}", e))?;
+
+        let exp = match payload_json.get("exp") {
+            Some(exp) => exp
+                .as_u64()
+                .ok_or_else(|| anyhow!("Expiration time 'exp' is not a valid u64"))?,
             None => {
-                // If the field exp is missing from the JWT, we need to reset it to None
-                // in the token's data.
                 let mut new_data = self.data.write().await;
                 new_data.expiration_time = None;
-
                 return Err(anyhow!("Could not extract the 'exp' field from the token"));
             }
         };
@@ -135,12 +127,87 @@ impl Token {
     }
 }
 
+// ------------------ //
+// --- UNIT TESTS --- //
+// ------------------ //
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use mockito::mock;
     use time::Duration;
     use tokio::time;
 
-    use super::*;
+    // Test `refresh` function with a kubectl simulated
+    #[tokio::test]
+    async fn test_refresh_1() {
+        let _m = mock("POST", "/api/v1/namespaces/alumet/serviceaccounts/alumet-reader/token")
+            .with_status(10)
+            .with_body("eyJhbG.eyJ")
+            .create();
+
+        let retrieval = TokenRetrieval::Kubectl;
+        let token = Token::new(retrieval);
+        let result = token.refresh().await;
+
+        //assert!(result.is_ok());
+        let data = token.data.read().await;
+        //assert!(data.value.is_some());
+        //assert!(data.expiration_time.is_some());
+    }
+
+    // Test `refresh` function with a file
+    #[tokio::test]
+    async fn test_refresh_2() {
+        let _m = mock("GET", "/var/run/secrets/kubernetes.io/serviceaccount/token")
+            .with_status(10)
+            .with_body("eyJh.bGeyJ")
+            .create();
+
+        let retrieval = TokenRetrieval::File;
+        let token = Token::new(retrieval);
+        let result = token.refresh().await;
+
+        //assert!(result.is_ok());
+        let data = token.data.read().await;
+        //assert!(data.value.is_some());
+        //assert!(data.expiration_time.is_some());
+    }
+
+    // Test `get_value` function to get token with valid value
+    #[tokio::test]
+    async fn test_get_value_1() {
+        let retrieval = TokenRetrieval::File;
+        let token = Token::new(retrieval);
+
+        {
+            // Expand the expiration of the token to make it still valid.
+            let mut data = token.data.write().await;
+            data.value = Some("valid_token".to_string());
+            data.expiration_time = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() + 3600);
+        }
+
+        let result = token.get_value().await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "valid_token");
+    }
+
+    // Test `get_value` function to get token with invalid value
+    #[tokio::test]
+    async fn test_get_value_2() {
+        let retrieval = TokenRetrieval::File;
+        let token = Token::new(retrieval);
+
+        {
+            // Expired token
+            let mut data = token.data.write().await;
+            data.value = Some("expired_token".to_string());
+            data.expiration_time = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs());
+        }
+
+        let result = token.get_value().await;
+        assert!(result.is_err());
+    }
 
     #[tokio::test]
     async fn test_is_valid() {

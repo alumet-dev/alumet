@@ -1,3 +1,6 @@
+//! # utils file for k8s module of cgroupv2 plugin
+//!
+//! This module provides functionality for interacting with Kubernetes pods.
 use anyhow::*;
 use reqwest::{self, header};
 use serde_json::Value;
@@ -11,21 +14,21 @@ use std::{
     vec,
 };
 
+use super::token::Token;
 use crate::cgroupv2::CgroupV2Metric;
 
-use super::token::Token;
-
-/// CgroupV2MetricFile represents a file containing cgroup v2 data about cpu usage.
-///
-/// Note that the file contains multiple metrics.
 #[derive(Debug)]
 pub struct CgroupV2MetricFile {
     /// Name of the pod.
     pub name: String,
-    /// Path to the file.
-    pub path: PathBuf,
-    /// Opened file descriptor.
-    pub file: File,
+    /// Path to the cgroup cpu stat file.
+    pub path_cpu: PathBuf,
+    /// Path to the cgroup memory stat file.
+    pub path_memory: PathBuf,
+    /// Opened file descriptor for cgroup cpu stat.
+    pub file_cpu: File,
+    /// Opened file descriptor for cgroup memory stat.
+    pub file_memory: File,
     /// UID of the pod.
     pub uid: String,
     /// Namespace of the pod.
@@ -34,9 +37,34 @@ pub struct CgroupV2MetricFile {
     pub node: String,
 }
 
-/// Check if a specific file is a dir. Used to know if cgroup v2 are used
-pub fn is_accessible_dir(path: &Path) -> bool {
-    path.is_dir()
+/// Check if a specific file is a dir.
+/// Used to know if cgroup v2 are used
+///
+/// # Arguments
+///
+/// - `path` : Path of file or directory to check
+///
+/// # Return
+///
+/// - Boolean error ocurres when path of a file or directory is not available
+/// - Error ocurres when an other kind of issue appears on the path
+pub fn is_accessible_dir(path: &Path) -> Result<bool, std::io::Error> {
+    match std::fs::metadata(path) {
+        Ok(metadata) => {
+            if metadata.is_dir() {
+                Ok(true) // Directory available
+            } else {
+                Ok(false) // Not a directory
+            }
+        }
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                Ok(false) // Path not exist
+            } else {
+                Err(e) // Permissions errors or other
+            }
+        }
+    }
 }
 
 /// Returns a Vector of CgroupV2MetricFile associated to pods available under a given directory.
@@ -56,18 +84,19 @@ fn list_metric_file_in_dir(
     // For each File in the root path
     for entry in entries {
         let path = entry?.path();
-        let mut path_cloned = path.clone();
+        let mut path_cloned_cpu = path.clone();
+        let mut path_cloned_memory = path.clone();
 
         if path.is_dir() {
-            let path_mf = path_cloned.clone();
+            let path_cpu = path_cloned_cpu.clone();
+            let path_memory = path_cloned_memory.clone();
 
             let file_name = path.file_name().ok_or_else(|| anyhow::anyhow!("No file name found"))?;
             let dir_uid = file_name
                 .to_str()
                 .with_context(|| format!("Filename is not valid UTF-8: {:?}", path))?;
 
-            // If the dir_uid doesn't end with .slice, we will not find the right files
-            if !dir_uid.ends_with(".slice") {
+            if !(dir_uid.ends_with(".slice")) {
                 continue;
             }
 
@@ -87,7 +116,10 @@ fn list_metric_file_in_dir(
 
             new_prefix.push('-');
             let uid = dir_uid_mod.strip_prefix(&new_prefix).unwrap_or(dir_uid_mod);
-            path_cloned.push("cpu.stat");
+
+            path_cloned_cpu.push("cpu.stat");
+            path_cloned_memory.push("memory.stat");
+
             let name_to_seek_raw = uid.strip_prefix("pod").unwrap_or(uid);
             let name_to_seek = name_to_seek_raw.replace('_', "-"); // Replace _ with - to match with hashmap
 
@@ -97,13 +129,18 @@ fn list_metric_file_in_dir(
                 None => ("".to_owned(), "".to_owned(), "".to_owned()),
             };
 
-            let file: File =
-                File::open(&path_cloned).with_context(|| format!("failed to open file {}", path_cloned.display()))?;
+            let file_cpu: File = File::open(&path_cloned_cpu)
+                .with_context(|| format!("failed to open file {}", path_cloned_cpu.display()))?;
+            let file_memory: File = File::open(&path_cloned_memory)
+                .with_context(|| format!("failed to open file {}", path_cloned_memory.display()))?;
+
             // Let's create the new metric and push it to the vector of metrics
             vec_file_metric.push(CgroupV2MetricFile {
                 name: name.clone(),
-                path: path_mf,
-                file,
+                path_cpu,
+                file_cpu,
+                path_memory,
+                file_memory,
                 uid: uid.to_owned(),
                 namespace: namespace.clone(),
                 node: node.clone(),
@@ -125,8 +162,10 @@ pub fn list_all_k8s_pods_file(
     if !root_directory_path.exists() {
         return Ok(final_list_metric_file);
     }
+
     // Add the root for all subdirectory:
     let mut all_sub_dir: Vec<PathBuf> = vec![root_directory_path.to_owned()];
+
     // Iterate in the root directory and add to the vec all folder ending with "".slice"
     // On unix, folders are files, files are files and peripherals are also files
     for file in fs::read_dir(root_directory_path)? {
@@ -153,23 +192,52 @@ pub fn list_all_k8s_pods_file(
     Ok(final_list_metric_file)
 }
 
-/// Extracts the metrics from the file.
+/// Extracts the metrics from data files of cgroup.
+///
+/// # Arguments
+///
+/// - Get `CgroupV2MetricFile` structure parameters to use cgroup data
+/// - `content_buffer` : Buffer where we store content of cgroup data file
+///
+/// # Return
+///
+/// - Error if CPU or memory data file are not found
 pub fn gather_value(file: &mut CgroupV2MetricFile, content_buffer: &mut String) -> anyhow::Result<CgroupV2Metric> {
-    content_buffer.clear(); //Clear before use
-    file.file
+    content_buffer.clear();
+
+    // CPU cgroup data
+    file.file_cpu
         .read_to_string(content_buffer)
         .with_context(|| format!("Unable to gather cgroup v2 metrics by reading file {}", file.name))?;
-    file.file.rewind()?;
+    if content_buffer.is_empty() {
+        return Err(anyhow::anyhow!("CPU stat file is empty for {}", file.name));
+    }
+    file.file_cpu.rewind()?;
+
+    // Memory cgroup data
+    file.file_memory
+        .read_to_string(content_buffer)
+        .with_context(|| format!("Unable to gather cgroup v2 metrics by reading file {}", file.name))?;
+    if content_buffer.is_empty() {
+        return Err(anyhow::anyhow!("Memory stat file is empty for {}", file.name));
+    }
+    file.file_memory.rewind()?;
+
     let mut new_metric =
         CgroupV2Metric::from_str(content_buffer).with_context(|| format!("failed to parse {}", file.name))?;
+
     new_metric.name = file.name.clone();
     new_metric.namespace = file.namespace.clone();
     new_metric.uid = file.uid.clone();
     new_metric.node = file.node.clone();
+
     Ok(new_metric)
 }
 
-/// Returns a HashMap where the key is the uid used and the value is a tuple containing it's name, namespace and node
+/// # Returns
+///
+/// Returns a `HashMap` where the key is the uid used,
+/// and the value is a tuple containing it's name, namespace and node
 pub async fn get_existing_pods(
     node: &str,
     kubernetes_api_url: &str,
@@ -186,6 +254,7 @@ pub async fn get_existing_pods(
     if kubernetes_api_url.is_empty() {
         return Ok(HashMap::new());
     }
+
     let mut api_url_root = kubernetes_api_url.to_string();
     api_url_root.push_str("/api/v1/pods/");
     let mut selector = false;
@@ -196,12 +265,15 @@ pub async fn get_existing_pods(
         selector = true;
         tmp
     };
+
     let mut headers = header::HeaderMap::new();
     headers.insert(header::AUTHORIZATION, format!("Bearer {}", token).parse()?);
+
     let client = reqwest::Client::builder()
         .danger_accept_invalid_certs(true)
         .default_headers(headers)
         .build()?;
+
     let Ok(response) = client.get(api_url).send().await else {
         return Ok(HashMap::new());
     };
@@ -217,7 +289,8 @@ pub async fn get_existing_pods(
 
     // let's check if the items' part contain pods to look at
     if let Some(items) = data.get("items") {
-        let size = items.as_array().unwrap_or(&vec![]).len(); // If the node was not found i.e. no item in the response, we call the API again with all nodes
+        // If the node was not found i.e. no item in the response, we call the API again with all nodes
+        let size = items.as_array().unwrap_or(&vec![]).len();
         if size == 0 && selector {
             // Ask again the api, with all nodes
             let Ok(response) = client.get(api_url_root).send().await else {
@@ -291,6 +364,7 @@ pub async fn get_pod_name(
     if kubernetes_api_url.is_empty() {
         return Ok(("".to_string(), "".to_string(), "".to_string()));
     }
+
     let mut api_url_root = kubernetes_api_url.to_string();
     api_url_root.push_str("/api/v1/pods/");
     let mut selector = false;
@@ -322,7 +396,8 @@ pub async fn get_pod_name(
 
     // let's check if the items' part contain pods to look at
     if let Some(items) = data.get("items") {
-        let size = items.as_array().unwrap_or(&vec![]).len(); // If the node was not found i.e. no item in the response, we call the API again with all nodes
+        // If the node was not found i.e. no item in the response, we call the API again with all nodes
+        let size = items.as_array().unwrap_or(&vec![]).len();
         if size == 0 && selector {
             // Ask again the api, with all nodes
             let Ok(response) = client.get(api_url_root).send().await else {
@@ -374,50 +449,95 @@ pub async fn get_pod_name(
     Ok(("".to_string(), "".to_string(), "".to_string()))
 }
 
+// ------------------ //
+// --- UNIT TESTS --- //
+// ------------------ //
 #[cfg(test)]
 mod tests {
     use super::{super::plugin::TokenRetrieval, *};
+    use std::fs::File;
+    use std::path::PathBuf;
+    use tempfile::tempdir;
 
+    // Tests `test_list_metric_file` function to evaluate existing files and folder
     #[test]
-    fn test_is_cgroups_v2() {
-        let tmp = std::env::temp_dir();
-        let root: std::path::PathBuf = tmp.join("test-alumet-plugin-k8s/is_cgroupv2");
+    fn test_list_metric_file_1() {
+        let tmp: PathBuf = std::env::temp_dir();
+        let root: PathBuf = tmp.join("test-alumet-plugin-k8s/kubepods-list-metrics");
+
         if root.exists() {
             std::fs::remove_dir_all(&root).unwrap();
         }
-        let cgroupv2_dir = root.join("myDirCgroup");
-        std::fs::create_dir_all(&cgroupv2_dir).unwrap();
-        assert!(is_accessible_dir(Path::new(&cgroupv2_dir)));
-        assert!(!is_accessible_dir(std::path::Path::new(
-            "test-alumet-plugin-k8s/is_cgroupv2/myDirCgroup_bad"
-        )));
+
+        let dir: PathBuf = root.join("dir_cgroup");
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(is_accessible_dir(&dir).unwrap());
+
+        let non_existent_path: PathBuf = root.join("non_existent_dir");
+        assert!(!is_accessible_dir(&non_existent_path).unwrap());
+
+        let file_path: PathBuf = root.join("data.stat");
+        std::fs::write(&file_path, "test file").unwrap();
+        assert!(!is_accessible_dir(&file_path).unwrap());
+
+        assert!(!is_accessible_dir(&PathBuf::new()).unwrap());
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
+    // Test `test_list_metric_file` function to simulate missing files in Kubernetes directory
     #[test]
-    fn test_list_metric_file_in_dir() {
-        let tmp = std::env::temp_dir();
-        let root: std::path::PathBuf = tmp.join("test-alumet-plugin-k8s/kubepods-folder.slice/");
+    fn test_list_metric_file_2() {
+        let tmp: PathBuf = std::env::temp_dir();
+        let root: PathBuf = tmp.join("test-alumet-plugin-k8s/kubepods-list-metrics-missing-files");
+
         if root.exists() {
             std::fs::remove_dir_all(&root).unwrap();
         }
-        let burstable_dir = root.join("kubepods-burstable.slice/");
-        std::fs::create_dir_all(&burstable_dir).unwrap();
 
-        let a = burstable_dir.join("kubepods-burstable-pod32a1942cb9a81912549c152a49b5f9b1.slice/");
-        let b = burstable_dir.join("kubepods-burstable-podd9209de2b4b526361248c9dcf3e702c0.slice/");
-        let c = burstable_dir.join("kubepods-burstable-podccq5da1942a81912549c152a49b5f9b1.slice/");
-        let d = burstable_dir.join("kubepods-burstable-podd87dz3z8z09de2b4b526361248c902c0.slice/");
-        std::fs::create_dir_all(&a).unwrap();
-        std::fs::create_dir_all(&b).unwrap();
-        std::fs::create_dir_all(&c).unwrap();
-        std::fs::create_dir_all(&d).unwrap();
-        std::fs::write(a.join("cpu.stat"), "en").unwrap();
-        std::fs::write(b.join("cpu.stat"), "fr").unwrap();
-        std::fs::write(c.join("cpu.stat"), "sv").unwrap();
-        std::fs::write(d.join("cpu.stat"), "ne").unwrap();
+        let dir = root.join("kubepods-burstable.slice/");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let sub_dir = dir.join("kubepods-burstable-pod32a1942cb9a81912549c152a49b5f9b1.slice/");
+        std::fs::create_dir_all(&sub_dir).unwrap();
+        std::fs::write(sub_dir.join("cpu.stat"), "test_cpu").unwrap();
+
+        let result = list_metric_file_in_dir(&dir, "", "", &Token::new(TokenRetrieval::Kubectl));
+        assert!(result.is_err());
+    }
+
+    // Test `test_list_metric_file` function to simulate arborescence of kubernetes pods
+    #[test]
+    fn test_list_metric_file_3() {
+        let tmp: PathBuf = std::env::temp_dir();
+        let root: std::path::PathBuf = tmp.join("test-alumet-plugin-k8s/kubepods-folder.slice/");
+
+        if root.exists() {
+            std::fs::remove_dir_all(&root).unwrap();
+        }
+
+        let dir: PathBuf = root.join("kubepods-burstable.slice/");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let sub_dir: [PathBuf; 4] = [
+            dir.join("kubepods-burstable-pod32a1942cb9a81912549c152a49b5f9b1.slice/"),
+            dir.join("kubepods-burstable-podd9209de2b4b526361248c9dcf3e702c0.slice/"),
+            dir.join("kubepods-burstable-podccq5da1942a81912549c152a49b5f9b1.slice/"),
+            dir.join("kubepods-burstable-podd87dz3z8z09de2b4b526361248c902c0.slice/"),
+        ];
+
+        for i in 0..4 {
+            std::fs::create_dir_all(&sub_dir[i]).unwrap();
+        }
+
+        for i in 0..4 {
+            std::fs::write(sub_dir[i].join("cpu.stat"), "test_cpu").unwrap();
+            std::fs::write(sub_dir[i].join("memory.stat"), "test_memory").unwrap();
+        }
+
         let list_met_file: anyhow::Result<Vec<CgroupV2MetricFile>> =
-            list_metric_file_in_dir(&burstable_dir, "", "", &Token::new(TokenRetrieval::Kubectl));
-        let list_pod_name = [
+            list_metric_file_in_dir(&dir, "", "", &Token::new(TokenRetrieval::Kubectl));
+
+        let list_pod_name: [&str; 4] = [
             "pod32a1942cb9a81912549c152a49b5f9b1",
             "podd9209de2b4b526361248c9dcf3e702c0",
             "podccq5da1942a81912549c152a49b5f9b1",
@@ -441,24 +561,73 @@ mod tests {
         }
         assert!(true);
     }
+
+    // Test `gather_value` function with invalid data
     #[test]
-    fn test_gather_value() {
-        let tmp = std::env::temp_dir();
-        let root: std::path::PathBuf = tmp.join("test-alumet-plugin-k8s/kubepods-gather.slice/");
+    fn test_gather_value_1() {
+        let tmp: PathBuf = std::env::temp_dir();
+        let root: PathBuf = tmp.join("test-alumet-plugin-k8s/kubepods-invalid-gather.slice/");
+
         if root.exists() {
             std::fs::remove_dir_all(&root).unwrap();
         }
-        let burstable_dir = root.join("kubepods-burstable.slice/");
-        std::fs::create_dir_all(&burstable_dir).unwrap();
 
-        let a = burstable_dir.join("kubepods-burstable-pod32a1942cb9a81912549c152a49b5f9b1.slice/");
+        let dir = root.join("kubepods-burstable.slice/");
+        std::fs::create_dir_all(&dir).unwrap();
 
-        std::fs::create_dir_all(&a).unwrap();
-        let path_file = a.join("cpu.stat");
+        let sub_dir = dir.join("kubepods-burstable-pod32a1942cb9a81912549c152a49b5f9b1.slice/");
+        std::fs::create_dir_all(&sub_dir).unwrap();
+
+        let path_cpu = sub_dir.join("cpu.stat");
+        let path_memory = sub_dir.join("memory.stat");
+
+        std::fs::write(&path_cpu, "invalid_cpu_data").unwrap();
+        std::fs::write(&path_memory, "invalid_memory_data").unwrap();
+
+        let file_cpu = File::open(&path_cpu).unwrap();
+        let file_memory = File::open(&path_memory).unwrap();
+
+        let mut metric_file = CgroupV2MetricFile {
+            name: "test-pod".to_string(),
+            path_cpu: path_cpu.clone(),
+            path_memory: path_memory.clone(),
+            file_cpu,
+            file_memory,
+            uid: "test-uid".to_string(),
+            namespace: "default".to_string(),
+            node: "test-node".to_string(),
+        };
+
+        let mut content_buffer = String::new();
+        let result = gather_value(&mut metric_file, &mut content_buffer);
+
+        result.expect("ERROR : gather_value get invalid data");
+    }
+
+    // Test `gather_value` function with validate values
+    #[test]
+    fn test_gather_value_2() {
+        let tmp: PathBuf = std::env::temp_dir();
+        let root: std::path::PathBuf = tmp.join("test-alumet-plugin-k8s/kubepods-gather.slice/");
+
+        if root.exists() {
+            std::fs::remove_dir_all(&root).unwrap();
+        }
+
+        let dir = root.join("kubepods-burstable.slice/");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let sub_dir: PathBuf = dir.join("kubepods-burstable-pod32a1942cb9a81912549c152a49b5f9b1.slice/");
+        std::fs::create_dir_all(&sub_dir).unwrap();
+
+        let path_cpu: PathBuf = sub_dir.join("cpu.stat");
+        let path_memory: PathBuf = sub_dir.join("memory.stat");
+
         std::fs::write(
-            path_file.clone(),
+            path_cpu.clone(),
             format!(
-                "usage_usec 8335557927\n
+                "
+                usage_usec 8335557927\n
                 user_usec 4728882396\n
                 system_usec 3606675531\n
                 nr_periods 0\n
@@ -468,37 +637,143 @@ mod tests {
         )
         .unwrap();
 
-        let file = match File::open(&path_file) {
-            Err(why) => panic!("couldn't open {}: {}", path_file.display(), why),
-            Ok(file) => file,
-        };
+        std::fs::write(
+            path_memory.clone(),
+            format!(
+                "
+                anon 8335557927
+                file 4728882396
+                kernel_stack 3686400
+                pagetables 0
+                percpu 16317568
+                sock 12288
+                shmem 233824256
+                file_mapped 0
+                file_dirty 20480,
+                ...."
+            ),
+        )
+        .unwrap();
 
-        let mut my_cgroup_test_file: CgroupV2MetricFile = CgroupV2MetricFile {
+        let file_cpu = File::open(&path_cpu).unwrap();
+        let file_memory = File::open(&path_memory).unwrap();
+
+        let metric_file = CgroupV2MetricFile {
             name: "testing_pod".to_string(),
-            path: path_file,
-            file,
+            path_cpu,
+            file_cpu,
+            path_memory,
+            file_memory,
             uid: "uid_test".to_string(),
             namespace: "namespace_test".to_string(),
             node: "node_test".to_owned(),
         };
-        let mut content_file = String::new();
-        let res_metric = gather_value(&mut my_cgroup_test_file, &mut content_file);
+
+        let mut cgroup: CgroupV2MetricFile = metric_file;
+        let mut content = String::new();
+        let result = gather_value(&mut cgroup, &mut content);
+
         if let Ok(CgroupV2Metric {
             name,
+            uid,
+            namespace,
+            node,
             time_used_tot,
             time_used_user_mode,
             time_used_system_mode,
-            uid: _uid,
-            namespace: _ns,
-            node: _nd,
-        }) = res_metric
+            anon_used_mem,
+            file_mem,
+            kernel_mem,
+            pagetables_mem,
+        }) = result
         {
             assert_eq!(name, "testing_pod".to_owned());
+            assert_eq!(uid, "uid_test".to_owned());
+            assert_eq!(namespace, "namespace_test".to_owned());
+            assert_eq!(node, "node_test".to_owned());
             assert_eq!(time_used_tot, 8335557927);
             assert_eq!(time_used_user_mode, 4728882396);
             assert_eq!(time_used_system_mode, 3606675531);
+            assert_eq!(anon_used_mem, 8335557927);
+            assert_eq!(file_mem, 4728882396);
+            assert_eq!(kernel_mem, 3686400);
+            assert_eq!(pagetables_mem, 0);
         } else {
-            assert!(false);
+            assert!(result.is_err());
         }
+    }
+
+    // Test `list_all_k8s_pods` function with a not existing file root directory
+    #[tokio::test]
+    async fn test_list_all_k8s_pods_file_1() {
+        let root = PathBuf::from("/path/does/not/exist");
+        let hostname = "test-host".to_string();
+        let kubernetes_api_url = "https://127.0.0.1:8080".to_string();
+        let token = Token::new(TokenRetrieval::Kubectl);
+
+        let result = list_all_k8s_pods_file(&root, hostname, kubernetes_api_url, &token);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    // Test `list_all_k8s_pods` function with a no slice folders file
+    #[test]
+    fn test_list_all_k8s_pods_file_2() -> Result<()> {
+        let temp = tempdir()?;
+        let hostname = "test-host".to_string();
+        let kubernetes_api_url = "https://127.0.0.1:8080".to_string();
+        let token = Token::new(TokenRetrieval::Kubectl);
+
+        fs::create_dir(temp.path().join("folder1"))?;
+        fs::create_dir(temp.path().join("folder2"))?;
+
+        let result = list_all_k8s_pods_file(temp.path(), hostname, kubernetes_api_url, &token)?;
+        assert!(result.is_empty());
+        Ok(())
+    }
+
+    // Test `list_all_k8s_pods` function with a file with invalid subfolder
+    #[test]
+    fn test_list_all_k8s_pods_file_3() -> Result<()> {
+        let temp_dir = tempdir()?;
+        let hostname = "test-host".to_string();
+        let kubernetes_api_url = "https://127.0.0.1:8080".to_string();
+        let token = Token::new(TokenRetrieval::Kubectl);
+
+        let slice_dir = temp_dir.path().join("folder1.slice");
+        fs::create_dir(&slice_dir)?;
+
+        File::create(slice_dir.join("invalid_file"))?;
+        let result = list_all_k8s_pods_file(temp_dir.path(), hostname, kubernetes_api_url, &token);
+
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    // Test `get_existing_pods` function an invalid JSON response from the Kubernetes
+    #[tokio::test]
+    async fn test_get_existing_pods() {
+        let node: &str = "test-node";
+        let kubernetes_api_url: &str = "https://invalid-kubernetes";
+        let token = Token::new(TokenRetrieval::Kubectl);
+        let result = get_existing_pods(node, kubernetes_api_url, &token).await;
+        //assert!(result.is_err());
+    }
+
+    // Test `get_pod_name` function a scenario where no pod matches the given UID
+    #[tokio::test]
+    async fn test_get_pod_name() {
+        let uid: &str = "non-existent-uid";
+        let node: &str = "test-node";
+        let kubernetes_api_url: &str = "https://127.0.0.1:8080";
+        let token = Token::new(TokenRetrieval::Kubectl);
+
+        let result = get_pod_name(uid, node, kubernetes_api_url, &token).await;
+        assert!(result.is_ok());
+
+        let (name, namespace, node) = result.unwrap();
+        assert!(name.is_empty());
+        assert!(namespace.is_empty());
+        assert!(node.is_empty());
     }
 }
