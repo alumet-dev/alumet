@@ -1,8 +1,6 @@
 //! Tie Alumet to a running process.
 
-use std::{
-    fs, os::unix::fs::PermissionsExt, process::ExitStatus
-};
+use std::{fs, os::unix::fs::PermissionsExt, process::ExitStatus};
 
 use alumet::{
     pipeline::{
@@ -45,7 +43,8 @@ pub fn exec_child(external_command: String, args: Vec<String>) -> anyhow::Result
                                 log::info!("Found corresponding file in the current directory.");
                             }
                             // Check for execution permissions
-                            let mut checkup_message = String::from(format!("Who can execute the file: {}:\n", external_command));
+                            let mut checkup_message =
+                                String::from(format!("Who can execute the file: {}:\n", external_command));
                             if entry.metadata().unwrap().permissions().mode() & 0o100 != 0 {
                                 checkup_message = format!("{} - User: YES\n", checkup_message);
                             } else {
@@ -62,13 +61,14 @@ pub fn exec_child(external_command: String, args: Vec<String>) -> anyhow::Result
                                 checkup_message = format!("{} - Others: NO\n", checkup_message);
                             }
                             if !external_command.starts_with("./") {
-                                checkup_message = format!("{}\n Please try again using the following syntax:\n", checkup_message);
+                                checkup_message =
+                                    format!("{}\n Please try again using the following syntax:\n", checkup_message);
                                 checkup_message = format!("{} [...] exec ./{}", checkup_message, external_command);
                                 for argument in &args {
                                     checkup_message = format!("{} {}", checkup_message, argument)
                                 }
                             }
-                            log::error!("{}",checkup_message);
+                            log::error!("{}", checkup_message);
                             panic!("Maybe you could change the path to match with the correct one")
                         } else {
                             // Unable to find a corresponding things to execute
