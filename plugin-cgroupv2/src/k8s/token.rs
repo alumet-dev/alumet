@@ -137,10 +137,9 @@ impl Token {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use time::Duration;
     use tokio::time;
-
-    use super::*;
 
     #[tokio::test]
     async fn test_is_valid() {

@@ -93,8 +93,8 @@ impl K8SProbe {
 #[cfg(not(tarpaulin_include))]
 impl alumet::pipeline::Source for K8SProbe {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
-        let mut file_buffer: String = String::new();
-        let metrics: CgroupV2Metric = gather_value(&mut self.cgroup_v2_metric_file, &mut file_buffer)
+        let mut buffer: String = String::new();
+        let metrics: CgroupV2Metric = gather_value(&mut self.cgroup_v2_metric_file, &mut buffer)
             .context("Error get value")
             .retry_poll()?;
 

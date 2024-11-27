@@ -1,3 +1,6 @@
+//! # plugin file for k8s module of cgroupv2 plugin
+//!
+//! This module provides functionality for interacting with Kubernetes api.
 use alumet::{
     pipeline::{control::ScopedControlHandle, trigger::TriggerSpec},
     plugin::{
@@ -38,7 +41,6 @@ struct K8sConfig {
     poll_interval: Duration,
     kubernetes_api_url: String,
     hostname: String,
-
     /// Way to retrieve the k8s API token.
     token_retrieval: TokenRetrieval,
 }
@@ -73,6 +75,11 @@ impl AlumetPlugin for K8sPlugin {
         }))
     }
 
+    fn stop(&mut self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    #[cfg(not(tarpaulin_include))]
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         let v2_used: bool = super::utils::is_accessible_dir(&PathBuf::from("/sys/fs/cgroup/"))?;
         if !v2_used {
@@ -95,11 +102,13 @@ impl AlumetPlugin for K8sPlugin {
             self.config.kubernetes_api_url.clone(),
             &Token::new(self.config.token_retrieval.clone()),
         )?;
-        //Add as a source each pod already present
+
+        // Add as a source each pod already present
         for metric_file in final_list_metric_file {
             let counter_tmp_tot: CounterDiff = CounterDiff::with_max_value(crate::cgroupv2::CGROUP_MAX_TIME_COUNTER);
             let counter_tmp_usr: CounterDiff = CounterDiff::with_max_value(crate::cgroupv2::CGROUP_MAX_TIME_COUNTER);
             let counter_tmp_sys: CounterDiff = CounterDiff::with_max_value(crate::cgroupv2::CGROUP_MAX_TIME_COUNTER);
+
             let probe = K8SProbe::new(
                 self.metrics.as_ref().expect("Metrics is not available").clone(),
                 metric_file,
@@ -113,10 +122,7 @@ impl AlumetPlugin for K8sPlugin {
         Ok(())
     }
 
-    fn stop(&mut self) -> anyhow::Result<()> {
-        Ok(())
-    }
-
+    #[cfg(not(tarpaulin_include))]
     fn post_pipeline_start(&mut self, alumet: &mut AlumetPostStart) -> anyhow::Result<()> {
         let control_handle = alumet.pipeline_control();
 
@@ -166,6 +172,7 @@ impl AlumetPlugin for K8sPlugin {
                             };
                             if let Some(pod_uid) = path.file_name() {
                                 let pod_uid = pod_uid.to_str().expect("Can't retrieve the pod uid value");
+
                                 // We open a File Descriptor to the newly created file
                                 let mut path_cpu = path.clone();
                                 let mut path_memory = path.clone();
@@ -214,6 +221,7 @@ impl AlumetPlugin for K8sPlugin {
                                 let counter_tmp_tot: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
                                 let counter_tmp_usr: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
                                 let counter_tmp_sys: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
+
                                 let probe: K8SProbe = K8SProbe::new(
                                     detector.metrics.clone(),
                                     metric_file,
@@ -266,7 +274,7 @@ impl Default for K8sConfig {
     fn default() -> Self {
         let root_path = PathBuf::from("/sys/fs/cgroup/kubepods.slice/");
         if !root_path.exists() {
-            log::warn!("Path {} not exist.", root_path.display());
+            log::warn!("Error : Path '{}' not exist.", root_path.display());
         }
         Self {
             path: root_path,
@@ -287,25 +295,53 @@ mod tests {
     use anyhow::Result;
     use std::path::PathBuf;
 
-    // Test default on k8s plugin config
+    // Create a fake plugin structure for k8s plugin
+    fn create_mock_plugin() -> K8sPlugin {
+        K8sPlugin {
+            config: K8sConfig {
+                path: PathBuf::from("/sys/fs/cgroup/kubepods.slice/"),
+                poll_interval: Duration::from_secs(1),
+                kubernetes_api_url: String::from("https://127.0.0.1:8080"),
+                hostname: String::from("test-hostname"),
+                token_retrieval: TokenRetrieval::Kubectl,
+            },
+            watcher: None,
+            metrics: None,
+        }
+    }
+
+    // Test default configuration of k8s plugin
     #[test]
-    fn test_default_k8s_config() {
-        let config = K8sConfig::default();
+    fn test_default_config() {
+        let result: Option<ConfigTable> = K8sPlugin::default_config().unwrap();
+        assert!(result.is_some(), "Expected Some(ConfigTable): result = None");
+
+        let config_table: ConfigTable = result.unwrap();
+        let config: K8sConfig = deserialize_config(config_table).expect("Failed to deserialize config");
+
         assert_eq!(config.path, PathBuf::from("/sys/fs/cgroup/kubepods.slice/"));
         assert_eq!(config.poll_interval, Duration::from_secs(1));
         assert_eq!(config.kubernetes_api_url, "https://127.0.0.1:8080");
-        assert!(config.hostname.is_empty());
+        assert_eq!(config.hostname, "");
         assert_eq!(config.token_retrieval, TokenRetrieval::Kubectl);
     }
 
-    //
+    // Test `init` function to initialize k8s plugin configuration
     #[test]
-    fn test_init_k8s_plugin() -> Result<()> {
-        let config_table = serialize_config(K8sConfig::default())?;
-        let plugin = K8sPlugin::init(config_table)?;
+    fn test_init() -> Result<()> {
+        let config_table: ConfigTable = serialize_config(K8sConfig::default())?;
+        let plugin: Box<K8sPlugin> = K8sPlugin::init(config_table)?;
         assert_eq!(plugin.config.kubernetes_api_url, "https://127.0.0.1:8080");
         assert!(plugin.metrics.is_none());
         assert!(plugin.watcher.is_none());
         Ok(())
+    }
+
+    // Test `stop` function to stop k8s plugin
+    #[test]
+    fn test_stop() {
+        let mut plugin: K8sPlugin = create_mock_plugin();
+        let result: std::result::Result<(), anyhow::Error> = plugin.stop();
+        assert!(result.is_ok(), "Stop should complete without errors.");
     }
 }

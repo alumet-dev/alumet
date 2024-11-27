@@ -217,7 +217,7 @@ mod tests {
             user_usec -20000
             system_usec -30000";
 
-        CgroupV2Metric::from_str(str).expect_err("ERROR");
+        CgroupV2Metric::from_str(str).expect_err("ERROR : Signed value");
     }
 
     // Test `from_str` function with in extracted result,
@@ -230,7 +230,7 @@ mod tests {
             kernel_stack 30000.33
             pagetables 124325768932.56";
 
-        CgroupV2Metric::from_str(str).expect_err("ERROR");
+        CgroupV2Metric::from_str(str).expect_err("ERROR : Decimal value");
     }
 
     // Test `from_str` function with in extracted result,
@@ -243,7 +243,7 @@ mod tests {
             pagetables -123abc
             ...";
 
-        CgroupV2Metric::from_str(str).expect_err("ERROR");
+        CgroupV2Metric::from_str(str).expect_err("ERROR : Incompatible value");
     }
 
     // Test `from_str` function with in extracted result,
