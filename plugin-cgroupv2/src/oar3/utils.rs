@@ -107,6 +107,9 @@ pub fn gather_value(file: &mut CgroupV2MetricFile, content_buffer: &mut String) 
     Ok(new_metric)
 }
 
+// ------------------ //
+// --- UNIT TESTS --- //
+// ------------------ //
 #[cfg(test)]
 mod tests {
     use super::*;
