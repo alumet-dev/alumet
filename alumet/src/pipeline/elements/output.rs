@@ -87,6 +87,7 @@ impl OutputControl {
         for (plugin, builder) in outputs {
             let mut ctx = OutputBuildContext {
                 metrics: &metrics,
+                metrics_r: &self.metrics.clone(),
                 namegen: self.names.plugin_namespace(&plugin),
                 runtime: self.tasks.rt_normal.clone(),
             };
@@ -102,6 +103,7 @@ impl OutputControl {
         let metrics = self.metrics.read().await;
         let mut ctx = OutputBuildContext {
             metrics: &metrics,
+            metrics_r: &self.metrics,
             namegen: self.names.plugin_namespace(&plugin),
             runtime: self.tasks.rt_normal.clone(),
         };
@@ -447,7 +449,10 @@ pub mod builder {
 
     use crate::{
         metrics::MetricRegistry,
-        pipeline::util::naming::{OutputName, PluginElementNamespace},
+        pipeline::{
+            registry::{self, MetricReader},
+            util::naming::{OutputName, PluginElementNamespace},
+        },
     };
 
     use super::AsyncOutputStream;
@@ -526,6 +531,7 @@ pub mod builder {
 
     /// Context provided when building new outputs.
     pub(super) struct OutputBuildContext<'a> {
+        pub(super) metrics_r: &'a MetricReader,
         pub(super) metrics: &'a MetricRegistry,
         pub(super) namegen: &'a mut PluginElementNamespace,
         pub(super) runtime: runtime::Handle,
@@ -541,6 +547,9 @@ pub mod builder {
         fn output_name(&mut self, name: &str) -> OutputName;
 
         fn async_runtime(&self) -> &tokio::runtime::Handle;
+
+        /// Returns a `MetricReader`, which allows to access the metric registry.
+        fn metrics_reader(&self) -> registry::MetricReader;
     }
 
     impl BlockingOutputBuildContext for OutputBuildContext<'_> {
@@ -560,6 +569,10 @@ pub mod builder {
 
         fn async_runtime(&self) -> &tokio::runtime::Handle {
             &self.runtime
+        }
+
+        fn metrics_reader(&self) -> registry::MetricReader {
+            self.metrics_r.clone()
         }
     }
 }
