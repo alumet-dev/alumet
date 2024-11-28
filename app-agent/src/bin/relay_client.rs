@@ -17,7 +17,7 @@ fn main() {
         plugin_perf::PerfPlugin,
         plugin_socket_control::SocketControlPlugin,
         plugin_relay::client::RelayClientPlugin,
-        plugin_cgroupv2::K8sPlugin,
+        // plugin_cgroupv2::K8sPlugin,
         plugin_procfs::ProcfsPlugin,
     ];
 
@@ -74,15 +74,15 @@ struct Cli {
     #[command(flatten)]
     common: CommonArgs,
 
-    /// The name that this client will use to identify itself to the collector server.
+    /// The name that this client will use to identify itself to the server.
     ///
     /// Defaults to the hostname.
     #[arg(long)]
     client_name: Option<String>,
 
-    /// The URI of the collector, for instance `http://127.0.0.1:50051`.
+    /// The address and port of the relay server, for instance `127.0.0.1:50051`.
     #[arg(long)]
-    collector_uri: Option<String>,
+    relay_server: Option<String>,
 }
 
 #[derive(Subcommand, Clone)]
@@ -129,11 +129,11 @@ impl Configurator for Cli {
                 .unwrap()
                 .insert(String::from("client_name"), toml::Value::String(name));
         }
-        if let Some(uri) = self.collector_uri.take() {
+        if let Some(uri) = self.relay_server.take() {
             agent
                 .plugin_config_mut("relay-client")
                 .unwrap()
-                .insert(String::from("collector_uri"), toml::Value::String(uri));
+                .insert(String::from("relay_server"), toml::Value::String(uri));
         }
     }
 }

@@ -6,7 +6,7 @@
 
 PLUGIN_API const char *PLUGIN_NAME = "test-dynamic-plugin-c";
 PLUGIN_API const char *PLUGIN_VERSION = "0.1.0";
-PLUGIN_API const char *ALUMET_VERSION = "0.6.0";
+PLUGIN_API const char *ALUMET_VERSION = "0.7.0";
 
 typedef struct {
     AString custom_attribute;
