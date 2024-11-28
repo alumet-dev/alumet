@@ -16,6 +16,7 @@ members = [
     "plugin-rapl",
     "plugin-relay",
     "plugin-socket-control",
+    "plugin-mongodb",
     "test-dynamic-plugin-rust",
     "test-dynamic-plugins",
 ]
