@@ -258,7 +258,10 @@ fn retry_action(err: &protocol::Error) -> RetryAction {
                     // no need to reconnect, just retry
                     RetryAction::RetryOp
                 }
-                io::ErrorKind::PermissionDenied | io::ErrorKind::Unsupported | io::ErrorKind::OutOfMemory => {
+                io::ErrorKind::InvalidInput
+                | io::ErrorKind::PermissionDenied
+                | io::ErrorKind::Unsupported
+                | io::ErrorKind::OutOfMemory => {
                     // this should not happen unless there's a mistake on our side => don't retry
                     RetryAction::Fail
                 }
