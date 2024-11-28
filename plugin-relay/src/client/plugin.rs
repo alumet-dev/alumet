@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use alumet::metrics::{Metric, RawMetricId};
 use alumet::pipeline::elements::output::{builder::AsyncOutputRegistration, BoxedAsyncOutput};
 use alumet::plugin::{
@@ -7,7 +9,7 @@ use alumet::plugin::{
 use anyhow::Context;
 use tokio::sync::mpsc;
 
-use super::output::TcpOutputSettings;
+use crate::client::output;
 
 pub struct RelayClientPlugin {
     config: Option<config::Config>,
@@ -84,12 +86,22 @@ impl AlumetPlugin for RelayClientPlugin {
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         // Prepare the values that will be moved to the closure.
         let config = self.config.take().unwrap();
-        let server_address = config.relay_server;
-        let client_settings = TcpOutputSettings {
+        let client_settings = output::Settings {
             client_name: config.client_name,
-            buffer_max_length: config.buffer_max_length,
-            buffer_timeout: config.buffer_timeout,
-            buffer_initial_capacity: 512,
+            server_address: config.relay_server,
+            buffer: output::BufferSettings {
+                initial_capacity: 512,
+                max_length: config.buffer_max_length,
+                timeout: config.buffer_timeout,
+            },
+            msg_retry: output::RetryPolicy {
+                max_retrys: 5,
+                delay: Some(Duration::from_secs(2)),
+            },
+            init_retry: output::RetryPolicy {
+                max_retrys: 10,
+                delay: Some(Duration::from_secs(3)),
+            },
         };
 
         // Create a channel for the metrics.
@@ -98,16 +110,15 @@ impl AlumetPlugin for RelayClientPlugin {
 
         // The output is async :)
         alumet.add_async_output_builder(move |ctx, stream| {
-            log::info!("Connecting to relay server {server_address}...");
+            let alumet_link = output::AlumetLink {
+                in_measurements: stream,
+                in_metrics: metrics_rx,
+                metrics_reader: ctx.metrics_reader(),
+            };
 
             let tcp = ctx
                 .async_runtime()
-                .block_on(super::output::TcpOutput::connect(
-                    stream,
-                    metrics_rx,
-                    server_address,
-                    client_settings,
-                ))
+                .block_on(super::output::TcpOutput::connect(alumet_link, client_settings))
                 .context("relay connection error")?;
 
             let output: BoxedAsyncOutput = Box::pin(tcp.send_loop());
