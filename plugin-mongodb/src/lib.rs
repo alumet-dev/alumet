@@ -7,7 +7,10 @@ use alumet::{
     plugin::rust::{deserialize_config, serialize_config, AlumetPlugin},
 };
 
-use mongodb::{bson::doc, sync::Client};
+use mongodb::{
+    bson::{doc, Document},
+    sync::Client,
+};
 use mongodb2::convert_timestamp;
 use serde::{Deserialize, Serialize};
 
@@ -78,9 +81,9 @@ impl Output for MongoDbOutput {
         }
 
         // Build the data to send to MongoDb
-        let mut docs = vec![];
+        let mut docs = Vec::with_capacity(measurements.len());
         for m in measurements {
-            let mut doc = doc! {};
+            let mut doc = Document::new();
             let metric = ctx.metrics.by_id(&m.metric).unwrap();
             doc.insert("measurement", &metric.name);
 
@@ -145,7 +148,7 @@ impl Output for MongoDbOutput {
 
         // Send the data to MongoDb
         let collection = self.client.database(&self.database).collection(&self.collection);
-        let rt = tokio::runtime::Runtime::new().unwrap();
+        let rt = tokio::runtime::Handle::current();
         rt.block_on(async {
             collection.insert_many(docs).await.unwrap();
         });
