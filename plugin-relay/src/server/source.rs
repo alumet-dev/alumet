@@ -51,7 +51,7 @@ impl TcpSource {
                     return Ok(());
                 }
                 self.tcp
-                    .write_message(MessageBody {
+                    .write_message(&MessageBody {
                         sender: String::from(""),
                         content: MessageEnum::GreetResponse(GreetResponse {
                             accept,
@@ -96,15 +96,17 @@ impl TcpSource {
         fn is_fatal_error(err: &protocol::Error) -> bool {
             match err {
                 protocol::Error::Io(_) => true,
-                protocol::Error::Serde(error) => match error {
+                protocol::Error::Serde(error) => matches!(
+                    error,
                     postcard::Error::WontImplement
-                    | postcard::Error::NotYetImplemented
-                    | postcard::Error::SerializeBufferFull
-                    | postcard::Error::SerializeSeqLengthUnknown
-                    | postcard::Error::SerdeSerCustom => true,
-                    _ => false,
-                },
+                        | postcard::Error::NotYetImplemented
+                        | postcard::Error::SerializeBufferFull
+                        | postcard::Error::SerializeSeqLengthUnknown
+                        | postcard::Error::SerdeSerCustom
+                ),
                 protocol::Error::Disconnected => false,
+                protocol::Error::VersionMismatch { .. } => true,
+                protocol::Error::Unexpected => true,
             }
         }
 

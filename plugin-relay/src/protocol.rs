@@ -2,7 +2,7 @@
 
 use std::{io, time::Duration};
 
-use alumet::{measurement::WrappedMeasurementType, units::PrefixedUnit};
+use alumet::{measurement::WrappedMeasurementType, metrics::RawMetricId, units::PrefixedUnit};
 use anyhow::{anyhow, Context};
 use bytes::BytesMut;
 use serde::{Deserialize, Serialize};
@@ -42,6 +42,16 @@ pub enum Error {
     /// EOF at message boundary.
     #[error("peer disconnected")]
     Disconnected,
+
+    /// Incompatible peer.
+    #[error("client and server are incompatible: the client uses protocol version {client_protocol_version}, but the server uses protocol version {server_protocol_version}")]
+    VersionMismatch {
+        client_protocol_version: u32,
+        server_protocol_version: u32,
+    },
+
+    #[error("received an unexpected response")]
+    Unexpected,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -109,7 +119,9 @@ pub struct SendMeasurements<'s> {
 
 /// Allows to read/write protocol messages from/to an asynchronous IO stream.
 ///
-/// # Synchronisation
+/// # Coherency
+/// This stream only handles individual messages, not the whole communication protocol.
+/// In particular, it does not implement the client-server handshake.
 pub struct MessageStream<S: AsyncRead + AsyncWrite + Unpin> {
     stream: S,
     serializer: postcard::Serializer<OpenVecFlavor>,
@@ -127,7 +139,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> MessageStream<S> {
         }
     }
 
-    pub async fn write_message(&mut self, msg: MessageBody<'_>) -> Result<(), Error> {
+    pub(crate) fn serialize_full_message(&mut self, msg: &MessageBody<'_>) -> Result<(), Error> {
         // reserve 4 bytes for the msg length
         self.serializer.output.bytes.resize(4, 0);
 
@@ -143,8 +155,14 @@ impl<S: AsyncRead + AsyncWrite + Unpin> MessageStream<S> {
 
         let header = &mut self.serializer.output.bytes[0..4];
         header.copy_from_slice(&len_bytes);
+        Ok(())
+    }
 
-        // write to the tcp socket
+    pub async fn write_message<'a>(&'a mut self, msg: &'a MessageBody<'a>) -> Result<(), Error> {
+        // serialize to the serializer buffer
+        self.serialize_full_message(msg)?;
+
+        // write to the underlying data stream (tcp socket)
         self.stream.write_all(&self.serializer.output.bytes).await?;
         self.serializer.output.bytes.clear();
         Ok(())
@@ -324,6 +342,18 @@ impl From<MetricType> for WrappedMeasurementType {
         match value {
             MetricType::F64 => WrappedMeasurementType::F64,
             MetricType::U64 => WrappedMeasurementType::U64,
+        }
+    }
+}
+
+impl From<(RawMetricId, alumet::metrics::Metric)> for Metric {
+    fn from(value: (RawMetricId, alumet::metrics::Metric)) -> Self {
+        let (id, def) = value;
+        Self {
+            id: id.as_u64(),
+            name: def.name,
+            value_type: def.value_type.into(),
+            unit: def.unit.into(),
         }
     }
 }
