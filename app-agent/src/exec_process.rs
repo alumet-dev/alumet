@@ -1,6 +1,6 @@
 //! Tie Alumet to a running process.
 
-use std::{fs::{self, File}, os::unix::fs::PermissionsExt, path::PathBuf, process::ExitStatus};
+use std::{collections::HashMap, fs::{self, File}, os::unix::fs::PermissionsExt, path::PathBuf, process::ExitStatus};
 
 use alumet::{
     pipeline::{
@@ -139,4 +139,50 @@ pub fn trigger_measurement_now(pipeline: &MeasurementPipeline) -> anyhow::Result
         .async_runtime()
         .block_on(send_task)
         .context("failed to send TriggerMessage")
+}
+
+
+fn distance_with_adjacent_transposition(a: String, b: String) -> usize {
+    let a_len = a.chars().count();
+    let b_len = b.chars().count();
+    
+    let mut da: HashMap<char, usize> = HashMap::new();
+    let mut d: Vec<Vec<usize>> = vec![vec![0; b_len+2]; a_len+2];
+    
+    let max_dist = a_len + b_len;
+    d[0][0] = max_dist;
+
+    for i in 0..(a_len+1){
+        d[i+1][0] = max_dist;
+        d[i+1][1] = i;
+    }
+    for j in 0..(b_len+1){
+        d[0][j+1] = max_dist;
+        d[1][j+1] = j;
+    }
+
+    for i in 1..(a_len + 1){
+        let mut db = 0;
+        for j in 1..(b_len + 1){
+            let k = *da.get(&b.chars().nth(j-1).unwrap()).unwrap_or(&0);
+            let l = db;
+            let cost: usize;
+            if a.chars().nth(i-1).unwrap() == b.chars().nth(j-1).unwrap() {
+                cost = 0;
+                db = j;
+            } else {
+                cost = 1;
+            }
+            let operations = [
+                    d[i][j] + cost,             // substitution
+                    d[i + 1][j] + 1,                         // insertion
+                    d[i][j + 1] + 1,                         // deletion
+                    d[k][l] + (i - k - 1) + 1 + (j - l - 1), // transposition
+            ];
+            d[i + 1][j + 1] = *operations.iter().min().unwrap();
+        }
+        da.insert(a.chars().nth(i-1).unwrap(), i);
+    }
+    d[a_len+1][b_len+1]
+
 }
