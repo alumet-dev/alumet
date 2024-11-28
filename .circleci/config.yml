@@ -46,12 +46,15 @@ jobs:
           name: Build all libraries
           command: "cargo build"
       - run:
-          name: Build the agent
-          command: "cargo build --bin alumet-local-agent --features local_x86"
+          name: Build the agents
+          command: |
+            cargo build --bin alumet-local-agent --features local_x86
+            cargo build --bin alumet-relay-client --features relay_client
+            cargo build --bin alumet-relay-server --features relay_server
       - run:
           name: Run Tests (including doc tests)
           command: "cargo test -- --exact --show-output"
-          no_output_timeout: 30s
+          no_output_timeout: 45s
 
       # Caching "target" makes "build_and_test" faster (because we compile almost nothing),
       # but it makes other jobs slower (because it takes 20-30s to extract the cache and it's not
