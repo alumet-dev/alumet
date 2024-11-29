@@ -2,6 +2,7 @@ alumet
 ASCIINEMA
 astring
 Atos
+capaldi
 cbindgen
 cdylib
 Cgroups
@@ -22,7 +23,10 @@ Mispredicted
 miri
 monitorable
 mpoint
+necron
+Neron
 NVML
+olle
 PERFMON
 POWERCAP
 psys
@@ -41,5 +45,9 @@ SYSFS
 thiserror
 timerfd
 Trystram
+tuut
+Tweety
 UCUM
 uncore
+круто
+Привет

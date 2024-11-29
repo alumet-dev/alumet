@@ -1,6 +1,11 @@
 //! Tie Alumet to a running process.
 
-use std::{collections::HashMap, fs::{self, File}, os::unix::fs::PermissionsExt, path::PathBuf, process::ExitStatus};
+use std::{
+    fs::{self, File},
+    os::unix::{fs::PermissionsExt, process::ExitStatusExt},
+    path::PathBuf,
+    process::ExitStatus,
+};
 
 use alumet::{
     pipeline::{
@@ -12,7 +17,7 @@ use alumet::{
     plugin::event::StartConsumerMeasurement,
     resources::ResourceConsumer,
 };
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 
 /// Spawns a child process and waits for it to exit.
 pub fn exec_child(external_command: String, args: Vec<String>) -> anyhow::Result<ExitStatus> {
@@ -26,11 +31,11 @@ pub fn exec_child(external_command: String, args: Vec<String>) -> anyhow::Result
         Err(e) => match e.kind() {
             std::io::ErrorKind::NotFound => {
                 let return_error: String = handle_not_found(external_command, args);
-                panic!("{}", return_error);
-            },
+                return Err(anyhow!(return_error));
+            }
             std::io::ErrorKind::PermissionDenied => {
                 let return_error: String = handle_permission_denied(external_command);
-                panic!("{}", return_error);
+                return Err(anyhow!(return_error));
             }
             _ => {
                 panic!("Error in child process");
@@ -51,14 +56,14 @@ pub fn exec_child(external_command: String, args: Vec<String>) -> anyhow::Result
 
 fn handle_permission_denied(external_command: String) -> String {
     let file_permission_denied = match File::open(external_command.clone()) {
-        Ok(file) => {
-            file
-        },
+        Ok(file) => file,
         Err(err) => {
-            panic!("Error when try to read the file: {}", err);
-        },
+            panic!("Error when trying to read the file: {}", err);
+        }
     };
-    let metadata_file = file_permission_denied.metadata().expect(format!("Unable to retrieve metadata for: {}", external_command).as_str());
+    let metadata_file = file_permission_denied
+        .metadata()
+        .expect(format!("Unable to retrieve metadata for: {}", external_command).as_str());
     // Check for user permissions.
     let user_perm = match metadata_file.permissions().mode() & 0o500 {
         0 => "rx",
@@ -81,7 +86,10 @@ fn handle_permission_denied(external_command: String) -> String {
         _ => "",
     };
     if user_perm == "rx" || group_perm == "rx" || other_perm == "rx" {
-        log::error!("file '{}' is missing the following permissions:  'rx'", external_command);
+        log::error!(
+            "file '{}' is missing the following permissions:  'rx'",
+            external_command
+        );
         log::info!("💡 Hint: try 'chmod +rx {}", external_command)
     } else if user_perm == "r" || group_perm == "r" || other_perm == "r" {
         log::error!("file '{}' is missing the following permissions:  'r'", external_command);
@@ -101,29 +109,80 @@ fn handle_not_found(external_command: String, args: Vec<String>) -> String {
     }
     log::error!("Command '{}' not found", external_command);
     let directory_entries_iter = match fs::read_dir(".") {
-        Ok(directory) => {
-            directory
-        },
+        Ok(directory) => directory,
         Err(err) => {
             panic!("Error when try to read current directory: {}", err);
-        },
+        }
     };
     let app_path = resolve_application_path()
-                .ok()
-                .and_then(|p| p.to_str().map(|s| s.to_owned()))
-                .unwrap_or(String::from("path/to/agent"));
+        .ok()
+        .and_then(|p| p.to_str().map(|s| s.to_owned()))
+        .unwrap_or(String::from("path/to/agent"));
+
+    let mut lowest_distance = usize::MAX;
+    let mut best_element = None;
+
     for entry_result in directory_entries_iter {
         let entry = entry_result.unwrap();
         let entry_type = entry.file_type().unwrap();
         if entry_type.is_file() {
             let entry_string = entry.file_name().into_string().unwrap();
-            if external_command == entry_string {
-                log::info!("💡Hint: A file named '{}' exists in the current directory. Prepend ./ to execute it.", entry_string);
-                log::info!("Example: {} exec ./{} {}",app_path, entry_string, args.join(" "));
+            let distance = super::utils::distance_with_adjacent_transposition(
+                external_command
+                    .strip_prefix("./")
+                    .unwrap_or(&external_command)
+                    .to_string(),
+                entry_string.clone(),
+            );
+            if distance < 3 && distance < lowest_distance {
+                lowest_distance = distance;
+                best_element = Some((entry_string, distance));
             }
         }
     }
-
+    match best_element {
+        Some((element, distance)) => {
+            if distance == 0 {
+                log::info!(
+                    "💡 Hint: A file named '{}' exists in the current directory. Prepend ./ to execute it.",
+                    element
+                );
+                log::info!(
+                    "Example: {} exec ./{} {}",
+                    app_path,
+                    element,
+                    args.iter()
+                        .map(|arg| {
+                            if arg.contains(' ') {
+                                format!("\"{}\"", arg)
+                            } else {
+                                arg.to_string()
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                );
+            } else {
+                log::info!(
+                    "💡 Hint: Did you mean ./{} {}",
+                    element,
+                    args.iter()
+                        .map(|arg| {
+                            if arg.contains(' ') {
+                                format!("\"{}\"", arg)
+                            } else {
+                                arg.to_string()
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                );
+            }
+        }
+        None => {
+            log::warn!("💡 Hint: No matching file exists in the current directory. Prepend ./ to execute it.");
+        }
+    }
     "Issue happened because the file was not found".to_string()
 }
 
@@ -139,50 +198,4 @@ pub fn trigger_measurement_now(pipeline: &MeasurementPipeline) -> anyhow::Result
         .async_runtime()
         .block_on(send_task)
         .context("failed to send TriggerMessage")
-}
-
-
-fn distance_with_adjacent_transposition(a: String, b: String) -> usize {
-    let a_len = a.chars().count();
-    let b_len = b.chars().count();
-    
-    let mut da: HashMap<char, usize> = HashMap::new();
-    let mut d: Vec<Vec<usize>> = vec![vec![0; b_len+2]; a_len+2];
-    
-    let max_dist = a_len + b_len;
-    d[0][0] = max_dist;
-
-    for i in 0..(a_len+1){
-        d[i+1][0] = max_dist;
-        d[i+1][1] = i;
-    }
-    for j in 0..(b_len+1){
-        d[0][j+1] = max_dist;
-        d[1][j+1] = j;
-    }
-
-    for i in 1..(a_len + 1){
-        let mut db = 0;
-        for j in 1..(b_len + 1){
-            let k = *da.get(&b.chars().nth(j-1).unwrap()).unwrap_or(&0);
-            let l = db;
-            let cost: usize;
-            if a.chars().nth(i-1).unwrap() == b.chars().nth(j-1).unwrap() {
-                cost = 0;
-                db = j;
-            } else {
-                cost = 1;
-            }
-            let operations = [
-                    d[i][j] + cost,             // substitution
-                    d[i + 1][j] + 1,                         // insertion
-                    d[i][j + 1] + 1,                         // deletion
-                    d[k][l] + (i - k - 1) + 1 + (j - l - 1), // transposition
-            ];
-            d[i + 1][j + 1] = *operations.iter().min().unwrap();
-        }
-        da.insert(a.chars().nth(i-1).unwrap(), i);
-    }
-    d[a_len+1][b_len+1]
-
 }
