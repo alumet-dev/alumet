@@ -79,7 +79,7 @@ jobs:
       - run: cat /etc/hosts
       - run:
           name: Install required packages.
-          command: sudo apt-get update && sudo apt-get install llvm-dev libclang-dev --no-install-recommends
+          command: sudo apt-get update && sudo apt-get install llvm-dev libclang-dev musl-dev musl-tools --no-install-recommends
       - run:
           name: Install MUSL toolchain
           command: rustup target add x86_64-unknown-linux-musl
