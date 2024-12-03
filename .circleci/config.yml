@@ -46,7 +46,7 @@ jobs:
           command: "cargo build"
       - run:
           name: Run Tests (including doc tests)
-          command: "cargo test -- --exact --show-output"
+          command: "cargo test -- --exact --show-output --test-threads=1"
           no_output_timeout: 30s
 
       # Caching "target" makes "build_and_test" faster (because we compile almost nothing),
