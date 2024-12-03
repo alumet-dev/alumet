@@ -16,10 +16,14 @@ fn main() {
     // Specify here all the plugins that will be included in the agent during compilation.
     let plugins = static_plugins![
         plugin_rapl::RaplPlugin,
-        plugin_perf::PerfPlugin,
+        // plugin_perf::PerfPlugin,
         plugin_procfs::ProcfsPlugin,
         plugin_csv::CsvPlugin,
-        plugin_socket_control::SocketControlPlugin,
+        // plugin_socket_control::SocketControlPlugin,
+        // plugin_cgroupv2::K8sPlugin,
+        plugin_energy_estimation_tdp::EnergyEstimationTdpPlugin,
+        plugin_energy_attribution::EnergyAttributionPlugin,
+        plugin_oar2::Oar2Plugin,
     ];
 
     init_logger();

@@ -7,6 +7,8 @@ description = "Metric collector agent to install on each node."
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+openssl = { version = "0.10", features = ["vendored"] }
+reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls-tls-native-roots"] }
 alumet = { path = "../alumet" }
 anyhow = "1.0.88"
 clap = { version = "4.5.17", features = ["derive"] }
@@ -24,7 +26,10 @@ plugin-rapl = { path = "../plugin-rapl", optional = true }
 plugin-socket-control = { path = "../plugin-socket-control", optional = true }
 plugin-relay = { path = "../plugin-relay", optional = true }
 plugin-procfs = { path = "../plugin-procfs", optional = true }
+plugin-energy-estimation-tdp = { path = "../plugin-energy-estimation-tdp", optional = true }
+plugin-energy-attribution = { path = "../plugin-energy-attribution", optional = true }
 plugin-cgroupv2 = { path = "../plugin-cgroupv2", optional = true }
+plugin-oar2 = { path = "../plugin-oar2", optional = true }
 
 [features]
 # local non-relay mode for x86 processors
@@ -34,6 +39,10 @@ local_x86 = [
     "dep:plugin-procfs",
     "dep:plugin-csv",
     "dep:plugin-socket-control",
+    "dep:plugin-energy-estimation-tdp",
+    "dep:plugin-energy-attribution",
+    "dep:plugin-cgroupv2",
+    "dep:plugin-oar2",
 ]
 
 # relay mode
@@ -45,8 +54,14 @@ relay_client = [
     "dep:plugin-socket-control",
     "dep:plugin-cgroupv2",
     "dep:plugin-procfs",
+    "dep:plugin-oar2",
 ]
-relay_server = ["dep:plugin-relay", "plugin-relay/server", "dep:plugin-csv"]
+relay_server = [
+    "dep:plugin-relay",
+    "plugin-relay/server","dep:plugin-csv",
+    "dep:plugin-energy-estimation-tdp",
+    "dep:plugin-energy-attribution",
+]
 
 [[bin]]
 name = "alumet-local-agent"

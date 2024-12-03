@@ -46,7 +46,7 @@ jobs:
           command: "cargo build"
       - run:
           name: Run Tests (including doc tests)
-          command: "cargo test -- --exact --show-output"
+          command: "cargo test -- --exact --show-output --test-threads=1"
           no_output_timeout: 30s
 
       # Caching "target" makes "build_and_test" faster (because we compile almost nothing),
@@ -75,7 +75,7 @@ jobs:
       - run: cat /etc/hosts
       - run:
           name: Install required packages.
-          command: sudo apt-get update && sudo apt-get install llvm-dev libclang-dev --no-install-recommends
+          command: sudo apt-get update && sudo apt-get install llvm-dev libclang-dev musl-dev musl-tools --no-install-recommends
       - run:
           name: Install MUSL toolchain
           command: rustup target add x86_64-unknown-linux-musl
