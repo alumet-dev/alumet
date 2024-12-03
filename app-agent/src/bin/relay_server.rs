@@ -12,8 +12,8 @@ fn main() {
     let plugins = static_plugins![
         plugin_relay::server::RelayServerPlugin,
         plugin_csv::CsvPlugin,
-        plugin_energy_estimation_tdp::EnergyEstimationTdpPlugin,
-        plugin_energy_attribution::EnergyAttributionTransform
+        // plugin_energy_estimation_tdp::EnergyEstimationTdpPlugin,
+        // plugin_energy_attribution::EnergyAttributionTransform
     ];
 
     init_logger();

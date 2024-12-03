@@ -56,7 +56,12 @@ relay_client = [
     "dep:plugin-procfs",
     "dep:plugin-oar2",
 ]
-relay_server = ["dep:plugin-relay", "plugin-relay/server", "dep:plugin-csv"]
+relay_server = [
+    "dep:plugin-relay",
+    "plugin-relay/server","dep:plugin-csv",
+    "dep:plugin-energy-estimation-tdp",
+    "dep:plugin-energy-attribution",
+]
 
 [[bin]]
 name = "alumet-local-agent"
