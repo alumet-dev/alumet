@@ -1,9 +1,14 @@
 use alumet::{
-    metrics::{RawMetricId,TypedMetricId}, plugin::{rust::{deserialize_config, serialize_config, AlumetPlugin}, AlumetPreStart, ConfigTable}, units::{Unit}
+    metrics::{RawMetricId, TypedMetricId},
+    plugin::{
+        rust::{deserialize_config, serialize_config, AlumetPlugin},
+        AlumetPreStart, ConfigTable,
+    },
+    units::Unit,
 };
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use transform::EnergyEstimationTdpTransform;
 
@@ -11,7 +16,7 @@ mod transform;
 
 pub struct EnergyEstimationTdpPlugin {
     config: Option<Config>,
-    metrics: Arc<Mutex<Metrics>>
+    metrics: Arc<Mutex<Metrics>>,
 }
 
 #[derive(Default)]
@@ -49,7 +54,6 @@ impl AlumetPlugin for EnergyEstimationTdpPlugin {
         }))
     }
 
-
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
         let mut metrics = self.metrics.lock().unwrap();
         let config: Config = self.config.take().unwrap();
@@ -63,10 +67,12 @@ impl AlumetPlugin for EnergyEstimationTdpPlugin {
         )?);
 
         // Add the transform now but fill its metrics later.
-        alumet.add_transform(Box::new(EnergyEstimationTdpTransform::new(config, self.metrics.clone())));
+        alumet.add_transform(Box::new(EnergyEstimationTdpTransform::new(
+            config,
+            self.metrics.clone(),
+        )));
         Ok(())
     }
-
 
     fn pre_pipeline_start(&mut self, alumet: &mut AlumetPreStart) -> anyhow::Result<()> {
         /// Finds the RawMetricId with the name of the metric.
@@ -96,9 +102,9 @@ impl AlumetPlugin for EnergyEstimationTdpPlugin {
 
 // for 1st version, tdp,vcpu, cpu are defined in configuration plugin
 #[derive(Serialize, Deserialize)]
-struct Config {  
+struct Config {
     #[serde(with = "humantime_serde")]
-    poll_interval: Duration,  
+    poll_interval: Duration,
     tdp: f64,
     nb_vcpu: f64,
     nb_cpu: f64,
@@ -107,11 +113,10 @@ struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            poll_interval: Duration::from_secs(1), // 1Hz                     
+            poll_interval: Duration::from_secs(1), // 1Hz
             tdp: 100.0,
             nb_vcpu: 1.0,
-            nb_cpu: 1.0
+            nb_cpu: 1.0,
         }
     }
-    
 }
