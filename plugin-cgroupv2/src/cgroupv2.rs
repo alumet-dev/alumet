@@ -263,46 +263,6 @@ mod tests {
         assert_eq!(result.time_used_system_mode, 0);
     }
 
-    // Test `from_str` function with in extracted result,
-    // a null string
-    #[test]
-    fn test_null_values() {
-        let null_str: Option<&str> = None;
-
-        let result: Result<CgroupV2Metric, _> = match null_str {
-            Some(s) => CgroupV2Metric::from_str(s),
-            None => Ok(CgroupV2Metric {
-                name: "".to_owned(),
-                uid: "".to_owned(),
-                namespace: "".to_owned(),
-                node: "".to_owned(),
-                time_used_tot: 0,
-                time_used_user_mode: 0,
-                time_used_system_mode: 0,
-                anon_used_mem: 0,
-                file_mem: 0,
-                kernel_mem: 0,
-                pagetables_mem: 0,
-            }),
-        };
-
-        let expected: CgroupV2Metric = CgroupV2Metric {
-            name: "".to_owned(),
-            uid: "".to_owned(),
-            namespace: "".to_owned(),
-            node: "".to_owned(),
-            time_used_tot: 0,
-            time_used_user_mode: 0,
-            time_used_system_mode: 0,
-            anon_used_mem: 0,
-            file_mem: 0,
-            kernel_mem: 0,
-            pagetables_mem: 0,
-        };
-
-        assert_eq!(result.unwrap(), expected);
-    }
-
     // Test for calculating `mem_total` with structure parameters
     #[test]
     fn test_calc_mem() {

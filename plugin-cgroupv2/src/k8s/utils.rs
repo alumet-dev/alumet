@@ -1,7 +1,7 @@
 //! # utils file for k8s module of cgroupv2 plugin
 //!
 //! This module provides functionality for interacting with Kubernetes pods.
-use anyhow::*;
+use anyhow::{Context, Result};
 use reqwest::{self, header};
 use serde_json::Value;
 use std::{
@@ -94,7 +94,7 @@ fn list_metric_file_in_dir(
             let file_name = path.file_name().ok_or_else(|| anyhow::anyhow!("No file name found"))?;
             let dir_uid = file_name
                 .to_str()
-                .with_context(|| format!("Filename is not valid UTF-8: {:?}", path))?;
+                .with_context(|| format!("ERROR : Filename is not valid UTF-8: {:?}", path))?;
 
             if !(dir_uid.ends_with(".slice")) {
                 continue;
@@ -236,7 +236,7 @@ pub fn gather_value(file: &mut CgroupV2MetricFile, content_buffer: &mut String) 
 
 /// # Returns
 ///
-/// Returns a `HashMap` where the key is the uid used,
+/// `HashMap` where the key is the uid used,
 /// and the value is a tuple containing it's name, namespace and node
 pub async fn get_existing_pods(
     node: &str,
@@ -331,7 +331,7 @@ pub async fn get_existing_pods(
             let pod_name = metadata.get("name").and_then(|v| v.as_str()).unwrap_or("");
             let pod_namespace = metadata.get("namespace").and_then(|v| v.as_str()).unwrap_or("");
             let pod_node = spec.get("nodeName").and_then(|v| v.as_str()).unwrap_or("");
-            log::debug!("Found matching pod: {} in namespace {}", pod_name, pod_namespace);
+
             hash_map_to_ret.entry(String::from(config_hash)).or_insert((
                 pod_name.to_owned(),
                 pod_namespace.to_owned(),
@@ -459,9 +459,9 @@ mod tests {
     use std::path::PathBuf;
     use tempfile::tempdir;
 
-    // Tests `test_list_metric_file` function to evaluate existing files and folder
+    // Tests `list_metric_file_in_dir` function to evaluate existing files and folder
     #[test]
-    fn test_list_metric_file_1() {
+    fn test_list_metric_file_in_dir_1() {
         let tmp: PathBuf = std::env::temp_dir();
         let root: PathBuf = tmp.join("test-alumet-plugin-k8s/kubepods-list-metrics");
 
@@ -484,9 +484,9 @@ mod tests {
         std::fs::remove_dir_all(&root).unwrap();
     }
 
-    // Test `test_list_metric_file` function to simulate missing files in Kubernetes directory
+    // Test `list_metric_file_in_dir` function to simulate missing files in Kubernetes directory
     #[test]
-    fn test_list_metric_file_2() {
+    fn test_list_metric_file_in_dir_2() {
         let tmp: PathBuf = std::env::temp_dir();
         let root: PathBuf = tmp.join("test-alumet-plugin-k8s/kubepods-list-metrics-missing-files");
 
@@ -505,9 +505,9 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // Test `test_list_metric_file` function to simulate arborescence of kubernetes pods
+    // Test `list_metric_file_in_dir` function to simulate arborescence of kubernetes pods
     #[test]
-    fn test_list_metric_file_3() {
+    fn test_list_metric_file_in_dir_3() {
         let tmp: PathBuf = std::env::temp_dir();
         let root: std::path::PathBuf = tmp.join("test-alumet-plugin-k8s/kubepods-folder.slice/");
 
@@ -754,7 +754,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_existing_pods() {
         let node: &str = "test-node";
-        let kubernetes_api_url: &str = "https://invalid-kubernetes";
+        let kubernetes_api_url: &str = "https://invalid-kubernetes:8080";
         let token = Token::new(TokenRetrieval::Kubectl);
         let result = get_existing_pods(node, kubernetes_api_url, &token).await;
         //assert!(result.is_err());

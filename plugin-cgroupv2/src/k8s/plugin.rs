@@ -81,7 +81,8 @@ impl AlumetPlugin for K8sPlugin {
 
     #[cfg(not(tarpaulin_include))]
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
-        let v2_used: bool = super::utils::is_accessible_dir(&PathBuf::from("/sys/fs/cgroup/"))?;
+        let v2_used: bool = super::utils::is_accessible_dir(&PathBuf::from("/sys/fs/cgroup/system.slice/docker-3525f4fbfe549c7eb566acec93e89a57124659a55e0a16531e47ff899cf6bc49.scope/"))?;
+        //let v2_used: bool = super::utils::is_accessible_dir(&PathBuf::from("/sys/fs/cgroup/"))?;
         if !v2_used {
             anyhow::bail!("Cgroups v2 are not being used!");
         }
@@ -272,7 +273,8 @@ impl AlumetPlugin for K8sPlugin {
 
 impl Default for K8sConfig {
     fn default() -> Self {
-        let root_path = PathBuf::from("/sys/fs/cgroup/kubepods.slice/");
+        let root_path = PathBuf::from("/sys/fs/cgroup/system.slice/docker-3525f4fbfe549c7eb566acec93e89a57124659a55e0a16531e47ff899cf6bc49.scope/kubepods.slice/");
+        //let root_path = PathBuf::from("/sys/fs/cgroup/kubepods.slice/");
         if !root_path.exists() {
             log::warn!("Error : Path '{}' not exist.", root_path.display());
         }
@@ -296,10 +298,10 @@ mod tests {
     use std::path::PathBuf;
 
     // Create a fake plugin structure for k8s plugin
-    fn create_mock_plugin() -> K8sPlugin {
+    fn fake_k8s() -> K8sPlugin {
         K8sPlugin {
             config: K8sConfig {
-                path: PathBuf::from("/sys/fs/cgroup/kubepods.slice/"),
+                path: PathBuf::from("/sys/fs/cgroup/system.slice/docker-3525f4fbfe549c7eb566acec93e89a57124659a55e0a16531e47ff899cf6bc49.scope/kubepods.slice/"),
                 poll_interval: Duration::from_secs(1),
                 kubernetes_api_url: String::from("https://127.0.0.1:8080"),
                 hostname: String::from("test-hostname"),
@@ -319,7 +321,7 @@ mod tests {
         let config_table: ConfigTable = result.unwrap();
         let config: K8sConfig = deserialize_config(config_table).expect("Failed to deserialize config");
 
-        assert_eq!(config.path, PathBuf::from("/sys/fs/cgroup/kubepods.slice/"));
+        assert_eq!(config.path, PathBuf::from("/sys/fs/cgroup/system.slice/docker-3525f4fbfe549c7eb566acec93e89a57124659a55e0a16531e47ff899cf6bc49.scope/kubepods.slice/"));
         assert_eq!(config.poll_interval, Duration::from_secs(1));
         assert_eq!(config.kubernetes_api_url, "https://127.0.0.1:8080");
         assert_eq!(config.hostname, "");
@@ -340,7 +342,7 @@ mod tests {
     // Test `stop` function to stop k8s plugin
     #[test]
     fn test_stop() {
-        let mut plugin: K8sPlugin = create_mock_plugin();
+        let mut plugin: K8sPlugin = fake_k8s();
         let result: std::result::Result<(), anyhow::Error> = plugin.stop();
         assert!(result.is_ok(), "Stop should complete without errors.");
     }
