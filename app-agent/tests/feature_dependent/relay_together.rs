@@ -5,10 +5,11 @@ use std::{
     time::Duration,
 };
 
+use crate::common::{
+    empty_temp_dir,
+    run::{command_run_agent, ChildGuard},
+};
 use anyhow::{anyhow, Context};
-use common::run::{command_cargo_build, command_cargo_run, ChildGuard};
-
-mod common;
 
 /// Check that the client can send measurements to the server,
 /// which will write them to a CSV file.
@@ -34,43 +35,27 @@ fn client_to_server_to_csv_on_address(
     tag: &str,
     addr_and_port: Option<(&'static str, &'static str)>,
 ) -> anyhow::Result<()> {
-    let tmp_dir = std::env::temp_dir().join(format!("{}-client_to_server_to_csv-{tag}", env!("CARGO_CRATE_NAME")));
-    match std::fs::remove_dir_all(&tmp_dir) {
-        Ok(_) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(anyhow!("failed to remove dir {tmp_dir:?}: {e}")),
-    }?;
-    std::fs::create_dir(&tmp_dir).with_context(|| format!("failed to create dir {tmp_dir:?}"))?;
+    let tmp_dir = empty_temp_dir(&format!("client_to_server_to_csv-{tag}"))?;
 
     let server_config = tmp_dir.join("server.toml");
     let client_config = tmp_dir.join("client.toml");
     let server_output = tmp_dir.join("output.csv");
     assert!(
-        matches!(std::fs::exists(&server_config), Ok(false)),
+        matches!(&server_config.try_exists(), Ok(false)),
         "server config should not exist"
     );
     assert!(
-        matches!(std::fs::exists(&client_config), Ok(false)),
+        matches!(&client_config.try_exists(), Ok(false)),
         "client config should not exist"
     );
     assert!(
-        matches!(std::fs::exists(&server_output), Ok(false)),
+        matches!(&server_output.try_exists(), Ok(false)),
         "server output file should not exist"
     );
 
     let server_config_str = server_config.to_str().unwrap().to_owned();
     let client_config_str = client_config.to_str().unwrap().to_owned();
     let server_output_str = server_output.to_str().unwrap().to_owned();
-
-    // Build before run to avoid delays too big.
-    command_cargo_build("alumet-relay-server", &["relay_server"])
-        .spawn()?
-        .wait()
-        .context("cargo build should run to completion")?;
-    command_cargo_build("alumet-relay-client", &["relay_client"])
-        .spawn()?
-        .wait()
-        .context("cargo build should run to completion")?;
 
     // Spawn the server
     let server_csv_output_conf = format!("plugins.csv.output_path='''{server_output_str}'''");
@@ -89,7 +74,7 @@ fn client_to_server_to_csv_on_address(
     if let Some((server_addr, server_port)) = addr_and_port {
         server_args.extend_from_slice(&["--address", server_addr, "--port", server_port]);
     }
-    let server_process: process::Child = command_cargo_run("alumet-relay-server", &["relay_server"], &server_args)
+    let server_process: process::Child = command_run_agent("alumet-relay-server", &server_args)?
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -145,7 +130,7 @@ fn client_to_server_to_csv_on_address(
     }
     let client_args: Vec<&str> = client_args.iter().map(|s| s.as_str()).collect();
 
-    let client_process = command_cargo_run("alumet-relay-client", &["relay_client"], &client_args)
+    let client_process = command_run_agent("alumet-relay-client", &client_args)?
         // .stdout(Stdio::piped())
         // .stderr(Stdio::piped())
         .env("RUST_LOG", "debug")
@@ -168,7 +153,7 @@ fn client_to_server_to_csv_on_address(
     );
 
     // Check that we've obtained some measurements
-    let output_content_before_stop = std::fs::read_to_string(&server_output)?;
+    // let output_content_before_stop = std::fs::read_to_string(&server_output)?;
     // assert!(
     //     !output_content_before_stop.is_empty(),
     //     "some measurements should have been written after {delta:?}"

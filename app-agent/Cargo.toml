@@ -73,4 +73,5 @@ required-features = ["relay_server"]
 workspace = true
 
 [dev-dependencies]
+assert_cmd = "2.0.16"
 libc = "0.2.159"

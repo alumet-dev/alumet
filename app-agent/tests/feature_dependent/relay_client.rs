@@ -1,19 +1,22 @@
 //! Integration tests for the "relay client" agent.
-use common::run::{cargo_run, cargo_run_tee};
-
-mod common;
+use crate::common::{
+    empty_temp_dir,
+    run::{run_agent, run_agent_tee},
+    tests,
+};
 
 #[test]
 fn help() {
-    let status = cargo_run("alumet-relay-client", &["relay_client"], &["--help"]);
+    let tmp_dir = empty_temp_dir("help").unwrap();
+    let status = run_agent("alumet-relay-client", &["--help"], &tmp_dir).unwrap();
     assert!(status.success());
 }
 
 #[test]
 fn args_bad_relay_server_address() {
-    let out = cargo_run_tee(
+    let tmp_dir = empty_temp_dir("args_bad_relay_server_address").unwrap();
+    let out = run_agent_tee(
         "alumet-relay-client",
-        &["relay_client"],
         &[
             "--plugins",
             "relay-client",
@@ -22,6 +25,7 @@ fn args_bad_relay_server_address() {
             "exec",
             "sleep 1",
         ],
+        &tmp_dir,
     )
     .expect("failed to run the client and capture its output");
     assert!(
@@ -39,15 +43,15 @@ fn args_bad_relay_server_address() {
 
 #[test]
 fn args_bad_config_no_folder() -> anyhow::Result<()> {
-    common::tests::args_bad_config_no_folder("alumet-relay-client", &["relay_client"])
+    tests::args_bad_config_no_folder("alumet-relay-client")
 }
 
 #[test]
 fn args_bad_config_missing_file_no_default() -> anyhow::Result<()> {
-    common::tests::args_bad_config_missing_file_no_default("alumet-relay-client", &["relay_client"])
+    tests::args_bad_config_missing_file_no_default("alumet-relay-client")
 }
 
 #[test]
 fn args_regen_config() -> anyhow::Result<()> {
-    common::tests::args_regen_config("alumet-relay-client", &["relay_client"])
+    tests::args_regen_config("alumet-relay-client")
 }

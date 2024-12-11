@@ -47,13 +47,10 @@ jobs:
           command: "cargo build"
       - run:
           name: Build the agents
-          command: |
-            cargo build --bin alumet-local-agent --features local_x86
-            cargo build --bin alumet-relay-client --features relay_client
-            cargo build --bin alumet-relay-server --features relay_server
+          command: cargo build -p app-agent --bins --all-features
       - run:
           name: Run Tests (including doc tests)
-          command: "cargo test -- --exact --show-output"
+          command: cargo test --all-features -- --show-output
           no_output_timeout: 45s
 
       # Caching "target" makes "build_and_test" faster (because we compile almost nothing),

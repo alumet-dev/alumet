@@ -1,33 +1,36 @@
 //! Integration tests for the local agent.
+use crate::common::{
+    empty_temp_dir,
+    run::{run_agent, run_agent_tee},
+    tests,
+};
 use anyhow::Context;
-use common::run::{cargo_run, cargo_run_tee};
-
-mod common;
 
 #[test]
 fn help() {
-    let status = cargo_run("alumet-local-agent", &["local_x86"], &["--help"]);
+    let tmp_dir = empty_temp_dir("help").unwrap();
+    let status = run_agent("alumet-local-agent", &["--help"], &tmp_dir).unwrap();
     assert!(status.success());
 }
 
 #[test]
 fn args_bad_config_no_folder() -> anyhow::Result<()> {
-    common::tests::args_bad_config_no_folder("alumet-local-agent", &["local_x86"])
+    tests::args_bad_config_no_folder("alumet-local-agent")
 }
 
 #[test]
 fn args_bad_config_missing_file_no_default() -> anyhow::Result<()> {
-    common::tests::args_bad_config_missing_file_no_default("alumet-local-agent", &["local_x86"])
+    tests::args_bad_config_missing_file_no_default("alumet-local-agent")
 }
 
 #[test]
 fn args_regen_config() -> anyhow::Result<()> {
-    common::tests::args_regen_config("alumet-local-agent", &["local_x86"])
+    tests::args_regen_config("alumet-local-agent")
 }
 
 #[test]
 fn args_output_exec() -> anyhow::Result<()> {
-    let tmp_dir = std::env::temp_dir().join(format!("{}-args_output_exec", env!("CARGO_CRATE_NAME")));
+    let tmp_dir = empty_temp_dir("args_output_exec").unwrap();
     let tmp_file_out = tmp_dir.join("agent-output.csv");
     let tmp_file_conf = tmp_dir.join("agent-config.toml");
     let _ = std::fs::create_dir(&tmp_dir);
@@ -37,9 +40,8 @@ fn args_output_exec() -> anyhow::Result<()> {
     // Check that the agent runs properly with --output
     let tmp_file_out_str = tmp_file_out.to_str().unwrap();
     let tmp_file_conf_str = tmp_file_conf.to_str().unwrap();
-    let command_out = cargo_run_tee(
+    let command_out = run_agent_tee(
         "alumet-local-agent",
-        &["local_x86"],
         &[
             "--output",
             tmp_file_out_str,
@@ -51,6 +53,7 @@ fn args_output_exec() -> anyhow::Result<()> {
             "sleep",
             "1",
         ],
+        &tmp_dir,
     )?;
     assert!(
         command_out.status.success(),
