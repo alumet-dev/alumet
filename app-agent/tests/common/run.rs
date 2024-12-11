@@ -1,72 +1,56 @@
+use anyhow::Context;
+use assert_cmd::cargo::{CargoError, CommandCargoExt};
 use std::{
     io::{Read, Write},
     ops::{Deref, DerefMut},
+    path::Path,
     process::{Child, Command, Output, Stdio},
     thread,
 };
 
-/// Constructs a `Command` that will do `cargo run --bin ${binary} [--features ${features}] [-- ${bin_args}]`
-pub fn command_cargo_run(binary: &str, features: &[&str], bin_args: &[&str]) -> Command {
-    let mut cmd = Command::new("cargo");
-    cmd.args(["run", "--bin", binary]);
-    if !features.is_empty() {
-        cmd.arg("--features");
-        cmd.args(features);
-    }
-    if !bin_args.is_empty() {
-        cmd.arg("--");
-        cmd.args(bin_args);
-    }
-    cmd
+/// Constructs a `Command` that execute a binary.
+///
+/// This does NOT call `cargo run`, see [`assert_cmd::Command::cargo_bin`].
+pub fn command_run_agent(binary: &str, bin_args: &[&str]) -> Result<Command, CargoError> {
+    let mut cmd = Command::cargo_bin(binary)?;
+    cmd.args(bin_args);
+    Ok(cmd)
 }
 
-/// Constructs a `Command` that will do `cargo build --bin ${binary} [--features ${features}]`
-pub fn command_cargo_build(binary: &str, features: &[&str]) -> Command {
-    let mut cmd = Command::new("cargo");
-    cmd.args(["build", "--bin", binary]);
-    if !features.is_empty() {
-        cmd.arg("--features");
-        cmd.args(features);
-    }
-    cmd
-}
-
-/// Executes `cargo run ...` and returns its exit status.
+/// Executes an agent binary with the given arguments, and returns its exit status.
 ///
 /// The stdout and stderr are inherited from the current process.
-pub fn cargo_run(binary: &str, features: &[&str], bin_args: &[&str]) -> std::process::ExitStatus {
-    let mut cmd = command_cargo_run(binary, features, bin_args);
-    cmd.spawn()
-        .unwrap_or_else(|_| panic!("could not spawn process: {cmd:?}"))
+pub fn run_agent(binary: &str, bin_args: &[&str], workdir: &Path) -> anyhow::Result<std::process::ExitStatus> {
+    let mut cmd = command_run_agent(binary, bin_args)?;
+    cmd.current_dir(workdir)
+        .spawn()
+        .with_context(|| format!("could not spawn process {cmd:?}"))?
         .wait()
-        .unwrap_or_else(|_| panic!("could not wait for process: {cmd:?}"))
+        .with_context(|| format!("could not wait for process: {cmd:?}"))
 }
 
 /// Executes `cargo run ...` and captures its output.
 ///
 /// The stdout and stderr are captured, nothing will be printed during the execution of the command.
-pub fn cargo_run_capture_output(binary: &str, features: &[&str], bin_args: &[&str]) -> Output {
-    let mut cmd = command_cargo_run(binary, features, bin_args);
-    let child = cmd
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap_or_else(|_| panic!("could not spawn process: {cmd:?}"));
-
-    child.wait_with_output().unwrap()
+pub fn run_agent_capture_output(binary: &str, bin_args: &[&str], workdir: &Path) -> anyhow::Result<Output> {
+    let mut cmd = command_run_agent(binary, bin_args)?;
+    cmd.current_dir(workdir)
+        .output()
+        .with_context(|| format!("could not run process: {cmd:?}"))
 }
 
 /// Executes `cargo run ...` and duplicates its output to the current stdout/stderr and two buffers.
 ///
 /// The stdout and stderr are both redirected to a pipe, and copied to the current stdout and stderr,
 /// and to two buffers. In essence, it does "both" `cargo_run` and `cargo_run_capture_output`.
-pub fn cargo_run_tee(binary: &str, features: &[&str], bin_args: &[&str]) -> anyhow::Result<Output> {
-    let mut cmd = command_cargo_run(binary, features, bin_args);
+pub fn run_agent_tee(binary: &str, bin_args: &[&str], workdir: &Path) -> anyhow::Result<Output> {
+    let mut cmd = command_run_agent(binary, bin_args)?;
     let child = cmd
+        .current_dir(workdir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .unwrap_or_else(|_| panic!("could not spawn process: {cmd:?}"));
+        .unwrap_or_else(|e| panic!("could not spawn process: {cmd:?}: {e}"));
     let mut child = ChildGuard::new(child);
 
     let child_stdout = child.stdout.take().expect("could not attach to child stdout");

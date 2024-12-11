@@ -34,10 +34,9 @@ pub trait Output: Send {
 }
 
 /// An asynchronous stream of measurements, to be used by an asynchronous output.
-pub struct AsyncOutputStream(
-    pub Pin<Box<dyn Stream<Item = Result<MeasurementBuffer, channel::StreamRecvError>> + Send>>,
-); // TODO make opaque?
+pub struct AsyncOutputStream(pub Pin<Box<dyn Stream<Item = Result<MeasurementBuffer, StreamRecvError>> + Send>>); // TODO make opaque?
 
+pub type StreamRecvError = channel::StreamRecvError;
 pub type BoxedAsyncOutput = Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send + 'static>>;
 
 /// Shared data that can be accessed by outputs.
@@ -88,6 +87,7 @@ impl OutputControl {
         for (plugin, builder) in outputs {
             let mut ctx = OutputBuildContext {
                 metrics: &metrics,
+                metrics_r: &self.metrics.clone(),
                 namegen: self.names.plugin_namespace(&plugin),
                 runtime: self.tasks.rt_normal.clone(),
             };
@@ -103,6 +103,7 @@ impl OutputControl {
         let metrics = self.metrics.read().await;
         let mut ctx = OutputBuildContext {
             metrics: &metrics,
+            metrics_r: &self.metrics,
             namegen: self.names.plugin_namespace(&plugin),
             runtime: self.tasks.rt_normal.clone(),
         };
@@ -394,7 +395,7 @@ async fn run_blocking_output<Rx: channel::MeasurementReceiver>(
 
 async fn run_async_output(name: OutputName, output: BoxedAsyncOutput) -> anyhow::Result<()> {
     output.await.map_err(|e| {
-        log::error!("Error when asynchronously writing to {name} (will stop running): {e:#}");
+        log::error!("Error when asynchronously writing to {name} (will stop running): {e:?}");
         e.context(format!("error in async output {name}"))
     })
 }
@@ -448,7 +449,10 @@ pub mod builder {
 
     use crate::{
         metrics::MetricRegistry,
-        pipeline::util::naming::{OutputName, PluginElementNamespace},
+        pipeline::{
+            registry::{self, MetricReader},
+            util::naming::{OutputName, PluginElementNamespace},
+        },
     };
 
     use super::AsyncOutputStream;
@@ -527,6 +531,7 @@ pub mod builder {
 
     /// Context provided when building new outputs.
     pub(super) struct OutputBuildContext<'a> {
+        pub(super) metrics_r: &'a MetricReader,
         pub(super) metrics: &'a MetricRegistry,
         pub(super) namegen: &'a mut PluginElementNamespace,
         pub(super) runtime: runtime::Handle,
@@ -542,6 +547,9 @@ pub mod builder {
         fn output_name(&mut self, name: &str) -> OutputName;
 
         fn async_runtime(&self) -> &tokio::runtime::Handle;
+
+        /// Returns a `MetricReader`, which allows to access the metric registry.
+        fn metrics_reader(&self) -> registry::MetricReader;
     }
 
     impl BlockingOutputBuildContext for OutputBuildContext<'_> {
@@ -561,6 +569,10 @@ pub mod builder {
 
         fn async_runtime(&self) -> &tokio::runtime::Handle {
             &self.runtime
+        }
+
+        fn metrics_reader(&self) -> registry::MetricReader {
+            self.metrics_r.clone()
         }
     }
 }

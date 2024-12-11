@@ -1,14 +1,13 @@
 use anyhow::Context;
 
-use crate::common::run::cargo_run_tee;
+use crate::common::{empty_temp_dir, run::run_agent_tee};
 
-pub fn args_bad_config_no_folder(binary: &str, features: &[&str]) -> anyhow::Result<()> {
-    let tmp_dir = std::env::temp_dir().join(format!("{}-args_bad_config_no_folder", env!("CARGO_CRATE_NAME")));
+pub fn args_bad_config_no_folder(binary: &str) -> anyhow::Result<()> {
+    let tmp_dir = empty_temp_dir(&format!("{binary}-args_bad_config_no_folder"))?;
     let bad_conf = tmp_dir.join("zzzzz.toml");
-    let _ = std::fs::remove_dir_all(&tmp_dir);
 
     let bad_conf_filename = bad_conf.to_str().unwrap();
-    let output = cargo_run_tee(binary, features, &["--config", bad_conf_filename])?;
+    let output = run_agent_tee(binary, &["--config", bad_conf_filename], &tmp_dir)?;
     assert!(
         !output.status.success(),
         "should fail because the config directory does not exist"
@@ -19,19 +18,15 @@ pub fn args_bad_config_no_folder(binary: &str, features: &[&str]) -> anyhow::Res
     Ok(())
 }
 
-pub fn args_bad_config_missing_file_no_default(binary: &str, features: &[&str]) -> anyhow::Result<()> {
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "{}-args_bad_config_missing_file_no_default",
-        env!("CARGO_CRATE_NAME")
-    ));
+pub fn args_bad_config_missing_file_no_default(binary: &str) -> anyhow::Result<()> {
+    let tmp_dir = empty_temp_dir(&format!("{binary}-args_bad_config_missing_file_no_default"))?;
     let bad_conf = tmp_dir.join("zzzzz.toml");
-    let _ = std::fs::remove_file(&bad_conf);
 
     let bad_conf_filename = bad_conf.to_str().unwrap();
-    let output = cargo_run_tee(
+    let output = run_agent_tee(
         binary,
-        features,
         &["--config", bad_conf_filename, "--no-default-config"],
+        &tmp_dir,
     )?;
     assert!(
         !output.status.success(),
@@ -43,14 +38,13 @@ pub fn args_bad_config_missing_file_no_default(binary: &str, features: &[&str]) 
     Ok(())
 }
 
-pub fn args_regen_config(binary: &str, features: &[&str]) -> anyhow::Result<()> {
-    let tmp_dir = std::env::temp_dir().join(format!("{}-args_regen_config", env!("CARGO_CRATE_NAME")));
+pub fn args_regen_config(binary: &str) -> anyhow::Result<()> {
+    let tmp_dir = empty_temp_dir(&format!("{binary}-args_regen_config"))?;
     let conf = tmp_dir.join("config.toml");
-    let _ = std::fs::remove_file(&conf);
-    let _ = std::fs::create_dir(&tmp_dir);
+    assert!(!conf.try_exists()?, "config file should not exist: {conf:?}");
 
     let conf_path_str = conf.to_str().unwrap();
-    let output = cargo_run_tee(binary, features, &["--config", conf_path_str, "regen-config"])?;
+    let output = run_agent_tee(binary, &["--config", conf_path_str, "regen-config"], &tmp_dir)?;
     assert!(output.status.success(), "command should succeed");
 
     let conf_content =

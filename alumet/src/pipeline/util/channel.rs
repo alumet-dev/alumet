@@ -31,6 +31,7 @@ pub enum RecvError {
 }
 
 #[non_exhaustive]
+#[derive(Debug)]
 pub enum StreamRecvError {
     Lagged(u64),
 }
