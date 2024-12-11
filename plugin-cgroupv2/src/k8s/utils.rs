@@ -78,8 +78,7 @@ fn list_metric_file_in_dir(
     let entries = fs::read_dir(root_directory_path)?;
     // Let's create a runtime to await async function and fill hashmap
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-    let main_hash_map =
-        rt.block_on(async { get_existing_pods(hostname, kubernetes_api_url, token).await })?;
+    let main_hash_map = rt.block_on(async { get_existing_pods(hostname, kubernetes_api_url, token).await })?;
 
     // For each File in the root path
     for entry in entries {

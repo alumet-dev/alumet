@@ -132,12 +132,12 @@ mod tests {
     // Test `refresh` function with a kubectl failure simulation
     #[tokio::test]
     async fn test_refresh_1() {
-        let _m = mock("POST", "/api/alumet/kubernetes.io/serviceaccounts/token")
+        let _m = mock("POST", "/var/run/secrets/kubernetes.io/serviceaccount/token")
             .with_status(1)
             .with_body("Error occurred")
             .create();
 
-        let token= Token::new(TokenRetrieval::Kubectl);
+        let token = Token::new(TokenRetrieval::Kubectl);
         let result = token.refresh().await;
 
         assert!(result.is_err());
@@ -147,7 +147,7 @@ mod tests {
     // Test `refresh` function with a kubectl utf8 error
     #[tokio::test]
     async fn test_refresh_2() {
-        let _m = mock("POST", "/api/alumet/kubernetes.io/serviceaccounts/token")
+        let _m = mock("POST", "/var/run/secrets/kubernetes.io/serviceaccount/token")
             .with_status(200)
             .with_body(b"\xFF\xFE".to_vec())
             .create();

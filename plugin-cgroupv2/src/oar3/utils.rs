@@ -207,8 +207,7 @@ mod tests {
             Ok(file) => file,
         };
 
-        let mut my_cgroup_test_file =
-            CgroupV2MetricFile::new("testing_pod".to_string(), path_file, file);
+        let mut my_cgroup_test_file = CgroupV2MetricFile::new("testing_pod".to_string(), path_file, file);
         let mut content_file = String::new();
         let res_metric = gather_value(&mut my_cgroup_test_file, &mut content_file);
         if let Ok(CgroupV2Metric {

@@ -50,7 +50,7 @@ impl CgroupV2prob {
         })
     }
 
-    /// Create a measurement point with given value, 
+    /// Create a measurement point with given value,
     /// the `LocalMachine` resource and some attributes related to the pod.
     fn create_measurement_point(
         &self,
