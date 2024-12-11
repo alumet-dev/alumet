@@ -50,20 +50,8 @@ impl CgroupV2prob {
         })
     }
 
-    /// Automatically create a measurement point to push for a pod, with pre-implemented settings :
-    /// - `uid` of the pod
-    /// - `name` of the pod
-    /// - `namespace` of the pod
-    /// - `node` of the pod
-    ///
-    /// # Arguments
-    ///
-    /// - `timestamp` : Type Timestamp
-    /// - `metric_id` : TypedMetricId<u64>
-    /// - `resource_consumer` : Type ResourceConsumer
-    /// - `value_measured` : Type u64
-    /// - `metrics_param` : Type CgroupV2Metric
-    ///
+    /// Create a measurement point with given value, 
+    /// the `LocalMachine` resource and some attributes related to the pod.
     fn create_measurement_point(
         &self,
         timestamp: Timestamp,
@@ -114,14 +102,14 @@ impl alumet::pipeline::Source for CgroupV2prob {
 
         // Push cpu total usage measure for user and system
         if let Some(value_tot) = diff_tot {
-            let p_tot: MeasurementPoint =
+            let p_tot =
                 self.create_measurement_point(timestamp, self.time_used_tot, consumer_cpu.clone(), value_tot, &metrics);
             measurements.push(p_tot);
         }
 
         // Push cpu usage measure for user
         if let Some(value_usr) = diff_usr {
-            let p_usr: MeasurementPoint = self.create_measurement_point(
+            let p_usr = self.create_measurement_point(
                 timestamp,
                 self.time_used_user_mode,
                 consumer_cpu.clone(),
@@ -133,7 +121,7 @@ impl alumet::pipeline::Source for CgroupV2prob {
 
         // Push cpu usage measure for system
         if let Some(value_sys) = diff_sys {
-            let p_sys: MeasurementPoint = self.create_measurement_point(
+            let p_sys = self.create_measurement_point(
                 timestamp,
                 self.time_used_system_mode,
                 consumer_cpu.clone(),
@@ -145,7 +133,7 @@ impl alumet::pipeline::Source for CgroupV2prob {
 
         // Push anonymous used memory measure corresponding to running process and various allocated memory
         let mem_anon_value = metrics.anon_used_mem;
-        let m_anon: MeasurementPoint = self.create_measurement_point(
+        let m_anon = self.create_measurement_point(
             timestamp,
             self.anon_used_mem,
             consumer_memory.clone(),
@@ -156,7 +144,7 @@ impl alumet::pipeline::Source for CgroupV2prob {
 
         // Push files memory measure, corresponding to open files and descriptors
         let mem_file_value = metrics.file_mem;
-        let m_file: MeasurementPoint = self.create_measurement_point(
+        let m_file = self.create_measurement_point(
             timestamp,
             self.file_mem,
             consumer_memory.clone(),
@@ -167,7 +155,7 @@ impl alumet::pipeline::Source for CgroupV2prob {
 
         // Push kernel memory measure
         let mem_kernel_value = metrics.kernel_mem;
-        let m_ker: MeasurementPoint = self.create_measurement_point(
+        let m_ker = self.create_measurement_point(
             timestamp,
             self.kernel_mem,
             consumer_memory.clone(),
@@ -178,7 +166,7 @@ impl alumet::pipeline::Source for CgroupV2prob {
 
         // Push pagetables memory measure
         let mem_pagetables_value = metrics.pagetables_mem;
-        let m_pgt: MeasurementPoint = self.create_measurement_point(
+        let m_pgt = self.create_measurement_point(
             timestamp,
             self.pagetables_mem,
             consumer_memory.clone(),
@@ -189,7 +177,7 @@ impl alumet::pipeline::Source for CgroupV2prob {
 
         // Push total memory used by cgroup measure
         let mem_total_value = (mem_anon_value + mem_file_value + mem_kernel_value + mem_pagetables_value) / 1000;
-        let m_tot: MeasurementPoint = self.create_measurement_point(
+        let m_tot = self.create_measurement_point(
             timestamp,
             self.total_mem,
             consumer_memory.clone(),

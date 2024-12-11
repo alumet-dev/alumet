@@ -114,8 +114,8 @@ impl Metrics {
     /// * `MetricCreationError` - Error which can occur when creating a new metric.
     ///
     pub fn new(alumet: &mut AlumetPluginStart) -> Result<Self, MetricCreationError> {
-        let usec: PrefixedUnit = PrefixedUnit::micro(Unit::Second);
-        let kb: PrefixedUnit = PrefixedUnit::kilo(Unit::Byte);
+        let usec = PrefixedUnit::micro(Unit::Second);
+        let kb = PrefixedUnit::kilo(Unit::Byte);
 
         Ok(Self {
             // CPU cgroup data
@@ -161,9 +161,6 @@ impl Metrics {
     }
 }
 
-// ------------------ //
-// --- UNIT TESTS --- //
-// ------------------ //
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,7 +169,7 @@ mod tests {
     // a null value
     #[test]
     fn test_zero_values() {
-        let str: &str = "
+        let str = "
             usage_usec 0
             user_usec 0
             system_usec 0
@@ -180,7 +177,7 @@ mod tests {
             nr_throttled 0
             throttled_usec 0";
 
-        let result: CgroupV2Metric = CgroupV2Metric::from_str(str).unwrap();
+        let result = CgroupV2Metric::from_str(str).unwrap();
         assert_eq!(result.time_used_tot, 0);
         assert_eq!(result.time_used_user_mode, 0);
         assert_eq!(result.time_used_system_mode, 0);
@@ -190,7 +187,7 @@ mod tests {
     // a big value to test overflow
     #[test]
     fn test_large_values() {
-        let str: &str = "
+        let str = "
             anon 18446744073709551615
             file 18446744073709551615
             kernel_stack 18446744073709551615
@@ -201,7 +198,7 @@ mod tests {
             file_mapped 72806400
             ....";
 
-        let result: CgroupV2Metric = CgroupV2Metric::from_str(str).unwrap();
+        let result = CgroupV2Metric::from_str(str).unwrap();
         assert_eq!(result.anon_used_mem, 18446744073709551615);
         assert_eq!(result.file_mem, 18446744073709551615);
         assert_eq!(result.kernel_mem, 18446744073709551615);
@@ -212,7 +209,7 @@ mod tests {
     // a negative value to test representation
     #[test]
     fn test_signed_values() {
-        let str: &str = "
+        let str = "
             usage_usec 10000
             user_usec -20000
             system_usec -30000";
@@ -224,7 +221,7 @@ mod tests {
     // a float or decimal value
     #[test]
     fn test_double_values() {
-        let str: &str = "
+        let str = "
             anon 10000.05
             file 20000.25
             kernel_stack 30000.33
@@ -237,7 +234,7 @@ mod tests {
     // a null, empty or incompatible string
     #[test]
     fn test_invalid_values() {
-        let str: &str = "
+        let str = "
             anon !#⚠
             file
             pagetables -123abc
@@ -251,7 +248,7 @@ mod tests {
     #[test]
     fn test_empty_values() {
         let str: &str = "";
-        let result: CgroupV2Metric = CgroupV2Metric::from_str(str).unwrap();
+        let result = CgroupV2Metric::from_str(str).unwrap();
         // Memory file str
         assert_eq!(result.anon_used_mem, 0);
         assert_eq!(result.file_mem, 0);
@@ -266,7 +263,7 @@ mod tests {
     // Test for calculating `mem_total` with structure parameters
     #[test]
     fn test_calc_mem() {
-        let result: CgroupV2Metric = CgroupV2Metric {
+        let result = CgroupV2Metric {
             name: "".to_owned(),
             uid: "test_pod_uid".to_owned(),
             namespace: "test_pod_namespace".to_owned(),

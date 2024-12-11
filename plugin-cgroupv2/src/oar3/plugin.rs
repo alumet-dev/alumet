@@ -69,11 +69,12 @@ impl AlumetPlugin for OARPlugin {
 
         let final_list_metric_file: Vec<CgroupV2MetricFile> = super::utils::list_all_file(&self.config.path)?;
 
-        //Add as a source each pod already present
+        // Add as a source each pod already present
         for metric_file in final_list_metric_file {
             let counter_tmp_tot: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
             let counter_tmp_usr: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
             let counter_tmp_sys: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
+
             let probe = CgroupV2prob::new(
                 metrics.clone(),
                 metric_file,
@@ -201,9 +202,6 @@ impl Default for OAR3Config {
     }
 }
 
-// ------------------ //
-// --- UNIT TESTS --- //
-// ------------------ //
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,14 +220,14 @@ mod tests {
         }
     }
 
-    // Test default configuration of oar3 plugin
+    // Test `default_config` function of oar3 plugin
     #[test]
     fn test_default_config() {
         let result = OARPlugin::default_config().unwrap();
-        assert!(result.is_some(), "Expected Some(ConfigTable): result = None");
+        assert!(result.is_some(), "result : None");
 
         let config_table = result.unwrap();
-        let config: OAR3Config = deserialize_config(config_table).expect("Failed to deserialize config");
+        let config: OAR3Config = deserialize_config(config_table).expect("ERROR : Failed to deserialize config");
 
         assert_eq!(config.path, PathBuf::from("/sys/fs/cgroup/"));
         assert_eq!(config.poll_interval, Duration::from_secs(1));

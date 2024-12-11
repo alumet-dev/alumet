@@ -81,8 +81,8 @@ impl AlumetPlugin for K8sPlugin {
 
     #[cfg(not(tarpaulin_include))]
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
-        let v2_used: bool = super::utils::is_accessible_dir(&PathBuf::from("/sys/fs/cgroup/system.slice/docker-3525f4fbfe549c7eb566acec93e89a57124659a55e0a16531e47ff899cf6bc49.scope/"))?;
-        //let v2_used: bool = super::utils::is_accessible_dir(&PathBuf::from("/sys/fs/cgroup/"))?;
+        let v2_used = super::utils::is_accessible_dir(&PathBuf::from("/sys/fs/cgroup/system.slice/docker-3525f4fbfe549c7eb566acec93e89a57124659a55e0a16531e47ff899cf6bc49.scope/"))?;
+        //let v2_used = super::utils::is_accessible_dir(&PathBuf::from("/sys/fs/cgroup/"))?;
         if !v2_used {
             anyhow::bail!("Cgroups v2 are not being used!");
         }
@@ -106,9 +106,9 @@ impl AlumetPlugin for K8sPlugin {
 
         // Add as a source each pod already present
         for metric_file in final_list_metric_file {
-            let counter_tmp_tot: CounterDiff = CounterDiff::with_max_value(crate::cgroupv2::CGROUP_MAX_TIME_COUNTER);
-            let counter_tmp_usr: CounterDiff = CounterDiff::with_max_value(crate::cgroupv2::CGROUP_MAX_TIME_COUNTER);
-            let counter_tmp_sys: CounterDiff = CounterDiff::with_max_value(crate::cgroupv2::CGROUP_MAX_TIME_COUNTER);
+            let counter_tmp_tot = CounterDiff::with_max_value(crate::cgroupv2::CGROUP_MAX_TIME_COUNTER);
+            let counter_tmp_usr = CounterDiff::with_max_value(crate::cgroupv2::CGROUP_MAX_TIME_COUNTER);
+            let counter_tmp_sys = CounterDiff::with_max_value(crate::cgroupv2::CGROUP_MAX_TIME_COUNTER);
 
             let probe = K8SProbe::new(
                 self.metrics.as_ref().expect("Metrics is not available").clone(),
@@ -127,7 +127,7 @@ impl AlumetPlugin for K8sPlugin {
     fn post_pipeline_start(&mut self, alumet: &mut AlumetPostStart) -> anyhow::Result<()> {
         let control_handle = alumet.pipeline_control();
 
-        let metrics: Metrics = self.metrics.clone().expect("Metrics is not available");
+        let metrics = self.metrics.clone().expect("Metrics is not available");
         let poll_interval = self.config.poll_interval;
         let kubernetes_api_url = self.config.kubernetes_api_url.clone();
         let hostname = self.config.hostname.to_owned();
@@ -219,11 +219,11 @@ impl AlumetPlugin for K8sPlugin {
                                     node: node.to_owned(),
                                 };
 
-                                let counter_tmp_tot: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
-                                let counter_tmp_usr: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
-                                let counter_tmp_sys: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
+                                let counter_tmp_tot = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
+                                let counter_tmp_usr = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
+                                let counter_tmp_sys = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
 
-                                let probe: K8SProbe = K8SProbe::new(
+                                let probe = K8SProbe::new(
                                     detector.metrics.clone(),
                                     metric_file,
                                     counter_tmp_tot,
@@ -288,9 +288,6 @@ impl Default for K8sConfig {
     }
 }
 
-// ------------------ //
-// --- UNIT TESTS --- //
-// ------------------ //
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -312,14 +309,14 @@ mod tests {
         }
     }
 
-    // Test default configuration of k8s plugin
+    // Test `default_config` function of k8s plugin
     #[test]
     fn test_default_config() {
-        let result: Option<ConfigTable> = K8sPlugin::default_config().unwrap();
-        assert!(result.is_some(), "Expected Some(ConfigTable): result = None");
+        let result = K8sPlugin::default_config().unwrap();
+        assert!(result.is_some(), "result = None");
 
-        let config_table: ConfigTable = result.unwrap();
-        let config: K8sConfig = deserialize_config(config_table).expect("Failed to deserialize config");
+        let config_table = result.unwrap();
+        let config: K8sConfig = deserialize_config(config_table).expect("ERROR : Failed to deserialize config");
 
         assert_eq!(config.path, PathBuf::from("/sys/fs/cgroup/system.slice/docker-3525f4fbfe549c7eb566acec93e89a57124659a55e0a16531e47ff899cf6bc49.scope/kubepods.slice/"));
         assert_eq!(config.poll_interval, Duration::from_secs(1));
@@ -331,8 +328,8 @@ mod tests {
     // Test `init` function to initialize k8s plugin configuration
     #[test]
     fn test_init() -> Result<()> {
-        let config_table: ConfigTable = serialize_config(K8sConfig::default())?;
-        let plugin: Box<K8sPlugin> = K8sPlugin::init(config_table)?;
+        let config_table = serialize_config(K8sConfig::default())?;
+        let plugin = K8sPlugin::init(config_table)?;
         assert_eq!(plugin.config.kubernetes_api_url, "https://127.0.0.1:8080");
         assert!(plugin.metrics.is_none());
         assert!(plugin.watcher.is_none());
@@ -342,8 +339,8 @@ mod tests {
     // Test `stop` function to stop k8s plugin
     #[test]
     fn test_stop() {
-        let mut plugin: K8sPlugin = fake_k8s();
-        let result: std::result::Result<(), anyhow::Error> = plugin.stop();
+        let mut plugin = fake_k8s();
+        let result = plugin.stop();
         assert!(result.is_ok(), "Stop should complete without errors.");
     }
 }

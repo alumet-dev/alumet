@@ -39,12 +39,12 @@ impl Token {
 
     /// Check if the token' lifetime has reached its expiration or not.
     async fn is_valid(&self) -> bool {
-        let now_secs: u64 = SystemTime::now()
+        let now_secs = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("ERROR : Failed to get the current time since UNIX_EPOCH")
             .as_secs();
 
-        let data_locked: tokio::sync::RwLockReadGuard<'_, TokenData> = self.data.read().await;
+        let data_locked = self.data.read().await;
         let Some(exp) = data_locked.expiration_time else {
             return false;
         };
@@ -75,7 +75,7 @@ impl Token {
     async fn refresh(&self) -> anyhow::Result<String> {
         let token: String = match self.retrieval {
             TokenRetrieval::Kubectl => {
-                let output: std::process::Output = Command::new("kubectl")
+                let output = Command::new("kubectl")
                     .args(["create", "token", "alumet-reader", "-n", "alumet"])
                     .output()
                     .context("ERROR : kubectl command execution")?;
@@ -95,7 +95,7 @@ impl Token {
             }
         };
 
-        let mut components: std::str::Split<'_, char> = token.split('.');
+        let mut components = token.split('.');
         let payload: &str = components
             .next()
             .context("ERROR : Missing payload, token can be parsed")?;
@@ -107,13 +107,13 @@ impl Token {
         let payload_json: serde_json::Value =
             serde_json::from_slice(&decoded_payload).context("ERROR : JSON payload parsing")?;
 
-        let exp: u64 = payload_json
+        let exp = payload_json
             .get("exp")
             .and_then(|exp| exp.as_u64())
             .context("ERROR : Missing or invalid 'exp' field in token")?;
 
         {
-            let mut new_data: tokio::sync::RwLockWriteGuard<'_, TokenData> = self.data.write().await;
+            let mut new_data = self.data.write().await;
             new_data.expiration_time = Some(exp);
             new_data.value = Some(token.clone());
         }
@@ -122,9 +122,6 @@ impl Token {
     }
 }
 
-// ------------------ //
-// --- UNIT TESTS --- //
-// ------------------ //
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,60 +129,63 @@ mod tests {
     use time::Duration;
     use tokio::time;
 
-    // Test `refresh` function with a kubectl simulated
+    // Test `refresh` function with a kubectl failure simulation
     #[tokio::test]
-    async fn test_refresh_kubectl_failure() {
-        let _m: mockito::Mock = mock("POST", "/api/alumet/kubernetes.io/serviceaccounts/token")
+    async fn test_refresh_1() {
+        let _m = mock("POST", "/api/alumet/kubernetes.io/serviceaccounts/token")
             .with_status(1)
             .with_body("Error occurred")
             .create();
 
-        let token: Token = Token::new(TokenRetrieval::Kubectl);
-        let result: Result<String, anyhow::Error> = token.refresh().await;
+        let token= Token::new(TokenRetrieval::Kubectl);
+        let result = token.refresh().await;
 
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().to_string(), "ERROR : kubectl command execution");
     }
 
-    // Test `refresh` function with a file
+    // Test `refresh` function with a kubectl utf8 error
     #[tokio::test]
-    async fn test_refresh_kubectl_utf8_error() {
-        let _m: mockito::Mock = mock("POST", "/api/alumet/kubernetes.io/serviceaccounts/token")
+    async fn test_refresh_2() {
+        let _m = mock("POST", "/api/alumet/kubernetes.io/serviceaccounts/token")
             .with_status(200)
             .with_body(b"\xFF\xFE".to_vec())
             .create();
 
-        let token: Token = Token::new(TokenRetrieval::Kubectl);
-        let result: Result<String, anyhow::Error> = token.refresh().await;
+        let token = Token::new(TokenRetrieval::Kubectl);
+        let result = token.refresh().await;
 
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().to_string(), "ERROR : kubectl command execution");
     }
 
+    // Test `refresh` function with a file opening error
     #[tokio::test]
-    async fn test_refresh_file_open_error() {
-        let token: Token = Token::new(TokenRetrieval::File);
-        let result: Result<String, anyhow::Error> = token.refresh().await;
+    async fn test_refresh_3() {
+        let token = Token::new(TokenRetrieval::File);
+        let result = token.refresh().await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().to_string(), "ERROR : opening token file");
     }
 
+    // Test `refresh` function with a file reading error
     #[tokio::test]
-    async fn test_refresh_file_read_error() {
+    async fn test_refresh_4() {
         let _m = mock("GET", "/var/run/secrets/kubernetes.io/serviceaccount/token")
             .with_status(500)
             .create();
 
-        let token: Token = Token::new(TokenRetrieval::File);
-        let result: Result<String, anyhow::Error> = token.refresh().await;
+        let token = Token::new(TokenRetrieval::File);
+        let result = token.refresh().await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().to_string(), "ERROR : opening token file");
     }
 
+    // Test `refresh` function with a missing payload
     #[tokio::test]
-    async fn test_refresh_missing_payload() {
-        let token: Token = Token::new(TokenRetrieval::Kubectl);
-        let result: Result<String, anyhow::Error> = token.refresh().await;
+    async fn test_refresh_5() {
+        let token = Token::new(TokenRetrieval::Kubectl);
+        let result = token.refresh().await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().to_string(), "ERROR : kubectl command execution");
     }
@@ -196,12 +196,12 @@ mod tests {
         let token: Token = Token::new(TokenRetrieval::File);
 
         {
-            let mut data: tokio::sync::RwLockWriteGuard<'_, TokenData> = token.data.write().await;
+            let mut data = token.data.write().await;
             data.value = Some("valid_token".to_string());
             data.expiration_time = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() + 3600);
         }
 
-        let result: Result<String, anyhow::Error> = token.get_value().await;
+        let result = token.get_value().await;
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "valid_token");
@@ -217,7 +217,7 @@ mod tests {
             data.expiration_time = None;
         }
 
-        let result: Result<String, anyhow::Error> = token.get_value().await;
+        let result = token.get_value().await;
         assert!(result.is_err());
         //assert_eq!(result.unwrap_err().to_string(), "ERROR : invalid token");
     }
@@ -228,7 +228,7 @@ mod tests {
         let token: Token = Token::new(TokenRetrieval::File);
         assert!(!token.is_valid().await);
         {
-            let mut new_data: tokio::sync::RwLockWriteGuard<'_, TokenData> = token.data.write().await;
+            let mut new_data = token.data.write().await;
             (*new_data).expiration_time = Some(
                 SystemTime::now()
                     .checked_add(Duration::from_secs(10))
@@ -242,7 +242,7 @@ mod tests {
 
         assert!(token.is_valid().await);
         {
-            let mut new_data: tokio::sync::RwLockWriteGuard<'_, TokenData> = token.data.write().await;
+            let mut new_data = token.data.write().await;
             (*new_data).expiration_time = Some(
                 SystemTime::now()
                     .checked_sub(Duration::from_secs(10))

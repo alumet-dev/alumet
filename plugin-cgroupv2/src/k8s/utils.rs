@@ -78,7 +78,7 @@ fn list_metric_file_in_dir(
     let entries = fs::read_dir(root_directory_path)?;
     // Let's create a runtime to await async function and fill hashmap
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-    let main_hash_map: HashMap<String, (String, String, String)> =
+    let main_hash_map =
         rt.block_on(async { get_existing_pods(hostname, kubernetes_api_url, token).await })?;
 
     // For each File in the root path
@@ -129,9 +129,9 @@ fn list_metric_file_in_dir(
                 None => ("".to_owned(), "".to_owned(), "".to_owned()),
             };
 
-            let file_cpu: File = File::open(&path_cloned_cpu)
+            let file_cpu = File::open(&path_cloned_cpu)
                 .with_context(|| format!("failed to open file {}", path_cloned_cpu.display()))?;
-            let file_memory: File = File::open(&path_cloned_memory)
+            let file_memory = File::open(&path_cloned_memory)
                 .with_context(|| format!("failed to open file {}", path_cloned_memory.display()))?;
 
             // Let's create the new metric and push it to the vector of metrics
@@ -462,21 +462,21 @@ mod tests {
     // Tests `list_metric_file_in_dir` function to evaluate existing files and folder
     #[test]
     fn test_list_metric_file_in_dir_1() {
-        let tmp: PathBuf = std::env::temp_dir();
-        let root: PathBuf = tmp.join("test-alumet-plugin-k8s/kubepods-list-metrics");
+        let tmp = std::env::temp_dir();
+        let root = tmp.join("test-alumet-plugin-k8s/kubepods-list-metrics");
 
         if root.exists() {
             std::fs::remove_dir_all(&root).unwrap();
         }
 
-        let dir: PathBuf = root.join("dir_cgroup");
+        let dir = root.join("dir_cgroup");
         std::fs::create_dir_all(&dir).unwrap();
         assert!(is_accessible_dir(&dir).unwrap());
 
-        let non_existent_path: PathBuf = root.join("non_existent_dir");
+        let non_existent_path = root.join("non_existent_dir");
         assert!(!is_accessible_dir(&non_existent_path).unwrap());
 
-        let file_path: PathBuf = root.join("data.stat");
+        let file_path = root.join("data.stat");
         std::fs::write(&file_path, "test file").unwrap();
         assert!(!is_accessible_dir(&file_path).unwrap());
 
@@ -487,8 +487,8 @@ mod tests {
     // Test `list_metric_file_in_dir` function to simulate missing files in Kubernetes directory
     #[test]
     fn test_list_metric_file_in_dir_2() {
-        let tmp: PathBuf = std::env::temp_dir();
-        let root: PathBuf = tmp.join("test-alumet-plugin-k8s/kubepods-list-metrics-missing-files");
+        let tmp = std::env::temp_dir();
+        let root = tmp.join("test-alumet-plugin-k8s/kubepods-list-metrics-missing-files");
 
         if root.exists() {
             std::fs::remove_dir_all(&root).unwrap();
@@ -508,17 +508,17 @@ mod tests {
     // Test `list_metric_file_in_dir` function to simulate arborescence of kubernetes pods
     #[test]
     fn test_list_metric_file_in_dir_3() {
-        let tmp: PathBuf = std::env::temp_dir();
+        let tmp = std::env::temp_dir();
         let root: std::path::PathBuf = tmp.join("test-alumet-plugin-k8s/kubepods-folder.slice/");
 
         if root.exists() {
             std::fs::remove_dir_all(&root).unwrap();
         }
 
-        let dir: PathBuf = root.join("kubepods-burstable.slice/");
+        let dir = root.join("kubepods-burstable.slice/");
         std::fs::create_dir_all(&dir).unwrap();
 
-        let sub_dir: [PathBuf; 4] = [
+        let sub_dir = [
             dir.join("kubepods-burstable-pod32a1942cb9a81912549c152a49b5f9b1.slice/"),
             dir.join("kubepods-burstable-podd9209de2b4b526361248c9dcf3e702c0.slice/"),
             dir.join("kubepods-burstable-podccq5da1942a81912549c152a49b5f9b1.slice/"),
@@ -537,7 +537,7 @@ mod tests {
         let list_met_file: anyhow::Result<Vec<CgroupV2MetricFile>> =
             list_metric_file_in_dir(&dir, "", "", &Token::new(TokenRetrieval::Kubectl));
 
-        let list_pod_name: [&str; 4] = [
+        let list_pod_name = [
             "pod32a1942cb9a81912549c152a49b5f9b1",
             "podd9209de2b4b526361248c9dcf3e702c0",
             "podccq5da1942a81912549c152a49b5f9b1",
@@ -607,7 +607,7 @@ mod tests {
     // Test `gather_value` function with validate values
     #[test]
     fn test_gather_value_2() {
-        let tmp: PathBuf = std::env::temp_dir();
+        let tmp = std::env::temp_dir();
         let root: std::path::PathBuf = tmp.join("test-alumet-plugin-k8s/kubepods-gather.slice/");
 
         if root.exists() {
@@ -617,11 +617,11 @@ mod tests {
         let dir = root.join("kubepods-burstable.slice/");
         std::fs::create_dir_all(&dir).unwrap();
 
-        let sub_dir: PathBuf = dir.join("kubepods-burstable-pod32a1942cb9a81912549c152a49b5f9b1.slice/");
+        let sub_dir = dir.join("kubepods-burstable-pod32a1942cb9a81912549c152a49b5f9b1.slice/");
         std::fs::create_dir_all(&sub_dir).unwrap();
 
-        let path_cpu: PathBuf = sub_dir.join("cpu.stat");
-        let path_memory: PathBuf = sub_dir.join("memory.stat");
+        let path_cpu = sub_dir.join("cpu.stat");
+        let path_memory = sub_dir.join("memory.stat");
 
         std::fs::write(
             path_cpu.clone(),
@@ -669,7 +669,7 @@ mod tests {
             node: "node_test".to_owned(),
         };
 
-        let mut cgroup: CgroupV2MetricFile = metric_file;
+        let mut cgroup = metric_file;
         let mut content = String::new();
         let result = gather_value(&mut cgroup, &mut content);
 
@@ -753,8 +753,8 @@ mod tests {
     // Test `get_existing_pods` function an invalid JSON response from the Kubernetes
     #[tokio::test]
     async fn test_get_existing_pods() {
-        let node: &str = "test-node";
-        let kubernetes_api_url: &str = "https://invalid-kubernetes:8080";
+        let node = "test-node";
+        let kubernetes_api_url = "https://invalid-kubernetes:8080";
         let token = Token::new(TokenRetrieval::Kubectl);
         let result = get_existing_pods(node, kubernetes_api_url, &token).await;
         //assert!(result.is_err());
@@ -763,9 +763,9 @@ mod tests {
     // Test `get_pod_name` function a scenario where no pod matches the given UID
     #[tokio::test]
     async fn test_get_pod_name() {
-        let uid: &str = "non-existent-uid";
-        let node: &str = "test-node";
-        let kubernetes_api_url: &str = "https://127.0.0.1:8080";
+        let uid = "non-existent-uid";
+        let node = "test-node";
+        let kubernetes_api_url = "https://127.0.0.1:8080";
         let token = Token::new(TokenRetrieval::Kubectl);
 
         let result = get_pod_name(uid, node, kubernetes_api_url, &token).await;

@@ -52,7 +52,7 @@ fn list_metric_file_in_dir(root_directory_path: &Path) -> anyhow::Result<Vec<Cgr
         path_cloned.push("cpu.stat");
         if path_cloned.exists() && path_cloned.is_file() {
             let file_name = path.file_name().ok_or_else(|| anyhow::anyhow!("No file name found"))?;
-            let file: File =
+            let file =
                 File::open(&path_cloned).with_context(|| format!("failed to open file {}", path_cloned.display()))?;
             // Let's create the new metric and push it to the vector of metrics
             vec_file_metric.push(CgroupV2MetricFile {
@@ -107,9 +107,6 @@ pub fn gather_value(file: &mut CgroupV2MetricFile, content_buffer: &mut String) 
     Ok(new_metric)
 }
 
-// ------------------ //
-// --- UNIT TESTS --- //
-// ------------------ //
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,7 +114,7 @@ mod tests {
     #[test]
     fn test_is_cgroups_v2() {
         let tmp = std::env::temp_dir();
-        let root: std::path::PathBuf = tmp.join("test-alumet-plugin-oar/is_cgroupv2");
+        let root = tmp.join("test-alumet-plugin-oar/is_cgroupv2");
         if root.exists() {
             std::fs::remove_dir_all(&root).unwrap();
         }
@@ -132,7 +129,7 @@ mod tests {
     #[test]
     fn test_list_metric_file_in_dir() {
         let tmp = std::env::temp_dir();
-        let root: std::path::PathBuf = tmp.join("test-alumet-plugin-oar/kubepods-folder.slice/");
+        let root = tmp.join("test-alumet-plugin-oar/kubepods-folder.slice/");
         if root.exists() {
             std::fs::remove_dir_all(&root).unwrap();
         }
@@ -180,7 +177,7 @@ mod tests {
     #[test]
     fn test_gather_value() {
         let tmp = std::env::temp_dir();
-        let root: std::path::PathBuf = tmp.join("test-alumet-plugin-oar/kubepods-gather.slice/");
+        let root = tmp.join("test-alumet-plugin-oar/kubepods-gather.slice/");
         if root.exists() {
             std::fs::remove_dir_all(&root).unwrap();
         }
@@ -210,7 +207,7 @@ mod tests {
             Ok(file) => file,
         };
 
-        let mut my_cgroup_test_file: CgroupV2MetricFile =
+        let mut my_cgroup_test_file =
             CgroupV2MetricFile::new("testing_pod".to_string(), path_file, file);
         let mut content_file = String::new();
         let res_metric = gather_value(&mut my_cgroup_test_file, &mut content_file);
