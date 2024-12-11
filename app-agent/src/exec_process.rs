@@ -1,7 +1,7 @@
 //! Tie Alumet to a running process.
 
 use std::{
-    fs::{self, File},
+    fs::{self, File, Metadata},
     os::unix::{fs::PermissionsExt, process::ExitStatusExt},
     path::PathBuf,
     process::ExitStatus,
@@ -58,28 +58,88 @@ fn handle_permission_denied(external_command: String) -> String {
     let file_permission_denied = match File::open(external_command.clone()) {
         Ok(file) => file,
         Err(err) => {
+            // Current parent can change if a parent of the parent don't have the correct rights
+            let mut current_parent = match std::path::Path::new(&external_command).parent() {
+                Some(parent) => parent,
+                None => return "".to_string(),
+            };
+            // Trough this loop I will iterate over parent of parent until I can retrieve metadata, it will show the first folder
+            // that I can't execute and suggest to the user to grant execution rights.
+            let metadata: Metadata;
+            loop {
+                match current_parent.metadata() {
+                    Ok(metadata_parent) => {
+                        metadata = metadata_parent;
+                        break;
+                    }
+                    Err(_) => {
+                        current_parent = match current_parent.parent() {
+                            Some(parent) => parent,
+                            None => {
+                                panic!("Unable to retrieve a parent for your file");
+                            }
+                        }
+                    }
+                }
+            }
+            let user_perm_parent = match metadata.permissions().mode() & 0o500 {
+                0o100 => 1,
+                _ => 0,
+            };
+            let group_perm_parent = match metadata.permissions().mode() & 0o050 {
+                0o010 => 1,
+                _ => 0,
+            };
+            let other_perm_parent = match metadata.permissions().mode() & 0o005 {
+                0o001 => 1,
+                _ => 0,
+            };
+            // Print warn message when parent folder's file has a missing execute rights
+            if user_perm_parent == 0 {
+                log::warn!(
+                    "folder '{}' is missing the following permissions for user owner:  'x'",
+                    current_parent.display()
+                )
+            }
+            if group_perm_parent == 0 {
+                log::warn!(
+                    "folder '{}' is missing the following permissions for group owner:  'x'",
+                    current_parent.display()
+                )
+            }
+            if other_perm_parent == 0 {
+                log::warn!(
+                    "folder '{}' is missing the following permissions for other:  'x'",
+                    current_parent.display()
+                )
+            }
+            if user_perm_parent == 0 || group_perm_parent == 0 || other_perm_parent == 0 {
+                log::info!("💡 Hint: try 'chmod +x {}'", current_parent.display())
+            }
             panic!("Error when trying to read the file: {}", err);
         }
     };
-    let metadata_file = file_permission_denied
+
+    // Get file metadata
+    let file_metadata = file_permission_denied
         .metadata()
         .expect(format!("Unable to retrieve metadata for: {}", external_command).as_str());
     // Check for user permissions.
-    let user_perm = match metadata_file.permissions().mode() & 0o500 {
+    let user_perm = match file_metadata.permissions().mode() & 0o500 {
         0 => "rx",
         1 => "r",
         4 => "x",
         _ => "",
     };
     // Check for group permissions.
-    let group_perm: &str = match metadata_file.permissions().mode() & 0o050 {
+    let group_perm: &str = match file_metadata.permissions().mode() & 0o050 {
         0 => "rx",
         1 => "r",
         4 => "x",
         _ => "",
     };
     // Check for other permissions.
-    let other_perm = match metadata_file.permissions().mode() & 0o005 {
+    let other_perm = match file_metadata.permissions().mode() & 0o005 {
         0 => "rx",
         1 => "r",
         4 => "x",
@@ -90,13 +150,13 @@ fn handle_permission_denied(external_command: String) -> String {
             "file '{}' is missing the following permissions:  'rx'",
             external_command
         );
-        log::info!("💡 Hint: try 'chmod +rx {}", external_command)
+        log::info!("💡 Hint: try 'chmod +rx {}'", external_command)
     } else if user_perm == "r" || group_perm == "r" || other_perm == "r" {
         log::error!("file '{}' is missing the following permissions:  'r'", external_command);
-        log::info!("💡 Hint: try 'chmod +r {}", external_command)
+        log::info!("💡 Hint: try 'chmod +r {}'", external_command)
     } else if user_perm == "x" || group_perm == "x" || other_perm == "x" {
         log::error!("file '{}' is missing the following permissions:  'x'", external_command);
-        log::info!("💡 Hint: try 'chmod +x {}", external_command)
+        log::info!("💡 Hint: try 'chmod +x {}'", external_command)
     } else {
         log::warn!("Can't determine right issue about the file: {}", external_command);
     }
