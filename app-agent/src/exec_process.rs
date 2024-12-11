@@ -2,7 +2,7 @@
 
 use std::{
     fs::{self, File},
-    os::unix::fs::PermissionsExt,
+    os::unix::{fs::PermissionsExt, process::ExitStatusExt},
     path::PathBuf,
     process::ExitStatus,
 };
@@ -17,7 +17,7 @@ use alumet::{
     plugin::event::StartConsumerMeasurement,
     resources::ResourceConsumer,
 };
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 
 /// Spawns a child process and waits for it to exit.
 pub fn exec_child(external_command: String, args: Vec<String>) -> anyhow::Result<ExitStatus> {
@@ -31,11 +31,11 @@ pub fn exec_child(external_command: String, args: Vec<String>) -> anyhow::Result
         Err(e) => match e.kind() {
             std::io::ErrorKind::NotFound => {
                 let return_error: String = handle_not_found(external_command, args);
-                panic!("{}", return_error);
+                return Err(anyhow!(return_error));
             }
             std::io::ErrorKind::PermissionDenied => {
                 let return_error: String = handle_permission_denied(external_command);
-                panic!("{}", return_error);
+                return Err(anyhow!(return_error));
             }
             _ => {
                 panic!("Error in child process");
@@ -58,7 +58,7 @@ fn handle_permission_denied(external_command: String) -> String {
     let file_permission_denied = match File::open(external_command.clone()) {
         Ok(file) => file,
         Err(err) => {
-            panic!("Error when try to read the file: {}", err);
+            panic!("Error when trying to read the file: {}", err);
         }
     };
     let metadata_file = file_permission_denied
@@ -147,9 +147,36 @@ fn handle_not_found(external_command: String, args: Vec<String>) -> String {
                     "💡 Hint: A file named '{}' exists in the current directory. Prepend ./ to execute it.",
                     element
                 );
-                log::info!("Example: {} exec ./{} {}", app_path, element, args.join(" "));
+                log::info!(
+                    "Example: {} exec ./{} {}",
+                    app_path,
+                    element,
+                    args.iter()
+                        .map(|arg| {
+                            if arg.contains(' ') {
+                                format!("\"{}\"", arg)
+                            } else {
+                                arg.to_string()
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                );
             } else {
-                log::info!("💡 Hint: Did you mean ./{} {}", element, args.join(" "));
+                log::info!(
+                    "💡 Hint: Did you mean ./{} {}",
+                    element,
+                    args.iter()
+                        .map(|arg| {
+                            if arg.contains(' ') {
+                                format!("\"{}\"", arg)
+                            } else {
+                                arg.to_string()
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                );
             }
         }
         None => {

@@ -2,8 +2,10 @@ use std::collections::HashMap;
 
 // Damerau-Levenshtein distance
 pub fn distance_with_adjacent_transposition(a: String, b: String) -> usize {
-    let a_len = a.chars().count();
-    let b_len = b.chars().count();
+    let a_chars: Vec<char> = a.chars().collect();
+    let b_chars: Vec<char> = b.chars().collect();
+    let a_len = a_chars.len();
+    let b_len = b_chars.len();
 
     let mut da: HashMap<char, usize> = HashMap::new();
     let mut d: Vec<Vec<usize>> = vec![vec![0; b_len + 2]; a_len + 2];
@@ -23,10 +25,10 @@ pub fn distance_with_adjacent_transposition(a: String, b: String) -> usize {
     for i in 1..(a_len + 1) {
         let mut db = 0;
         for j in 1..(b_len + 1) {
-            let k = *da.get(&b.chars().nth(j - 1).unwrap()).unwrap_or(&0);
+            let k = *da.get(&b_chars[j - 1]).unwrap_or(&0);
             let l = db;
             let cost: usize;
-            if a.chars().nth(i - 1).unwrap() == b.chars().nth(j - 1).unwrap() {
+            if a_chars[i - 1] == b_chars[j - 1] {
                 cost = 0;
                 db = j;
             } else {
@@ -40,7 +42,7 @@ pub fn distance_with_adjacent_transposition(a: String, b: String) -> usize {
             ];
             d[i + 1][j + 1] = *operations.iter().min().unwrap();
         }
-        da.insert(a.chars().nth(i - 1).unwrap(), i);
+        da.insert(a_chars[i - 1], i);
     }
     d[a_len + 1][b_len + 1]
 }
