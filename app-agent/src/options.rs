@@ -56,7 +56,7 @@ pub mod cli {
     #[derive(Args, Clone)]
     pub struct CommonArgs {
         /// Path to the config file.
-        #[arg(long, default_value = "alumet-config.toml")]
+        #[arg(long, env = "ALUMET_CONFIG", default_value = "alumet-config.toml")]
         pub config: String, // not used in Configurator, but directly by main()
 
         /// If set, the config file must exist, otherwise the agent will fail to start with an error.
