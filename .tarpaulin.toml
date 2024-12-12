@@ -5,6 +5,7 @@ output-dir = "target/tarpaulin"
 [test]
 skip-clean = true
 include-tests = true
+exclude = ["test-dynamic-plugins", "test-dynamic-plugin-c", "test-dynamic-plugin-rust"]
 follow-exec = true
 workspace = true
 timeout = "5m"
