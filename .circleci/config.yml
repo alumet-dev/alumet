@@ -140,6 +140,10 @@ jobs:
             SKIP_BINDGEN: true
   coverage:
     machine: true
+    environment:
+      RUSTFLAGS: -Awarnings
+      CONTINUE_TEST_IF_NO_POWERCAP: true
+      NO_IPV6: true
     steps:
       - checkout
 
@@ -169,12 +173,17 @@ jobs:
             echo 'export PATH=$HOME/.cargo/bin:$PATH' >> $BASH_ENV
 
       - run:
+          name: Build the agents
+          command: cargo build -p app-agent --bins --all-features
+
+      - run:
           name: Install Tarpaulin
           command: cargo install cargo-tarpaulin
 
       - run:
           name: Run Tests (including doc tests)
-          command: "CONTINUE_TEST_IF_NO_POWERCAP=true cargo tarpaulin"
+          command: cargo tarpaulin --all-features -- --show-output
+          no_output_timeout: 45s
 
       - run:
           name: Installing cargo-cache
