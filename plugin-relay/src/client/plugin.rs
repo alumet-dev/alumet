@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use alumet::metrics::{Metric, RawMetricId};
 use alumet::pipeline::elements::output::{builder::AsyncOutputRegistration, BoxedAsyncOutput};
 use alumet::plugin::{
@@ -10,6 +8,8 @@ use anyhow::Context;
 use tokio::sync::mpsc;
 
 use crate::client::output;
+
+use super::retry::ExponentialRetryPolicy;
 
 pub struct RelayClientPlugin {
     config: Option<config::Config>,
@@ -38,6 +38,26 @@ mod config {
         /// Maximum amount of time to wait before sending the measurements to the server.
         #[serde(with = "humantime_serde")]
         pub buffer_timeout: Duration,
+
+        /// Parameter of the exponential backoff strategy that is applied when a network operation fails.
+        ///
+        /// The delay is multiplied by two after each attempt.
+        pub retry: RetryConfig,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct RetryConfig {
+        /// Maximum number of retrys before giving up.
+        pub max_times: u16,
+
+        /// Initial delay between two attempts.
+        #[serde(with = "humantime_serde")]
+        pub initial_delay: Duration,
+
+        /// Maximum delay between two attempts.
+        #[serde(with = "humantime_serde")]
+        pub max_delay: Duration,
     }
 
     impl Default for Config {
@@ -47,6 +67,17 @@ mod config {
                 relay_server: default_relay_server_address(),
                 buffer_max_length: 4096,
                 buffer_timeout: Duration::from_secs(30),
+                retry: RetryConfig::default(),
+            }
+        }
+    }
+
+    impl Default for RetryConfig {
+        fn default() -> Self {
+            Self {
+                max_times: 8,
+                initial_delay: Duration::from_millis(500),
+                max_delay: Duration::from_secs(4),
             }
         }
     }
@@ -94,13 +125,17 @@ impl AlumetPlugin for RelayClientPlugin {
                 max_length: config.buffer_max_length,
                 timeout: config.buffer_timeout,
             },
-            msg_retry: output::RetryPolicy {
-                max_retrys: 5,
-                delay: Some(Duration::from_secs(2)),
+            msg_retry: ExponentialRetryPolicy {
+                max_retrys: config.retry.max_times,
+                initial_delay: config.retry.initial_delay,
+                max_delay: config.retry.max_delay,
+                multiplier: 2,
             },
-            init_retry: output::RetryPolicy {
-                max_retrys: 10,
-                delay: Some(Duration::from_secs(3)),
+            init_retry: ExponentialRetryPolicy {
+                max_retrys: config.retry.max_times,
+                initial_delay: config.retry.initial_delay,
+                max_delay: config.retry.max_delay,
+                multiplier: 2,
             },
         };
 

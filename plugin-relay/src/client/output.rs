@@ -15,7 +15,9 @@ use alumet::{
 use futures::StreamExt;
 use tokio::{net::TcpStream, sync::mpsc};
 
-use crate::{protocol, serde_impl};
+use crate::{client::retry::RetryState, protocol, serde_impl};
+
+use super::retry::ExponentialRetryPolicy;
 
 /// Exports Alumet measurements to a relay server via TCP.
 pub struct TcpOutput {
@@ -41,19 +43,14 @@ pub struct Settings {
     pub client_name: String,
     pub server_address: String,
     pub buffer: BufferSettings,
-    pub msg_retry: RetryPolicy,
-    pub init_retry: RetryPolicy,
+    pub msg_retry: ExponentialRetryPolicy,
+    pub init_retry: ExponentialRetryPolicy,
 }
 
 pub struct BufferSettings {
     pub initial_capacity: usize,
     pub max_length: usize,
     pub timeout: Duration,
-}
-
-pub struct RetryPolicy {
-    pub max_retrys: u16,
-    pub delay: Option<Duration>,
 }
 
 pub enum RetryAction {
@@ -71,24 +68,20 @@ impl TcpOutput {
         log::info!("Connecting to relay server {}...", settings.server_address);
 
         // --- connecting
-        let retry_policy = &settings.init_retry;
-        let mut n_retrys = 0;
+        let mut retry_state = RetryState::new(&settings.init_retry);
         let mut res = connect_to_server(&settings.server_address, &settings.client_name, &alumet.metrics_reader).await;
         while let Err(e) = res {
-            log::error!("Connection failed: {e:?} - retrying...");
-            if n_retrys > retry_policy.max_retrys {
+            if !retry_state.can_retry() {
                 return Err(e);
             }
+            log::error!("Connection failed: {e:?} - retrying...");
+            retry_state.after_attempt().await;
             match retry_action(&e) {
                 RetryAction::Fail => return Err(e),
                 RetryAction::RetryOp | RetryAction::Reconnect => {
                     res = connect_to_server(&settings.server_address, &settings.client_name, &alumet.metrics_reader)
                         .await;
                 }
-            }
-            n_retrys += 1;
-            if let Some(delay) = retry_policy.delay {
-                tokio::time::sleep(delay).await;
             }
         }
         // ---
@@ -130,13 +123,14 @@ impl TcpOutput {
                 }),
             };
             // --- writing
-            let mut n_retrys = 0;
+            let mut retry_state = RetryState::new(&self.settings.msg_retry);
             let mut res = self.out_relay.write_message(&msg).await;
             while let Err(e) = res {
-                log::error!("Sending measurements failed: {e:?} - retrying...");
-                if n_retrys > self.settings.msg_retry.max_retrys {
+                if !retry_state.can_retry() {
                     return Err(e);
                 }
+                log::error!("Sending measurements failed: {e:?} - retrying...");
+                retry_state.after_attempt().await;
                 match retry_action(&e) {
                     RetryAction::Fail => return Err(e),
                     RetryAction::RetryOp => res = self.out_relay.write_message(&msg).await,
@@ -152,10 +146,6 @@ impl TcpOutput {
                         }
                         .await;
                     }
-                }
-                n_retrys += 1;
-                if let Some(delay) = self.settings.msg_retry.delay {
-                    tokio::time::sleep(delay).await;
                 }
             }
             // ---
@@ -179,13 +169,14 @@ impl TcpOutput {
 
         // NOTE: To make this code generic on the operation, we need either a macro,
         // or the upcoming async closures (https://github.com/rust-lang/rust/pull/132706).
-        let mut n_retrys = 0;
+        let mut retry_state = RetryState::new(&self.settings.msg_retry);
         let mut res = self.out_relay.write_message(&msg).await;
         while let Err(e) = res {
-            log::error!("Sending metrics failed: {e:?} - retrying...");
-            if n_retrys > self.settings.msg_retry.max_retrys {
+            if !retry_state.can_retry() {
                 return Err(e);
             }
+            log::error!("Sending metrics failed: {e:?} - retrying...");
+            retry_state.after_attempt().await;
             match retry_action(&e) {
                 RetryAction::Fail => return Err(e),
                 RetryAction::RetryOp => res = self.out_relay.write_message(&msg).await,
@@ -201,10 +192,6 @@ impl TcpOutput {
                     }
                     .await;
                 }
-            }
-            n_retrys += 1;
-            if let Some(delay) = self.settings.msg_retry.delay {
-                tokio::time::sleep(delay).await;
             }
         }
         Ok(())
@@ -224,6 +211,7 @@ impl TcpOutput {
                     biased;
                     n_metrics = self.alumet.in_metrics.recv_many(&mut metrics_buf, 8) => {
                         if n_metrics == 0 {
+                            log::trace!("in_metrics closed => stopping the TcpOutput");
                             break; // the metrics channel has been closed, which means that Alumet is shutting down
                         }
                         self.send_metrics(&mut metrics_buf).await?;
@@ -239,6 +227,7 @@ impl TcpOutput {
                             }
                             None => {
                                 // When the measurement channel closes, it's time to stop.
+                                log::trace!("in_measurements closed => stopping the TcpOutput");
                                 break
                             }
                         };
