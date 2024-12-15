@@ -81,6 +81,13 @@ pub mod cli {
         /// i.e. commands will be applied faster, at the cost of a higher overhead.
         #[arg(long, value_parser = humantime_serde::re::humantime::parse_duration)]
         pub max_update_interval: Option<Duration>,
+
+        /// How many `MeasurementBuffer`s can be stored in the channel that sources write to.
+        ///
+        /// You may want to increase this if you get "`buffer is full`" errors, which can happen
+        /// if you have a large number of sources that flush at the same time.
+        #[arg(long)]
+        pub source_channel_size: Option<usize>,
     }
 
     impl CommonArgs {
@@ -150,6 +157,9 @@ pub mod cli {
             if let Some(max_update_interval) = self.max_update_interval {
                 pipeline.trigger_constraints_mut().max_update_interval = max_update_interval;
             }
+            if let Some(source_channel_size) = self.source_channel_size {
+                *pipeline.source_channel_size() = source_channel_size;
+            }
         }
     }
 
@@ -198,19 +208,26 @@ pub mod config {
     #[derive(Deserialize, Serialize)]
     pub struct CommonOpts {
         #[serde(with = "humantime_serde")]
-        max_update_interval: Duration,
+        max_update_interval: Option<Duration>,
+        source_channel_size: Option<usize>,
     }
 
     impl Configurator for CommonOpts {
         fn configure_pipeline(&mut self, pipeline: &mut alumet::pipeline::Builder) {
-            pipeline.trigger_constraints_mut().max_update_interval = self.max_update_interval;
+            if let Some(max_update_interval) = self.max_update_interval {
+                pipeline.trigger_constraints_mut().max_update_interval = max_update_interval;
+            }
+            if let Some(source_channel_size) = self.source_channel_size {
+                *pipeline.source_channel_size() = source_channel_size;
+            }
         }
     }
 
     impl Default for CommonOpts {
         fn default() -> Self {
             Self {
-                max_update_interval: Duration::from_millis(500),
+                max_update_interval: Some(Duration::from_secs(1)),
+                source_channel_size: None,
             }
         }
     }
