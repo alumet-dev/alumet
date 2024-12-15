@@ -170,8 +170,11 @@ impl Builder {
         };
         let rt_handle = rt_normal.handle();
 
-        // Token to shutdown the pipeline.
+        // Token to initiate the shutdown of the pipeline, before the elements have been stopped.
         let pipeline_shutdown = CancellationToken::new();
+
+        // Token to shutdown the remaining parts of the pipeline, after the elements have been stopped.
+        let pipeline_shutdown_finalize = CancellationToken::new();
 
         // --- Metric registry (one for the entire pipeline) ---
         // Note: We can modify it without sending a message thanks to MetricAccess::write().
@@ -183,7 +186,9 @@ impl Builder {
             .context("could not create the metric listeners")?;
 
         // Start the MetricRegistryControl
-        let (metrics_tx, metrics_rw, metrics_join) = registry_control.start(pipeline_shutdown.child_token(), rt_handle);
+        // Stop it once the pipeline elements have shut down.
+        let (metrics_tx, metrics_rw, metrics_join) =
+            registry_control.start(pipeline_shutdown_finalize.child_token(), rt_handle);
         let metrics_r = metrics_rw.into_read_only();
 
         // --- Build the pipeline elements and control loops, with some optimizations ---
@@ -251,7 +256,7 @@ impl Builder {
 
         // Pipeline control
         let control = PipelineControl::new(source_control, transform_control, output_control);
-        let (control_handle, control_join) = control.start(pipeline_shutdown, rt_handle);
+        let (control_handle, control_join) = control.start(pipeline_shutdown, pipeline_shutdown_finalize, rt_handle);
 
         // Done!
         Ok(MeasurementPipeline {
