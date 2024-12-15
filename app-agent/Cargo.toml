@@ -1,6 +1,6 @@
 [package]
 name = "app-agent"
-version = "0.6.1"
+version = "0.7.0"
 edition = "2021"
 description = "Metric collector agent to install on each node."
 
@@ -12,7 +12,7 @@ anyhow = "1.0.88"
 clap = { version = "4.5.17", features = ["derive", "env"] }
 env_logger = "0.11.5"
 humantime-serde = "1.1.1"
-log = "0.4.22"
+log = { version = "0.4", features = ["release_max_level_debug"] }
 serde = { version = "1.0.210", features = ["derive"] }
 tokio = { version = "1.40.0", features = ["rt"] }
 toml = "0.8.19"
@@ -25,6 +25,7 @@ plugin-socket-control = { path = "../plugin-socket-control", optional = true }
 plugin-relay = { path = "../plugin-relay", optional = true }
 plugin-procfs = { path = "../plugin-procfs", optional = true }
 plugin-cgroupv2 = { path = "../plugin-cgroupv2", optional = true }
+plugin-influxdb = { path = "../plugin-influxdb", optional = true }
 
 [features]
 # local non-relay mode for x86 processors
@@ -46,7 +47,12 @@ relay_client = [
     "dep:plugin-cgroupv2",
     "dep:plugin-procfs",
 ]
-relay_server = ["dep:plugin-relay", "plugin-relay/server", "dep:plugin-csv"]
+relay_server = [
+    "dep:plugin-relay",
+    "plugin-relay/server",
+    "dep:plugin-csv",
+    "dep:plugin-influxdb"
+]
 
 [[bin]]
 name = "alumet-local-agent"
@@ -67,4 +73,5 @@ required-features = ["relay_server"]
 workspace = true
 
 [dev-dependencies]
+assert_cmd = "2.0.16"
 libc = "0.2.159"

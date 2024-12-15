@@ -302,9 +302,14 @@ impl PipelineControl {
         }
     }
 
-    pub fn start(self, shutdown: CancellationToken, on: &runtime::Handle) -> (AnonymousControlHandle, JoinHandle<()>) {
+    pub fn start(
+        self,
+        shutdown: CancellationToken,
+        finalize_shutdown: CancellationToken,
+        on: &runtime::Handle,
+    ) -> (AnonymousControlHandle, JoinHandle<()>) {
         let (tx, rx) = mpsc::channel(256);
-        let task = self.run(shutdown.clone(), rx);
+        let task = self.run(shutdown.clone(), finalize_shutdown, rx);
         let control_handle = AnonymousControlHandle { tx, shutdown };
         let task_handle = on.spawn(task);
         (control_handle, task_handle)
@@ -318,7 +323,12 @@ impl PipelineControl {
         }
     }
 
-    async fn run(mut self, shutdown: CancellationToken, mut rx: Receiver<ControlMessage>) {
+    async fn run(
+        mut self,
+        init_shutdown: CancellationToken,
+        finalize_shutdown: CancellationToken,
+        mut rx: Receiver<ControlMessage>,
+    ) {
         fn task_finished(res: Result<anyhow::Result<()>, tokio::task::JoinError>, kind: &str) {
             match res {
                 Ok(Ok(())) => log::debug!("One {kind} task finished without error."),
@@ -329,7 +339,7 @@ impl PipelineControl {
 
         loop {
             tokio::select! {
-                _ = shutdown.cancelled() => {
+                _ = init_shutdown.cancelled() => {
                     // The main way to shutdown the pipeline is to cancel the `shutdown` token.
                     // Stop the control loop and shut every element down.
                     break;
@@ -340,7 +350,7 @@ impl PipelineControl {
                     log::info!("Ctrl+C received, shutting down...");
 
                     // The token can have child tokens, therefore we need to cancel it instead of simply breaking.
-                    shutdown.cancel();
+                    init_shutdown.cancel();
                 },
                 message = rx.recv() => {
                     // A control message has been received, or the channel has been closed (should not happen).
@@ -380,6 +390,9 @@ impl PipelineControl {
 
         log::trace!("waiting for outputs to finish");
         self.outputs.shutdown(|res| task_finished(res, "output")).await;
+
+        // Finalize the shutdown sequence by cancelling the remaining things.
+        finalize_shutdown.cancel();
     }
 }
 

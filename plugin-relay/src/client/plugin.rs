@@ -1,27 +1,24 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-
-use alumet::pipeline::{
-    elements::output::{builder::AsyncOutputRegistration, BoxedAsyncOutput},
-    registry::listener::{MetricListener, MetricListenerRegistration},
-};
+use alumet::metrics::{Metric, RawMetricId};
+use alumet::pipeline::elements::output::{builder::AsyncOutputRegistration, BoxedAsyncOutput};
 use alumet::plugin::{
     rust::{deserialize_config, serialize_config, AlumetPlugin},
-    AlumetPluginStart, AlumetPreStart, ConfigTable,
+    AlumetPluginStart, ConfigTable,
 };
 use anyhow::Context;
+use tokio::sync::mpsc;
+
+use crate::client::output;
+
+use super::retry::ExponentialRetryPolicy;
 
 pub struct RelayClientPlugin {
-    config: config::Config,
-    metric_ids: Arc<Mutex<HashMap<u64, u64>>>,
+    config: Option<config::Config>,
 }
 
 mod config {
-    use std::{str::FromStr, time::Duration};
+    use std::time::Duration;
 
-    use serde::{de, Deserialize, Serialize};
-
-    use crate::client::AsciiString;
+    use serde::{Deserialize, Serialize};
 
     #[derive(Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -29,78 +26,70 @@ mod config {
         /// The name that this client will use to identify itself to the collector server.
         /// Defaults to the hostname.
         #[serde(default = "default_client_name")]
-        pub client_name: AsciiString,
+        pub client_name: String,
 
-        /// The URI of the collector, for instance `http://127.0.0.1:50051`.
-        #[serde(default = "default_collector_uri")]
-        pub collector_uri: String,
+        /// The host and port of the collector, for instance `127.0.0.1:50051`.
+        #[serde(default = "default_relay_server_address")]
+        pub relay_server: String,
 
         /// Maximum number of elements to keep in the output buffer before sending it.
-        pub buffer_size: usize,
+        pub buffer_max_length: usize,
 
         /// Maximum amount of time to wait before sending the measurements to the server.
         #[serde(with = "humantime_serde")]
         pub buffer_timeout: Duration,
+
+        /// Parameter of the exponential backoff strategy that is applied when a network operation fails.
+        ///
+        /// The delay is multiplied by two after each attempt.
+        pub retry: RetryConfig,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct RetryConfig {
+        /// Maximum number of retrys before giving up.
+        pub max_times: u16,
+
+        /// Initial delay between two attempts.
+        #[serde(with = "humantime_serde")]
+        pub initial_delay: Duration,
+
+        /// Maximum delay between two attempts.
+        #[serde(with = "humantime_serde")]
+        pub max_delay: Duration,
     }
 
     impl Default for Config {
         fn default() -> Self {
             Self {
                 client_name: default_client_name(),
-                collector_uri: default_collector_uri(),
-                buffer_size: 4096,
+                relay_server: default_relay_server_address(),
+                buffer_max_length: 4096,
                 buffer_timeout: Duration::from_secs(30),
+                retry: RetryConfig::default(),
             }
         }
     }
 
-    fn default_client_name() -> AsciiString {
+    impl Default for RetryConfig {
+        fn default() -> Self {
+            Self {
+                max_times: 8,
+                initial_delay: Duration::from_millis(500),
+                max_delay: Duration::from_secs(4),
+            }
+        }
+    }
+
+    fn default_client_name() -> String {
         let binding = hostname::get()
             .expect("No client_name specified in the config, and unable to retrieve the hostname of the current node.");
-        let hostname = binding.to_string_lossy();
-        AsciiString::from_str(&hostname).unwrap_or_else(|_| {
-            log::error!(
-                "I tried to use '{hostname}' as a default client name, but this is not a valid ASCII hostname."
-            );
-            panic!("hostname {hostname} cannot be used as a client name")
-        })
+        binding.to_string_lossy().to_string()
     }
 
-    fn default_collector_uri() -> String {
-        String::from("http://[::1]:50051")
-    }
-
-    impl<'de> Deserialize<'de> for AsciiString {
-        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: serde::Deserializer<'de>,
-        {
-            struct V;
-            impl<'d> de::Visitor<'d> for V {
-                type Value = AsciiString;
-
-                fn expecting(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
-                    fmt.write_str("a string containing only visible ASCII characters")
-                }
-
-                fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-                where
-                    E: de::Error,
-                {
-                    AsciiString::from_str(v).map_err(|_| E::invalid_value(de::Unexpected::Str(v), &self))
-                }
-            }
-            deserializer.deserialize_str(V)
-        }
-    }
-
-    impl Serialize for AsciiString {
-        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: serde::Serializer,
-        {
-            self.as_str().serialize(serializer)
-        }
+    fn default_relay_server_address() -> String {
+        String::from("[::1]:50051")
     }
 }
 
@@ -121,79 +110,74 @@ impl AlumetPlugin for RelayClientPlugin {
         // Read the configuration.
         let config = deserialize_config::<config::Config>(config)?;
 
-        // Initialize a thread-safe HashMap to store the mapping 'local metric id' -> 'collector metric id'
-        let metric_ids = Arc::new(Mutex::new(HashMap::new()));
-
         // Return initialized plugin.
-        Ok(Box::new(Self { config, metric_ids }))
+        Ok(Box::new(Self { config: Some(config) }))
     }
 
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
-        let collector_uri = self.config.collector_uri.clone();
-        let client_name = self.config.client_name.clone();
-        let metric_ids = self.metric_ids.clone();
+        // Prepare the values that will be moved to the closure.
+        let config = self.config.take().unwrap();
+        let client_settings = output::Settings {
+            client_name: config.client_name,
+            server_address: config.relay_server,
+            buffer: output::BufferSettings {
+                initial_capacity: 512,
+                max_length: config.buffer_max_length,
+                timeout: config.buffer_timeout,
+            },
+            msg_retry: ExponentialRetryPolicy {
+                max_retrys: config.retry.max_times,
+                initial_delay: config.retry.initial_delay,
+                max_delay: config.retry.max_delay,
+                multiplier: 2,
+            },
+            init_retry: ExponentialRetryPolicy {
+                max_retrys: config.retry.max_times,
+                initial_delay: config.retry.initial_delay,
+                max_delay: config.retry.max_delay,
+                multiplier: 2,
+            },
+        };
 
-        let buffer_size = self.config.buffer_size;
-        let buffer_timeout = self.config.buffer_timeout;
+        // Create a channel for the metrics.
+        // We want only one task to use the TcpOutput, otherwise it would cause interleaving writes and mess up the messages we send.
+        let (metrics_tx, metrics_rx) = mpsc::unbounded_channel();
 
         // The output is async :)
         alumet.add_async_output_builder(move |ctx, stream| {
-            log::info!("Connecting to gRPC server {collector_uri}...");
-            // Connect to gRPC server, using the tokio runtime in which Alumet will trigger the output.
-            // Note that a Tonic gRPC client can only be used from the runtime it has been initialized with.
-            let rt = ctx.async_runtime();
-            let client_name_str = client_name.to_string();
-            let client = rt
-                .block_on(super::grpc::RelayClient::new(collector_uri, client_name, metric_ids))
-                .context("gRPC connection error")?;
-            log::info!("Successfully connected with client name {client_name_str}.");
+            let alumet_link = output::AlumetLink {
+                in_measurements: stream,
+                in_metrics: metrics_rx,
+                metrics_reader: ctx.metrics_reader(),
+            };
 
-            let output = client.process_measurement_stream(stream, buffer_size, buffer_timeout);
-            let output: BoxedAsyncOutput = Box::into_pin(Box::new(output));
+            let tcp = ctx
+                .async_runtime()
+                .block_on(super::output::TcpOutput::connect(alumet_link, client_settings))
+                .context("relay connection error")?;
+
+            let output: BoxedAsyncOutput = Box::pin(tcp.send_loop());
             Ok(AsyncOutputRegistration {
-                name: ctx.output_name("grpc-measurements"),
+                name: ctx.output_name("relay-tcp"),
                 output,
             })
         });
-        Ok(())
-    }
 
-    fn pre_pipeline_start(&mut self, alumet: &mut AlumetPreStart) -> anyhow::Result<()> {
-        let collector_uri = self.config.collector_uri.clone();
-        let client_name = self.config.client_name.clone();
-        let metric_ids = self.metric_ids.clone();
+        alumet.on_pre_pipeline_start(move |pre_start| {
+            // register the existing metrics
+            let existing_metrics: Vec<(RawMetricId, Metric)> =
+                pre_start.metrics().iter().map(|(id, def)| (*id, def.clone())).collect();
+            metrics_tx
+                .send(existing_metrics)
+                .context("failed to send the initial metrics to the TCP output")?;
 
-        // Clone the existing metrics (which have been registered by the `start` methods of all the plugins).
-        let existing_metrics = alumet.metrics().iter().map(|(id, def)| (*id, def.clone())).collect();
-
-        // Get notified of late metric registration. (TODO: is this the best way? Would it be faster to inspect the points in the output instead?)
-        // Also register the existing metrics on the async pipeline.
-        alumet.add_metric_listener_builder(move |ctx| {
-            let rt = ctx.async_runtime();
-
-            let mut client = rt.block_on(async move {
-                // We need to create another client, the one created in `start` has been moved to the output.
-                let mut client = super::grpc::RelayClient::new(collector_uri, client_name, metric_ids).await?;
-
-                // Register the existing metrics.
-                client.register_metrics(existing_metrics).await?;
-
-                // Pass the client, for use in the listener.
-                anyhow::Ok(client)
-            })?;
-
-            // Build a listener that uses the client.
-            let listener: Box<dyn MetricListener> = Box::new(move |new_metrics| {
-                // register the metrics, wait for the message to be sent
-                let rt = tokio::runtime::Handle::current();
-                rt.block_on(client.register_metrics(new_metrics))?;
-                Ok(())
+            // hook to register the late metrics
+            pre_start.add_metric_listener(move |new_metrics| {
+                metrics_tx
+                    .send(new_metrics)
+                    .context("failed to send late metrics to the TCP output")
             });
-
-            Ok(MetricListenerRegistration {
-                name: ctx.listener_name("grpc-registration"),
-                listener,
-            })
+            Ok(())
         });
         Ok(())
     }

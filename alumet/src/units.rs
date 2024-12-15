@@ -55,7 +55,7 @@ pub enum Unit {
 
     /// A custom unit
     Custom {
-        /// The unique name of the unit, as specified by the UCUM.
+        /// The unique name (case sensitive) of the unit, as specified by the UCUM.
         unique_name: String,
         /// The display (print) name of the unit, as specified by the UCUM.
         display_name: String,
@@ -165,7 +165,7 @@ impl FromStr for Unit {
             "Cel" => Unit::DegreeCelsius,
             "[degF]" => Unit::DegreeFahrenheit,
             "W.h" => Unit::WattHour,
-            "B" => Unit::Byte,
+            "By" => Unit::Byte,
             _ => return Err(anyhow!("Unknown or non standard Unit {s}")),
         };
         Ok(res)
@@ -286,5 +286,46 @@ impl FromStr for UnitPrefix {
             _ => return Err(anyhow!("Unknown prefix")),
         };
         Ok(res)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Unit, UnitPrefix};
+
+    #[test]
+    fn unit_serde() {
+        fn parse_self(u: Unit) -> Unit {
+            let name = u.unique_name();
+            name.parse()
+                .unwrap_or_else(|_| panic!("failed to parse {u:?} unique name {name:?}"))
+        }
+        assert_eq!(parse_self(Unit::Unity), Unit::Unity);
+        assert_eq!(parse_self(Unit::Second), Unit::Second);
+        assert_eq!(parse_self(Unit::Watt), Unit::Watt);
+        assert_eq!(parse_self(Unit::Joule), Unit::Joule);
+        assert_eq!(parse_self(Unit::Volt), Unit::Volt);
+        assert_eq!(parse_self(Unit::Ampere), Unit::Ampere);
+        assert_eq!(parse_self(Unit::Hertz), Unit::Hertz);
+        assert_eq!(parse_self(Unit::DegreeCelsius), Unit::DegreeCelsius);
+        assert_eq!(parse_self(Unit::DegreeFahrenheit), Unit::DegreeFahrenheit);
+        assert_eq!(parse_self(Unit::WattHour), Unit::WattHour);
+        assert_eq!(parse_self(Unit::Byte), Unit::Byte);
+    }
+
+    #[test]
+    fn prefix_serde() {
+        fn parse_self(p: UnitPrefix) -> UnitPrefix {
+            let name = p.unique_name();
+            name.parse()
+                .unwrap_or_else(|_| panic!("failed to parse {p:?} unique name {name:?}"))
+        }
+        assert_eq!(parse_self(UnitPrefix::Nano), UnitPrefix::Nano);
+        assert_eq!(parse_self(UnitPrefix::Micro), UnitPrefix::Micro);
+        assert_eq!(parse_self(UnitPrefix::Milli), UnitPrefix::Milli);
+        assert_eq!(parse_self(UnitPrefix::Plain), UnitPrefix::Plain);
+        assert_eq!(parse_self(UnitPrefix::Kilo), UnitPrefix::Kilo);
+        assert_eq!(parse_self(UnitPrefix::Mega), UnitPrefix::Mega);
+        assert_eq!(parse_self(UnitPrefix::Giga), UnitPrefix::Giga);
     }
 }

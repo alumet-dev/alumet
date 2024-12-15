@@ -42,6 +42,9 @@ pub struct Builder {
     /// Constraints to apply to the TriggerSpec of managed sources.
     trigger_constraints: TriggerConstraints,
 
+    /// How many `MeasurementBuffer` can be stored in the channel that sources write to.
+    source_channel_size: usize,
+
     /// Metrics
     pub(crate) metrics: MetricRegistry,
     metric_listeners: Vec<(PluginName, Box<dyn MetricListenerBuilder>)>,
@@ -50,6 +53,8 @@ pub struct Builder {
     threads_high_priority: Option<usize>,
 }
 
+const DEFAULT_CHAN_BUF_SIZE: usize = 2048;
+
 impl Builder {
     pub fn new() -> Self {
         Self {
@@ -57,6 +62,7 @@ impl Builder {
             transforms: Vec::new(),
             outputs: Vec::new(),
             trigger_constraints: TriggerConstraints::default(),
+            source_channel_size: DEFAULT_CHAN_BUF_SIZE,
             metrics: MetricRegistry::new(),
             metric_listeners: Vec::new(),
             threads_normal: None,
@@ -68,6 +74,15 @@ impl Builder {
     /// to every registered trigger (i.e. to all managed sources).
     pub fn trigger_constraints_mut(&mut self) -> &mut TriggerConstraints {
         &mut self.trigger_constraints
+    }
+
+    /// Returns a mutable reference to the size of the channel that sources write to.
+    ///
+    /// This number limits how many [`MeasurementBuffer`] can be stored in the channel buffer.
+    /// You may want to increase this if you get `buffer is full` errors, which can happen
+    /// if you have a large number of sources that flush at the same time.
+    pub fn source_channel_size(&mut self) -> &mut usize {
+        &mut self.source_channel_size
     }
 
     /// Registers a listener that will be notified of the metrics that are created while the pipeline is running,
@@ -155,8 +170,11 @@ impl Builder {
         };
         let rt_handle = rt_normal.handle();
 
-        // Token to shutdown the pipeline.
+        // Token to initiate the shutdown of the pipeline, before the elements have been stopped.
         let pipeline_shutdown = CancellationToken::new();
+
+        // Token to shutdown the remaining parts of the pipeline, after the elements have been stopped.
+        let pipeline_shutdown_finalize = CancellationToken::new();
 
         // --- Metric registry (one for the entire pipeline) ---
         // Note: We can modify it without sending a message thanks to MetricAccess::write().
@@ -168,14 +186,15 @@ impl Builder {
             .context("could not create the metric listeners")?;
 
         // Start the MetricRegistryControl
-        let (metrics_tx, metrics_rw, metrics_join) = registry_control.start(pipeline_shutdown.child_token(), rt_handle);
+        // Stop it once the pipeline elements have shut down.
+        let (metrics_tx, metrics_rw, metrics_join) =
+            registry_control.start(pipeline_shutdown_finalize.child_token(), rt_handle);
         let metrics_r = metrics_rw.into_read_only();
 
         // --- Build the pipeline elements and control loops, with some optimizations ---
-        const CHAN_BUF_SIZE: usize = 2048;
 
         // Channel: sources -> transforms (or sources -> output in case of optimization).
-        let (in_tx, in_rx) = mpsc::channel::<MeasurementBuffer>(CHAN_BUF_SIZE);
+        let (in_tx, in_rx) = mpsc::channel::<MeasurementBuffer>(self.source_channel_size);
 
         let mut output_control;
         let transform_control;
@@ -203,7 +222,7 @@ impl Builder {
             transform_control = transform::TransformControl::empty();
         } else {
             // Broadcast queue: transforms -> outputs
-            let out_tx = broadcast::Sender::<MeasurementBuffer>::new(CHAN_BUF_SIZE);
+            let out_tx = broadcast::Sender::<MeasurementBuffer>::new(self.source_channel_size);
 
             // Outputs
             let out_rx_provider = channel::ReceiverProvider::from(out_tx.clone());
@@ -237,7 +256,7 @@ impl Builder {
 
         // Pipeline control
         let control = PipelineControl::new(source_control, transform_control, output_control);
-        let (control_handle, control_join) = control.start(pipeline_shutdown, rt_handle);
+        let (control_handle, control_join) = control.start(pipeline_shutdown, pipeline_shutdown_finalize, rt_handle);
 
         // Done!
         Ok(MeasurementPipeline {

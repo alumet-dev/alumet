@@ -30,6 +30,7 @@ use std::{collections::HashMap, ops::DerefMut, time::Duration};
 use anyhow::{anyhow, Context};
 use indoc::formatdoc;
 
+use crate::plugin::phases::PreStartAction;
 use crate::plugin::{AlumetPluginStart, AlumetPostStart, ConfigTable, Plugin, PluginMetadata};
 use crate::{
     pipeline::{self, PluginName},
@@ -241,6 +242,7 @@ impl Builder {
         fn start_plugin(
             p: &mut dyn Plugin,
             pipeline_builder: &mut pipeline::Builder,
+            pre_start_actions: &mut Vec<(pipeline::PluginName, Box<dyn PreStartAction>)>,
             post_start_actions: &mut Vec<(pipeline::PluginName, Box<dyn PostStartAction>)>,
         ) -> anyhow::Result<()> {
             let name = p.name().to_owned();
@@ -250,6 +252,7 @@ impl Builder {
             let mut ctx = AlumetPluginStart {
                 current_plugin: pipeline::PluginName(name.clone()),
                 pipeline_builder,
+                pre_start_actions,
                 post_start_actions,
             };
             p.start(&mut ctx)
@@ -257,17 +260,34 @@ impl Builder {
         }
 
         /// Executes the pre-pipeline-start phase of a plugin, i.e. calls [`Plugin::pre_pipeline_start`] with the right context.
-        fn pre_pipeline_start(p: &mut dyn Plugin, pipeline_builder: &mut pipeline::Builder) -> anyhow::Result<()> {
+        fn pre_pipeline_start(
+            p: &mut dyn Plugin,
+            pipeline_builder: &mut pipeline::Builder,
+            actions: &mut HashMap<PluginName, Vec<Box<dyn PreStartAction>>>,
+        ) -> anyhow::Result<()> {
             let name = p.name().to_owned();
             let version = p.version().to_owned();
             log::debug!("Running pre-pipeline-start hook for plugin {name} v{version}...");
 
+            // Prepare the context.
+            let pname = pipeline::PluginName(name.clone());
             let mut ctx = AlumetPreStart {
-                current_plugin: pipeline::PluginName(p.name().to_owned()),
+                current_plugin: pname.clone(),
                 pipeline_builder,
             };
+
+            // Call pre_pipeline_start.
             p.pre_pipeline_start(&mut ctx)
-                .with_context(|| format!("plugin pre_pipeline_start failed: {} v{}", p.name(), p.version()))
+                .with_context(|| format!("plugin pre_pipeline_start failed: {} v{}", p.name(), p.version()))?;
+
+            // Run the additional actions registered by the plugin, if any.
+            if let Some(actions) = actions.remove(&pname) {
+                for f in actions {
+                    (f)(&mut ctx)
+                        .with_context(|| format!("plugin post-pipeline-start action failed: {name} v{version}"))?;
+                }
+            }
+            Ok(())
         }
 
         /// Executes the post-pipeline-start phase of a plugin, i.e. calls [`Plugin::post_pipeline_start`] with the right context.
@@ -303,11 +323,11 @@ impl Builder {
             Ok(())
         }
 
-        /// Groups all post-start actions by plugin.
-        fn group_post_start_actions(
-            post_start_actions: Vec<(PluginName, Box<dyn PostStartAction>)>,
+        /// Groups all pre or post-start actions by plugin.
+        fn group_plugin_actions<BoxedAction>(
+            post_start_actions: Vec<(PluginName, BoxedAction)>,
             n_plugins: usize,
-        ) -> HashMap<PluginName, Vec<Box<dyn PostStartAction>>> {
+        ) -> HashMap<PluginName, Vec<BoxedAction>> {
             let mut res = HashMap::with_capacity(n_plugins);
             for (plugin, action) in post_start_actions {
                 let plugin_actions: &mut Vec<_> = res.entry(plugin).or_default();
@@ -325,7 +345,8 @@ impl Builder {
         let initialized_plugins: anyhow::Result<Vec<Box<dyn Plugin>>> =
             enabled_plugins.into_iter().map(init_plugin).collect();
         let mut initialized_plugins = initialized_plugins?;
-        match initialized_plugins.len() {
+        let n_plugins = initialized_plugins.len();
+        match n_plugins {
             0 if disabled_plugins.is_empty() => log::warn!("No plugin has been initialized, there may be a problem with your agent implementation. Please check your builder."),
             0 => log::warn!("No plugin has been initialized because they were all disabled in the config. Please check your configuration."),
             1 => log::info!("1 plugin initialized."),
@@ -336,17 +357,24 @@ impl Builder {
         // Start-up phase.
         log::info!("Starting the plugins...");
         let mut pipeline_builder = self.pipeline_builder;
+        let mut pre_start_actions = Vec::new();
         let mut post_start_actions = Vec::new();
         for plugin in initialized_plugins.iter_mut() {
-            start_plugin(plugin.deref_mut(), &mut pipeline_builder, &mut post_start_actions)?;
+            start_plugin(
+                plugin.deref_mut(),
+                &mut pipeline_builder,
+                &mut pre_start_actions,
+                &mut post_start_actions,
+            )?;
         }
         print_stats(&pipeline_builder, &initialized_plugins, &disabled_plugins);
         (self.callbacks.after_plugins_start)(&pipeline_builder);
 
         // pre-pipeline-start actions
         log::info!("Running pre-pipeline-start hooks...");
+        let mut pre_actions_per_plugin = group_plugin_actions(pre_start_actions, n_plugins);
         for plugin in initialized_plugins.iter_mut() {
-            pre_pipeline_start(plugin.deref_mut(), &mut pipeline_builder)?;
+            pre_pipeline_start(plugin.deref_mut(), &mut pipeline_builder, &mut pre_actions_per_plugin)?;
         }
         (self.callbacks.before_operation_begin)(&pipeline_builder);
 
@@ -357,9 +385,9 @@ impl Builder {
 
         // post-pipeline-start actions
         log::info!("Running post-pipeline-start hooks...");
-        let mut actions_per_plugin = group_post_start_actions(post_start_actions, 1);
+        let mut post_actions_per_plugin = group_plugin_actions(post_start_actions, n_plugins);
         for plugin in initialized_plugins.iter_mut() {
-            post_pipeline_start(plugin.deref_mut(), &mut pipeline, &mut actions_per_plugin)?;
+            post_pipeline_start(plugin.deref_mut(), &mut pipeline, &mut post_actions_per_plugin)?;
         }
         (self.callbacks.after_operation_begin)(&mut pipeline);
 

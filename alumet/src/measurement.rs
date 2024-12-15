@@ -29,6 +29,7 @@ use core::fmt;
 use fxhash::FxBuildHasher;
 use smallvec::SmallVec;
 use std::borrow::Cow;
+use std::time::UNIX_EPOCH;
 use std::{collections::HashMap, fmt::Display, time::SystemTime};
 
 use crate::resources::ResourceConsumer;
@@ -168,6 +169,11 @@ impl Timestamp {
     /// Returns a `Timestamp` representing the current system time.
     pub fn now() -> Self {
         Self(SystemTime::now())
+    }
+
+    pub fn to_unix_timestamp(&self) -> (u64, u32) {
+        let t = self.0.duration_since(UNIX_EPOCH).unwrap();
+        (t.as_secs(), t.subsec_nanos())
     }
 }
 
@@ -346,6 +352,12 @@ impl MeasurementBuffer {
         self.points.push(point);
     }
 
+    /// Merges another buffer into this buffer.
+    /// All the measurement points of `other` are moved to `self`.
+    pub fn merge(&mut self, other: &mut MeasurementBuffer) {
+        self.points.append(&mut other.points);
+    }
+
     /// Clears the buffer, removing all the measurements.
     pub fn clear(&mut self) {
         self.points.clear();
@@ -364,6 +376,14 @@ impl MeasurementBuffer {
     /// Returns a `MeasurementAccumulator` that will push all measurements to this buffer.
     pub fn as_accumulator(&mut self) -> MeasurementAccumulator {
         MeasurementAccumulator(self)
+    }
+}
+
+impl Default for MeasurementBuffer {
+    fn default() -> Self {
+        Self {
+            points: Default::default(),
+        }
     }
 }
 
