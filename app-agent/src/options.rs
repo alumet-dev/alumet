@@ -88,6 +88,14 @@ pub mod cli {
         /// if you have a large number of sources that flush at the same time.
         #[arg(long)]
         pub source_channel_size: Option<usize>,
+
+        /// How many "normal" worker threads to spawn.
+        #[arg(long, env = "ALUMET_NORMAL_THREADS")]
+        pub normal_worker_threads: Option<usize>,
+
+        /// How many "high-priority" worker threads to spawn.
+        #[arg(long, env = "ALUMET_PRIORITY_THREADS")]
+        pub priority_worker_threads: Option<usize>,
     }
 
     impl CommonArgs {
@@ -159,6 +167,12 @@ pub mod cli {
             }
             if let Some(source_channel_size) = self.source_channel_size {
                 *pipeline.source_channel_size() = source_channel_size;
+            }
+            if let Some(n) = self.normal_worker_threads {
+                pipeline.normal_threads(n);
+            }
+            if let Some(n) = self.priority_worker_threads {
+                pipeline.high_priority_threads(n);
             }
         }
     }
