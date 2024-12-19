@@ -8,6 +8,7 @@ members = [
     "plugin-csv",
     "plugin-cgroupv2",
     "plugin-energy-attribution",
+    "plugin-energy-estimation-tdp",
     "plugin-influxdb",
     "plugin-nvidia",
     "plugin-oar2",
@@ -18,7 +19,7 @@ members = [
     "plugin-socket-control",
     "plugin-mongodb",
     "test-dynamic-plugin-rust",
-    "test-dynamic-plugins",
+    "test-dynamic-plugins", 
 ]
 
 # To apply the following lint settings to a workspace member,
