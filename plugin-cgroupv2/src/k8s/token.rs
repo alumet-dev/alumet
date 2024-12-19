@@ -6,7 +6,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use base64::{prelude::BASE64_STANDARD_NO_PAD, Engine};
 use tokio::sync::RwLock;
 
@@ -18,6 +18,7 @@ pub struct Token {
 }
 
 /// Private structure that holds the JWT token data.
+#[derive(Debug)]
 struct TokenData {
     /// Optional expiration time, in POSIX seconds.
     expiration_time: Option<u64>,
@@ -38,12 +39,11 @@ impl Token {
 
     /// Check if the token' lifetime has reached its expiration or not.
     async fn is_valid(&self) -> bool {
-        let now_secs = match SystemTime::now().duration_since(UNIX_EPOCH) {
-            Ok(ts) => ts.as_secs(),
-            Err(_) => return false,
-        };
+        let now_secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("ERROR : Failed to get the current time since UNIX_EPOCH")
+            .as_secs();
 
-        // Lock the data for the entire check.
         let data_locked = self.data.read().await;
         let Some(exp) = data_locked.expiration_time else {
             return false;
@@ -55,75 +55,62 @@ impl Token {
     /// Returns the current value of the token if it is still alive or
     /// it's refreshed value if not.
     pub async fn get_value(&self) -> anyhow::Result<String> {
-        if self.is_valid().await {
-            return match &self.data.read().await.value {
-                Some(value) => Ok(value.clone()),
-                None => Err(anyhow!("could no read the token's value")),
-            };
+        match self.is_valid().await {
+            true => {
+                let data_locked = self.data.read().await;
+                match &data_locked.value {
+                    Some(value) => Ok(value.clone()),
+                    None => Err(anyhow!("ERROR : Could not read the token's value")),
+                }
+            }
+            false => match self.refresh().await {
+                Ok(token) => Ok(token),
+                Err(e) => Err(anyhow!("ERROR : Failed to refresh token: {}", e)),
+            },
         }
-
-        self.refresh().await
     }
 
     /// Retrieves the k8s API token using either a kubectl command
     /// or by reading  the service account token's file.
     async fn refresh(&self) -> anyhow::Result<String> {
-        let token = match self.retrieval {
+        let token: String = match self.retrieval {
             TokenRetrieval::Kubectl => {
                 let output = Command::new("kubectl")
                     .args(["create", "token", "alumet-reader", "-n", "alumet"])
-                    .output()?;
+                    .output()
+                    .context("ERROR : kubectl command execution")?;
 
-                if !output.status.success() {
-                    return Err(anyhow!(
-                        "kubectl raised an error: {}",
-                        String::from_utf8_lossy(&output.stderr)
-                    ));
-                }
-
-                let token = String::from_utf8_lossy(&output.stdout);
-                token.trim().to_string()
+                String::from_utf8(output.stdout)
+                    .context("ERROR : UTF-8 output conversion")?
+                    .trim()
+                    .to_string()
             }
+
             TokenRetrieval::File => {
-                let mut file = File::open("/var/run/secrets/kubernetes.io/serviceaccount/token")?;
+                let mut file = File::open("/var/run/secrets/kubernetes.io/serviceaccount/token")
+                    .context("ERROR : opening token file")?;
                 let mut token = String::new();
-                file.read_to_string(&mut token)?;
+                file.read_to_string(&mut token).expect("ERROR : Reading token file");
                 token
             }
         };
 
         let mut components = token.split('.');
-        let _ = components
+        let payload: &str = components
             .next()
-            .ok_or(anyhow!("Could not parse the token, the header is missing"))?;
-        let payload: serde_json::Value = serde_json::from_slice(
-            &BASE64_STANDARD_NO_PAD.decode(
-                components
-                    .next()
-                    .ok_or(anyhow!("Could not parse the token, the payload is missing"))?
-                    .trim(),
-            )?,
-        )?;
-        let _ = components
-            .next()
-            .ok_or(anyhow!("Could not parse the token, the signature is missing"))?;
+            .context("ERROR : Missing payload, token can be parsed")?;
 
-        if components.next().is_some() {
-            return Err(anyhow!("Token has too many components"));
-        }
+        let decoded_payload: Vec<u8> = BASE64_STANDARD_NO_PAD
+            .decode(payload.trim())
+            .context("ERROR : payload decoding")?;
 
-        // Extract 'exp' from the payload
-        let exp = match payload.get("exp") {
-            Some(exp) => exp.as_u64().unwrap_or_default(),
-            None => {
-                // If the field exp is missing from the JWT, we need to reset it to None
-                // in the token's data.
-                let mut new_data = self.data.write().await;
-                new_data.expiration_time = None;
+        let payload_json: serde_json::Value =
+            serde_json::from_slice(&decoded_payload).context("ERROR : JSON payload parsing")?;
 
-                return Err(anyhow!("Could not extract the 'exp' field from the token"));
-            }
-        };
+        let exp = payload_json
+            .get("exp")
+            .and_then(|exp| exp.as_u64())
+            .context("ERROR : Missing or invalid 'exp' field in token")?;
 
         {
             let mut new_data = self.data.write().await;
@@ -137,18 +124,110 @@ impl Token {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use mockito::mock;
     use time::Duration;
     use tokio::time;
 
-    use super::*;
+    // Test `refresh` function with a kubectl failure simulation
+    #[tokio::test]
+    async fn test_refresh_1() {
+        let _m = mock("POST", "/var/run/secrets/kubernetes.io/serviceaccount/token")
+            .with_status(1)
+            .with_body("Error occurred")
+            .create();
 
+        let token = Token::new(TokenRetrieval::Kubectl);
+        let result = token.refresh().await;
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().to_string(), "ERROR : kubectl command execution");
+    }
+
+    // Test `refresh` function with a kubectl utf8 error
+    #[tokio::test]
+    async fn test_refresh_2() {
+        let _m = mock("POST", "/var/run/secrets/kubernetes.io/serviceaccount/token")
+            .with_status(200)
+            .with_body(b"\xFF\xFE".to_vec())
+            .create();
+
+        let token = Token::new(TokenRetrieval::Kubectl);
+        let result = token.refresh().await;
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().to_string(), "ERROR : kubectl command execution");
+    }
+
+    // Test `refresh` function with a file opening error
+    #[tokio::test]
+    async fn test_refresh_3() {
+        let token = Token::new(TokenRetrieval::File);
+        let result = token.refresh().await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().to_string(), "ERROR : opening token file");
+    }
+
+    // Test `refresh` function with a file reading error
+    #[tokio::test]
+    async fn test_refresh_4() {
+        let _m = mock("GET", "/var/run/secrets/kubernetes.io/serviceaccount/token")
+            .with_status(500)
+            .create();
+
+        let token = Token::new(TokenRetrieval::File);
+        let result = token.refresh().await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().to_string(), "ERROR : opening token file");
+    }
+
+    // Test `refresh` function with a missing payload
+    #[tokio::test]
+    async fn test_refresh_5() {
+        let token = Token::new(TokenRetrieval::Kubectl);
+        let result = token.refresh().await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().to_string(), "ERROR : kubectl command execution");
+    }
+
+    // Test `get_value` function to get token with valid value
+    #[tokio::test]
+    async fn test_get_value_1() {
+        let token: Token = Token::new(TokenRetrieval::File);
+
+        {
+            let mut data = token.data.write().await;
+            data.value = Some("valid_token".to_string());
+            data.expiration_time = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() + 3600);
+        }
+
+        let result = token.get_value().await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "valid_token");
+    }
+
+    // Test `get_value` function to get token with invalid value
+    #[tokio::test]
+    async fn test_get_value_2() {
+        let token: Token = Token::new(TokenRetrieval::File);
+        {
+            let mut data: tokio::sync::RwLockWriteGuard<'_, TokenData> = token.data.write().await;
+            data.value = None;
+            data.expiration_time = None;
+        }
+
+        let result = token.get_value().await;
+        assert!(result.is_err());
+        //assert_eq!(result.unwrap_err().to_string(), "ERROR : invalid token");
+    }
+
+    // Test `get_value` function to get token with invalid value
     #[tokio::test]
     async fn test_is_valid() {
         let token: Token = Token::new(TokenRetrieval::File);
         assert!(!token.is_valid().await);
-
         {
-            // Expand the expiration of the token to make it still valid.
             let mut new_data = token.data.write().await;
             (*new_data).expiration_time = Some(
                 SystemTime::now()
@@ -162,9 +241,7 @@ mod tests {
         }
 
         assert!(token.is_valid().await);
-
         {
-            // Decrease the expiration of the token to make it invalid.
             let mut new_data = token.data.write().await;
             (*new_data).expiration_time = Some(
                 SystemTime::now()

@@ -52,7 +52,7 @@ fn list_metric_file_in_dir(root_directory_path: &Path) -> anyhow::Result<Vec<Cgr
         path_cloned.push("cpu.stat");
         if path_cloned.exists() && path_cloned.is_file() {
             let file_name = path.file_name().ok_or_else(|| anyhow::anyhow!("No file name found"))?;
-            let file: File =
+            let file =
                 File::open(&path_cloned).with_context(|| format!("failed to open file {}", path_cloned.display()))?;
             // Let's create the new metric and push it to the vector of metrics
             vec_file_metric.push(CgroupV2MetricFile {
@@ -114,7 +114,7 @@ mod tests {
     #[test]
     fn test_is_cgroups_v2() {
         let tmp = std::env::temp_dir();
-        let root: std::path::PathBuf = tmp.join("test-alumet-plugin-oar/is_cgroupv2");
+        let root = tmp.join("test-alumet-plugin-oar/is_cgroupv2");
         if root.exists() {
             std::fs::remove_dir_all(&root).unwrap();
         }
@@ -129,7 +129,7 @@ mod tests {
     #[test]
     fn test_list_metric_file_in_dir() {
         let tmp = std::env::temp_dir();
-        let root: std::path::PathBuf = tmp.join("test-alumet-plugin-oar/kubepods-folder.slice/");
+        let root = tmp.join("test-alumet-plugin-oar/kubepods-folder.slice/");
         if root.exists() {
             std::fs::remove_dir_all(&root).unwrap();
         }
@@ -173,10 +173,11 @@ mod tests {
         }
         assert!(true);
     }
+
     #[test]
     fn test_gather_value() {
         let tmp = std::env::temp_dir();
-        let root: std::path::PathBuf = tmp.join("test-alumet-plugin-oar/kubepods-gather.slice/");
+        let root = tmp.join("test-alumet-plugin-oar/kubepods-gather.slice/");
         if root.exists() {
             std::fs::remove_dir_all(&root).unwrap();
         }
@@ -190,7 +191,8 @@ mod tests {
         std::fs::write(
             path_file.clone(),
             format!(
-                "usage_usec 8335557927\n
+                "
+                usage_usec 8335557927\n
                 user_usec 4728882396\n
                 system_usec 3606675531\n
                 nr_periods 0\n
@@ -205,8 +207,7 @@ mod tests {
             Ok(file) => file,
         };
 
-        let mut my_cgroup_test_file: CgroupV2MetricFile =
-            CgroupV2MetricFile::new("testing_pod".to_string(), path_file, file);
+        let mut my_cgroup_test_file = CgroupV2MetricFile::new("testing_pod".to_string(), path_file, file);
         let mut content_file = String::new();
         let res_metric = gather_value(&mut my_cgroup_test_file, &mut content_file);
         if let Ok(CgroupV2Metric {
@@ -214,6 +215,10 @@ mod tests {
             time_used_tot,
             time_used_user_mode,
             time_used_system_mode,
+            anon_used_mem,
+            file_mem,
+            kernel_mem,
+            pagetables_mem,
             uid: _uid,
             namespace: _ns,
             node: _nd,
