@@ -65,7 +65,7 @@ impl Builder {
             source_channel_size: DEFAULT_CHAN_BUF_SIZE,
             metrics: MetricRegistry::new(),
             metric_listeners: Vec::new(),
-            threads_normal: None,
+            threads_normal: None, // default to the number of cores
             threads_high_priority: None,
         }
     }
@@ -154,14 +154,14 @@ impl Builder {
         let rt_priority: Option<Runtime> = if self.threads_high_priority == Some(0) {
             None
         } else {
-            util::threading::build_priority_runtime(None).ok()
+            util::threading::build_priority_runtime(self.threads_high_priority).ok()
         };
 
         // Tokio runtime backed by usual threads (default priority).
         let rt_normal: Runtime = {
             let n_threads = if let Some(n) = self.threads_normal {
                 Some(n)
-            } else if rt_priority.is_some() {
+            } else if rt_priority.is_some() && self.threads_high_priority.is_none() {
                 Some(2)
             } else {
                 None
