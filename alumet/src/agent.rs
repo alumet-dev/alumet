@@ -803,6 +803,16 @@ fn print_stats(
 ///
 /// let plugins: Vec<PluginMetadata> = static_plugins![PluginA, PluginB];
 /// ```
+///
+/// Attributes are supported:
+/// ```ignore
+/// use alumet::plugin::PluginMetadata;
+///
+/// let plugins = static_plugins![
+///     #[cfg(feature = "some-feature")]
+///     ConditionalPlugin
+/// ];
+/// ```
 #[macro_export]
 macro_rules! static_plugins {
     // ```
@@ -816,13 +826,15 @@ macro_rules! static_plugins {
     [] => {
         Vec::<$crate::plugin::PluginMetadata>::new()
     };
-    [$($x:path),* $(,)?] => {
+    [$( $(#[$m:meta])* $x:path ),+ $(,)?] => {
+    //  ^^^^^^^^^^^^^^ accepts zero or more #[attribute]
         {
             vec![
                 $(
+                    $(#[$m])* // expands the attributes, if any
                     $crate::plugin::PluginMetadata::from_static::<$x>(),
                 )*
-            ]
+            ] as Vec<$crate::plugin::PluginMetadata>
         }
     }
 }
@@ -850,6 +862,31 @@ mod tests {
         assert_eq!(a[0].name, b[0].name);
         assert_eq!(a[0].version, b[0].version);
         assert!(empty.is_empty());
+    }
+
+    #[test]
+    fn static_plugins_macro_with_attributes() {
+        let single = static_plugins![
+            #[cfg(test)]
+            MyPlugin,
+        ];
+        assert_eq!(1, single.len());
+
+        let empty = static_plugins![
+            #[cfg(not(test))]
+            MyPlugin
+        ];
+        assert_eq!(0, empty.len());
+
+        let multiple = static_plugins![
+            #[cfg(test)]
+            MyPlugin,
+            #[cfg(not(test))]
+            MyPlugin,
+            #[cfg(test)]
+            MyPlugin
+        ];
+        assert_eq!(2, multiple.len());
     }
 
     #[test]
