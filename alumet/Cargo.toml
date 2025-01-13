@@ -2,7 +2,7 @@
 name = "alumet"
 version = "0.7.0"
 edition = "2021"
-rust-version = "1.76"
+rust-version = "1.78"
 
 description = "Modular framework for hardware and software measurement (including energy consumption and more)."
 license = " EUPL-1.2"
