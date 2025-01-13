@@ -43,7 +43,7 @@ pub mod cli {
     ///
     /// ```
     /// use clap::Parser;
-    /// use app_agent::options::cli::CommonArgs;
+    /// use alumet_agent::options::cli::CommonArgs;
     ///
     /// #[derive(Parser)]
     /// struct Cli {
@@ -209,7 +209,7 @@ pub mod config {
     ///
     /// ```
     /// use serde::{Deserialize, Serialize};
-    /// use app_agent::options::config::CommonOpts;
+    /// use alumet_agent::options::config::CommonOpts;
     ///
     /// #[derive(Deserialize, Serialize)]
     /// struct AgentConfig {

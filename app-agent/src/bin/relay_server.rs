@@ -1,5 +1,5 @@
 use alumet::static_plugins;
-use app_agent::{
+use alumet_agent::{
     agent_util::{self, ConfigLoadOptions},
     init_logger,
     options::{cli, config::CommonOpts, Configurator},

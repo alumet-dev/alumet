@@ -1,5 +1,5 @@
 [package]
-name = "app-agent"
+name = "alumet-agent"
 version = "0.7.0"
 edition = "2021"
 description = "Metric collector agent to install on each node."
@@ -26,33 +26,27 @@ plugin-relay = { path = "../plugin-relay", optional = true }
 plugin-procfs = { path = "../plugin-procfs", optional = true }
 plugin-cgroupv2 = { path = "../plugin-cgroupv2", optional = true }
 plugin-influxdb = { path = "../plugin-influxdb", optional = true }
+plugin-mongodb = { path = "../plugin-mongodb", optional = true }
 
 [features]
-# local non-relay mode for x86 processors
-local_x86 = [
-    "dep:plugin-rapl",
-    "dep:plugin-perf",
-    "dep:plugin-procfs",
-    "dep:plugin-csv",
-    "dep:plugin-socket-control",
-]
+rapl = ["dep:plugin-rapl"]
+perf = ["dep:plugin-perf"]
+procfs = ["dep:plugin-procfs"]
+socket-control = ["dep:plugin-socket-control"]
+cgroupv2 = ["dep:plugin-cgroupv2"]
+
+# outputs
+output_csv = ["dep:plugin-csv"]
+output_influxdb = ["dep:plugin-influxdb"]
+output_mongodb = ["dep:plugin-mongodb"]
 
 # relay mode
-relay_client = [
-    "dep:plugin-relay",
-    "plugin-relay/client",
-    "dep:plugin-rapl",
-    "dep:plugin-perf",
-    "dep:plugin-socket-control",
-    "dep:plugin-cgroupv2",
-    "dep:plugin-procfs",
-]
-relay_server = [
-    "dep:plugin-relay",
-    "plugin-relay/server",
-    "dep:plugin-csv",
-    "dep:plugin-influxdb"
-]
+relay_client = ["dep:plugin-relay", "plugin-relay/client"]
+relay_server = ["dep:plugin-relay", "plugin-relay/server"]
+
+[[bin]]
+name = "alumet-agent"
+path = "src/bin/main.rs"
 
 [[bin]]
 name = "alumet-local-agent"
@@ -76,3 +70,7 @@ workspace = true
 assert_cmd = "2.0.16"
 libc = "0.2.159"
 tempfile = "3.15"
+
+[build-dependencies]
+vergen = { version = "9.0.4", default-features = false, features = ["build", "cargo", "rustc"] }
+vergen-gitcl = "1.0.5"
