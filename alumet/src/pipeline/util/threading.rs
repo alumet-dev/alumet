@@ -28,7 +28,7 @@ pub fn use_realtime_scheduling() -> std::io::Result<()> {
         fn sched_params(priority: i32) -> libc::sched_param {
             // With musl, the sched_param struct contains additional fields that we don't know how to initialize
             // (they are an implementation details and/or reserved fields for later use).
-            // Hence, we simply initialize the whold struct to zeros.
+            // Hence, we simply initialize the whole struct to zeros.
             // SAFETY: zero is a valid value for each field of the C struct.
             let mut params: libc::sched_param = unsafe { std::mem::zeroed() };
             params.sched_priority = priority;

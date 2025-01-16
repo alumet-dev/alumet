@@ -16,7 +16,7 @@ Refer to the [wikipedia page of TDP](https://en.wikipedia.org/wiki/Thermal_desig
 
 In the first version of the plugin, we consider only the TDP of the CPU.
 
- This plugin requires the cgroupv2 input plugin (k8s) as it needs the input measurements of cgroupsv2.
+ This plugin requires the cgroupv2 input plugin (k8s) as it needs the input measurements of cgroups v2.
 
 The estimation calculation is done using the following formula:
 
@@ -26,7 +26,6 @@ cgroupv2_cpu_total_usage:   total usage of CPU in micro seconds for a pod
 nb_vcpu:                    number of virtual CPU of the hosting machine where pod is running
 nb_cpu:                     number of physical CPU of the hosting machine where pod is running
 polling_interval:           polling interval of cgroupv2 input plugin
-
 
 ## Energy estimation tdp plugin
 
@@ -38,7 +37,6 @@ Just compile the app-agent of the alumet's github repository.
 cargo run
 ```
 
-
 The binary created by the compilation will be found under the target repository.
 
 ### Prepare your environment
@@ -49,7 +47,7 @@ To work this plugin needs k8s plugin configured, so the needed things are relate
 2. kubectl
 3. alumet-reader user
 
-### Configuration 
+### Configuration
 
 [plugins.EnergyEstimationTdpPlugin]
 enable = true

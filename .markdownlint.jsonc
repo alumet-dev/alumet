@@ -1,0 +1,41 @@
+// Keeping here those rules that have been triggered in the project.
+// Full list is -> https://github.com/DavidAnson/markdownlint/blob/main/schema/.markdownlint.jsonc
+{
+  // MD032/blanks-around-lists : Lists should be surrounded by blank lines : https://github.com/DavidAnson/markdownlint/blob/v0.37.3/doc/md032.md
+  "MD032": false,
+  // MD029/ol-prefix : Ordered list item prefix : https://github.com/DavidAnson/markdownlint/blob/v0.37.3/doc/md029.md
+  "MD029": {
+    // List style
+    "style": "one_or_ordered"
+  },
+  // MD013/line-length : Line length : https://github.com/DavidAnson/markdownlint/blob/v0.37.3/doc/md013.md
+  "MD013": false,
+  // MD034/no-bare-urls : Bare URL used : https://github.com/DavidAnson/markdownlint/blob/v0.37.3/doc/md034.md
+  "MD034": false,
+  // MD024/no-duplicate-heading : Multiple headings with the same content : https://github.com/DavidAnson/markdownlint/blob/v0.37.3/doc/md024.md
+  "MD024": {
+    // Only check sibling headings
+    "siblings_only": true
+  },
+  // MD012/no-multiple-blanks : Multiple consecutive blank lines : https://github.com/DavidAnson/markdownlint/blob/v0.37.3/doc/md012.md
+  "MD012": true,
+  // MD009/no-trailing-spaces : Trailing spaces : https://github.com/DavidAnson/markdownlint/blob/v0.37.3/doc/md009.md
+  "MD009": {
+    // Spaces for line break
+    "br_spaces": 2,
+    // Allow spaces for empty lines in list items
+    "list_item_empty_lines": false,
+    // Include unnecessary breaks
+    "strict": false
+  },
+  // MD033/no-inline-html : Inline HTML : https://github.com/DavidAnson/markdownlint/blob/v0.37.3/doc/md033.md
+  "MD033": false,
+  // MD031/blanks-around-fences : Fenced code blocks should be surrounded by blank lines : https://github.com/DavidAnson/markdownlint/blob/v0.37.3/doc/md031.md
+  "MD031": true,
+  // MD045/no-alt-text : Images should have alternate text (alt text) : https://github.com/DavidAnson/markdownlint/blob/v0.37.3/doc/md045.md
+  "MD045": false,
+  // MD010/no-hard-tabs: Use spaces instead of tabs: https://github.com/DavidAnson/markdownlint/blob/main/doc/md010.md
+  "MD010": {
+    "spaces_per_tab": 2
+  }
+}

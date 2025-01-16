@@ -19,6 +19,7 @@ hwinfo
 hwmon
 ITLB
 Mispredicted
+miri
 monitorable
 mpoint
 NVML
@@ -27,6 +28,7 @@ POWERCAP
 psys
 Raffin
 RAPL
+regen
 rustfmt
 statm
 subconfig

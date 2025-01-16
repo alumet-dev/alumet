@@ -1,8 +1,6 @@
-<p align="center">
+<h1 align="center">
     <img src="readme/alumet-banner.png" height="141px"></img>
-</p>
-
-#
+</h1>
 
 <a href="https://crates.io/crates/alumet"><img src="https://img.shields.io/crates/v/alumet?link=https%3A%2F%2Fcrates.io%2Fcrates%2Falumet" /></a>
 
@@ -17,7 +15,7 @@
 - [x] I want to estimate the energy consumption of the software I run.
 - [x] I want to measure the energy consumption of my CPU or GPU, _accurately_[^1].
 - [x] I need to export my measurements to local files or to a database.
-- [x] I would like to choose the acquisition frequency and to be able to use frequencies above 1000 Hz. 
+- [x] I would like to choose the acquisition frequency and to be able to use frequencies above 1000 Hz.
 - [x] I _don't_ want the measurement tool to eat up my CPU and consume too much power.
 - [x] I _don't_ want to setup a different tool for each hardware component and software environment I have (laptops, Edge devices with GPUs, bare-metal HPC servers, K8S clusters, ...).
 
