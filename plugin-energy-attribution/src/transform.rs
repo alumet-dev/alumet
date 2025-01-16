@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -14,14 +13,13 @@ use alumet::{
 };
 
 pub struct EnergyAttributionTransform {
-    pub metrics: Arc<Mutex<super::Metrics>>,
+    pub metrics: super::Metrics,
     buffer_pod: HashMap<u64, Vec<MeasurementPoint>>,
     buffer_rapl: HashMap<u64, MeasurementPoint>,
 }
-
 impl EnergyAttributionTransform {
     /// Instantiates a new EnergyAttributionTransform with its private fields initialized.
-    pub fn new(metrics: Arc<Mutex<super::Metrics>>) -> Self {
+    pub fn new(metrics: super::Metrics) -> Self {
         Self {
             metrics,
             buffer_pod: HashMap::<u64, Vec<MeasurementPoint>>::new(),
@@ -33,10 +31,7 @@ impl EnergyAttributionTransform {
     fn buffer_bouncer(&mut self, measurements: &mut alumet::measurement::MeasurementBuffer) {
         // Retrieving the metric_id of the energy attribution.
         // Using a nested scope to reduce the lock time.
-        let metric_id = {
-            let metrics = self.metrics.lock().unwrap();
-            metrics.pod_attributed_energy.unwrap()
-        };
+        let metric_id = self.metrics.pod_attributed_energy;
 
         // If the buffers do have enough (every) MeasurementPoints,
         // then we compute the energy attribution.
@@ -109,10 +104,10 @@ impl Transform for EnergyAttributionTransform {
         // Retrieve the pod_id and the rapl_id.
         // Using a nested scope to reduce the lock time.
         let (pod_id, rapl_id) = {
-            let metrics = self.metrics.lock().unwrap();
+            let metrics = &self.metrics;
 
-            let pod_id = metrics.cpu_usage_per_pod.unwrap().as_u64();
-            let rapl_id = metrics.rapl_consumed_energy.unwrap().as_u64();
+            let pod_id = metrics.hardware_usage.as_u64();
+            let rapl_id = metrics.consumed_energy.as_u64();
 
             (pod_id, rapl_id)
         };

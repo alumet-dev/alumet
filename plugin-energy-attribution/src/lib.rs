@@ -1,11 +1,14 @@
-use std::sync::{Arc, Mutex};
-
 use alumet::{
     metrics::{RawMetricId, TypedMetricId},
-    plugin::rust::{serialize_config, AlumetPlugin},
-    plugin::{AlumetPreStart, ConfigTable},
+    pipeline::elements::transform::builder::TransformRegistration,
+    plugin::{
+        rust::{deserialize_config, serialize_config, AlumetPlugin},
+        ConfigTable,
+    },
     units::Unit,
 };
+
+use anyhow::Context;
 
 use serde::{Deserialize, Serialize};
 
@@ -14,21 +17,20 @@ use transform::EnergyAttributionTransform;
 mod transform;
 
 pub struct EnergyAttributionPlugin {
-    metrics: Arc<Mutex<Metrics>>,
+    config: Config,
 }
 
-#[derive(Default)]
 struct Metrics {
     // To attribute the CPU consumption to K8S pods, we need three metrics:
-    // - cpu usage per pod
-    // - hardware cpu consumption
-    // - energy attribution (to store the result)
+    // - overall consumed energy per pod
+    // - overall hardware usage per pod
+    // - energy attributed to a pod
     //
     // Their IDs are gathered in different phases of the plugin initialization,
     // that is why they are Options.
-    cpu_usage_per_pod: Option<RawMetricId>,
-    rapl_consumed_energy: Option<RawMetricId>,
-    pod_attributed_energy: Option<TypedMetricId<f64>>,
+    hardware_usage: RawMetricId,
+    consumed_energy: RawMetricId,
+    pod_attributed_energy: TypedMetricId<f64>,
 }
 
 impl AlumetPlugin for EnergyAttributionPlugin {
@@ -44,45 +46,44 @@ impl AlumetPlugin for EnergyAttributionPlugin {
         Ok(Some(serialize_config(Config::default())?))
     }
 
-    fn init(_: alumet::plugin::ConfigTable) -> anyhow::Result<Box<Self>> {
-        Ok(Box::new(EnergyAttributionPlugin {
-            metrics: Arc::new(Mutex::new(Metrics::default())),
-        }))
+    fn init(config: alumet::plugin::ConfigTable) -> anyhow::Result<Box<Self>> {
+        let config = deserialize_config(config)?;
+        Ok(Box::new(EnergyAttributionPlugin { config }))
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
-        let mut metrics = self.metrics.lock().unwrap();
-
         // Create the energy attribution metric and add its id to the
-        // transform plugin metrics' list.
-        metrics.pod_attributed_energy = Some(alumet.create_metric(
+        // transform builder's metrics list.
+        let attribution_energy_metric = alumet.create_metric(
             "pod_attributed_energy",
             Unit::Joule,
             "Energy consumption attributed to the pod",
-        )?);
+        )?;
 
-        // Add the transform now but fill its metrics later.
-        alumet.add_transform(Box::new(EnergyAttributionTransform::new(self.metrics.clone())));
-        Ok(())
-    }
+        let consumed_energy = self.config.consumed_energy_rapl.clone();
+        let hardware_usage = self.config.hardware_usage_cgroup.clone();
 
-    fn pre_pipeline_start(&mut self, alumet: &mut AlumetPreStart) -> anyhow::Result<()> {
-        /// Finds the RawMetricId with the name of the metric.
-        /// Will only run once, just before the pipeline starts.
-        fn find_metric_by_name(alumet: &mut AlumetPreStart, name: &str) -> anyhow::Result<RawMetricId> {
-            let (id, _metric) = alumet
-                .metrics()
-                .into_iter()
-                .find(|m| m.1.name == name)
-                .unwrap_or_else(|| panic!("Cannot find metric {name}, are the 'rapl' and 'k8s' plugins loaded?"));
-            Ok(id.to_owned())
-        }
+        // Add the transform builder and its metrics
+        alumet.add_transform_builder(move |ctx| {
+            let name = ctx.transform_name("attribution_transform");
 
-        // Lock the metrics mutex to apply its modifications.
-        let mut metrics = self.metrics.lock().unwrap();
+            let consumed_energy_metric = ctx
+                .metric_by_name(&consumed_energy)
+                .with_context(|| format!("Metric not found : {}", consumed_energy))?
+                .0;
+            let hardware_usage_metric = ctx
+                .metric_by_name(&hardware_usage)
+                .with_context(|| format!("Metric not found {}", hardware_usage))?
+                .0;
+            let metrics = Metrics {
+                pod_attributed_energy: attribution_energy_metric,
+                consumed_energy: consumed_energy_metric,
+                hardware_usage: hardware_usage_metric,
+            };
 
-        metrics.rapl_consumed_energy = Some(find_metric_by_name(alumet, "rapl_consumed_energy")?);
-        metrics.cpu_usage_per_pod = Some(find_metric_by_name(alumet, "cgroup_cpu_usage_user")?);
+            let transform = Box::new(EnergyAttributionTransform::new(metrics));
+            Ok(TransformRegistration { name, transform })
+        });
         Ok(())
     }
 
@@ -93,13 +94,15 @@ impl AlumetPlugin for EnergyAttributionPlugin {
 
 #[derive(Deserialize, Serialize)]
 struct Config {
-    oui: String,
+    consumed_energy_rapl: String,
+    hardware_usage_cgroup: String,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            oui: String::from("oui"),
+            consumed_energy_rapl: String::from("rapl_consumed_energy"),
+            hardware_usage_cgroup: String::from("cgroup_cpu_usage_user"),
         }
     }
 }
