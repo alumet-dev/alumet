@@ -61,7 +61,7 @@ impl AlumetPlugin for EnergyEstimationTdpPlugin {
         )?;
 
         let cpu_usage = self.config.as_ref().unwrap().cpu_usage_per_pod.clone();
-        let config = self.config.take().unwrap();
+        let config_cpy = self.config.take().unwrap();
 
         // Add the transform now but fill its metrics later.
         alumet.add_transform_builder(move |ctx| {
@@ -69,14 +69,14 @@ impl AlumetPlugin for EnergyEstimationTdpPlugin {
 
             let cpu_usage_metric = ctx
                 .metric_by_name(&cpu_usage)
-                .with_context(|| format!("metric not found : {}", cpu_usage))?
+                .with_context(|| format!("Metric not found : {}", cpu_usage))?
                 .0;
             let metrics = Metrics {
                 cpu_usage_per_pod: cpu_usage_metric,
                 pod_estimate_attributed_energy: pod_estimate_attributed_energy_metric,
             };
 
-            let transform = Box::new(EnergyEstimationTdpTransform::new(config, metrics));
+            let transform = Box::new(EnergyEstimationTdpTransform::new(config_cpy, metrics));
             Ok(TransformRegistration { name, transform })
         });
         Ok(())
