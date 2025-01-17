@@ -11,14 +11,16 @@ use alumet::{
 pub struct AggregationTransform {
     interval: Duration,
 
-    internal_buffer: HashMap<(u64, String, String), Vec<MeasurementPoint>>,
+    internal_buffer: HashMap<(u64, String, String), Vec<((u64, u64), Vec<MeasurementPoint>)>>,
+    metric_correspondance_table: HashMap<u64, u64>,
 }
 
 impl AggregationTransform {
     pub fn new(interval: Duration) -> io::Result<Self> {
         Ok(Self {
             interval,
-            internal_buffer: HashMap::<(u64, String, String), Vec<MeasurementPoint>>::new(),
+            internal_buffer: HashMap::<(u64, String, String), Vec<((u64, u64), Vec<MeasurementPoint>)>>::new(),
+            metric_correspondance_table: HashMap::<u64, u64>::new(),
         })
     }
 }
@@ -35,10 +37,15 @@ impl Transform for AggregationTransform {
 
             match self.internal_buffer.get_mut(&id) {
                 Some(vec_points) => {
-                    vec_points.push(measurement.clone());
+                    let current_interval: (u64, u64) = get_current_interval(self.interval.as_secs(), measurement.timestamp.to_unix_timestamp().0); 
+                    // vec_points.push(measurement.clone());
                 }
                 None => {
-                    self.internal_buffer.insert(id.clone(), vec![measurement.clone()]);
+                    // self.internal_buffer.insert(id.clone(), vec![measurement.clone()]);
+                    self.internal_buffer.insert(id.clone(), vec![(
+                        get_current_interval(self.interval.as_secs(), measurement.timestamp.to_unix_timestamp().0),
+                        vec![measurement.clone()]
+                    )]);
                 }
             }
         }
@@ -46,40 +53,46 @@ impl Transform for AggregationTransform {
         // clear the measurementBuffer
         measurements.clear();
 
-        for (key, value) in self.internal_buffer.clone().into_iter() {
-            if value
-                .last()
-                .unwrap()
-                .timestamp
-                .duration_since(value.first().unwrap().timestamp)?
-                > self.interval
-            {
-                let sum = self
-                    .internal_buffer
-                    .remove(&key)
-                    .unwrap()
-                    .iter()
-                    .map(|x| x.clone().value)
-                    .reduce(|x, y| {
-                        match (x, y) {
-                            (WrappedMeasurementValue::F64(fx), WrappedMeasurementValue::F64(fy)) => {
-                                WrappedMeasurementValue::F64(fx + fy)
-                            }
-                            (WrappedMeasurementValue::U64(ux), WrappedMeasurementValue::U64(uy)) => {
-                                WrappedMeasurementValue::U64(ux + uy)
-                            }
-                            (_, _) => panic!("Pas normal"), // TODO Fix this panic line
-                        }
-                    })
-                    .unwrap();
+        // for (key, value) in self.internal_buffer.clone().into_iter() {
+        //     if value
+        //         .last()
+        //         .unwrap()
+        //         .timestamp
+        //         .duration_since(value.first().unwrap().timestamp)?
+        //         > self.interval
+        //     {
+        //         let sum = self
+        //             .internal_buffer
+        //             .remove(&key)
+        //             .unwrap()
+        //             .iter()
+        //             .map(|x| x.clone().value)
+        //             .reduce(|x, y| {
+        //                 match (x, y) {
+        //                     (WrappedMeasurementValue::F64(fx), WrappedMeasurementValue::F64(fy)) => {
+        //                         WrappedMeasurementValue::F64(fx + fy)
+        //                     }
+        //                     (WrappedMeasurementValue::U64(ux), WrappedMeasurementValue::U64(uy)) => {
+        //                         WrappedMeasurementValue::U64(ux + uy)
+        //                     }
+        //                     (_, _) => panic!("Pas normal"), // TODO Fix this panic line
+        //                 }
+        //             })
+        //             .unwrap();
 
-                let mut value_clone = value.first().unwrap().clone();
-                value_clone.value = sum.clone();
+        //         let mut value_clone = value.first().unwrap().clone();
+        //         value_clone.value = sum.clone();
 
-                // And fill it again
-                measurements.push(value_clone.clone());
-            }
-        }
+        //         // And fill it again
+        //         measurements.push(value_clone.clone());
+        //     }
+        // }
         Ok(())
     }
+}
+
+fn get_current_interval(interval: u64, timestamp: u64) -> (u64, u64) {
+    // (t, t+int) where t = k * int, k € N
+    let t = timestamp / interval;
+    (t, t + interval)
 }
