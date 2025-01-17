@@ -278,7 +278,7 @@ async fn connect_to_server(
     log::debug!("Doing protocol handshake...");
     let mut stream = handshake_client2server(client_name.to_owned(), stream).await?;
 
-    // send the metric definitions (for metricsthat are known at this point)
+    // send the metric definitions (for metrics that are known at this point)
     log::debug!("Sending initial metrics...");
     let metrics = metrics_reader.read().await;
     let to_send = metrics

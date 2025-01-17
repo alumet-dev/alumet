@@ -77,6 +77,7 @@ alumet = { path = "../alumet" }
 - For efficiency, avoid too much cloning. It's fine for a PoC but should be optimized before merging the PR.
 - Use `anyhow` and `thiserror` to simplify error management. Alumet already uses those.
 - Use [`log`](https://docs.rs/log/latest/log/) to log messages, not `println`. Example:
+
 ```rs
 let value = ();
 log::debug!("My value is: {value:?}");

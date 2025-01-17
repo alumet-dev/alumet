@@ -21,7 +21,7 @@ Enabled plugins: ...
 Steps to reproduce the behavior:
 1. Run '...'
 2. Execute program/pod/job '....'
-4. See error
+3. See error
 
 **Expected behavior**
 A clear and concise description of what you expected to happen.

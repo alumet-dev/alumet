@@ -1,5 +1,7 @@
 {
     "version": "0.2",
+    "ignoreWords": [],
+    "enableGlobDot": true,
     "ignorePaths": [
         "*.csv",
         "*.c",
@@ -8,9 +10,10 @@
         "tmp/*",
         "*.toml",
         "*.proto",
-        "*.h"
+        "*.h",
+        ".git/*",
+        ".gitignore"
     ],
-    "ignoreWords": [],
     "import": [
         "@cspell/dict-rust/cspell-ext.json"
     ],

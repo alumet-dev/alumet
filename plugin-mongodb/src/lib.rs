@@ -76,7 +76,7 @@ impl Output for MongoDbOutput {
     fn write(&mut self, measurements: &MeasurementBuffer, ctx: &OutputContext) -> Result<(), WriteError> {
         // Cannot write anything with an empty buffer.
         if measurements.is_empty() {
-            log::warn!("MongoDb recieved an empty MeasurementBuffer");
+            log::warn!("MongoDb received an empty MeasurementBuffer");
             return Ok(());
         }
 
@@ -93,7 +93,7 @@ impl Output for MongoDbOutput {
             doc.insert("resource_consumer_kind", m.consumer.kind());
             doc.insert("resource_consumer_id", m.consumer.id_string().unwrap_or_default());
 
-            // Alumer attributes are translated to fields
+            // Alumet attributes are translated to fields
             // Some field keys are reserved by Alumet and will trigger a renaming
             let attributes = m.attributes();
             const RESERVED_FIELDS: [&str; 6] = [
