@@ -62,10 +62,9 @@ fn handle_permission_denied(external_command: String) -> String {
             Ok(parent) => parent,
             Err(err) => return err,
         };
-        let metadata: Metadata = current_parent.metadata().expect(&format!(
-            "Unable to retrieve metadata of file: {}",
-            current_parent.display()
-        ));
+        let metadata: Metadata = current_parent
+            .metadata()
+            .unwrap_or_else(|_| panic!("Unable to retrieve metadata of file: {}", current_parent.display()));
         let missing_permissions = check_missing_permissions(metadata.permissions().mode(), 0o555);
         if missing_permissions & 0o500 != 0 || missing_permissions & 0o050 != 0 || missing_permissions & 0o005 != 0 {
             log::warn!(
@@ -85,7 +84,7 @@ fn handle_permission_denied(external_command: String) -> String {
     // Get file metadata to see missing permissions
     let file_metadata = file_correctly_opened
         .metadata()
-        .expect(format!("Unable to retrieve metadata for: {}", external_command).as_str());
+        .unwrap_or_else(|_| panic!("Unable to retrieve metadata for: {}", external_command));
     let missing_permissions = check_missing_permissions(file_metadata.permissions().mode(), 0o505);
     let missing_right_str;
     if missing_permissions & 0o500 != 0 || missing_permissions & 0o050 != 0 || missing_permissions & 0o005 != 0 {
@@ -132,18 +131,16 @@ fn handle_not_found(external_command: String, args: Vec<String>) -> String {
         if entry_type.is_file() {
             let entry_string = entry.file_name().into_string().unwrap();
             let path = Path::new(&external_command);
-            let external_command_corrected_name: String;
-            if path.is_absolute() {
-                external_command_corrected_name = path
-                    .file_name()
+            let external_command_corrected_name: String = if path.is_absolute() {
+                path.file_name()
                     .and_then(|os_str| os_str.to_str().map(|s| s.to_string()))
-                    .unwrap_or_else(|| external_command.to_string());
+                    .unwrap_or_else(|| external_command.to_string())
             } else {
-                external_command_corrected_name = external_command
+                external_command
                     .strip_prefix("./")
                     .unwrap_or(&external_command)
-                    .to_string();
-            }
+                    .to_string()
+            };
 
             let distance = super::word_distance::distance_with_adjacent_transposition(
                 &external_command_corrected_name.clone(),
@@ -216,7 +213,7 @@ fn find_a_parent_with_perm_issue(path: String) -> anyhow::Result<std::path::Path
             }
         }
     }
-    return Err("Unable to retrieve a parent for your file".to_string());
+    Err("Unable to retrieve a parent for your file".to_string())
 }
 
 // Triggers one measurement (on all sources that support manual trigger).
