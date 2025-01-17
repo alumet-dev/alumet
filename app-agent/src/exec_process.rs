@@ -2,7 +2,7 @@
 
 use std::{
     fs::{self, File, Metadata},
-    os::unix::{fs::PermissionsExt, process::ExitStatusExt},
+    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::ExitStatus,
 };
@@ -17,7 +17,7 @@ use alumet::{
     plugin::event::StartConsumerMeasurement,
     resources::ResourceConsumer,
 };
-use anyhow::{anyhow, Context, Error};
+use anyhow::{anyhow, Context};
 
 /// Spawns a child process and waits for it to exit.
 pub fn exec_child(external_command: String, args: Vec<String>) -> anyhow::Result<ExitStatus> {
@@ -31,16 +31,14 @@ pub fn exec_child(external_command: String, args: Vec<String>) -> anyhow::Result
         Err(e) => match e.kind() {
             std::io::ErrorKind::NotFound => {
                 let return_error: String = handle_not_found(external_command, args);
-                log::error!("{}", return_error);
-                return Err(e.into());
+                return Err(e).with_context(|| return_error);
             }
             std::io::ErrorKind::PermissionDenied => {
                 let return_error: String = handle_permission_denied(external_command);
-                log::error!("{}", return_error);
-                return Err(e.into());
+                return Err(e).with_context(|| return_error);
             }
             _ => {
-                return Err(anyhow!("Error in child process"));
+                return Err(anyhow!("Error in child process: {e:?}"));
             }
         },
     };
@@ -58,7 +56,7 @@ pub fn exec_child(external_command: String, args: Vec<String>) -> anyhow::Result
 
 fn handle_permission_denied(external_command: String) -> String {
     let file_open_result = File::open(external_command.clone());
-    let file_correctly_opened = if let Err(err) = file_open_result {
+    let file_correctly_opened = if let Err(_err) = file_open_result {
         // Can't open the file, let's check it's parent
         let current_parent = match find_a_parent_with_perm_issue(external_command.clone()) {
             Ok(parent) => parent,
@@ -99,7 +97,11 @@ fn handle_permission_denied(external_command: String) -> String {
     } else {
         missing_right_str = "rx"
     }
-    log::error!("file '{}' is missing the following permissions:  'x'", external_command);
+    log::error!(
+        "file '{}' is missing the following permissions:  '{}'",
+        external_command,
+        missing_right_str
+    );
     log::info!("💡 Hint: try 'chmod +{} {}'", missing_right_str, external_command);
     format!("Error happened about file's permission {}", external_command)
 }
@@ -112,7 +114,8 @@ fn handle_not_found(external_command: String, args: Vec<String>) -> String {
     let directory_entries_iter = match fs::read_dir(".") {
         Ok(directory) => directory,
         Err(err) => {
-            panic!("Error when trying to read current directory: {}", err);
+            log::error!("Error when trying to read current directory: {}", err);
+            return format!("Error when trying to read current directory: {}", err);
         }
     };
     let app_path = resolve_application_path()
@@ -172,7 +175,7 @@ fn handle_not_found(external_command: String, args: Vec<String>) -> String {
                 );
                 log::info!("Example: {} exec ./{} {}", app_path, element, argument_list);
             } else {
-                log::info!("💡 Hint: Did you mean ./{} {}", element, argument_list);
+                log::warn!("💡 Hint: Did you mean ./{} {}", element, argument_list);
             }
             return "File not found but another appears to match".to_string();
         }
@@ -186,42 +189,7 @@ fn handle_not_found(external_command: String, args: Vec<String>) -> String {
 }
 
 fn check_missing_permissions(current_permissions: u32, required_permissions: u32) -> u32 {
-    let mut missing = 0;
-
-    // Check read, write and execute permissions for the user
-    if (required_permissions & 0o400) != 0 && (current_permissions & 0o400) == 0 {
-        missing |= 0o400;
-    }
-    if (required_permissions & 0o200) != 0 && (current_permissions & 0o200) == 0 {
-        missing |= 0o200;
-    }
-    if (required_permissions & 0o100) != 0 && (current_permissions & 0o100) == 0 {
-        missing |= 0o100;
-    }
-
-    // Check read, write and execute permissions for the group
-    if (required_permissions & 0o040) != 0 && (current_permissions & 0o040) == 0 {
-        missing |= 0o040;
-    }
-    if (required_permissions & 0o020) != 0 && (current_permissions & 0o020) == 0 {
-        missing |= 0o020;
-    }
-    if (required_permissions & 0o010) != 0 && (current_permissions & 0o010) == 0 {
-        missing |= 0o010;
-    }
-
-    // Check read, write and execute permissions for others
-    if (required_permissions & 0o004) != 0 && (current_permissions & 0o004) == 0 {
-        missing |= 0o004;
-    }
-    if (required_permissions & 0o002) != 0 && (current_permissions & 0o002) == 0 {
-        missing |= 0o002;
-    }
-    if (required_permissions & 0o001) != 0 && (current_permissions & 0o001) == 0 {
-        missing |= 0o001;
-    }
-
-    missing
+    required_permissions & !current_permissions
 }
 
 fn find_a_parent_with_perm_issue(path: String) -> anyhow::Result<std::path::PathBuf, String> {
@@ -232,7 +200,12 @@ fn find_a_parent_with_perm_issue(path: String) -> anyhow::Result<std::path::Path
     };
     // Through this loop I will iterate over parent of parent until I can retrieve metadata, it will show the first folder
     // that I can't execute and suggest to the user to grant execution rights.
+    let mut counter_stop = 0;
     loop {
+        if counter_stop >= 100 {
+            break;
+        }
+        counter_stop += 1;
         match current_parent.metadata() {
             Ok(_) => return Ok(current_parent.to_path_buf()),
             Err(_) => {
@@ -243,6 +216,7 @@ fn find_a_parent_with_perm_issue(path: String) -> anyhow::Result<std::path::Path
             }
         }
     }
+    return Err("Unable to retrieve a parent for your file".to_string());
 }
 
 // Triggers one measurement (on all sources that support manual trigger).
@@ -262,6 +236,7 @@ pub fn trigger_measurement_now(pipeline: &MeasurementPipeline) -> anyhow::Result
 #[cfg(test)]
 mod tests {
     use fs::Permissions;
+    use tempfile::tempdir;
 
     use super::*;
 
@@ -326,8 +301,8 @@ mod tests {
 
     #[test]
     fn test_handle_permission_denied() {
-        let tmp = std::env::temp_dir();
-        let root: std::path::PathBuf = tmp.join("river_folder/");
+        let tmp = tempdir().expect("Failed to create a temporary directory");
+        let root: std::path::PathBuf = tmp.path().join("river_folder/");
         if root.exists() {
             std::fs::remove_dir_all(&root).unwrap();
         }
@@ -437,8 +412,8 @@ mod tests {
 
     #[test]
     fn test_handle_not_found() {
-        let tmp = std::env::temp_dir();
-        let root: std::path::PathBuf = tmp.join("river_folder/");
+        let tmp = tempdir().expect("Failed to create a temporary directory");
+        let root: std::path::PathBuf = tmp.path().join("river_folder/");
         if root.exists() {
             std::fs::remove_dir_all(&root).unwrap();
         }
