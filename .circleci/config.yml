@@ -24,8 +24,8 @@ jobs:
       - image: cimg/rust:1.81.0
     environment:
       RUSTFLAGS: -Awarnings
-      CONTINUE_TEST_IF_NO_POWERCAP: true
-      NO_IPV6: true
+      CONTINUE_TEST_IF_NO_POWERCAP: "true"
+      NO_IPV6: "true"
     steps:
       - checkout
       - run: cargo --version
@@ -33,7 +33,7 @@ jobs:
       - run: cat /etc/hosts
       - run:
           name: Install required packages.
-          command: sudo apt-get update && sudo apt-get install llvm-dev libclang-dev protobuf-compiler --no-install-recommends
+          command: sudo apt-get update && sudo apt-get install llvm-dev libclang-dev --no-install-recommends
       - restore_cache:
           keys:
             - v2-dependency-cache-{{ checksum ".combined_cache_key" }}
@@ -53,10 +53,8 @@ jobs:
           command: cargo test --all-features -- --show-output
           no_output_timeout: 45s
 
-      # Caching "target" makes "build_and_test" faster (because we compile almost nothing),
-      # but it makes other jobs slower (because it takes 20-30s to extract the cache and it's not
-      # beneficial to the other jobs in the end).
-      # => separate the two caches
+      # Caching "target" is not worth it because it is costly to extract the huge cache.
+      # So, we only cache some cargo data.
       - save_cache:
           key: v2-dependency-cache-{{ checksum ".combined_cache_key" }}
           paths:
@@ -103,7 +101,23 @@ jobs:
       - generate_cargo_cache_key
       - run:
           name: Install required packages.
-          command: sudo apt-get update && sudo apt-get install llvm-dev libclang-dev protobuf-compiler --no-install-recommends
+          command: sudo apt-get update && sudo apt-get install llvm-dev libclang-dev --no-install-recommends
+      - restore_cache:
+          keys:
+            - v2-dependency-cache-{{ checksum ".combined_cache_key" }}
+            - v2-dependency-cache
+      - run:
+          name: Run Clippy linter
+          command: "cargo clippy --no-deps"
+
+  check_format:
+    resource_class: medium
+    docker:
+      - image: cimg/rust:1.81.0
+    steps:
+      - checkout
+      - run: cargo --version
+      - generate_cargo_cache_key
       - restore_cache:
           keys:
             - v2-dependency-cache-{{ checksum ".combined_cache_key" }}
@@ -111,9 +125,6 @@ jobs:
       - run:
           name: Check formatting
           command: "cargo fmt --check"
-      - run:
-          name: Run Clippy
-          command: "cargo clippy --no-deps"
 
   miri_test:
     resource_class: medium
@@ -121,7 +132,7 @@ jobs:
       - image: cimg/rust:1.81.0
     environment:
       RUSTFLAGS: -Awarnings
-      CONTINUE_TEST_IF_NO_POWERCAP: true
+      CONTINUE_TEST_IF_NO_POWERCAP: "true"
     steps:
       - checkout
       - run: cargo --version && rustup --version
@@ -137,11 +148,40 @@ jobs:
           name: Run Miri on some tests
           command: "cd alumet && cargo +nightly miri test -- ffi"
           environment:
-            SKIP_BINDGEN: true
+            SKIP_BINDGEN: "true"
 
 workflows:
-  test_and_lint:
+  # Workflow for external PRs: require manual approval for long jobs.
+  rust_workflow_external:
+    when:
+      matches: { value: "<< pipeline.git.branch >>", pattern: "^pull\\/.+$" }
+
     jobs:
+      # Format check is very fast and not risky, do it automatically
+      - check_format
+
+      # Other jobs require an approval to run.
+      - build_and_test:
+          requires: [hold]
+      - build_on_musl:
+          requires: [hold]
+      - lint:
+          requires: [hold]
+      - miri_test:
+          requires: [hold]
+
+      - hold:
+          type: approval # The job will wait for a manual approval in CircleCI web UI.
+          requires:
+            - check_format
+
+  # Workflow for internal branches: execute automatically.
+  rust_workflow_internal:
+    when:
+      matches: { value: "<< pipeline.git.branch >>", pattern: "^(?!pull\\/).+$" }
+
+    jobs:
+      - check_format
       - build_and_test
       - build_on_musl
       - lint
