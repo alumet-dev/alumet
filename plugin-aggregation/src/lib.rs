@@ -35,6 +35,12 @@ impl AlumetPlugin for AggregationPlugin {
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
         let transform = Box::new(AggregationTransform::new(self.config.interval)?);
         alumet.add_transform(transform);
+        alumet.add_transform_builder(
+            move |ctx| {
+                ctx.
+
+            },
+        );
         Ok(())
     }
 

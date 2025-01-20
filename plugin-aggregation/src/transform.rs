@@ -1,11 +1,10 @@
-use std::{collections::HashMap, io, time::Duration};
+use std::{any::Any, collections::HashMap, io, time::Duration};
 
 use alumet::{
-    measurement::{MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue},
-    pipeline::{
+    measurement::{MeasurementBuffer, MeasurementPoint}, metrics::{self, MetricId}, pipeline::{
         elements::{error::TransformError, transform::TransformContext},
         Transform,
-    },
+    }
 };
 
 pub struct AggregationTransform {
@@ -26,9 +25,17 @@ impl AggregationTransform {
 }
 
 impl Transform for AggregationTransform {
-    fn apply(&mut self, measurements: &mut MeasurementBuffer, _ctx: &TransformContext) -> Result<(), TransformError> {
+    fn apply(&mut self, measurements: &mut MeasurementBuffer, ctx: &TransformContext) -> Result<(), TransformError> {
         // store the measurementBuffer to the internal_buffer
         for measurement in measurements.iter() {
+            if self.metric_correspondance_table.get(&measurement.metric.as_u64()).is_none() {
+                let current_metric = ctx.metrics.by_id(&measurement.metric.untyped_id()).unwrap();
+
+                metrics::MetricRegistry::register(&mut ctx.metrics, metrics::Metric {
+                     name: format!("{}-sum", current_metric.name), description: current_metric.description, value_type: current_metric.value_type, unit: current_metric.unit,
+                    }).unwrap();
+            }
+
             let id = (
                 measurement.metric.as_u64(),
                 measurement.consumer.id_string().unwrap_or_default(),
