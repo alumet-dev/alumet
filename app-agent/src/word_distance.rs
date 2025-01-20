@@ -81,6 +81,7 @@ pub fn distance_with_adjacent_transposition(a: &str, b: &str) -> usize {
 
 #[cfg(test)]
 mod tests {
+    // cspell: disable
     use super::distance_with_adjacent_transposition;
 
     #[test]
@@ -133,4 +134,5 @@ mod tests {
             distance_with_adjacent_transposition("Привет, круто это", "Привет, это круто")
         );
     }
+    // cspell: enable
 }
