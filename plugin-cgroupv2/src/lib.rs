@@ -25,12 +25,13 @@ pub fn is_accessible_dir(path: &Path) -> Result<bool, std::io::Error> {
 mod tests {
     use crate::is_accessible_dir;
     use std::path::{Path, PathBuf};
+    use tempfile::tempdir;
 
     // Tests `is_accessible_dir` function to check the existence of cgroupv2 file system
     #[test]
     fn test_is_accessible_dir() {
-        let tmp = std::env::temp_dir();
-        let root = tmp.join("test-alumet-plugin-k8s/kubepods-list-metrics");
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().join("test-alumet-plugin-k8s/kubepods-list-metrics");
 
         if root.exists() {
             std::fs::remove_dir_all(&root).unwrap();
@@ -46,9 +47,7 @@ mod tests {
         let file_path = root.join("data.stat");
         std::fs::write(&file_path, "test file").unwrap();
         assert!(!is_accessible_dir(&file_path).unwrap());
-
         assert!(!is_accessible_dir(&PathBuf::new()).unwrap());
-        std::fs::remove_dir_all(&root).unwrap();
     }
 
     // Tests `is_accessible_dir` function with permission error

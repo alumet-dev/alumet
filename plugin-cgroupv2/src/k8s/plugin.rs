@@ -208,7 +208,7 @@ impl AlumetPlugin for K8sPlugin {
                                 let file_memory = File::open(&path_memory)
                                     .with_context(|| format!("failed to open file {}", path_memory.display()))?;
 
-                                // CPU ressource consumer for cpu.stat file in cgroup
+                                // CPU resource consumer for cpu.stat file in cgroup
                                 let consumer_cpu = ResourceConsumer::ControlGroup {
                                     path: path_cpu
                                         .to_str()
@@ -216,7 +216,7 @@ impl AlumetPlugin for K8sPlugin {
                                         .to_string()
                                         .into(),
                                 };
-                                // Memory ressource consumer for memory.stat file in cgroup
+                                // Memory resource consumer for memory.stat file in cgroup
                                 let consumer_memory = ResourceConsumer::ControlGroup {
                                     path: path_memory
                                         .to_str()

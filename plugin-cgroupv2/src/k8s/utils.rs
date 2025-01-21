@@ -94,7 +94,7 @@ fn list_metric_file_in_dir(
             let file_memory = File::open(&path_cloned_memory)
                 .with_context(|| format!("failed to open file {}", path_cloned_memory.display()))?;
 
-            // CPU ressource consumer for cpu.stat file in cgroup
+            // CPU resource consumer for cpu.stat file in cgroup
             let consumer_cpu = ResourceConsumer::ControlGroup {
                 path: path_cloned_cpu
                     .to_str()
@@ -102,7 +102,7 @@ fn list_metric_file_in_dir(
                     .to_string()
                     .into(),
             };
-            // Memory ressource consumer for memory.stat file in cgroup
+            // Memory resource consumer for memory.stat file in cgroup
             let consumer_memory = ResourceConsumer::ControlGroup {
                 path: path_cloned_memory
                     .to_str()
@@ -442,12 +442,10 @@ mod tests {
     use std::{fs::File, path::PathBuf};
     use tempfile::tempdir;
 
-    // spell-checker: disable
     // HEADER = { "alg": "HS256", "typ": "JWT" }
     // PAYLOAD = { "sub": "1234567890", "exp": 4102444800, "name": "T3st1ng T0k3n" }
     // SIGNATURE = { HMACSHA256(base64UrlEncode(header) + "." +  base64UrlEncode(payload), signature) }
     const TOKEN_CONTENT: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo0MTAyNDQ0ODAwLCJuYW1lIjoiVDNzdDFuZyBUMGszbiJ9.3vho4u0hx9QobMNbpDPvorWhTHsK9nSg2pZAGKxeVxA";
-    // spell-checker: enable
 
     // Test `list_metric_file_in_dir` function to simulate arborescence of kubernetes pods
     // and missing files in Kubernetes directory
@@ -538,7 +536,7 @@ mod tests {
         let file_cpu = File::open(&path_cpu).unwrap();
         let file_memory = File::open(&path_memory).unwrap();
 
-        // CPU ressource consumer for cpu.stat file in cgroup
+        // CPU resource consumer for cpu.stat file in cgroup
         let consumer_cpu = ResourceConsumer::ControlGroup {
             path: path_cpu
                 .to_str()
@@ -546,7 +544,7 @@ mod tests {
                 .to_string()
                 .into(),
         };
-        // Memory ressource consumer for memory.stat file in cgroup
+        // Memory resource consumer for memory.stat file in cgroup
         let consumer_memory = ResourceConsumer::ControlGroup {
             path: path_memory
                 .to_str()
@@ -633,7 +631,7 @@ mod tests {
             Ok(file_memory) => file_memory,
         };
 
-        // CPU ressource consumer for cpu.stat file in cgroup
+        // CPU resource consumer for cpu.stat file in cgroup
         let consumer_cpu = ResourceConsumer::ControlGroup {
             path: path_cpu
                 .to_str()
@@ -641,7 +639,7 @@ mod tests {
                 .to_string()
                 .into(),
         };
-        // Memory ressource consumer for memory.stat file in cgroup
+        // Memory resource consumer for memory.stat file in cgroup
         let consumer_memory = ResourceConsumer::ControlGroup {
             path: path_memory
                 .to_str()

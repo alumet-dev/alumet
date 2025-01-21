@@ -6,3 +6,5 @@ app-*/perf.data
 app-*/perf.data.old
 app-*/*output.csv
 .DS_Store
+.vscode
+tmp/

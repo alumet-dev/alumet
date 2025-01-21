@@ -241,12 +241,10 @@ mod tests {
         let dir = root.join("run/secrets/kubernetes.io/serviceaccount/");
         std::fs::create_dir_all(&dir).unwrap();
 
-        // spell-checker: disable
         // HEADER = { "alg": "HS256", "typ": "JWT" }
         // PAYLOAD = { "sub": "1234567890", "exp": 4102444800, "name": "T3st1ng T0k3n" }
         // SIGNATURE = { HMACSHA256(base64UrlEncode(header) + "." +  base64UrlEncode(payload), signature) }
         let content = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo0MTAyNDQ0ODAwLCJuYW1lIjoiVDNzdDFuZyBUMGszbiJ9.3vho4u0hx9QobMNbpDPvorWhTHsK9nSg2pZAGKxeVxA";
-        // spell-checker: enable
         let path = dir.join("token_1");
 
         std::fs::write(&path, content).unwrap();
@@ -276,13 +274,11 @@ mod tests {
         let dir = root.join("run/secrets/kubernetes.io/serviceaccount/");
         std::fs::create_dir_all(&dir).unwrap();
 
-        // spell-checker: disable
         // HEADER = { "alg": "HS256", "typ": "JWT" }
         // PAYLOAD = { "sub": "1234567890", "name": "T3st1ng T0k3n", "iat": 1516239022 }
         // SIGNATURE = { HMACSHA256(base64UrlEncode(header) + "." +  base64UrlEncode(payload), signature) }
         let content =
             "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IlQzc3QxbmcgVDBrM24iLCJpYXQiOjE1MTYyMzkwMjJ9.3vho4u0hx9QobMNbpDPvorWhTHsK9nSg2pZAGKxeVxA";
-        // spell-checker: enable
         let path = dir.join("token_2");
 
         std::fs::write(&path, content).unwrap();

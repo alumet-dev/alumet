@@ -24,6 +24,7 @@ miri
 monitorable
 mpoint
 NVML
+pagetables
 PERFMON
 POWERCAP
 psys

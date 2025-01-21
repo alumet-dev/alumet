@@ -70,7 +70,7 @@ fn list_metric_file_in_dir(root_directory_path: &Path) -> anyhow::Result<Vec<Cgr
             let file_memory = File::open(&path_cloned_memory)
                 .with_context(|| format!("Failed to open file {}", path_cloned_memory.display()))?;
 
-            // CPU ressource consumer for cpu.stat file in cgroup
+            // CPU resource consumer for cpu.stat file in cgroup
             let consumer_cpu = ResourceConsumer::ControlGroup {
                 path: path_cloned_cpu
                     .to_str()
@@ -78,7 +78,7 @@ fn list_metric_file_in_dir(root_directory_path: &Path) -> anyhow::Result<Vec<Cgr
                     .to_string()
                     .into(),
             };
-            // Memory ressource consumer for cpu.stat file in cgroup
+            // Memory resource consumer for cpu.stat file in cgroup
             let consumer_memory = ResourceConsumer::ControlGroup {
                 path: path_cloned_memory
                     .to_str()
@@ -251,7 +251,7 @@ mod tests {
         let file_cpu = File::open(&path_cpu).unwrap();
         let file_memory = File::open(&path_memory).unwrap();
 
-        // CPU ressource consumer for cpu.stat file in cgroup
+        // CPU resource consumer for cpu.stat file in cgroup
         let consumer_cpu = ResourceConsumer::ControlGroup {
             path: path_cpu
                 .to_str()
@@ -259,7 +259,7 @@ mod tests {
                 .to_string()
                 .into(),
         };
-        // Memory ressource consumer for memory.stat file in cgroup
+        // Memory resource consumer for memory.stat file in cgroup
         let consumer_memory = ResourceConsumer::ControlGroup {
             path: path_memory
                 .to_str()
@@ -343,7 +343,7 @@ mod tests {
             Ok(file_memory) => file_memory,
         };
 
-        // CPU ressource consumer for cpu.stat file in cgroup
+        // CPU resource consumer for cpu.stat file in cgroup
         let consumer_cpu = ResourceConsumer::ControlGroup {
             path: path_cpu
                 .to_str()
@@ -351,7 +351,7 @@ mod tests {
                 .to_string()
                 .into(),
         };
-        // Memory ressource consumer for memory.stat file in cgroup
+        // Memory resource consumer for memory.stat file in cgroup
         let consumer_memory = ResourceConsumer::ControlGroup {
             path: path_memory
                 .to_str()

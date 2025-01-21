@@ -48,7 +48,7 @@ mod config {
     #[derive(Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
     pub struct RetryConfig {
-        /// Maximum number of retrys before giving up.
+        /// Maximum number of retries before giving up.
         pub max_times: u16,
 
         /// Initial delay between two attempts.

@@ -124,7 +124,7 @@ impl AlumetPlugin for OARPlugin {
                                     let mut path_cpu = path.clone();
                                     let mut path_memory = path.clone();
 
-                                    // CPU ressource consumer for cpu.stat file in cgroup
+                                    // CPU resource consumer for cpu.stat file in cgroup
                                     let consumer_cpu = ResourceConsumer::ControlGroup {
                                         path: path_cpu
                                             .to_str()
@@ -132,7 +132,7 @@ impl AlumetPlugin for OARPlugin {
                                             .to_string()
                                             .into(),
                                     };
-                                    // Memory ressource consumer for memory.stat file in cgroup
+                                    // Memory resource consumer for memory.stat file in cgroup
                                     let consumer_memory = ResourceConsumer::ControlGroup {
                                         path: path_memory
                                             .to_str()
