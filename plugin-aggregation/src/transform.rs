@@ -1,5 +1,7 @@
 use std::{any::Any, collections::HashMap, io, time::Duration};
 
+use std::sync::Arc;
+
 use alumet::{
     measurement::{MeasurementBuffer, MeasurementPoint}, metrics::{self, MetricId}, pipeline::{
         elements::{error::TransformError, transform::TransformContext},
@@ -10,17 +12,17 @@ use alumet::{
 pub struct AggregationTransform {
     interval: Duration,
 
-    internal_buffer: HashMap<(u64, String, String), Vec<((u64, u64), Vec<MeasurementPoint>)>>,
-    metric_correspondance_table: HashMap<u64, u64>,
+    internal_buffer: HashMap<(u64, String, String), Vec<MeasurementPoint>>,
+    metric_correspondance_table: Arc<HashMap<u64, u64>>,
 }
 
 impl AggregationTransform {
-    pub fn new(interval: Duration) -> io::Result<Self> {
-        Ok(Self {
+    pub fn new(interval: Duration) -> Self {
+        Self {
             interval,
-            internal_buffer: HashMap::<(u64, String, String), Vec<((u64, u64), Vec<MeasurementPoint>)>>::new(),
-            metric_correspondance_table: HashMap::<u64, u64>::new(),
-        })
+            internal_buffer: HashMap::<(u64, String, String), Vec<MeasurementPoint>>::new(),
+            metric_correspondance_table: Arc::new(HashMap::<u64, u64>::new()),
+        }
     }
 }
 
@@ -31,9 +33,6 @@ impl Transform for AggregationTransform {
             if self.metric_correspondance_table.get(&measurement.metric.as_u64()).is_none() {
                 let current_metric = ctx.metrics.by_id(&measurement.metric.untyped_id()).unwrap();
 
-                metrics::MetricRegistry::register(&mut ctx.metrics, metrics::Metric {
-                     name: format!("{}-sum", current_metric.name), description: current_metric.description, value_type: current_metric.value_type, unit: current_metric.unit,
-                    }).unwrap();
             }
 
             let id = (
@@ -49,10 +48,7 @@ impl Transform for AggregationTransform {
                 }
                 None => {
                     // self.internal_buffer.insert(id.clone(), vec![measurement.clone()]);
-                    self.internal_buffer.insert(id.clone(), vec![(
-                        get_current_interval(self.interval.as_secs(), measurement.timestamp.to_unix_timestamp().0),
-                        vec![measurement.clone()]
-                    )]);
+                    self.internal_buffer.insert(id.clone(), vec![measurement.clone()]);
                 }
             }
         }
