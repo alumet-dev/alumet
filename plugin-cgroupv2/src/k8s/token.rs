@@ -6,18 +6,25 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use base64::{prelude::BASE64_STANDARD_NO_PAD, Engine};
 use tokio::sync::RwLock;
 
 use super::plugin::TokenRetrieval;
 
+/// Kubernetes token and way to retrieve it.
+#[derive(Debug)]
 pub struct Token {
+    /// Way to obtain a token, in file or with Kubectl command.
     retrieval: TokenRetrieval,
+    /// Thread safe token data.
     data: Arc<RwLock<TokenData>>,
+    /// Public path for a token if we store it in a file.
+    pub path: Option<String>,
 }
 
 /// Private structure that holds the JWT token data.
+#[derive(Debug)]
 struct TokenData {
     /// Optional expiration time, in POSIX seconds.
     expiration_time: Option<u64>,
@@ -33,6 +40,7 @@ impl Token {
                 expiration_time: None,
                 value: None,
             })),
+            path: None,
         }
     }
 
@@ -72,7 +80,8 @@ impl Token {
             TokenRetrieval::Kubectl => {
                 let output = Command::new("kubectl")
                     .args(["create", "token", "alumet-reader", "-n", "alumet"])
-                    .output()?;
+                    .output()
+                    .context("Kubectl command execution")?;
 
                 if !output.status.success() {
                     return Err(anyhow!(
@@ -84,8 +93,14 @@ impl Token {
                 let token = String::from_utf8_lossy(&output.stdout);
                 token.trim().to_string()
             }
+
             TokenRetrieval::File => {
-                let mut file = File::open("/var/run/secrets/kubernetes.io/serviceaccount/token")?;
+                let token_path = match &self.path {
+                    Some(path_value) => path_value.clone(),
+                    None => "/var/run/secrets/kubernetes.io/serviceaccount/token".to_string(),
+                };
+
+                let mut file = File::open(token_path).context("Could not retrieve the file")?;
                 let mut token = String::new();
                 file.read_to_string(&mut token)?;
                 token
@@ -104,6 +119,7 @@ impl Token {
                     .trim(),
             )?,
         )?;
+
         let _ = components
             .next()
             .ok_or(anyhow!("Could not parse the token, the signature is missing"))?;
@@ -137,18 +153,53 @@ impl Token {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use tempfile::tempdir;
     use time::Duration;
     use tokio::time;
 
-    use super::*;
+    // Test `get_value` function to get token with valid value
+    #[tokio::test]
+    async fn test_get_value_with_valid_value() {
+        let retrieval = TokenRetrieval::File;
+        let token = Token::new(retrieval);
 
+        {
+            // Expand the expiration of the token to make it still valid.
+            let mut data = token.data.write().await;
+            data.value = Some("valid_token".to_string());
+            data.expiration_time = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() + 3600);
+        }
+
+        let result = token.get_value().await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "valid_token");
+    }
+
+    // Test `get_value` function to returns error when value is none
+    #[tokio::test]
+    async fn test_get_value_with_invalid_value() {
+        let retrieval = TokenRetrieval::File;
+        let token = Token::new(retrieval);
+
+        {
+            // Expand the expiration of the token to make it still valid.
+            let mut data = token.data.write().await;
+            data.value = None;
+            data.expiration_time = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() + 3600);
+        }
+
+        let result = token.get_value().await;
+        assert!(result.is_err());
+    }
+
+    // Test `is_valid` function
     #[tokio::test]
     async fn test_is_valid() {
         let token: Token = Token::new(TokenRetrieval::File);
         assert!(!token.is_valid().await);
-
         {
-            // Expand the expiration of the token to make it still valid.
             let mut new_data = token.data.write().await;
             (*new_data).expiration_time = Some(
                 SystemTime::now()
@@ -162,9 +213,7 @@ mod tests {
         }
 
         assert!(token.is_valid().await);
-
         {
-            // Decrease the expiration of the token to make it invalid.
             let mut new_data = token.data.write().await;
             (*new_data).expiration_time = Some(
                 SystemTime::now()
@@ -177,5 +226,75 @@ mod tests {
         }
 
         assert!(!token.is_valid().await);
+    }
+
+    // Test `refresh` function with valid file and token
+    #[tokio::test]
+    async fn test_refresh_with_valid_token() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().join("test-alumet-plugin-k8s/var_1/");
+
+        if root.exists() {
+            std::fs::remove_dir_all(&root).unwrap();
+        }
+
+        let dir = root.join("run/secrets/kubernetes.io/serviceaccount/");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // HEADER = { "alg": "HS256", "typ": "JWT" }
+        // PAYLOAD = { "sub": "1234567890", "exp": 4102444800, "name": "T3st1ng T0k3n" }
+        // SIGNATURE = { HMACSHA256(base64UrlEncode(header) + "." +  base64UrlEncode(payload), signature) }
+        let content = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo0MTAyNDQ0ODAwLCJuYW1lIjoiVDNzdDFuZyBUMGszbiJ9.3vho4u0hx9QobMNbpDPvorWhTHsK9nSg2pZAGKxeVxA";
+        let path = dir.join("token_1");
+
+        std::fs::write(&path, content).unwrap();
+
+        let mut token = Token::new(TokenRetrieval::File);
+        token.path = Some(path.to_str().unwrap().to_owned());
+        let result = token.refresh().await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), content);
+
+        let data = token.data.read().await;
+        assert_eq!(data.value, Some(content.to_string()));
+        assert_eq!(data.expiration_time, Some(4102444800));
+    }
+
+    // Test `refresh` function with missing exp field token
+    #[tokio::test]
+    async fn test_refresh_with_missing_exp() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().join("test-alumet-plugin-k8s/var_2/");
+
+        if root.exists() {
+            std::fs::remove_dir_all(&root).unwrap();
+        }
+
+        let dir = root.join("run/secrets/kubernetes.io/serviceaccount/");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // HEADER = { "alg": "HS256", "typ": "JWT" }
+        // PAYLOAD = { "sub": "1234567890", "name": "T3st1ng T0k3n", "iat": 1516239022 }
+        // SIGNATURE = { HMACSHA256(base64UrlEncode(header) + "." +  base64UrlEncode(payload), signature) }
+        let content =
+            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IlQzc3QxbmcgVDBrM24iLCJpYXQiOjE1MTYyMzkwMjJ9.3vho4u0hx9QobMNbpDPvorWhTHsK9nSg2pZAGKxeVxA";
+        let path = dir.join("token_2");
+
+        std::fs::write(&path, content).unwrap();
+
+        let mut token = Token::new(TokenRetrieval::File);
+        token.path = Some(path.to_str().unwrap().to_owned());
+        let result = token.refresh().await;
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Could not extract the 'exp' field from the token"),);
+
+        let data = token.data.read().await;
+        assert_eq!(data.expiration_time, None);
+        assert_eq!(data.value, None);
     }
 }

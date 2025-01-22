@@ -5,13 +5,17 @@ use alumet::{
         util::CounterDiff,
         AlumetPluginStart, AlumetPostStart, ConfigTable,
     },
+    resources::ResourceConsumer,
 };
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use notify::{Event, EventHandler, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::{fs::File, path::PathBuf, time::Duration};
 
-use crate::cgroupv2::{Metrics, CGROUP_MAX_TIME_COUNTER};
+use crate::{
+    cgroupv2::{Metrics, CGROUP_MAX_TIME_COUNTER},
+    is_accessible_dir,
+};
 
 use super::{probe::CgroupV2prob, utils::CgroupV2MetricFile};
 
@@ -53,22 +57,27 @@ impl AlumetPlugin for OARPlugin {
         }))
     }
 
+    fn stop(&mut self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
-        let v2_used: bool = super::utils::is_accessible_dir(&PathBuf::from("/sys/fs/cgroup/"));
+        let v2_used = is_accessible_dir(&PathBuf::from("/sys/fs/cgroup/"))?;
         if !v2_used {
-            anyhow::bail!("Cgroups v2 are not being used!");
+            return Err(anyhow!("Cgroups v2 are not being used!"));
         }
         let metrics_result = Metrics::new(alumet);
         let metrics = metrics_result?;
         self.metrics = Some(metrics.clone());
 
-        let final_list_metric_file: Vec<CgroupV2MetricFile> = super::utils::list_all_file(&self.config.path)?;
+        let final_list_metric_file = super::utils::list_all_file(&self.config.path)?;
 
-        //Add as a source each pod already present
+        // Add as a source each pod already present
         for metric_file in final_list_metric_file {
             let counter_tmp_tot: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
             let counter_tmp_usr: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
             let counter_tmp_sys: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
+
             let probe = CgroupV2prob::new(
                 metrics.clone(),
                 metric_file,
@@ -79,10 +88,6 @@ impl AlumetPlugin for OARPlugin {
             alumet.add_source(Box::new(probe), TriggerSpec::at_interval(self.config.poll_interval));
         }
 
-        Ok(())
-    }
-
-    fn stop(&mut self) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -116,10 +121,33 @@ impl AlumetPlugin for OARPlugin {
                         for path in paths {
                             if path.is_dir() {
                                 if let Some(pod_uid) = path.file_name() {
-                                    let mut cpu_path = path.clone();
-                                    cpu_path.push("cpu.stat");
-                                    let file = File::open(&cpu_path)
-                                        .with_context(|| format!("failed to open file {}", cpu_path.display()))?;
+                                    let mut path_cpu = path.clone();
+                                    let mut path_memory = path.clone();
+
+                                    // CPU resource consumer for cpu.stat file in cgroup
+                                    let consumer_cpu = ResourceConsumer::ControlGroup {
+                                        path: path_cpu
+                                            .to_str()
+                                            .expect("Path to 'cpu.stat' must be valid UTF8")
+                                            .to_string()
+                                            .into(),
+                                    };
+                                    // Memory resource consumer for memory.stat file in cgroup
+                                    let consumer_memory = ResourceConsumer::ControlGroup {
+                                        path: path_memory
+                                            .to_str()
+                                            .expect("Path to 'memory.stat' must to be valid UTF8")
+                                            .to_string()
+                                            .into(),
+                                    };
+
+                                    path_cpu.push("cpu.stat");
+                                    let file_cpu = File::open(&path_cpu)
+                                        .with_context(|| format!("failed to open file {}", path_cpu.display()))?;
+
+                                    path_memory.push("memory.stat");
+                                    let file_memory = File::open(&path_memory)
+                                        .with_context(|| format!("failed to open file {}", path_memory.display()))?;
 
                                     let metric_file = CgroupV2MetricFile {
                                         name: pod_uid
@@ -127,16 +155,16 @@ impl AlumetPlugin for OARPlugin {
                                             .with_context(|| format!("Filename is not valid UTF-8: {:?}", path))
                                             .unwrap_or("ERROR")
                                             .to_string(),
-                                        path: cpu_path,
-                                        file,
+                                        consumer_cpu,
+                                        file_cpu,
+                                        consumer_memory,
+                                        file_memory,
                                     };
 
-                                    let counter_tmp_tot: CounterDiff =
-                                        CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
-                                    let counter_tmp_usr: CounterDiff =
-                                        CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
-                                    let counter_tmp_sys: CounterDiff =
-                                        CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
+                                    let counter_tmp_tot = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
+                                    let counter_tmp_usr = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
+                                    let counter_tmp_sys = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
+
                                     let probe: CgroupV2prob = CgroupV2prob::new(
                                         detector.metrics.clone(),
                                         metric_file,
@@ -188,9 +216,62 @@ impl AlumetPlugin for OARPlugin {
 impl Default for OAR3Config {
     fn default() -> Self {
         let root_path = PathBuf::from("/sys/fs/cgroup/");
+        if !root_path.exists() {
+            log::warn!("Error : Path '{}' not exist.", root_path.display());
+        }
         Self {
             path: root_path,
             poll_interval: Duration::from_secs(1), // 1Hz
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::Result;
+    use std::path::PathBuf;
+
+    // Create a fake plugin structure for oar3 plugin
+    fn create_mock_plugin() -> OARPlugin {
+        OARPlugin {
+            config: OAR3Config {
+                path: PathBuf::from("/sys/fs/cgroup/kubepods.slice/"),
+                poll_interval: Duration::from_secs(1),
+            },
+            watcher: None,
+            metrics: None,
+        }
+    }
+
+    // Test `default_config` function of oar3 plugin
+    #[test]
+    fn test_default_config() {
+        let result = OARPlugin::default_config().unwrap();
+        assert!(result.is_some(), "result : None");
+
+        let config_table = result.unwrap();
+        let config: OAR3Config = deserialize_config(config_table).expect("ERROR : Failed to deserialize config");
+
+        assert_eq!(config.path, PathBuf::from("/sys/fs/cgroup/"));
+        assert_eq!(config.poll_interval, Duration::from_secs(1));
+    }
+
+    // Test `init` function to initialize oar3 plugin configuration
+    #[test]
+    fn test_init() -> Result<()> {
+        let config_table = serialize_config(OAR3Config::default())?;
+        let plugin = OARPlugin::init(config_table)?;
+        assert!(plugin.metrics.is_none());
+        assert!(plugin.watcher.is_none());
+        Ok(())
+    }
+
+    // Test `stop` function to stop oar3 plugin
+    #[test]
+    fn test_stop() {
+        let mut plugin = create_mock_plugin();
+        let result = plugin.stop();
+        assert!(result.is_ok(), "Stop should complete without errors.");
     }
 }
