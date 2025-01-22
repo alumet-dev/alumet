@@ -6,6 +6,7 @@ pub mod agent_util;
 pub mod config_ops;
 pub mod exec_process;
 pub mod options;
+pub mod word_distance;
 
 /// Returns the path to the Alumet agent that is being executed.
 pub fn resolve_application_path() -> std::io::Result<PathBuf> {
