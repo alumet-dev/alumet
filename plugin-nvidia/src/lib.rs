@@ -1,3 +1,5 @@
+use anyhow::{anyhow, Context};
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 use alumet::{
@@ -7,13 +9,11 @@ use alumet::{
         ConfigTable,
     },
 };
-use anyhow::{anyhow, Context};
-use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "jetson")]
 mod jetson;
 #[cfg(feature = "nvml")]
-mod nvml;
+pub mod nvml;
 
 pub struct NvidiaPlugin {
     config: Config,
@@ -63,7 +63,7 @@ impl NvidiaPlugin {
     /// For Jetson edge devices, use [`start_jetson`] instead.
     #[cfg(feature = "nvml")]
     fn start_nvml(&self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
-        let nvml = nvml::NvmlDevices::detect(true)?;
+        let nvml = nvml::device::NvmlDevices::detect(true)?;
         let stats = nvml.detection_stats();
         if stats.found_devices == 0 {
             return Err(anyhow!("No NVML-compatible GPU found. If your device is a Jetson edge device, please disable the `nvml` feature of the plugin."));
@@ -89,13 +89,12 @@ impl NvidiaPlugin {
                 );
             }
         }
-
-        let metrics = nvml::Metrics::new(alumet)?;
+        let metrics = nvml::metrics::Metrics::new(alumet)?;
 
         for maybe_device in nvml.devices {
             if let Some(device) = maybe_device {
                 let source_name = format!("device_{}", device.bus_id);
-                let source = nvml::NvmlSource::new(device, metrics.clone())?;
+                let source = nvml::probe::NvmlSource::new(device, metrics.clone())?;
                 let trigger = TriggerSpec::builder(self.config.poll_interval)
                     .flush_interval(self.config.flush_interval)
                     .build()?;
@@ -149,5 +148,49 @@ impl Default for Config {
             poll_interval: Duration::from_secs(1), // 1Hz
             flush_interval: Duration::from_secs(5),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::Result;
+
+    // Create a fake plugin structure for nvidia plugin
+    fn fake_nvidia() -> NvidiaPlugin {
+        NvidiaPlugin {
+            config: Config {
+                poll_interval: Duration::from_secs(1),
+                flush_interval: Duration::from_secs(5),
+            },
+        }
+    }
+
+    // Test `default_config` function of Nvidia plugin
+    #[test]
+    fn test_default_config() {
+        let result = NvidiaPlugin::default_config().unwrap();
+        assert!(result.is_some(), "result = None");
+
+        let config_table = result.unwrap();
+        let config: Config = deserialize_config(config_table).expect("Failed to deserialize config");
+        assert_eq!(config.poll_interval, Duration::from_secs(1));
+        assert_eq!(config.flush_interval, Duration::from_secs(5));
+    }
+
+    // Test `init` function to initialize nvidia plugin configuration
+    #[test]
+    fn test_init() -> Result<()> {
+        let config_table = serialize_config(Config::default())?;
+        let _plugin = NvidiaPlugin::init(config_table)?;
+        Ok(())
+    }
+
+    // Test `stop` function to stop nvidia plugin
+    #[test]
+    fn test_stop() {
+        let mut plugin = fake_nvidia();
+        let result = plugin.stop();
+        assert!(result.is_ok(), "Stop should complete without errors.");
     }
 }
