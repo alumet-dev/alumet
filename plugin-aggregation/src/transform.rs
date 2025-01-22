@@ -1,9 +1,7 @@
-use std::{any::Any, collections::HashMap, io, time::Duration};
-
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use alumet::{
-    measurement::{MeasurementBuffer, MeasurementPoint}, metrics::{self, MetricId}, pipeline::{
+    measurement::{MeasurementBuffer, MeasurementPoint}, pipeline::{
         elements::{error::TransformError, transform::TransformContext},
         Transform,
     }
@@ -13,7 +11,7 @@ pub struct AggregationTransform {
     interval: Duration,
 
     internal_buffer: HashMap<(u64, String, String), Vec<MeasurementPoint>>,
-    metric_correspondance_table: Arc<HashMap<u64, u64>>,
+    metric_correspondence_table: Arc<HashMap<u64, u64>>,
 }
 
 impl AggregationTransform {
@@ -21,7 +19,7 @@ impl AggregationTransform {
         Self {
             interval,
             internal_buffer: HashMap::<(u64, String, String), Vec<MeasurementPoint>>::new(),
-            metric_correspondance_table: Arc::new(HashMap::<u64, u64>::new()),
+            metric_correspondence_table: Arc::new(HashMap::<u64, u64>::new()), // TODO: init this arc new in the lib.rs
         }
     }
 }
@@ -30,20 +28,17 @@ impl Transform for AggregationTransform {
     fn apply(&mut self, measurements: &mut MeasurementBuffer, ctx: &TransformContext) -> Result<(), TransformError> {
         // store the measurementBuffer to the internal_buffer
         for measurement in measurements.iter() {
-            if self.metric_correspondance_table.get(&measurement.metric.as_u64()).is_none() {
-                let current_metric = ctx.metrics.by_id(&measurement.metric.untyped_id()).unwrap();
-
-            }
-
+            // TODO: do that only for needed metrics
             let id = (
                 measurement.metric.as_u64(),
                 measurement.consumer.id_string().unwrap_or_default(),
                 measurement.resource.id_string().unwrap_or_default(),
             );
 
+            // TODO: fill correctly the buffer
             match self.internal_buffer.get_mut(&id) {
                 Some(vec_points) => {
-                    let current_interval: (u64, u64) = get_current_interval(self.interval.as_secs(), measurement.timestamp.to_unix_timestamp().0); 
+                    // let current_interval: (u64, u64) = get_current_interval(self.interval.as_secs(), measurement.timestamp.to_unix_timestamp().0); 
                     // vec_points.push(measurement.clone());
                 }
                 None => {
@@ -53,8 +48,12 @@ impl Transform for AggregationTransform {
             }
         }
 
-        // clear the measurementBuffer
+        // clear the measurementBuffer if needed (see TODO on config boolean)
         measurements.clear();
+        
+        // TODO: implement buffer_bouncer (calculus)
+        // TODO: implement the sum function
+        // TODO: implement the mean function
 
         // for (key, value) in self.internal_buffer.clone().into_iter() {
         //     if value
@@ -92,10 +91,4 @@ impl Transform for AggregationTransform {
         // }
         Ok(())
     }
-}
-
-fn get_current_interval(interval: u64, timestamp: u64) -> (u64, u64) {
-    // (t, t+int) where t = k * int, k € N
-    let t = timestamp / interval;
-    (t, t + interval)
 }
