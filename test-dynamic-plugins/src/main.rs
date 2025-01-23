@@ -69,7 +69,7 @@ fn run_with_plugin(
 
     // Build and agent with the plugin
     let mut agent_builder = agent::Builder::new(pipeline_builder);
-    agent_builder.add_plugin_with_info(plugin, true, plugin_config);
+    agent_builder.add_plugin(plugin, true, plugin_config);
     agent_builder
         .after_plugins_init(move |plugins| {
             let plugin = &plugins[0];

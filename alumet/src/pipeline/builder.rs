@@ -33,7 +33,10 @@ pub struct MeasurementPipeline {
     metrics_control_task: JoinHandle<()>,
 }
 
-/// Builder for [`MeasurementPipeline`].
+/// A Builder for [`MeasurementPipeline`].
+///
+/// This type allows to configure the measurement pipeline bit by bit.
+/// It is usually more practical not to call [`build`](Self::build) but to use the [`agent::Builder`](crate::agent::Builder) instead.
 pub struct Builder {
     sources: Vec<(PluginName, source::builder::SourceBuilder)>,
     transforms: Vec<(PluginName, Box<dyn transform::builder::TransformBuilder>)>,

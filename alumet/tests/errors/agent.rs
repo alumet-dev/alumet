@@ -27,7 +27,7 @@ pub(super) fn build_and_run(mut plugins: Vec<PluginMetadata>) -> anyhow::Result<
                 .position(|p| p.name == plugin_name)
                 .expect("plugin should exist");
             let plugin = plugins.swap_remove(i);
-            agent_builder.add_plugin_with_info(plugin, enabled, config);
+            agent_builder.add_plugin(plugin, enabled, config);
         }
 
         agent_builder.build_and_start()

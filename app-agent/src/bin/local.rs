@@ -1,7 +1,7 @@
 use alumet::static_plugins;
 use alumet_agent::{
     agent_util::{self, ConfigLoadOptions, PluginsInfo},
-    config_ops::merge_override,
+    config::merge_override,
     init_logger,
     options::{
         cli::{CommonArgs, ExecArgs},

@@ -21,28 +21,36 @@ toml = "0.8.19"
 plugin-csv = { path = "../plugin-csv", optional = true }
 plugin-perf = { path = "../plugin-perf", optional = true }
 plugin-rapl = { path = "../plugin-rapl", optional = true }
+plugin-nvidia = { path = "../plugin-nvidia", optional = true }
 plugin-socket-control = { path = "../plugin-socket-control", optional = true }
 plugin-relay = { path = "../plugin-relay", optional = true }
 plugin-procfs = { path = "../plugin-procfs", optional = true }
+plugin-oar2 = { path = "../plugin-oar2", optional = true }
 plugin-cgroupv2 = { path = "../plugin-cgroupv2", optional = true }
 plugin-influxdb = { path = "../plugin-influxdb", optional = true }
 plugin-mongodb = { path = "../plugin-mongodb", optional = true }
+thiserror = "2.0.11"
 
 [features]
 rapl = ["dep:plugin-rapl"]
-perf = ["dep:plugin-perf"]
-procfs = ["dep:plugin-procfs"]
 socket-control = ["dep:plugin-socket-control"]
-cgroupv2 = ["dep:plugin-cgroupv2"]
+k8s = ["dep:plugin-cgroupv2"]
+oar3 = ["dep:plugin-cgroupv2"]
+oar2 = ["dep:plugin-oar2"]
+nvidia-nvml = ["dep:plugin-nvidia", "plugin-nvidia/nvml"]
+nvidia-jetson = ["dep:plugin-nvidia", "plugin-nvidia/jetson"]
 
 # outputs
-output_csv = ["dep:plugin-csv"]
-output_influxdb = ["dep:plugin-influxdb"]
-output_mongodb = ["dep:plugin-mongodb"]
+output-csv = ["dep:plugin-csv"]
+output-influxdb = ["dep:plugin-influxdb"]
+output-mongodb = ["dep:plugin-mongodb"]
 
 # relay mode
-relay_client = ["dep:plugin-relay", "plugin-relay/client"]
-relay_server = ["dep:plugin-relay", "plugin-relay/server"]
+relay-client = ["dep:plugin-relay", "plugin-relay/client"]
+relay-server = ["dep:plugin-relay", "plugin-relay/server"]
+
+# groups of features
+linux-inputs = ["dep:plugin-perf", "dep:plugin-procfs"]
 
 [[bin]]
 name = "alumet-agent"
