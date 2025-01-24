@@ -10,8 +10,10 @@ use alumet::{
 };
 use alumet_agent::{exec_hints, init_logger};
 use anyhow::Context;
-use clap::Parser;
+use clap::{Args, FromArgMatches};
 use config::GeneralConfig;
+
+const BINARY: &str = env!("CARGO_BIN_NAME");
 
 fn main() {
     init_logger();
@@ -46,10 +48,15 @@ fn main() {
     ];
     let mut plugins = PluginSet::new(plugins);
 
-    // parse CLI arguments
-    let mut args = cli::Cli::parse();
+    // Define the command-line interface.
+    let mut cmd = clap::Command::new(BINARY).version(agent_version());
+    cmd = cli::Cli::augment_args(cmd);
 
-    // CLI arguments like --help will exit(). Otherwise, we print a welcome message and continue.
+    // Parse CLI arguments and handle some special flags like --version and --help.
+    let matches = cmd.get_matches();
+    let mut args = cli::Cli::from_arg_matches(&matches).map_err(|e| e.exit()).unwrap();
+
+    // Special flags like --help will exit. In other cases, we continue.
     print_welcome();
 
     // Run CLI commands that run before the config is loaded.
@@ -129,9 +136,14 @@ fn main() {
 
 /// Prints a short welcome message.
 fn print_welcome() {
-    const BINARY: &str = env!("CARGO_BIN_NAME");
-    log::info!("Starting Alumet agent '{BINARY}' v{}", agent_version());
     // It is useful to have the precise version of the agent in the logs.
+    log::info!("Starting Alumet agent '{BINARY}' v{}", agent_version());
+
+    // Print a warning if we are running in debug mode.
+    #[cfg(debug_assertions)]
+    {
+        log::warn!("DEBUG assertions are enabled, this build of Alumet is fine for debugging, but not for production.");
+    }
 }
 
 /// If selected by the CLI user, runs a command that does not need the config file.
@@ -245,7 +257,7 @@ fn agent_version() -> String {
 /// We use `clap` to parse these options, therefore the structs
 /// derive [`clap::Args`] or other clap trait implementations.
 ///
-/// TODO: To apply "advanced" tweaks, we combine the "derive" and "builder" APIs of clap.
+/// To apply "advanced" tweaks, we combine the "derive" and "builder" APIs of clap.
 /// See https://docs.rs/clap/latest/clap/_derive/index.html#mixing-builder-and-derive-apis
 mod cli {
     use clap::{Args, Parser, Subcommand};
@@ -254,7 +266,7 @@ mod cli {
     // NOTE: the doc comment attached to `Cli` is used by clap as the description of
     // the application. It is displayed at the start of the help message.
 
-    /// Alumet standard agent.
+    /// Alumet standard agent: measure energy and performance metrics.
     #[derive(Parser)]
     pub struct Cli {
         #[command(subcommand)]
@@ -279,7 +291,7 @@ mod cli {
         /// If the file exists, it will be overwritten.
         RegenConfig,
 
-        /// Prints the available plugins.
+        /// Print the available plugins.
         ListPlugins(ListPluginsArgs),
     }
 
@@ -351,7 +363,7 @@ mod cli {
 
         /// How many `MeasurementBuffer`s can be stored in the channel that sources write to.
         ///
-        /// You may want to increase this if you get "`buffer is full`" errors, which can happen
+        /// You may want to increase this if you get "buffer is full" errors, which can happen
         /// if you have a large number of sources that flush at the same time.
         #[arg(long)]
         pub source_channel_size: Option<usize>,
