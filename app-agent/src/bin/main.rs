@@ -11,6 +11,7 @@ use alumet::{
 use alumet_agent::{exec_hints, init_logger};
 use anyhow::Context;
 use clap::{Args, FromArgMatches};
+use cli::{ConfigArgs, ConfigCommand, PluginsArgs, PluginsCommand};
 use config::GeneralConfig;
 
 const BINARY: &str = env!("CARGO_BIN_NAME");
@@ -153,8 +154,10 @@ fn run_command_no_config(args: &cli::Cli, plugins: &PluginSet) -> anyhow::Result
     use cli::Command;
 
     match args.command {
-        Some(Command::RegenConfig) => {
-            // generate the default config
+        Some(Command::Config(ConfigArgs {
+            command: ConfigCommand::Regen,
+        })) => {
+            // (re)generate the default config
             let file = &args.common.config;
             let provider = AutoDefaultConfigProvider::<config::GeneralConfig>::new(plugins);
             let new_config = provider.default_config()?;
@@ -162,12 +165,16 @@ fn run_command_no_config(args: &cli::Cli, plugins: &PluginSet) -> anyhow::Result
             log::info!("Default configuration file written to: {file}");
             Ok(true)
         }
-        Some(Command::ListPlugins(ref args)) if !args.status => {
+        Some(Command::Plugins(PluginsArgs {
+            status: false,
+            command: PluginsCommand::List,
+        })) => {
+            // List available plugins without status.
             println!("Available plugins:");
             for p in plugins.metadata(PluginStatus::Any) {
                 println!("- {} v{}", p.name, p.version);
             }
-            println!("\nEdit the configuration file or use the --plugins flag to enable or disable plugins.");
+            println!("\nEdit the configuration file or use the --plugins flag to enable/disable plugins.");
             Ok(true)
         }
         _ => Ok(false),
@@ -181,7 +188,11 @@ fn run_command_no_measurement(args: &cli::Cli, _config: &GeneralConfig, plugins:
     use cli::Command;
 
     match args.command {
-        Some(Command::ListPlugins(ref args)) if args.status => {
+        Some(Command::Plugins(PluginsArgs {
+            status: true,
+            command: PluginsCommand::List,
+        })) => {
+            // List available plugins with enabled/disabled status.
             println!("Enabled plugins:");
             for p in plugins.metadata(PluginStatus::Enabled) {
                 println!("- {} v{}", p.name, p.version);
@@ -190,7 +201,7 @@ fn run_command_no_measurement(args: &cli::Cli, _config: &GeneralConfig, plugins:
             for p in plugins.metadata(PluginStatus::Disabled) {
                 println!("- {} v{}", p.name, p.version);
             }
-            println!("\nEdit the configuration file or use the --plugins flag to enable or disable plugins.");
+            println!("\nEdit the configuration file or use the --plugins flag to enable/disable plugins.");
             Ok(true)
         }
         _ => Ok(false),
@@ -276,7 +287,7 @@ mod cli {
         pub common: CommonArgs,
     }
 
-    #[derive(Subcommand, Clone)]
+    #[derive(Subcommand)]
     pub enum Command {
         /// Run the agent and monitor the system.
         ///
@@ -286,17 +297,15 @@ mod cli {
         /// Execute a command and observe its process.
         Exec(ExecArgs),
 
-        /// Regenerate the configuration file and stop.
-        ///
-        /// If the file exists, it will be overwritten.
-        RegenConfig,
+        /// Manipulate the configuration.
+        Config(ConfigArgs),
 
-        /// Print the available plugins.
-        ListPlugins(ListPluginsArgs),
+        /// Get plugins information.
+        Plugins(PluginsArgs),
     }
 
     /// CLI arguments for the `exec` command.
-    #[derive(Args, Clone)]
+    #[derive(Args)]
     pub struct ExecArgs {
         /// The program to run.
         pub program: String,
@@ -306,11 +315,37 @@ mod cli {
         pub args: Vec<String>,
     }
 
-    #[derive(Args, Clone)]
-    pub struct ListPluginsArgs {
-        /// Reads the agent config and prints the status (enabled/disabled) of each plugin.
-        #[arg(long)]
+    #[derive(Args)]
+    pub struct ConfigArgs {
+        #[command(subcommand)]
+        pub command: ConfigCommand,
+    }
+
+    #[derive(Subcommand)]
+    pub enum ConfigCommand {
+        /// Regenerate the configuration file and stop.
+        ///
+        /// If the file exists, it will be overwritten.
+        Regen,
+    }
+
+    #[derive(Args)]
+    pub struct PluginsArgs {
+        // `global=true` adds the flag to every subcommand
+        // so you can write `alumet-agent plugins list --status`
+        // in addition to `alumet-agent plugins --status list`
+        /// Reads the agent config to get the status (enabled/disabled) of each plugin.
+        #[arg(long, global = true)]
         pub status: bool,
+
+        #[command(subcommand)]
+        pub command: PluginsCommand,
+    }
+
+    #[derive(Subcommand)]
+    pub enum PluginsCommand {
+        /// Print the available plugins.
+        List,
     }
 
     /// Common CLI arguments.
