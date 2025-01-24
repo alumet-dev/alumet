@@ -56,21 +56,6 @@ linux-inputs = ["dep:plugin-perf", "dep:plugin-procfs"]
 name = "alumet-agent"
 path = "src/bin/main.rs"
 
-[[bin]]
-name = "alumet-local-agent"
-path = "src/bin/local.rs"
-required-features = ["local_x86"]
-
-[[bin]]
-name = "alumet-relay-client"
-path = "src/bin/relay_client.rs"
-required-features = ["relay_client"]
-
-[[bin]]
-name = "alumet-relay-server"
-path = "src/bin/relay_server.rs"
-required-features = ["relay_server"]
-
 [lints]
 workspace = true
 
