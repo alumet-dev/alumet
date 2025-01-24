@@ -21,12 +21,10 @@ pub struct EnergyEstimationTdpPlugin {
 }
 
 struct Metrics {
-    // To attribute the CPU consumption to K8S pods, we need 2 metrics:
-    // - cpu usage per pod
-    // - energy attribution (to store the result)
+    //todo : add comment about new metrics
 
-    // The other parameters (tdp and number of virtual cpu is provided by configuration)
-    cpu_usage_per_pod: RawMetricId,
+    system_cpu_usage: RawMetricId,
+    //todo : rename var
     pod_estimate_attributed_energy: TypedMetricId<f64>,
 }
 
@@ -54,13 +52,13 @@ impl AlumetPlugin for EnergyEstimationTdpPlugin {
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
         // Create the energy attribution metric and add its id to the
         // transform plugin metrics' list.
-        let pod_estimate_attributed_energy_metric = alumet.create_metric(
-            "pod_estimate_attributed_energy",
+        let system_estimated_energy = alumet.create_metric(
+            "system_estimated_energy",
             Unit::Joule,
-            "Pod's estimated energy consumption",
+            "System's estimated energy consumption",
         )?;
 
-        let cpu_usage = self.config.as_ref().unwrap().cpu_usage_per_pod.clone();
+        let cpu_usage = self.config.as_ref().unwrap().system_cpu_usage.clone();
         let config_cpy = self.config.take().unwrap();
 
         // Add the transform now but fill its metrics later.
@@ -72,8 +70,8 @@ impl AlumetPlugin for EnergyEstimationTdpPlugin {
                 .with_context(|| format!("Metric not found : {}", cpu_usage))?
                 .0;
             let metrics = Metrics {
-                cpu_usage_per_pod: cpu_usage_metric,
-                pod_estimate_attributed_energy: pod_estimate_attributed_energy_metric,
+                system_cpu_usage: cpu_usage_metric,
+                pod_estimate_attributed_energy: system_estimated_energy,
             };
 
             let transform = Box::new(EnergyEstimationTdpTransform::new(config_cpy, metrics));
@@ -97,7 +95,7 @@ struct Config {
     tdp: f64,
     nb_vcpu: f64,
     nb_cpu: f64,
-    cpu_usage_per_pod: String,
+    system_cpu_usage: String,
 }
 
 impl Default for Config {
@@ -107,7 +105,7 @@ impl Default for Config {
             tdp: 100.0,
             nb_vcpu: 1.0,
             nb_cpu: 1.0,
-            cpu_usage_per_pod: String::from("cgroup_cpu_usage_total"),
+            system_cpu_usage: String::from("kernel_cpu_time"),
         }
     }
 }

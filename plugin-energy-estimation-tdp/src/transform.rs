@@ -52,8 +52,7 @@ impl Transform for EnergyEstimationTdpTransform {
                 // energy = cpu_usage_per_pod * nb_vcpu/nb_cpu * tdp / poll_interval
                 let mut estimated_energy = value.parse().unwrap();
                 estimated_energy = estimated_energy * self.config.nb_vcpu / self.config.nb_cpu * self.config.tdp
-                    / (1000000.0)
-                    / (self.config.poll_interval.as_secs() as f64);
+                    / (self.config.poll_interval.as_millis() as f64);
 
                 log::trace!(
                     "we get a measurement with resource:{}",
