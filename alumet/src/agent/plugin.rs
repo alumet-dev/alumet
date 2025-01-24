@@ -182,11 +182,11 @@ impl PluginSet {
         self.0.extend(plugins.into_iter().map(|p| (p.metadata.name.clone(), p)));
     }
 
-    /// Iterates on the metadata of the enabled plugins.
-    pub fn iter_enabled_metadata(&self) -> impl Iterator<Item = &PluginMetadata> {
+    /// Iterates on the metadata of the plugins that match the given status filter.
+    pub fn metadata(&self, filter: PluginStatus) -> impl Iterator<Item = &PluginMetadata> {
         self.0
             .values()
-            .filter_map(|p| if p.enabled { Some(&p.metadata) } else { None })
+            .filter_map(move |p| if filter.accept(&p) { Some(&p.metadata) } else { None })
     }
 
     /// Consumes the set and returns two lists: the enabled plugins,
@@ -197,10 +197,10 @@ impl PluginSet {
     }
 
     /// Collects the plugins to a `Vec<PluginMetadata>`, filtered by status.
-    pub fn into_metadata(self, include: PluginStatus) -> Vec<PluginMetadata> {
+    pub fn into_metadata(self, filter: PluginStatus) -> Vec<PluginMetadata> {
         self.0
             .into_values()
-            .filter(|p| include.accept(p))
+            .filter(|p| filter.accept(p))
             .map(|p| p.metadata)
             .collect()
     }

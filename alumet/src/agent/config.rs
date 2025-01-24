@@ -11,7 +11,7 @@ use serde::Serialize;
 
 use crate::plugin::PluginMetadata;
 
-use super::plugin::{PluginInfo, PluginSet};
+use super::plugin::{PluginSet, PluginStatus};
 
 /// Loads the agent configuration from a TOML file.
 pub struct Loader<'d> {
@@ -140,7 +140,7 @@ impl<'p, A: Serialize + Default> DefaultConfigProvider for AutoDefaultConfigProv
         // generate the default agent config
         let mut config = toml::Table::try_from(A::default())?;
         // generate the default plugins configs
-        let plugins_table = generate_plugin_configs(self.plugins.iter_enabled_metadata())?;
+        let plugins_table = generate_plugin_configs(self.plugins.metadata(PluginStatus::Enabled))?;
         // make the global config
         config.insert(String::from("plugins"), toml::Value::Table(plugins_table));
         // serialize to string

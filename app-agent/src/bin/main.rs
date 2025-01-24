@@ -4,7 +4,7 @@ use alumet::{
     agent::{
         config::{merge_override, AutoDefaultConfigProvider, DefaultConfigProvider},
         exec,
-        plugin::{PluginSet, UnknownPluginInConfigPolicy},
+        plugin::{PluginSet, PluginStatus, UnknownPluginInConfigPolicy},
     },
     pipeline, static_plugins,
 };
@@ -150,7 +150,14 @@ fn run_command_no_config(args: &cli::Cli, plugins: &PluginSet) -> anyhow::Result
             log::info!("Default configuration file written to: {file}");
             Ok(true)
         }
-        // TODO a command to list plugins
+        Some(Command::ListPlugins(ref args)) if !args.status => {
+            println!("Available plugins:");
+            for p in plugins.metadata(PluginStatus::Any) {
+                println!("- {} v{}", p.name, p.version);
+            }
+            println!("\nEdit the configuration file or use the --plugins flag to enable or disable plugins.");
+            Ok(true)
+        }
         _ => Ok(false),
     }
 }
@@ -158,11 +165,22 @@ fn run_command_no_config(args: &cli::Cli, plugins: &PluginSet) -> anyhow::Result
 /// If selected by the CLI user, runs a command that does not need the measurement pipeline.
 ///
 /// Returns `true` if a command was run (in which case you probably should stop here).
-fn run_command_no_measurement(args: &cli::Cli, config: &GeneralConfig, plugins: &PluginSet) -> anyhow::Result<bool> {
+fn run_command_no_measurement(args: &cli::Cli, _config: &GeneralConfig, plugins: &PluginSet) -> anyhow::Result<bool> {
     use cli::Command;
 
     match args.command {
-        // TODO a command to list plugins
+        Some(Command::ListPlugins(ref args)) if args.status => {
+            println!("Enabled plugins:");
+            for p in plugins.metadata(PluginStatus::Enabled) {
+                println!("- {} v{}", p.name, p.version);
+            }
+            println!("\nDisabled plugins:");
+            for p in plugins.metadata(PluginStatus::Disabled) {
+                println!("- {} v{}", p.name, p.version);
+            }
+            println!("\nEdit the configuration file or use the --plugins flag to enable or disable plugins.");
+            Ok(true)
+        }
         _ => Ok(false),
     }
 }
@@ -170,7 +188,7 @@ fn run_command_no_measurement(args: &cli::Cli, config: &GeneralConfig, plugins: 
 fn apply_pipeline_settings(args: &cli::Cli, config: &GeneralConfig, pipeline: &mut pipeline::Builder) {
     // config file
     if let Some(max_update_interval) = config.max_update_interval {
-        pipeline.trigger_constraints_mut().max_update_interval = max_update_interval;
+        pipeline.trigger_constraints_mut().max_update_interval = max_update_interval.into_inner();
     }
     if let Some(source_channel_size) = config.source_channel_size {
         *pipeline.source_channel_size() = source_channel_size;
@@ -260,6 +278,9 @@ mod cli {
         ///
         /// If the file exists, it will be overwritten.
         RegenConfig,
+
+        /// Prints the available plugins.
+        ListPlugins(ListPluginsArgs),
     }
 
     /// CLI arguments for the `exec` command.
@@ -271,6 +292,13 @@ mod cli {
         /// Arguments to the program.
         #[arg(trailing_var_arg = true)]
         pub args: Vec<String>,
+    }
+
+    #[derive(Args, Clone)]
+    pub struct ListPluginsArgs {
+        /// Reads the agent config and prints the status (enabled/disabled) of each plugin.
+        #[arg(long)]
+        pub status: bool,
     }
 
     /// Common CLI arguments.
