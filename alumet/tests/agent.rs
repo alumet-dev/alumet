@@ -4,7 +4,11 @@ use std::{
 };
 
 use alumet::{
-    agent, pipeline,
+    agent::{
+        self,
+        config::{AutoDefaultConfigProvider, DefaultConfigProvider},
+        plugin::PluginSet,
+    },
     plugin::{
         rust::{serialize_config, AlumetPlugin},
         AlumetPluginStart, ConfigTable, PluginMetadata,
@@ -15,6 +19,7 @@ use serde::Serialize;
 
 mod common;
 use common::test_plugin::{AtomicState, MeasurementCounters, State, TestPlugin};
+use toml::toml;
 
 #[test]
 fn static_plugin_macro() {
@@ -33,53 +38,33 @@ fn static_plugin_macro() {
 
 #[test]
 fn default_config_no_plugin() {
-    let plugins = static_plugins![];
-    let mut config = toml::Table::new();
-    agent::config::insert_default_plugin_configs(&plugins, &mut config).unwrap();
+    let plugins = PluginSet::new(Vec::new()); // empty set
 
-    let expected = toml::Table::from_iter(vec![(String::from("plugins"), toml::Value::Table(toml::Table::new()))]);
-    assert_eq!(expected, config);
+    let config = AutoDefaultConfigProvider::new(&plugins, || toml::Table::new())
+        .default_config()
+        .unwrap();
+    let expected = toml::toml! {
+        [plugins]
+    };
+    assert_eq!(config, expected);
 }
 
 #[test]
 fn default_config_1_plugin() {
-    {
-        let plugins = static_plugins![MyPlugin];
-        let mut config = toml::Table::new();
-        agent::config::insert_default_plugin_configs(&plugins, &mut config).unwrap();
+    let plugins = PluginSet::new(static_plugins![MyPlugin]);
+    let config = AutoDefaultConfigProvider::new(&plugins, MyAgentConfig::default)
+        .default_config()
+        .unwrap();
 
-        let mut expected = toml::Table::new();
-        let mut expected_plugins_confs = toml::Table::new();
-        let mut expected_plugin_config = toml::Table::new();
-        expected_plugin_config.insert(
-            String::from("list"),
-            toml::Value::Array(vec![toml::Value::String(String::from("default-item"))]),
-        );
-        expected_plugin_config.insert(String::from("count"), toml::Value::Integer(42));
-        expected_plugins_confs.insert(String::from("name"), toml::Value::Table(expected_plugin_config));
-        expected.insert(String::from("plugins"), toml::Value::Table(expected_plugins_confs));
-        assert_eq!(config, expected);
-    }
-    {
-        let plugins = static_plugins![MyPlugin];
-        let mut config = toml::Table::new();
-        config.insert(String::from("key"), toml::Value::String(String::from("value")));
+    let expected = toml! {
+        global_setting = "default"
 
-        agent::config::insert_default_plugin_configs(&plugins, &mut config).unwrap();
+        [plugins.name]
+        list = ["default-item"]
+        count = 42
 
-        let mut expected = toml::Table::new();
-        let mut expected_plugins_confs = toml::Table::new();
-        let mut expected_plugin_config = toml::Table::new();
-        expected_plugin_config.insert(
-            String::from("list"),
-            toml::Value::Array(vec![toml::Value::String(String::from("default-item"))]),
-        );
-        expected_plugin_config.insert(String::from("count"), toml::Value::Integer(42));
-        expected_plugins_confs.insert(String::from("name"), toml::Value::Table(expected_plugin_config));
-        expected.insert(String::from("plugins"), toml::Value::Table(expected_plugins_confs));
-        expected.insert(String::from("key"), toml::Value::String(String::from("value")));
-        assert_eq!(config, expected);
-    }
+    };
+    assert_eq!(config, expected);
 }
 
 #[test]
@@ -108,6 +93,7 @@ fn test_plugin_lifecycle() {
             default_config: Box::new(|| Ok(None)),
         },
     ];
+    let plugins = PluginSet::new(plugins);
 
     let (state1_init, state2_init) = (state1.clone(), state2.clone());
     let (state1_start, state2_start) = (state1.clone(), state2.clone());
@@ -115,10 +101,7 @@ fn test_plugin_lifecycle() {
     let (state1_op, state2_op) = (state1.clone(), state2.clone());
     let (counters1_pre_op, counters2_pre_op) = (counters1.clone(), counters2.clone());
 
-    let pipeline_builder = pipeline::Builder::new();
-    let mut builder = agent::Builder::new(pipeline_builder);
-    builder
-        .add_plugins(plugins)
+    let builder = agent::Builder::new(plugins)
         .after_plugins_init(move |_| {
             // check plugin initialization
             assert_eq!(state1_init.get(), State::Initialized);
@@ -259,6 +242,19 @@ impl Default for MyPluginConfig {
         Self {
             list: vec![String::from("default-item")],
             count: 42,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct MyAgentConfig {
+    global_setting: String,
+}
+
+impl Default for MyAgentConfig {
+    fn default() -> Self {
+        Self {
+            global_setting: String::from("default"),
         }
     }
 }

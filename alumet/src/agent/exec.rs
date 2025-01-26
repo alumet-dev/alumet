@@ -1,3 +1,5 @@
+//! Spawning child processes and watching them.
+
 use std::{
     process::{Command, ExitStatus},
     time::Duration,

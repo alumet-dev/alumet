@@ -2,9 +2,10 @@ use std::{str::FromStr, time::Duration};
 
 use alumet::{
     agent::{
+        self,
         config::{merge_override, AutoDefaultConfigProvider, DefaultConfigProvider},
         exec,
-        plugin::{PluginSet, PluginStatus, UnknownPluginInConfigPolicy},
+        plugin::{PluginFilter, PluginSet, UnknownPluginInConfigPolicy},
     },
     pipeline, static_plugins,
 };
@@ -73,8 +74,8 @@ fn main() {
     }
 
     // parse config file
-    let default_config_provider = AutoDefaultConfigProvider::<config::GeneralConfig>::new(&plugins);
-    let mut config = alumet::agent::config::Loader::parse_file(&args.common.config)
+    let default_config_provider = AutoDefaultConfigProvider::new(&plugins, config::GeneralConfig::default);
+    let mut config = agent::config::Loader::parse_file(&args.common.config)
         .or_default(default_config_provider, true)
         .substitute_env_variables(true)
         .with_override(config_override)
@@ -100,11 +101,11 @@ fn main() {
     }
 
     // begin the creation of the pipeline (we have some settings to apply to it)
-    let mut pipeline = alumet::pipeline::Builder::new();
+    let mut pipeline = pipeline::Builder::new();
     apply_pipeline_settings(&args, &config, &mut pipeline);
 
     // start Alumet with the pipeline and plugins
-    let agent = alumet::agent::Builder::from_pipeline(plugins, pipeline)
+    let agent = agent::Builder::from_pipeline(plugins, pipeline)
         .build_and_start()
         .expect("startup failure");
 
@@ -159,8 +160,8 @@ fn run_command_no_config(args: &cli::Cli, plugins: &PluginSet) -> anyhow::Result
         })) => {
             // (re)generate the default config
             let file = &args.common.config;
-            let provider = AutoDefaultConfigProvider::<config::GeneralConfig>::new(plugins);
-            let new_config = provider.default_config()?;
+            let provider = AutoDefaultConfigProvider::new(plugins, config::GeneralConfig::default);
+            let new_config = provider.default_config_string()?;
             std::fs::write(file, new_config)?;
             log::info!("Default configuration file written to: {file}");
             Ok(true)
@@ -171,7 +172,7 @@ fn run_command_no_config(args: &cli::Cli, plugins: &PluginSet) -> anyhow::Result
         })) => {
             // List available plugins without status.
             println!("Available plugins:");
-            for p in plugins.metadata(PluginStatus::Any) {
+            for p in plugins.metadata(PluginFilter::Any) {
                 println!("- {} v{}", p.name, p.version);
             }
             println!("\nEdit the configuration file or use the --plugins flag to enable/disable plugins.");
@@ -194,11 +195,11 @@ fn run_command_no_measurement(args: &cli::Cli, _config: &GeneralConfig, plugins:
         })) => {
             // List available plugins with enabled/disabled status.
             println!("Enabled plugins:");
-            for p in plugins.metadata(PluginStatus::Enabled) {
+            for p in plugins.metadata(PluginFilter::Enabled) {
                 println!("- {} v{}", p.name, p.version);
             }
             println!("\nDisabled plugins:");
-            for p in plugins.metadata(PluginStatus::Disabled) {
+            for p in plugins.metadata(PluginFilter::Disabled) {
                 println!("- {} v{}", p.name, p.version);
             }
             println!("\nEdit the configuration file or use the --plugins flag to enable/disable plugins.");

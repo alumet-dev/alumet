@@ -7,8 +7,6 @@ use std::{future::Future, pin::Pin};
 
 use tokio::sync::Notify;
 
-// use super::runtime::SourceCmd;
-
 /// A boxed future, from the `futures` crate.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 

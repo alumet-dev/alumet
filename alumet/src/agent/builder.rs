@@ -1,3 +1,5 @@
+//! Builder for Alumet agents.
+
 use std::{collections::HashMap, ops::DerefMut, time::Duration};
 
 use anyhow::{anyhow, Context};
@@ -20,34 +22,7 @@ pub struct RunningAgent {
 
 /// Agent builder.
 ///
-/// # Example
-/// ```no_run
-/// use alumet::{agent, pipeline, static_plugins};
-///
-/// struct MyPlugin {}
-/// impl alumet::plugin::rust::AlumetPlugin for MyPlugin {
-///     // TODO
-/// #   fn name() -> &'static str { "" }
-/// #   fn version() -> &'static str { "" }
-/// #   fn init(config: alumet::plugin::ConfigTable) -> anyhow::Result<Box<Self>> { todo!() }
-/// #   fn default_config() -> anyhow::Result<Option<alumet::plugin::ConfigTable>> { todo!() }
-/// #   fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> { todo!() }
-/// #   fn stop(&mut self) -> anyhow::Result<()> { todo!() }
-/// }
-///
-/// // Get the plugins metadata and configs
-/// let plugins = static_plugins![MyPlugin];
-/// let mut my_plugin_config: toml::Table = todo!();
-///
-/// // Create and configure the builder
-/// let mut pb = pipeline::Builder::new();
-/// let mut builder = agent::Builder::new(pb);
-/// builder.add_plugins(plugins);
-/// builder.set_plugin_info("my-plugin", true, my_plugin_config);
-///
-/// // Start Alumet and the plugins
-/// let agent = builder.build_and_start();
-/// ```
+/// Refer to the [documentation of the parent module](super) for an example.
 pub struct Builder {
     /// All the plugins (not initialized yet), in order (the order must be preserved).
     plugins: PluginSet,

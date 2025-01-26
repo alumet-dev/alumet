@@ -1,28 +1,70 @@
-//! Helpers for creating a measurement agent.
+//! Helpers for creating a runnable application based on Alumet, aka an "Alumet agent".
 //!
-//! # Example
+//! # Minimal Example
 //!
-//! ```
-//! use alumet::{agent, pipeline};
+//! Building an Alumet agent require two key components:
+//! - a measurement [pipeline](crate::pipeline)
+//! - and a [set of plugins](PluginSet).
+//!
+//! Use the [`Builder`] to combine them and apply other settings.
+//!
+//! ```no_run
+//! use alumet::{agent, pipeline, static_plugins};
+//! use alumet::plugin::rust::AlumetPlugin;
+//!
 //! use std::time::Duration;
 //!
-//! # fn f() -> anyhow::Result<()> {
-//! let mut pipeline_builder = pipeline::Builder::new();
-//! let mut agent_builder = agent::Builder::new(pipeline_builder);
-//! // TODO configure the agent, add the plugins, etc.
+//! # use anyhow;
+//! # use alumet::plugin::{AlumetPluginStart, ConfigTable};
+//! #
+//! struct PluginA;
+//! impl AlumetPlugin for PluginA {
+//! #    // Plugin implementation
+//! #    fn name() -> &'static str {
+//! #        "a"
+//! #    }
+//! #     
+//! #    fn version() -> &'static str {
+//! #        "0.1.0"
+//! #    }
+//! #    
+//! #    fn init(_config: ConfigTable) -> anyhow::Result<Box<Self>> {
+//! #        todo!()
+//! #    }
+//! #    
+//! #    fn start(&mut self, _alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
+//! #        todo!()
+//! #    }
+//! #    
+//! #    fn stop(&mut self) -> anyhow::Result<()> {
+//! #        todo!()
+//! #    }
+//! #     
+//! #    fn default_config() -> anyhow::Result<Option<ConfigTable>> {
+//! #        Ok(None)
+//! #    }
+//! }
 //!
-//! // start Alumet
-//! let agent = agent_builder.build_and_start()?;
+//! // Load the plugin metadata
+//! let mut plugins = agent::plugin::PluginSet::new(static_plugins![PluginA]);
 //!
-//! // initiate shutdown, this can be done from any thread
-//! agent.pipeline.control_handle().shutdown();
+//! // Set up the measurement pipeline
+//! let mut pipeline = pipeline::Builder::new();
+//! pipeline.normal_threads(2); // Example setting: use 2 threads to run async pipeline elements
 //!
-//! // run until the shutdown command is processed, and stop all the plugins
-//! let timeout = Duration::MAX;
-//! agent.wait_for_shutdown(timeout)?;
-//! # Ok(())
-//! # }
+//! // Build and start the agent
+//! let agent = agent::Builder::from_pipeline(plugins, pipeline)
+//!     .build_and_start()
+//!     .expect("startup failure");
+//!
+//! // Run until shutdown (you can use Ctrl+C to initiate shutdown from the terminal)
+//! agent.wait_for_shutdown(Duration::MAX).expect("error while running");
 //! ```
+//!
+//! # Configuration Management
+//!
+//! Use the [`config`] module to manage a TOML configuration file that contains both
+//! the general agent options and the configuration of each plugin.
 
 pub mod builder;
 pub mod config;

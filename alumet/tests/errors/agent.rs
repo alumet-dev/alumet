@@ -1,36 +1,40 @@
-use alumet::{agent, pipeline, plugin::PluginMetadata};
+use alumet::{
+    agent::{
+        self,
+        config::{AutoDefaultConfigProvider, DefaultConfigProvider},
+        plugin::PluginSet,
+    },
+    pipeline,
+    plugin::PluginMetadata,
+};
 
 use anyhow::Context;
 use std::{thread, time, time::Duration};
 
 use super::points::{catch_error_point, catch_panic_point};
 
-pub(super) fn build_and_run(mut plugins: Vec<PluginMetadata>) -> anyhow::Result<()> {
+pub(super) fn build_and_run(plugins: Vec<PluginMetadata>) -> anyhow::Result<()> {
+    let mut plugins = PluginSet::new(plugins);
+
     // Generate the default configuration
     let mut config = catch_error_point!(agent_default_config, || {
-        let mut config = toml::Table::new();
-        agent::config::insert_default_plugin_configs(&plugins, &mut config)?;
+        let config = AutoDefaultConfigProvider::new(&plugins, || toml::Table::new()).default_config()?;
         Ok(config)
     });
 
     // Build an agent with the plugins and their configs.
     let agent = catch_error_point!(agent_build_and_start, move || {
+        // Apply some setting to the pipeline to shorten the test duration.
         let mut pipeline_builder = pipeline::Builder::new();
         pipeline_builder.trigger_constraints_mut().max_update_interval = Duration::from_millis(100);
 
-        let mut agent_builder = agent::Builder::new(pipeline_builder);
+        // Extract the plugins configs and enable/disable the plugins according to their config.
+        plugins
+            .extract_config(&mut config, true, agent::plugin::UnknownPluginInConfigPolicy::Error)
+            .expect("config should be valid");
 
-        let config_per_plugin = agent::config::extract_plugin_configs(&mut config).expect("config should be valid");
-        for (plugin_name, (enabled, config)) in config_per_plugin {
-            let i = plugins
-                .iter()
-                .position(|p| p.name == plugin_name)
-                .expect("plugin should exist");
-            let plugin = plugins.swap_remove(i);
-            agent_builder.add_plugin(plugin, enabled, config);
-        }
-
-        agent_builder.build_and_start()
+        // Build the agent
+        agent::Builder::from_pipeline(plugins, pipeline_builder).build_and_start()
     });
 
     // Wait for the source to be registered and run a bit

@@ -1,3 +1,5 @@
+//! Building a set of plugins with their configuration options.
+
 use std::collections::BTreeMap;
 
 use anyhow::{anyhow, Context};
@@ -63,17 +65,27 @@ pub struct PluginInfo {
 /// The order of the plugins is preserved: they are stored in the same order as they are added to the set.
 pub struct PluginSet(BTreeMap<String, PluginInfo>);
 
-pub enum PluginStatus {
+/// Filters plugins based on their status.
+pub enum PluginFilter {
+    /// Matches enabled plugins.
     Enabled,
+    /// Matches disabled plugins.
     Disabled,
+    /// Matches all plugins.
     Any,
 }
 
+/// How to react when the config contains an unknown plugin.
 pub enum UnknownPluginInConfigPolicy {
+    /// Logs a warning message and continues.
     LogWarn,
+    /// Logs a warning message only if the config enables the plugin.
     LogWarnIfEnabled,
+    /// Returns an error.
     Error,
+    /// Returns an error only if the config enables the plugin.
     ErrorIfEnabled,
+    /// Ignores the plugin config and continues.
     Ignore,
 }
 
@@ -88,6 +100,9 @@ impl PluginInfo {
 }
 
 impl PluginSet {
+    /// Creates a new plugin set from their metadata.
+    ///
+    /// Every plugin is marked as enabled. No configuration is attached to the plugins.
     pub fn new(metadata: Vec<PluginMetadata>) -> Self {
         let map = BTreeMap::from_iter(metadata.into_iter().map(|m| (m.name.clone(), PluginInfo::new(m))));
         Self(map)
@@ -106,16 +121,22 @@ impl PluginSet {
         }
     }
 
+    /// Extracts the config of each plugin.
+    ///
+    /// If `update_status` is true, enable/disable the plugins according to the configuration field `enabled`.
+    /// If the field is not present, enables the plugin.
+    ///
+    /// Use `on_unknown` to choose what to do when the config mentions a plugin that is not in the plugin set.
     pub fn extract_config(
         &mut self,
         global_config: &mut toml::Table,
-        allow_status_change: bool,
+        update_status: bool,
         on_unknown: UnknownPluginInConfigPolicy,
     ) -> anyhow::Result<()> {
         let extracted = super::config::extract_plugins_config(global_config).context("invalid config")?;
         for (plugin_name, (enabled, config)) in extracted {
             if let Some(plugin_info) = self.0.get_mut(&plugin_name) {
-                if allow_status_change {
+                if update_status {
                     plugin_info.enabled = enabled;
                 }
                 plugin_info.config = Some(config);
@@ -183,7 +204,7 @@ impl PluginSet {
     }
 
     /// Iterates on the metadata of the plugins that match the given status filter.
-    pub fn metadata(&self, filter: PluginStatus) -> impl Iterator<Item = &PluginMetadata> {
+    pub fn metadata(&self, filter: PluginFilter) -> impl Iterator<Item = &PluginMetadata> {
         self.0
             .values()
             .filter_map(move |p| if filter.accept(&p) { Some(&p.metadata) } else { None })
@@ -197,7 +218,7 @@ impl PluginSet {
     }
 
     /// Collects the plugins to a `Vec<PluginMetadata>`, filtered by status.
-    pub fn into_metadata(self, filter: PluginStatus) -> Vec<PluginMetadata> {
+    pub fn into_metadata(self, filter: PluginFilter) -> Vec<PluginMetadata> {
         self.0
             .into_values()
             .filter(|p| filter.accept(p))
@@ -206,18 +227,19 @@ impl PluginSet {
     }
 }
 
-impl PluginStatus {
+impl PluginFilter {
+    /// Checks if a plugin matches this filter.
     fn accept(&self, p: &PluginInfo) -> bool {
         match self {
-            PluginStatus::Enabled => p.enabled,
-            PluginStatus::Disabled => !p.enabled,
-            PluginStatus::Any => true,
+            PluginFilter::Enabled => p.enabled,
+            PluginFilter::Disabled => !p.enabled,
+            PluginFilter::Any => true,
         }
     }
 }
 
 #[cfg(test)]
-mod tests {
+mod macro_tests {
     use serde::Serialize;
 
     use crate::plugin::{

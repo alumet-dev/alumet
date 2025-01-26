@@ -4,7 +4,7 @@ use std::{
 };
 
 use alumet::{
-    agent,
+    agent::{self, plugin::PluginSet},
     measurement::{MeasurementAccumulator, Timestamp},
     pipeline::{self, elements::error::PollError, trigger::TriggerSpec},
     plugin::{
@@ -71,12 +71,12 @@ fn late_source_creation_test() -> anyhow::Result<()> {
 
     // Create an agent with the plugin
     let plugins = static_plugins![TestPlugin];
+    let plugins = PluginSet::new(plugins);
 
     let mut pipeline_builder = pipeline::Builder::new();
     pipeline_builder.trigger_constraints_mut().max_update_interval = Duration::from_millis(100);
 
-    let mut agent_builder = agent::Builder::new(pipeline_builder);
-    agent_builder.add_plugins(plugins);
+    let agent_builder = agent::Builder::from_pipeline(plugins, pipeline_builder);
 
     // Start Alumet
     let agent = agent_builder.build_and_start().expect("agent should start fine");

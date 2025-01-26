@@ -1,6 +1,48 @@
+//! Configuration management.
+//!
+//! # Agent configuration
+//!
+//! Alumet uses TOML as its default configuration format.
+//!
+//! The configuration of an agent looks like the following example.
+//!  
+//! ```toml
+//! # general options here
+//! option = "something"
+//! foo = "bar"
+//!
+//! # A "plugins" table with one sub-table per plugin
+//! [plugins.a]
+//! plugin_a_option = "value"
+//!
+//! [plugins.b]
+//! plugin_b_option = 123
+//! ```
+//!
+//! # Loading the configuration
+//!
+//! Use the [`Loader`] to parse the configuration file with various options.
+//!
+//! ```rust,no_run
+//! use alumet::agent::config;
+//! use alumet::agent::plugin::PluginSet;
+//!
+//! let plugins = PluginSet::new(todo!()); // your plugins
+//!
+//! let default_config_provider = config::AutoDefaultConfigProvider::new(
+//!     &plugins, // populate the agent config with the default config section of each enabled plugin
+//!     || toml::Table::new() // no general options (you can return a struct that implements `Serialize`)
+//! );
+//!
+//! let mut config = config::Loader::parse_file("alumet-config.toml")
+//!     .or_default(default_config_provider, true) // if the config file does not exist, generate it
+//!     .load() // load now
+//!     .expect("could not load config file");
+//!
+//! // TODO use the config
+//! ```
 use std::collections::BTreeMap;
 use std::io;
-use std::marker::PhantomData;
 use std::str::FromStr;
 use std::{borrow::Cow, env::VarError};
 
@@ -11,24 +53,49 @@ use serde::Serialize;
 
 use crate::plugin::PluginMetadata;
 
-use super::plugin::{PluginSet, PluginStatus};
+use super::plugin::{PluginFilter, PluginSet};
 
 /// Loads the agent configuration from a TOML file.
 pub struct Loader<'d> {
+    /// File that contains the configuration.
     file: PathBuf,
+    /// Provides the default configuration, in case the file is missing.
     default_provider: Option<Box<dyn DefaultConfigProvider + 'd>>,
+    /// Should the default config be saved after generation?
     save_default: bool,
+    /// Additional values that override the content of the config.
     overrides: Option<toml::Table>,
+    /// Should environment variable substitution be applied before deserializing?
     substitute_env: bool,
 }
 
+/// Generates default configurations.
+///
+/// See [`AutoDefaultConfigProvider`] for the "standard" implementation.
 pub trait DefaultConfigProvider {
-    fn default_config(&self) -> anyhow::Result<String>;
+    /// Gets the default config as a structured TOML table.
+    fn default_config(&self) -> anyhow::Result<toml::Table>;
+
+    /// Gets the default config as a string.
+    ///
+    /// The default implementation serializes the result of [`default_config`].
+    fn default_config_string(&self) -> anyhow::Result<String> {
+        let config = self.default_config()?;
+        let string = toml::to_string_pretty(&toml::Value::Table(config))?;
+        Ok(string)
+    }
 }
 
-pub struct AutoDefaultConfigProvider<'p, A: Serialize + Default> {
+/// Generates default configurations by combining two things:
+/// - general config options, provided by a function `F`
+/// - the default config of every plugin that is enabled in a [`PluginSet`]
+///
+/// # Config structure
+/// The generated configuration follows what is expected by [`PluginSet::extract_config`]
+/// and other agent-related functions. Refer to the module documentation for more information.
+pub struct AutoDefaultConfigProvider<'p, A: Serialize, F: Fn() -> A> {
     plugins: &'p PluginSet,
-    agent_config_type: PhantomData<A>,
+    default_general_options: F,
 }
 
 impl<'d> Loader<'d> {
@@ -100,7 +167,7 @@ impl<'d> Loader<'d> {
                 if let Some(default_provider) = self.default_provider.take() {
                     // get the default config
                     let default_content = default_provider
-                        .default_config()
+                        .default_config_string()
                         .map_err(LoadErrorCause::DefaultProvider)?;
 
                     // save the default if the option is enabled
@@ -120,31 +187,32 @@ impl<'d> Loader<'d> {
 }
 
 impl<'f, F: Fn() -> anyhow::Result<toml::Table> + 'f> DefaultConfigProvider for F {
-    fn default_config(&self) -> anyhow::Result<String> {
+    fn default_config(&self) -> anyhow::Result<toml::Table> {
         let table = self()?;
-        Ok(toml::to_string(&toml::Value::Table(table))?)
+        Ok(table)
     }
 }
 
-impl<'p, A: Serialize + Default> AutoDefaultConfigProvider<'p, A> {
-    pub fn new(plugins: &'p PluginSet) -> Self {
+impl<'p, A: Serialize, F: Fn() -> A> AutoDefaultConfigProvider<'p, A, F> {
+    /// Creates a new default config provider that use the given `plugins` and general options.
+    ///
+    /// See the structure documentation for more details.
+    pub fn new(plugins: &'p PluginSet, default_general_options: F) -> Self {
         Self {
             plugins,
-            agent_config_type: PhantomData,
+            default_general_options,
         }
     }
 }
 
-impl<'p, A: Serialize + Default> DefaultConfigProvider for AutoDefaultConfigProvider<'p, A> {
-    fn default_config(&self) -> anyhow::Result<String> {
+impl<'p, A: Serialize, F: Fn() -> A> DefaultConfigProvider for AutoDefaultConfigProvider<'p, A, F> {
+    fn default_config(&self) -> anyhow::Result<toml::Table> {
         // generate the default agent config
-        let mut config = toml::Table::try_from(A::default())?;
+        let mut config = toml::Table::try_from((self.default_general_options)())?;
         // generate the default plugins configs
-        let plugins_table = generate_plugin_configs(self.plugins.metadata(PluginStatus::Enabled))?;
+        let plugins_table = generate_plugin_configs(self.plugins.metadata(PluginFilter::Enabled))?;
         // make the global config
         config.insert(String::from("plugins"), toml::Value::Table(plugins_table));
-        // serialize to string
-        let config = toml::ser::to_string_pretty(&config)?;
         Ok(config)
     }
 }
@@ -273,8 +341,8 @@ pub fn merge_override(original: &mut toml::Table, overrider: toml::Table) {
 /// # use alumet::plugin::{AlumetPluginStart, ConfigTable};
 /// #
 /// impl alumet::plugin::rust::AlumetPlugin for A {
+///     fn name() -> &'static str { "a" }
 ///     // TODO
-/// #   fn name() -> &'static str { "a" }
 /// #   fn version() -> &'static str { "0.0.1" }
 /// #   fn init(_config: ConfigTable) -> anyhow::Result<Box<Self>> { Ok(Box::new(Self)) }
 /// #   fn start(&mut self, _: &mut AlumetPluginStart) -> anyhow::Result<()> { Ok(()) }
@@ -283,8 +351,8 @@ pub fn merge_override(original: &mut toml::Table, overrider: toml::Table) {
 /// }
 /// #
 /// impl alumet::plugin::rust::AlumetPlugin for B {
+///     fn name() -> &'static str { "b" }
 ///     // TODO
-/// #   fn name() -> &'static str { "b" }
 /// #   fn version() -> &'static str { "0.0.1" }
 /// #   fn init(_config: ConfigTable) -> anyhow::Result<Box<Self>> { Ok(Box::new(Self)) }
 /// #   fn start(&mut self, _: &mut AlumetPluginStart) -> anyhow::Result<()> { Ok(()) }
@@ -305,19 +373,19 @@ pub fn merge_override(original: &mut toml::Table, overrider: toml::Table) {
 ///     option = 123
 /// "#;
 /// let mut config = toml::Table::from_str(config_example)?;
-/// let plugins = extract_plugins_config(plugins, &mut config)?;
+/// let pc = extract_plugins_config(&mut config)?;
 ///
 /// // let's see what we've got (for the example)
-/// let info_a = plugins.iter().find(|p| p.metadata.name == "a").unwrap();
-/// let info_b = plugins.iter().find(|p| p.metadata.name == "b").unwrap();
+/// let (a_enabled, a_config) = pc.get("a").unwrap();
+/// let (b_enabled, b_config) = pc.get("b").unwrap();
 ///
 /// // Plugin "a" is disabled, "b" is enabled.
-/// assert!(!info_a.enabled);
-/// assert!(info_b.enabled);
+/// assert!(!a_enabled);
+/// assert!(b_enabled);
 ///
 /// // Each plugin has its own config section.
-/// assert_eq!(info_a.config.get("key"), Some(&toml::Value::String(String::from("value"))));
-/// assert_eq!(info_b.config.get("option"), Some(&toml::Value::Integer(123)));
+/// assert_eq!(a_config.get("key"), Some(&toml::Value::String(String::from("value"))));
+/// assert_eq!(b_config.get("option"), Some(&toml::Value::Integer(123)));
 ///
 /// // The `plugins` table has been removed from the config.
 /// assert!(config.get("plugins").is_none());
