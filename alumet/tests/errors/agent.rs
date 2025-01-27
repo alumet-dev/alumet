@@ -14,7 +14,7 @@ use std::{thread, time, time::Duration};
 use super::points::{catch_error_point, catch_panic_point};
 
 pub(super) fn build_and_run(plugins: Vec<PluginMetadata>) -> anyhow::Result<()> {
-    let mut plugins = PluginSet::new(plugins);
+    let mut plugins = PluginSet::from(plugins);
 
     // Generate the default configuration
     let mut config = catch_error_point!(agent_default_config, || {

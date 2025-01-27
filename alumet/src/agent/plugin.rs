@@ -99,13 +99,20 @@ impl PluginInfo {
     }
 }
 
-impl PluginSet {
+impl From<Vec<PluginMetadata>> for PluginSet {
     /// Creates a new plugin set from their metadata.
     ///
     /// Every plugin is marked as enabled. No configuration is attached to the plugins.
-    pub fn new(metadata: Vec<PluginMetadata>) -> Self {
+    fn from(metadata: Vec<PluginMetadata>) -> Self {
         let map = BTreeMap::from_iter(metadata.into_iter().map(|m| (m.name.clone(), PluginInfo::new(m))));
         Self(map)
+    }
+}
+
+impl PluginSet {
+    /// Creates a new empty plugin set.
+    pub fn new() -> Self {
+        Self(BTreeMap::new())
     }
 
     /// Enables the specified plugins and disables all the others.

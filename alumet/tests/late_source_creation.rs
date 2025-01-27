@@ -71,7 +71,7 @@ fn late_source_creation_test() -> anyhow::Result<()> {
 
     // Create an agent with the plugin
     let plugins = static_plugins![TestPlugin];
-    let plugins = PluginSet::new(plugins);
+    let plugins = PluginSet::from(plugins);
 
     let mut pipeline_builder = pipeline::Builder::new();
     pipeline_builder.trigger_constraints_mut().max_update_interval = Duration::from_millis(100);

@@ -48,7 +48,7 @@ fn main() {
         #[cfg(feature = "relay-server")]
         plugin_relay::server::RelayServerPlugin,
     ];
-    let mut plugins = PluginSet::new(plugins);
+    let mut plugins = PluginSet::from(plugins);
 
     // Define the command-line interface.
     let mut cmd = clap::Command::new(BINARY).version(agent_version());

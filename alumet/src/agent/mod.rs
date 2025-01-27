@@ -4,7 +4,7 @@
 //!
 //! Building an Alumet agent require two key components:
 //! - a measurement [pipeline](crate::pipeline)
-//! - and a [set of plugins](PluginSet).
+//! - a [set of plugins](PluginSet).
 //!
 //! Use the [`Builder`] to combine them and apply other settings.
 //!
@@ -46,7 +46,7 @@
 //! }
 //!
 //! // Load the plugin metadata
-//! let mut plugins = agent::plugin::PluginSet::new(static_plugins![PluginA]);
+//! let mut plugins = agent::plugin::PluginSet::from(static_plugins![PluginA]);
 //!
 //! // Set up the measurement pipeline
 //! let mut pipeline = pipeline::Builder::new();

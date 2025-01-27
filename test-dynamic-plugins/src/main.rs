@@ -3,7 +3,10 @@ use std::path::Path;
 use std::time::Duration;
 
 use alumet::{
-    agent,
+    agent::{
+        self,
+        plugin::{PluginInfo, PluginSet},
+    },
     plugin::{dynload::load_cdylib, PluginMetadata},
 };
 
@@ -67,10 +70,15 @@ fn run_with_plugin(
     let mut pipeline_builder = alumet::pipeline::Builder::new();
     pipeline_builder.high_priority_threads(0);
 
-    // Build and agent with the plugin
-    let mut agent_builder = agent::Builder::new(pipeline_builder);
-    agent_builder.add_plugin(plugin, true, plugin_config);
-    agent_builder
+    // Build an agent with the plugin
+    let mut plugins = PluginSet::new();
+    plugins.add_plugin(PluginInfo {
+        metadata: plugin,
+        enabled: true,
+        config: Some(plugin_config),
+    });
+
+    let agent = agent::Builder::from_pipeline(plugins, pipeline_builder)
         .after_plugins_init(move |plugins| {
             let plugin = &plugins[0];
             assert_eq!(plugin.name(), expected_plugin_name);
@@ -80,13 +88,12 @@ fn run_with_plugin(
         .before_operation_begin(|_| {
             println!("[app] Starting the pipeline...");
         })
-        .after_operation_begin(|_| println!("[app] pipeline started"));
-
-    // Start the plugin and the pipeline
-    let agent = agent_builder.build_and_start().expect("agent should start fine");
-    const TIMEOUT: Duration = Duration::from_secs(2);
+        .after_operation_begin(|_| println!("[app] pipeline started"))
+        .build_and_start()
+        .expect("agent should start fine");
 
     // keep the pipeline running for some time
+    const TIMEOUT: Duration = Duration::from_secs(2);
     std::thread::sleep(duration);
     println!("[app] shutting down...");
     agent.pipeline.control_handle().shutdown();

@@ -27,7 +27,8 @@
 //! use alumet::agent::config;
 //! use alumet::agent::plugin::PluginSet;
 //!
-//! let plugins = PluginSet::new(todo!()); // your plugins
+//! let mut plugins = PluginSet::new();
+//! // TODO add your plugins
 //!
 //! let default_config_provider = config::AutoDefaultConfigProvider::new(
 //!     &plugins, // populate the agent config with the default config section of each enabled plugin

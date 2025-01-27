@@ -38,7 +38,7 @@ fn static_plugin_macro() {
 
 #[test]
 fn default_config_no_plugin() {
-    let plugins = PluginSet::new(Vec::new()); // empty set
+    let plugins = PluginSet::from(Vec::new()); // empty set
 
     let config = AutoDefaultConfigProvider::new(&plugins, || toml::Table::new())
         .default_config()
@@ -51,7 +51,7 @@ fn default_config_no_plugin() {
 
 #[test]
 fn default_config_1_plugin() {
-    let plugins = PluginSet::new(static_plugins![MyPlugin]);
+    let plugins = PluginSet::from(static_plugins![MyPlugin]);
     let config = AutoDefaultConfigProvider::new(&plugins, MyAgentConfig::default)
         .default_config()
         .unwrap();
@@ -93,7 +93,7 @@ fn test_plugin_lifecycle() {
             default_config: Box::new(|| Ok(None)),
         },
     ];
-    let plugins = PluginSet::new(plugins);
+    let plugins = PluginSet::from(plugins);
 
     let (state1_init, state2_init) = (state1.clone(), state2.clone());
     let (state1_start, state2_start) = (state1.clone(), state2.clone());
