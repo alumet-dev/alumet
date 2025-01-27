@@ -439,4 +439,8 @@ impl<'a> MeasurementAccumulator<'a> {
     pub fn push(&mut self, point: MeasurementPoint) {
         self.0.push(point)
     }
+
+    pub(crate) fn as_inner(&'a self) -> &'a MeasurementBuffer {
+        self.0
+    }
 }

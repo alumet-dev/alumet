@@ -186,6 +186,18 @@ impl From<SourceNamePattern> for ElementNamePattern {
     }
 }
 
+impl From<SourceName> for SourceNamePattern {
+    fn from(value: SourceName) -> Self {
+        SourceNamePattern::exact(value.0.plugin, value.0.element)
+    }
+}
+
+impl From<&SourceName> for SourceNamePattern {
+    fn from(value: &SourceName) -> Self {
+        SourceNamePattern::exact(value.0.plugin.to_owned(), value.0.element.to_owned())
+    }
+}
+
 impl TryFrom<ElementNamePattern> for SourceNamePattern {
     type Error = IncompatibleKindError;
 

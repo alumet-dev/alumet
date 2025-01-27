@@ -14,6 +14,9 @@ use crate::{
 
 use super::plugin::PluginSet;
 
+#[cfg(any(test, feature = "test"))]
+use crate::test::StartupExpectations;
+
 /// An Agent that has been started.
 pub struct RunningAgent {
     pub pipeline: pipeline::MeasurementPipeline,
@@ -36,9 +39,14 @@ pub struct Builder {
 
 struct Callbacks {
     after_plugins_init: Box<dyn FnOnce(&mut Vec<Box<dyn Plugin>>)>,
-    after_plugins_start: Box<dyn FnOnce(&pipeline::Builder)>,
-    before_operation_begin: Box<dyn FnOnce(&pipeline::Builder)>,
+    after_plugins_start: Box<dyn FnOnce(&mut pipeline::Builder)>,
+    before_operation_begin: Box<dyn FnOnce(&mut pipeline::Builder)>,
     after_operation_begin: Box<dyn FnOnce(&mut pipeline::MeasurementPipeline)>,
+}
+
+#[cfg(any(feature = "test", test))]
+pub trait TestBuilderVisitor {
+    fn visit(self, builder: Builder) -> Builder;
 }
 
 impl Default for Callbacks {
@@ -83,7 +91,7 @@ impl Builder {
     ///
     /// There can be only one callback. If this function is called more than once,
     /// only the last callback will be called.
-    pub fn after_plugins_start<F: FnOnce(&pipeline::Builder) + 'static>(mut self, f: F) -> Self {
+    pub fn after_plugins_start<F: FnOnce(&mut pipeline::Builder) + 'static>(mut self, f: F) -> Self {
         self.callbacks.after_plugins_start = Box::new(f);
         self
     }
@@ -92,7 +100,7 @@ impl Builder {
     ///
     /// There can be only one callback. If this function is called more than once,
     /// only the last callback will be called.
-    pub fn before_operation_begin<F: FnOnce(&pipeline::Builder) + 'static>(mut self, f: F) -> Self {
+    pub fn before_operation_begin<F: FnOnce(&mut pipeline::Builder) + 'static>(mut self, f: F) -> Self {
         self.callbacks.before_operation_begin = Box::new(f);
         self
     }
@@ -256,8 +264,8 @@ impl Builder {
                 &mut post_start_actions,
             )?;
         }
-        print_stats(&pipeline_builder, &initialized_plugins, &disabled_plugins);
-        (self.callbacks.after_plugins_start)(&pipeline_builder);
+        print_stats(&mut pipeline_builder, &initialized_plugins, &disabled_plugins);
+        (self.callbacks.after_plugins_start)(&mut pipeline_builder);
 
         // pre-pipeline-start actions
         log::info!("Running pre-pipeline-start hooks...");
@@ -265,7 +273,7 @@ impl Builder {
         for plugin in initialized_plugins.iter_mut() {
             pre_pipeline_start(plugin.deref_mut(), &mut pipeline_builder, &mut pre_actions_per_plugin)?;
         }
-        (self.callbacks.before_operation_begin)(&pipeline_builder);
+        (self.callbacks.before_operation_begin)(&mut pipeline_builder);
 
         // Build and start the pipeline.
         log::info!("Starting the measurement pipeline...");
@@ -287,6 +295,17 @@ impl Builder {
             initialized_plugins,
         };
         Ok(agent)
+    }
+
+    /// Applies test expectations to this builder.
+    #[cfg(any(feature = "test", test))]
+    pub fn with_expectations<V: TestBuilderVisitor>(self, expectations: V) -> Self {
+        expectations.visit(self)
+    }
+
+    #[cfg(any(feature = "test", test))]
+    pub fn pipeline(&mut self) -> &mut pipeline::Builder {
+        &mut self.pipeline_builder
     }
 }
 
@@ -373,7 +392,7 @@ impl RunningAgent {
 
 /// Prints some statistics after the plugin start-up phase.
 fn print_stats(
-    pipeline_builder: &pipeline::Builder,
+    pipeline_builder: &mut pipeline::Builder,
     enabled_plugins: &[Box<dyn Plugin>],
     disabled_plugins: &[PluginInfo],
 ) {

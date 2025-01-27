@@ -268,7 +268,7 @@ impl TriggerSpec {
     /// - `max_update_interval`: maximum amount of time allowed between two command updates
     pub(crate) fn constrain(&mut self, constraints: &TriggerConstraints) {
         if constraints.allow_manual_trigger {
-            self.allow_manual_trigger = constraints.allow_manual_trigger;
+            self.allow_manual_trigger = true;
         }
         if !self.interruptible {
             let max_update_interval = constraints.max_update_interval;

@@ -12,6 +12,8 @@ keywords = ["rapl", "energy", "monitoring", "profiling"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
+# enables test module
+test = []
 
 [dependencies]
 toml = { version = "0.8.19", features = ["preserve_order"] }

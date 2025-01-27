@@ -12,7 +12,7 @@ pub mod parsing;
 pub struct PluginName(pub String);
 
 /// Indicates the type of a pipeline element.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ElementKind {
     Source,
     Transform,
@@ -38,7 +38,7 @@ pub enum ElementKind {
 ///
 /// let source_name = SourceName::new(String::from("example"), String::from("the_source"));
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ElementName {
     /// Which type of element this is.
     pub kind: ElementKind,
@@ -49,15 +49,15 @@ pub struct ElementName {
 }
 
 /// The full name of a source.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SourceName(ElementName);
 
 /// The full name of a transform.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TransformName(ElementName);
 
 /// The full name of an output.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct OutputName(ElementName);
 
 impl SourceName {
@@ -67,6 +67,10 @@ impl SourceName {
             kind: ElementKind::Source,
             element: source_name,
         })
+    }
+
+    pub fn from_str(plugin: &str, source: &str) -> Self {
+        Self::new(plugin.to_owned(), source.to_owned())
     }
 
     pub fn plugin(&self) -> &str {
@@ -87,6 +91,10 @@ impl TransformName {
         })
     }
 
+    pub fn from_str(plugin: &str, transform: &str) -> Self {
+        Self::new(plugin.to_owned(), transform.to_owned())
+    }
+
     pub fn plugin(&self) -> &str {
         &self.0.plugin
     }
@@ -103,6 +111,10 @@ impl OutputName {
             kind: ElementKind::Output,
             element: output_name,
         })
+    }
+
+    pub fn from_str(plugin: &str, output: &str) -> Self {
+        Self::new(plugin.to_owned(), output.to_owned())
     }
 
     pub fn plugin(&self) -> &str {
