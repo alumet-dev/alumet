@@ -24,8 +24,7 @@ struct Metrics {
     //todo : add comment about new metrics
 
     system_cpu_usage: RawMetricId,
-    //todo : rename var
-    pod_estimate_attributed_energy: TypedMetricId<f64>,
+    system_estimated_energy_consumption: TypedMetricId<f64>,
 }
 
 impl AlumetPlugin for EnergyEstimationTdpPlugin {
@@ -71,7 +70,7 @@ impl AlumetPlugin for EnergyEstimationTdpPlugin {
                 .0;
             let metrics = Metrics {
                 system_cpu_usage: cpu_usage_metric,
-                pod_estimate_attributed_energy: system_estimated_energy,
+                system_estimated_energy_consumption: system_estimated_energy,
             };
 
             let transform = Box::new(EnergyEstimationTdpTransform::new(config_cpy, metrics));

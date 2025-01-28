@@ -39,7 +39,7 @@ impl Transform for EnergyEstimationTdpTransform {
         );
 
         for point in measurements.clone().iter() {
-            if point.metric.as_u64() == pod_id {
+            if point.metric.as_u64() == system_cpu_usage_metric {
                 let id = SystemTime::from(point.timestamp).duration_since(UNIX_EPOCH)?.as_secs();
                 log::trace!("we get a measurement for pod with timestamp: {}", id);
 
@@ -51,8 +51,7 @@ impl Transform for EnergyEstimationTdpTransform {
                 // from k8s plugin we get the cpu_usage_per_pod in micro second
                 // energy = cpu_usage_per_pod * nb_vcpu/nb_cpu * tdp / poll_interval
                 let mut estimated_energy = value.parse().unwrap();
-                estimated_energy = estimated_energy * self.config.nb_vcpu / self.config.nb_cpu * self.config.tdp
-                    / (self.config.poll_interval.as_millis() as f64);
+                estimated_energy = estimated_energy * (self.config.nb_vcpu / self.config.nb_cpu) * self.config.tdp / (self.config.poll_interval.as_millis() as f64) / 1000.0;
 
                 log::trace!(
                     "we get a measurement with resource:{}",
