@@ -41,7 +41,7 @@ pub type StrCow = Cow<'static, str>;
 
 /// Hardware or software entity that can be measured.
 #[non_exhaustive]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[repr(C)]
 pub enum Resource {
     /// The whole local machine, for instance the whole physical server.
@@ -65,7 +65,7 @@ pub enum Resource {
 /// (total memory consumption, with consumer `LocalMachine`), or at the process level
 /// (process memory consumption, with consumer `Process { pid }`).
 #[non_exhaustive]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[repr(C)]
 pub enum ResourceConsumer {
     /// The whole local machine.
