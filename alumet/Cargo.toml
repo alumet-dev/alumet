@@ -30,6 +30,7 @@ indoc = "2.0.5"
 thiserror = "1.0.63"
 fancy-regex = "0.13.0"
 futures = "0.3.30"
+ordered-float = "4.6.0"
 
 # Dependencies for Linux builds only.
 [target.'cfg(target_os = "linux")'.dependencies]

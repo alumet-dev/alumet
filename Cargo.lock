@@ -51,6 +51,7 @@ dependencies = [
  "indoc",
  "libc",
  "log",
+ "ordered-float",
  "serde",
  "smallvec",
  "thiserror 1.0.69",
@@ -74,6 +75,7 @@ dependencies = [
  "indoc",
  "libc",
  "log",
+ "plugin-aggregation",
  "plugin-cgroupv2",
  "plugin-csv",
  "plugin-influxdb",
@@ -454,6 +456,7 @@ checksum = "1a7964611d71df112cb1730f2ee67324fcf4d0fc6606acbbe9bfe06df124637c"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
+ "js-sys",
  "num-traits",
  "serde",
  "windows-link",
@@ -2090,6 +2093,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ordered-float"
+version = "4.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7bb71e1b3fa6ca1c61f383464aaf2bb0e2f8e772a1f01d486832464de363b951"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "parking_lot"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2205,6 +2217,8 @@ version = "0.1.0"
 dependencies = [
  "alumet",
  "anyhow",
+ "chrono",
+ "futures",
  "humantime-serde",
  "log",
  "serde",
