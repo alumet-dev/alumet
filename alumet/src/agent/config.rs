@@ -44,17 +44,15 @@
 //! ```
 use std::collections::BTreeMap;
 use std::io;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::{borrow::Cow, env::VarError};
 
-use std::path::PathBuf;
-
-use error::{BadTypeError, DefaultConfigError, InvalidSubstitutionError, LoadError, LoadErrorCause};
 use serde::Serialize;
 
-use crate::plugin::PluginMetadata;
-
 use super::plugin::{PluginFilter, PluginSet};
+use crate::plugin::PluginMetadata;
+use error::*;
 
 /// Loads the agent configuration from a TOML file.
 pub struct Loader<'d> {
@@ -293,7 +291,7 @@ pub fn substitute_env(mut input: &str) -> Result<Cow<str>, InvalidSubstitutionEr
         }
     }
     // add the last part of the input
-    res.push_str(&input);
+    res.push_str(input);
     Ok(Cow::Owned(res))
 }
 
@@ -446,13 +444,15 @@ pub fn extract_plugins_config(config: &mut toml::Table) -> Result<BTreeMap<Strin
 /// Generates a table containing the default configuration of each plugin.
 pub fn generate_plugin_configs<'p, I: IntoIterator<Item = &'p PluginMetadata>>(
     plugins: I,
-) -> Result<toml::Table, DefaultConfigError> {
+) -> Result<toml::Table, PluginDefaultConfigError> {
     let plugins = plugins.into_iter();
     let (lower, _) = plugins.size_hint();
     let mut table = toml::Table::with_capacity(lower);
     for p in plugins {
-        let plugin_config =
-            (p.default_config)().map_err(|e| DefaultConfigError::PluginDefaultFailure(p.name.clone(), e))?;
+        let plugin_config = (p.default_config)().map_err(|e| PluginDefaultConfigError {
+            plugin_name: p.name.clone(),
+            source: e,
+        })?;
 
         if let Some(config) = plugin_config {
             table.insert(p.name.clone(), toml::Value::Table(config.0));
@@ -465,28 +465,45 @@ pub mod error {
     use std::{io, path::PathBuf};
     use thiserror::Error;
 
+    /// [`Loader::load`](super::Loader::load) failed.
     #[derive(Error, Debug)]
     #[error("could not load config from '{config_file}'")]
     pub struct LoadError {
+        /// The configuration file that was tentatively loaded.
         pub config_file: PathBuf,
+
+        /// What caused the error.
         #[source]
         pub(super) kind: LoadErrorCause,
     }
 
+    /// What made the configuration loading fail?
     #[derive(Error, Debug)]
     pub(super) enum LoadErrorCause {
+        /// I/O error: reading the configuration file failed.
         #[error("read failed")]
         Read(#[source] io::Error),
+
+        /// The loader tried to generate a default configuration (because the config file did not exist),
+        /// but the generation failed.
         #[error("default provider returned an error")]
         DefaultProvider(#[source] anyhow::Error),
+
+        /// A default configuration was generated but could not be saved to the file.
         #[error("write (of default config) failed")]
         DefaultWrite(#[source] io::Error),
+
+        /// The config file was read but environment variable substitution failed.
         #[error("env var substitution failed")]
         Substitution(#[from] InvalidSubstitutionError),
+
+        /// The config file was read but could not be parsed to a valid TOML structure
+        /// (after environment variable substitution).
         #[error("invalid TOML config")]
         InvalidToml(#[from] toml::de::Error),
     }
 
+    /// Environment variable substitution failed.
     #[derive(Error, Debug, PartialEq)]
     pub enum InvalidSubstitutionError {
         /// The environment variable does not exist.
@@ -503,6 +520,7 @@ pub mod error {
         WrongSyntax,
     }
 
+    /// A value of the TOML configuration had an unexpected type.
     #[derive(Error, Debug)]
     #[error("unexpected type for {path}: expected {expected}, got {actual}")]
     pub struct BadTypeError {
@@ -521,10 +539,14 @@ pub mod error {
         }
     }
 
+    /// A plugin failed to generate a default configuration.
     #[derive(Error, Debug)]
-    pub enum DefaultConfigError {
-        #[error("plugin {0} failed to generate a default configuration")]
-        PluginDefaultFailure(String, #[source] anyhow::Error),
+    #[error("plugin {plugin_name} failed to generate a default configuration")]
+    pub struct PluginDefaultConfigError {
+        pub plugin_name: String,
+
+        #[source]
+        pub(super) source: anyhow::Error,
     }
 }
 

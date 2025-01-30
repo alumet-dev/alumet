@@ -214,7 +214,7 @@ impl PluginSet {
     pub fn metadata(&self, filter: PluginFilter) -> impl Iterator<Item = &PluginMetadata> {
         self.0
             .values()
-            .filter_map(move |p| if filter.accept(&p) { Some(&p.metadata) } else { None })
+            .filter_map(move |p| if filter.accept(p) { Some(&p.metadata) } else { None })
     }
 
     /// Consumes the set and returns two lists: the enabled plugins,
