@@ -25,7 +25,7 @@ pub enum WatchError {
     /// The process has spawned but waiting for it has failed.
     #[error("failed to wait for pid {0}")]
     ProcessWait(u32, #[source] std::io::Error),
-    /// An error occured while waiting for the measurement pipeline to shut down.
+    /// An error occurred while waiting for the measurement pipeline to shut down.
     ///
     /// The error probably originated from inside a pipeline element (source, transform, output)
     /// and not from the shutdown operation.
