@@ -1,10 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
+    "agent",
     "alumet",
     "alumet-api-dynamic",
     "alumet-api-macros",
-    "app-agent",
     "plugin-csv",
     "plugin-cgroupv2",
     "plugin-energy-attribution",
