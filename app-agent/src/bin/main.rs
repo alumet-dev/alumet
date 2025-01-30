@@ -7,7 +7,9 @@ use alumet::{
         exec,
         plugin::{PluginFilter, PluginSet, UnknownPluginInConfigPolicy},
     },
-    pipeline, static_plugins,
+    pipeline,
+    plugin::PluginMetadata,
+    static_plugins,
 };
 use alumet_agent::{exec_hints, init_logger};
 use anyhow::Context;
@@ -17,38 +19,49 @@ use config::GeneralConfig;
 
 const BINARY: &str = env!("CARGO_BIN_NAME");
 
+/// Loads the available plugins.
+fn load_plugins_metadata() -> Vec<PluginMetadata> {
+    // plugins that work on every target
+    let mut plugins = static_plugins![
+        plugin_csv::CsvPlugin,
+        plugin_influxdb::InfluxDbPlugin,
+        plugin_mongodb::MongoDbPlugin,
+        plugin_relay::client::RelayClientPlugin,
+        plugin_relay::server::RelayServerPlugin,
+    ];
+
+    // plugins that only work on Linux
+    #[cfg(target_os = "linux")]
+    {
+        plugins.extend(static_plugins![
+            plugin_socket_control::SocketControlPlugin,
+            plugin_cgroupv2::K8sPlugin,
+            plugin_cgroupv2::OARPlugin,
+            plugin_oar2::Oar2Plugin,
+            plugin_rapl::RaplPlugin,
+            plugin_perf::PerfPlugin,
+            plugin_procfs::ProcfsPlugin,
+            plugin_nvidia::NvidiaPlugin,
+        ]);
+    }
+
+    plugins
+}
+
+/// Main agent function.
+///
+/// The steps are:
+/// - load the metadata of the available plugins
+/// - parse the CLI
+/// - parse the config file
+/// - apply the settings from CLI and config file
+/// - start the Alumet plugins and pipeline
+/// - wait for the stop condition
 fn main() {
     init_logger();
 
-    let plugins = static_plugins![
-        #[cfg(feature = "socket-control")]
-        plugin_socket_control::SocketControlPlugin,
-        #[cfg(feature = "k8s")]
-        plugin_cgroupv2::K8sPlugin,
-        #[cfg(feature = "oar3")]
-        plugin_cgroupv2::OARPlugin,
-        #[cfg(feature = "oar2")]
-        plugin_oar2::Oar2Plugin,
-        #[cfg(feature = "rapl")]
-        plugin_rapl::RaplPlugin,
-        #[cfg(feature = "linux-inputs")]
-        plugin_perf::PerfPlugin,
-        #[cfg(feature = "linux-inputs")]
-        plugin_procfs::ProcfsPlugin,
-        #[cfg(any(feature = "nvidia-nvml", feature = "nvidia-jetson"))]
-        plugin_nvidia::NvidiaPlugin,
-        #[cfg(feature = "output-csv")]
-        plugin_csv::CsvPlugin,
-        #[cfg(feature = "output-influxdb")]
-        plugin_influxdb::InfluxDbPlugin,
-        #[cfg(feature = "output-mongodb")]
-        plugin_mongodb::MongoDbPlugin,
-        #[cfg(feature = "relay-client")]
-        plugin_relay::client::RelayClientPlugin,
-        #[cfg(feature = "relay-server")]
-        plugin_relay::server::RelayServerPlugin,
-    ];
-    let mut plugins = PluginSet::from(plugins);
+    // Load plugins metadata.
+    let mut plugins = PluginSet::from(load_plugins_metadata());
 
     // Define the command-line interface.
     let mut cmd = clap::Command::new(BINARY).version(agent_version());
@@ -209,6 +222,7 @@ fn run_command_no_measurement(args: &cli::Cli, _config: &GeneralConfig, plugins:
     }
 }
 
+/// Setup the measurement pipeline according to CLI args and config file.
 fn apply_pipeline_settings(args: &cli::Cli, config: &GeneralConfig, pipeline: &mut pipeline::Builder) {
     // config file
     if let Some(max_update_interval) = config.max_update_interval {

@@ -33,9 +33,11 @@ pub enum WatchError {
     PipelineShutdown(#[source] anyhow::Error),
 }
 
-/// Spawns a process and stops the agent when the process exits.
+/// Spawns a process that runs `program args` and stops the measurement agent when it exits.
 ///
 /// The measurement sources are triggered before the process spawns and after it exits.
+///
+/// After the process exits, the pipeline must stop within `shutdown_timeout`, or an error is returned.
 pub fn watch_process(
     agent: RunningAgent,
     program: String,

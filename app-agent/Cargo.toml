@@ -16,42 +16,23 @@ log = { version = "0.4", features = ["release_max_level_debug"] }
 serde = { version = "1.0.210", features = ["derive"] }
 tokio = { version = "1.40.0", features = ["rt"] }
 toml = "0.8.19"
-
-# plugins
-plugin-csv = { path = "../plugin-csv", optional = true }
-plugin-perf = { path = "../plugin-perf", optional = true }
-plugin-rapl = { path = "../plugin-rapl", optional = true }
-plugin-nvidia = { path = "../plugin-nvidia", optional = true }
-plugin-socket-control = { path = "../plugin-socket-control", optional = true }
-plugin-relay = { path = "../plugin-relay", optional = true }
-plugin-procfs = { path = "../plugin-procfs", optional = true }
-plugin-oar2 = { path = "../plugin-oar2", optional = true }
-plugin-cgroupv2 = { path = "../plugin-cgroupv2", optional = true }
-plugin-influxdb = { path = "../plugin-influxdb", optional = true }
-plugin-mongodb = { path = "../plugin-mongodb", optional = true }
 thiserror = "2.0.11"
 
-[features]
-# TODO have less features to begin with
-rapl = ["dep:plugin-rapl"]
-socket-control = ["dep:plugin-socket-control"]
-k8s = ["dep:plugin-cgroupv2"]
-oar3 = ["dep:plugin-cgroupv2"]
-oar2 = ["dep:plugin-oar2"]
-nvidia-nvml = ["dep:plugin-nvidia", "plugin-nvidia/nvml"]
-nvidia-jetson = ["dep:plugin-nvidia", "plugin-nvidia/jetson"]
+# Plugins that are available for every target
+plugin-csv = { path = "../plugin-csv" }
+plugin-influxdb = { path = "../plugin-influxdb" }
+plugin-relay = { path = "../plugin-relay" }
+plugin-mongodb = { path = "../plugin-mongodb" }
 
-# outputs
-output-csv = ["dep:plugin-csv"]
-output-influxdb = ["dep:plugin-influxdb"]
-output-mongodb = ["dep:plugin-mongodb"]
-
-# relay mode
-relay-client = ["dep:plugin-relay", "plugin-relay/client"]
-relay-server = ["dep:plugin-relay", "plugin-relay/server"]
-
-# groups of features
-linux-inputs = ["dep:plugin-perf", "dep:plugin-procfs"]
+# Linux-only dependencies
+[target.'cfg(target_os = "linux")'.dependencies]
+plugin-cgroupv2 = { path = "../plugin-cgroupv2" }
+plugin-nvidia = { path = "../plugin-nvidia" }
+plugin-oar2 = { path = "../plugin-oar2" }
+plugin-perf = { path = "../plugin-perf" }
+plugin-procfs = { path = "../plugin-procfs" }
+plugin-rapl = { path = "../plugin-rapl" }
+plugin-socket-control = { path = "../plugin-socket-control" }
 
 [[bin]]
 name = "alumet-agent"
