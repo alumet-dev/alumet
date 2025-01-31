@@ -87,7 +87,7 @@ jobs:
             - v2-dependency-cache
       - run:
           name: Compile Alumet standard agent a a static MUSL binary
-          command: "cargo build -p alumet-agent --target=x86_64-unknown-linux-musl --features=rapl,socket-control,k8s,oar3,oar2,output-csv,output-influxdb,output-mongodb,relay-client,relay-server"
+          command: "cargo build -p alumet-agent --target=x86_64-unknown-linux-musl"
           environment:
             RUSTFLAGS: "-C target-feature=+crt-static"
 
