@@ -11,19 +11,11 @@ use std::collections::HashMap;
 /// - Substitution of a single character
 /// - Transposition of two adjacent characters
 ///
-/// # Arguments
-///
-/// * `a` - The first string.
-/// * `b` - The second string.
-///
-/// # Returns
-///
-/// The Damerau-Levenshtein distance between the two strings.
-///
 /// # Examples
 ///
 /// ```
-/// use app_agent::word_distance::distance_with_adjacent_transposition;
+/// use alumet_agent::word_distance::distance_with_adjacent_transposition;
+///
 /// let distance = distance_with_adjacent_transposition("kitten", "sitting");
 /// assert_eq!(distance, 3);
 ///
