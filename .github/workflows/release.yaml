@@ -1,0 +1,100 @@
+name: "Create the release"
+
+on:
+  release:
+    types: ["created", "published"]
+
+jobs:
+  gather-informations:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.get_tag.outputs.TAG }}
+    steps:
+      - name: Get Release Tag
+        id: get_tag
+        run: |
+          TAG_NAME=${{ github.event.release.tag_name }}
+          CLEAN_TAG=${TAG_NAME#v}
+          echo "TAG=$CLEAN_TAG" >> $GITHUB_OUTPUT
+
+  create-rpm:
+    needs: gather-informations
+    uses: alumet-dev/packaging/.github/workflows/build_rpm.yaml@ci/create-rpm-package
+    with:
+      target-architecture: x86_64
+      build-version: ${{ needs.gather-informations.outputs.tag }}
+      release-version: 1
+
+
+  publish:
+    needs: create-rpm
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install createrepo
+        run: sudo apt-get update && sudo apt-get install -y createrepo-c
+        
+      - name: Setup gh-pages branch
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout gh-pages || git checkout --orphan gh-pages
+          git pull origin gh-pages
+            
+      - name: Set up folder
+        run: |
+          rm -rf docs
+          mkdir -p docs/rpm          
+      
+      - name: Download RPM artifact
+        uses: actions/download-artifact@v4
+        with:
+          path: ./docs/rpm
+          pattern: '**/*.rpm' 
+
+      - name: Move RPM files to docs directory
+        run: |
+          find ./docs/rpm -mindepth 2 -type f -exec mv -t ./docs/rpm {} +
+          find ./docs/rpm -type d -empty -delete
+
+      - name: Create repository metadata
+        run: |
+          cd docs/rpm
+          createrepo_c .
+          cd ../..
+
+      - name: Commit and push changes
+        run: |
+          git add docs
+          git commit -m "Update RPM repository"
+          git push origin gh-pages
+      
+      - name: Upload static files as artifact
+        id: deployment
+        uses: actions/upload-pages-artifact@v3 
+        with:
+          path: docs/
+      
+  attach-artifacts:
+    needs: create-rpm
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Download RPM artifact
+      uses: actions/download-artifact@v4
+      with:
+        pattern: '**/*.rpm'
+        path: ./rpm
+
+    - name: Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          rpm/**/*.rpm
