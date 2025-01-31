@@ -3,7 +3,7 @@ use std::{str::FromStr, time::Duration};
 use alumet::{
     agent::{
         self,
-        config::{merge_override, AutoDefaultConfigProvider, DefaultConfigProvider},
+        config::{merge_override, AutoDefaultConfigProvider, DefaultConfigProvider, NoDefaultConfigProvider},
         exec,
         plugin::{PluginFilter, PluginSet, UnknownPluginInConfigPolicy},
     },
@@ -57,7 +57,10 @@ fn load_plugins_metadata() -> Vec<PluginMetadata> {
 /// - apply the settings from CLI and config file
 /// - start the Alumet plugins and pipeline
 /// - wait for the stop condition
-fn main() {
+///
+/// About errors: we use `anyhow::Result` and `context` instead of `expect` to get
+/// nicer error messages (`expect` prints errors with `Debug`).
+fn main() -> anyhow::Result<()> {
     init_logger();
 
     // Load plugins metadata.
@@ -75,25 +78,29 @@ fn main() {
     print_welcome();
 
     // Run CLI commands that run before the config is loaded.
-    if run_command_no_config(&args, &plugins).expect("command failed") {
-        return;
+    if run_command_no_config(&args, &plugins)? {
+        return Ok(());
     }
 
     // apply some settings that may change how the config file is parsed
     // or how the default config file is generated
-    let config_override = parse_config_overrides(&args).expect("invalid config overrides");
+    let config_override = parse_config_overrides(&args).context("invalid config overrides")?;
     if let Some(enabled_plugins) = &args.common.plugins {
         plugins.enable_only(enabled_plugins);
     }
 
     // parse config file
-    let default_config_provider = AutoDefaultConfigProvider::new(&plugins, config::GeneralConfig::default);
+    let default_config_provider: Box<dyn DefaultConfigProvider> = if args.common.no_default_config {
+        Box::new(NoDefaultConfigProvider)
+    } else {
+        Box::new(AutoDefaultConfigProvider::new(&plugins, config::GeneralConfig::default))
+    };
     let mut config = agent::config::Loader::parse_file(&args.common.config)
-        .or_default(default_config_provider, true)
+        .or_default_boxed(default_config_provider, true)
         .substitute_env_variables(true)
         .with_override(config_override)
         .load()
-        .expect("could not load config file");
+        .context("could not load config file")?;
 
     // Extract the config of each plugin.
     // If not set by CLI args, use the config to determine which plugins are enabled.
@@ -103,14 +110,14 @@ fn main() {
             args.common.plugins.is_none(),
             UnknownPluginInConfigPolicy::Error,
         )
-        .expect("invalid plugins config");
+        .context("invalid plugins config")?;
 
     // Extract non-plugin config.
-    let config = config.try_into::<GeneralConfig>().expect("invalid general config");
+    let config = config.try_into::<GeneralConfig>().context("invalid general config")?;
 
     // Run CLI commands that only require the config and run before the pipeline starts.
-    if run_command_no_measurement(&args, &config, &plugins).expect("command failed") {
-        return;
+    if run_command_no_measurement(&args, &config, &plugins).context("command failed")? {
+        return Ok(());
     }
 
     // begin the creation of the pipeline (we have some settings to apply to it)
@@ -120,13 +127,13 @@ fn main() {
     // start Alumet with the pipeline and plugins
     let agent = agent::Builder::from_pipeline(plugins, pipeline)
         .build_and_start()
-        .expect("startup failure");
+        .context("startup failure")?;
 
     // run the provided command, the default is Run
     match args.command.take().unwrap_or(cli::Command::Run) {
         cli::Command::Run => {
             // execute the pipeline until Alumet is externally stopped (e.g. by Ctrl+C)
-            agent.wait_for_shutdown(Duration::MAX).expect("error while running");
+            agent.wait_for_shutdown(Duration::MAX).context("error while running")?;
         }
         cli::Command::Exec(exec_args) => {
             let timeout = Duration::from_secs(5);
@@ -147,6 +154,7 @@ fn main() {
         }
         _ => unreachable!("every command should have been handled at this point"),
     }
+    Ok(())
 }
 
 /// Prints a short welcome message.
@@ -257,7 +265,37 @@ fn parse_config_overrides(args: &cli::Cli) -> anyhow::Result<toml::Table> {
             merge_override(&mut config_override, parsed_override);
         }
     }
+
+    // Special case `--output` for easier local use.
+    if let Some(output) = &args.common.output_file {
+        let o = plugin_config_override("csv", "output_path", toml::Value::String(output.to_owned()));
+        merge_override(&mut config_override, o);
+    }
+
+    // Special case `--relay-out`.
+    if let Some(addr) = &args.common.relay_out {
+        let o = plugin_config_override("relay-client", "relay_server", toml::Value::String(addr.to_owned()));
+        merge_override(&mut config_override, o);
+    }
+
+    // Special case `--relay-in`.
+    if let Some(addr) = &args.common.relay_in {
+        let o = plugin_config_override("relay-server", "address", toml::Value::String(addr.to_owned()));
+        merge_override(&mut config_override, o);
+    }
+
     Ok(config_override)
+}
+
+/// Generates a table `plugins.csv.output_path = $output`
+fn plugin_config_override(plugin: &str, key: &str, value: toml::Value) -> toml::Table {
+    toml::Table::from_iter(vec![(
+        String::from("plugins"),
+        toml::Value::Table(toml::Table::from_iter(vec![(
+            String::from(plugin),
+            toml::Value::Table(toml::Table::from_iter(vec![(String::from(key), value)])),
+        )])),
+    )])
 }
 
 /// Generates a version number from the information generated in the build script.
@@ -386,7 +424,7 @@ mod cli {
     pub struct CommonArgs {
         /// Path to the config file.
         #[arg(long, env = "ALUMET_CONFIG", default_value = "alumet-config.toml")]
-        pub config: String, // not used in Configurator, but directly by main()
+        pub config: String,
 
         /// If set, the config file must exist, otherwise the agent will fail to start with an error.
         #[arg(long, default_value_t = false)]
@@ -425,6 +463,18 @@ mod cli {
         /// How many "high-priority" worker threads to spawn.
         #[arg(long, env = "ALUMET_PRIORITY_THREADS")]
         pub priority_worker_threads: Option<usize>,
+
+        /// Path to the output file (CSV plugin).
+        #[arg(long)]
+        pub output_file: Option<String>,
+
+        /// Address and port of the server to connect to with the relay client (relay-client plugin).
+        #[arg(long)]
+        pub relay_out: Option<String>,
+
+        /// Address and/or port that the relay server should listen to (relay-server plugin).
+        #[arg(long)]
+        pub relay_in: Option<String>,
     }
 }
 

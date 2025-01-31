@@ -32,6 +32,7 @@ pub fn run_agent(binary: &str, bin_args: &[&str], workdir: &Path) -> anyhow::Res
 /// Executes `cargo run ...` and captures its output.
 ///
 /// The stdout and stderr are captured, nothing will be printed during the execution of the command.
+#[allow(unused)]
 pub fn run_agent_capture_output(binary: &str, bin_args: &[&str], workdir: &Path) -> anyhow::Result<Output> {
     let mut cmd = command_run_agent(binary, bin_args)?;
     cmd.current_dir(workdir)
@@ -39,10 +40,13 @@ pub fn run_agent_capture_output(binary: &str, bin_args: &[&str], workdir: &Path)
         .with_context(|| format!("could not run process: {cmd:?}"))
 }
 
-/// Executes `cargo run ...` and duplicates its output to the current stdout/stderr and two buffers.
+/// Executes `cargo run <binary> <bin_args>` in `workdir` and
+/// duplicates its output to the current stdout/stderr and two buffers.
 ///
 /// The stdout and stderr are both redirected to a pipe, and copied to the current stdout and stderr,
-/// and to two buffers. In essence, it does "both" `cargo_run` and `cargo_run_capture_output`.
+/// and to two buffers. The buffers are returned in an [`Output`].
+///
+/// In essence, this function combines [`run_agent`] and [`run_agent_capture_output`].
 pub fn run_agent_tee(binary: &str, bin_args: &[&str], workdir: &Path) -> anyhow::Result<Output> {
     let mut cmd = command_run_agent(binary, bin_args)?;
     let child = cmd

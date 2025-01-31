@@ -1,8 +1,8 @@
 [package]
 name = "alumet-agent"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
-description = "Metric collector agent to install on each node."
+description = "Agent that collects energy and performance metrics."
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

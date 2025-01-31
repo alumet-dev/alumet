@@ -48,6 +48,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::{borrow::Cow, env::VarError};
 
+use anyhow::anyhow;
 use serde::Serialize;
 
 use super::plugin::{PluginFilter, PluginSet};
@@ -97,6 +98,9 @@ pub struct AutoDefaultConfigProvider<'p, A: Serialize, F: Fn() -> A> {
     default_general_options: F,
 }
 
+/// When asked to generate a default configuration, fails with an error.
+pub struct NoDefaultConfigProvider;
+
 impl<'d> Loader<'d> {
     /// Creates a new `Loader` that will read `file_path` on [`load`](Self::load).
     pub fn parse_file<P: Into<PathBuf>>(config_file: P) -> Self {
@@ -109,12 +113,26 @@ impl<'d> Loader<'d> {
         }
     }
 
-    /// If the configuration file does not exist, use the result of `get_default`.
+    /// If the configuration file does not exist, use the `default_provider`.
     ///
     /// Set `save_to_file` to `true` to write the default config to the file specified
     /// by [`parse_file`](Self::parse_file).
     pub fn or_default<D: DefaultConfigProvider + 'd>(mut self, default_provider: D, save_to_file: bool) -> Self {
         self.default_provider = Some(Box::new(default_provider));
+        self.save_default = save_to_file;
+        self
+    }
+
+    /// If the configuration file does not exist, use the `default_provider`.
+    ///
+    /// Set `save_to_file` to `true` to write the default config to the file specified
+    /// by [`parse_file`](Self::parse_file).
+    pub fn or_default_boxed(
+        mut self,
+        default_provider: Box<dyn DefaultConfigProvider + 'd>,
+        save_to_file: bool,
+    ) -> Self {
+        self.default_provider = Some(default_provider);
         self.save_default = save_to_file;
         self
     }
@@ -213,6 +231,12 @@ impl<'p, A: Serialize, F: Fn() -> A> DefaultConfigProvider for AutoDefaultConfig
         // make the global config
         config.insert(String::from("plugins"), toml::Value::Table(plugins_table));
         Ok(config)
+    }
+}
+
+impl DefaultConfigProvider for NoDefaultConfigProvider {
+    fn default_config(&self) -> anyhow::Result<toml::Table> {
+        Err(anyhow!("no default config available"))
     }
 }
 
