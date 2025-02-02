@@ -1,4 +1,3 @@
-Cargo.lock
 target/
 app-*/flamegraph.svg
 app-*/*.coz
