@@ -102,8 +102,8 @@ impl Default for Config {
         Self {
             poll_interval: Duration::from_secs(1), // 1Hz
             tdp: 100.0,
-            nb_vcpu: 1.0,
-            nb_cpu: 1.0,
+            nb_vcpu: 16.0,
+            nb_cpu: 16.0,
             system_cpu_usage: String::from("kernel_cpu_time"),
         }
     }
