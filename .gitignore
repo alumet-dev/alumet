@@ -7,3 +7,6 @@ app-*/perf.data.old
 app-*/*output.csv
 .DS_Store
 .vscode
+**/debug/**
+**/release/**
+**/.rustc_info.json
