@@ -136,7 +136,7 @@ impl MeasurementPoint {
         self.attributes.push((key.into(), value.into()));
     }
 
-    /// Sets an attribute and returns a new measurement point.
+    /// Sets an attribute on this measurement point, and returns self to allow for method chaining.
     /// If an attribute with the same key already exists, its value is replaced.
     pub fn with_attr<K: Into<Cow<'static, str>>, V: Into<AttributeValue>>(mut self, key: K, value: V) -> Self {
         self.add_attr(key, value);
