@@ -203,6 +203,9 @@ impl TaskManager {
                 // Build the source
                 let mut reg = build(ctx).context("managed source creation failed")?;
 
+                #[cfg(any(feature = "test", test))]
+                reg = WrappedSource::new(reg);
+
                 // Apply constraints on the source trigger
                 log::trace!("New managed source: {} with spec {:?}", reg.name, reg.trigger_spec);
                 reg.trigger_spec.constrain(&self.trigger_constraints);

@@ -36,8 +36,25 @@ pub trait Transform: Send {
 
 /// Shared data that can be accessed by transforms.
 pub struct TransformContext<'a> {
-    pub metrics: &'a MetricRegistry,
+    metrics: &'a MetricRegistry,
+    origin: MeasurementOrigin,
 }
+
+impl<'a> TransformContext<'a> {
+    pub fn metrics(&self) -> &MetricRegistry {
+        &self.metrics
+    }
+
+    pub fn origin(&self) -> &MeasurementOrigin {
+        &self.origin
+    }
+
+    pub fn set_origin(&mut self, o: MeasurementOrigin) {
+        self.origin = o;
+    }
+}
+
+
 
 /// Controls the transforms of a measurement pipeline.
 ///
