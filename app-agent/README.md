@@ -12,9 +12,9 @@ Here is how to quickly run the local agent.
 cargo run --bin alumet-local-agent --features local_x86
 ```
 
-Use `cargo build --bin alumet-local-agent --features local_x86 --target-dir .` to build an executable without running it (it will be created under a "debug" folder).
+Use `cargo build` instead of `cargo run` to build an executable without running it.
 
-For production, use add the option `--release` (it will be created under a "release" folder).
+For production, use `cargo build --release`.
 
 ## Relay client agent
 

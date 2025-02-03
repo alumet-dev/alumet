@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 fn main() {
     // Specify here all the plugins that will be included in the agent during compilation.
     let plugins = static_plugins![
-        // plugin_rapl::RaplPlugin,
+        plugin_rapl::RaplPlugin,
         plugin_perf::PerfPlugin,
         plugin_procfs::ProcfsPlugin,
         plugin_csv::CsvPlugin,
