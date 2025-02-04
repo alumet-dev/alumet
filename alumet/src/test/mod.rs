@@ -1,5 +1,17 @@
 use crate::{agent, measurement::MeasurementBuffer, metrics::Metric, pipeline::{Output, Transform}, plugin::{rust::AlumetPlugin, PluginMetadata}};
 
+/// Structure representing runtimes expectations.
+///
+/// This structure contains the various components needed to
+/// test an agent on runtime. It means test sources, do they retrieve correct data ?
+/// It also means for transform plugins, are their output values correct depending on their input.
+/// While [`StartupExpectations`] mainly focus on the test about correct agent initialization and
+/// its metrics, tranforms... This structure is used to test correct computation or gathering of values
+///
+/// # Fields
+///
+/// * `sources_to_check` - A list of sources.
+///
 pub struct RuntimeExpectations {
     sources_to_check: Vec<(SourceName, Box<dyn Fn(&MeasurementBuffer)>)>
 }
@@ -40,6 +52,17 @@ impl RuntimeExpectations {
 
 }
 
+/// Structure representing runtimes expectations as a [`AlumetPlugin`] .
+///
+/// This structure contains the various components needed to
+/// test an agent on runtime as a plugin. It means test sources, do they retrieve correct data ?
+/// It also means for transform plugins, are their output values correct depending on their input. 
+///
+/// # Fields
+///
+/// * `sources_to_check` - A list of sources.
+/// * `transform_to_check` - A list of transform.
+///
 struct RuntimeExpectationsPlugin {
     sources_to_check: Vec<(SourceName, Box<dyn Fn(&MeasurementBuffer)>)>
     transform_to_check: Vec<(TransformName, Box<dyn Fn() -> (MeasurementBuffer, MeasurementOrigin)>, Box<dyn Fn(&MeasurementBuffer)>)>
@@ -105,7 +128,24 @@ impl Output for TransformCheckOutput {
     }
 }
 
-
+/// Structure representing startup expectations.
+///
+/// This structure contains the various components needed to
+/// test an agent. 
+/// While [`RuntimeExpectations`] mainly focus on the test about correct correct computation or gathering of values
+/// This structure is used to test correct agent initialization and its metrics, tranforms...
+///
+/// # Fields
+///
+/// * `metrics` - A list of metrics expected for the agent.
+/// * `plugins` - A list of plugins expected for the agent .
+/// * `sources` - A list of tuples representing data sources. Each tuple contains
+///   the name of the source, a description, and the type of source.
+/// * `transforms` - A list of tuples representing transformations to apply. Each tuple
+///   contains the name of the plugin to which the source is linked, the source name and the [`SourceType`].
+/// * `outputs` - A list of tuples representing outputs. Each tuple contains the name of the
+///   plugin to which the output is linked and the output name.
+///
 #[derive(Default)]
 pub struct StartupExpectations {
     metrics: Vec<Metric>,
@@ -115,7 +155,9 @@ pub struct StartupExpectations {
     outputs: Vec<(String, String)>,
 }
 
-impl StartupExpectations {    
+impl StartupExpectations {
+    /// Set up closures to test if all previous metrics, element source and element transform are correctly added
+    /// to the agent. 
     pub(crate) fn apply(self, builder: &mut agent::Builder) {
         builder.after_plugins_start(|p| {
                 for expected_metric in self.metrics {
@@ -151,22 +193,26 @@ impl StartupExpectations {
         todo!()
     }
 
+    /// This function is used to add a new metric to check on call to [`apply`]
     pub fn start_metric(mut self, metric: Metric) -> Self {
         self.metrics.push(metric);
         self
     }
 
+    /// This function is used to add a new source to check on call to [`apply`]
     pub fn element_source(mut self, plugin_name: &str, source_name: &str, source_type: SourceType) -> Self {
         // In this plugin, check if the source is in all available sources (TODO need #79)
         self.sources.push((plugin_name.to_owned(), source_name.to_owned(), source_type));
         self
     }
 
+    /// This function is used to add a new transform to check on call to [`apply`]
     pub fn element_transform(mut self, plugin_name: &str, transform_name: &str) -> Self {
         self.transforms.push((plugin_name.to_owned(), transform_name.to_owned()));
         self
     }
-
+    
+    /// This function is used to add a new output to check on call to [`apply`]
     pub fn element_output(mut self, plugin_name: &str, output_name: &str) -> Self {
         self.outputs.push((plugin_name.to_owned(), output_name.to_owned()));
         self
