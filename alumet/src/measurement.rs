@@ -130,14 +130,16 @@ impl MeasurementPoint {
         self.attributes.iter().map(|(k, _v)| k.as_ref())
     }
 
-    pub(crate) fn add_attr(&mut self, key: Cow<'static, str>, value: AttributeValue) {
-        self.attributes.push((key, value));
-    }
-
     /// Sets an attribute on this measurement point.
     /// If an attribute with the same key already exists, its value is replaced.
+    pub fn add_attr<K: Into<Cow<'static, str>>, V: Into<AttributeValue>>(&mut self, key: K, value: V) {
+        self.attributes.push((key.into(), value.into()));
+    }
+
+    /// Sets an attribute on this measurement point, and returns self to allow for method chaining.
+    /// If an attribute with the same key already exists, its value is replaced.
     pub fn with_attr<K: Into<Cow<'static, str>>, V: Into<AttributeValue>>(mut self, key: K, value: V) -> Self {
-        self.add_attr(key.into(), value.into());
+        self.add_attr(key, value);
         self
     }
 
