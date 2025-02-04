@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::net::ToSocketAddrs;
 
 use alumet::{
     pipeline::elements::source::builder::AutonomousSourceRegistration,
@@ -7,10 +7,11 @@ use alumet::{
         AlumetPluginStart, ConfigTable,
     },
 };
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 
-use crate::{server::source, util::resolve_socket_address};
+use crate::server::source;
 
 pub struct RelayServerPlugin {
     config: Config,
@@ -20,26 +21,17 @@ pub struct RelayServerPlugin {
 #[serde(deny_unknown_fields)]
 struct Config {
     /// Address to listen on.
-    /// The default value is "IPv6 any", i.e. `::`.
+    /// The default value is "IPv6 any" on port 50051, i.e. `[::]:50051`.
     ///
     /// For information, ip6-localhost is `::1`.
-    ///
     /// To listen to all your network interfaces please use `0.0.0.0` or `::`.
     address: String,
-
-    /// Port on which to serve.
-    port: u16,
-
-    /// IPv6 scope id, for link-local addressing.
-    ipv6_scope_id: Option<u32>,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            address: String::from("::"), // "any" on ipv6
-            port: 50051,
-            ipv6_scope_id: None,
+            address: String::from("[::]:50051"), // "any" on ipv6
         }
     }
 }
@@ -65,15 +57,20 @@ impl AlumetPlugin for RelayServerPlugin {
     }
 
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
-        // Resolve the address from the config.
-        let config_address = std::mem::take(&mut self.config.address);
-        let addr: SocketAddr = resolve_socket_address(config_address, self.config.port, self.config.ipv6_scope_id)?[0];
+        // Resolve the address from the config right now (fail fast).
+        let addr = std::mem::take(&mut self.config.address);
+        let addr: Vec<_> = addr
+            .to_socket_addrs()
+            .with_context(|| format!("invalid socket address: {addr}"))?
+            .collect();
 
+        // Register the source builder.
         alumet.add_autonomous_source_builder(move |ctx, cancel_token, out_tx| {
-            log::info!("Starting relay server on socket {addr}");
+            log::info!("Starting relay server on: {addr:?}");
             let metrics_tx = ctx.metrics_sender();
             let source = Box::pin(async move {
-                let listener = TcpListener::bind(addr).await?;
+                // `bind` loops through all the addresses that correspond to the string
+                let listener = TcpListener::bind(addr.as_slice()).await.context("tcp binding failed")?;
                 let server = source::TcpServer::new(cancel_token, listener, out_tx, metrics_tx);
                 server.accept_loop().await
             });

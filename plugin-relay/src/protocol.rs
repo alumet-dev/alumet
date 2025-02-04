@@ -3,7 +3,7 @@
 use std::{io, time::Duration};
 
 use alumet::{measurement::WrappedMeasurementType, metrics::RawMetricId, units::PrefixedUnit};
-use anyhow::{anyhow, Context};
+use anyhow::Context;
 use bytes::BytesMut;
 use serde::{Deserialize, Serialize};
 use tokio::{

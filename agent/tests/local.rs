@@ -1,31 +1,34 @@
 //! Integration tests for the local agent.
-use crate::common::{
+mod common;
+
+use anyhow::Context;
+
+use common::{
     empty_temp_dir,
     run::{run_agent, run_agent_tee},
     tests,
 };
-use anyhow::Context;
 
 #[test]
 fn help() {
     let tmp_dir = empty_temp_dir("help").unwrap();
-    let status = run_agent("alumet-local-agent", &["--help"], &tmp_dir).unwrap();
+    let status = run_agent("alumet-agent", &["--help"], &tmp_dir).unwrap();
     assert!(status.success());
 }
 
 #[test]
 fn args_bad_config_no_folder() -> anyhow::Result<()> {
-    tests::args_bad_config_no_folder("alumet-local-agent")
+    tests::args_bad_config_no_folder("alumet-agent")
 }
 
 #[test]
 fn args_bad_config_missing_file_no_default() -> anyhow::Result<()> {
-    tests::args_bad_config_missing_file_no_default("alumet-local-agent")
+    tests::args_bad_config_missing_file_no_default("alumet-agent")
 }
 
 #[test]
 fn args_regen_config() -> anyhow::Result<()> {
-    tests::args_regen_config("alumet-local-agent")
+    tests::args_regen_config("alumet-agent")
 }
 
 #[test]
@@ -41,9 +44,9 @@ fn args_output_exec() -> anyhow::Result<()> {
     let tmp_file_out_str = tmp_file_out.to_str().unwrap();
     let tmp_file_conf_str = tmp_file_conf.to_str().unwrap();
     let command_out = run_agent_tee(
-        "alumet-local-agent",
+        "alumet-agent",
         &[
-            "--output",
+            "--output-file",
             tmp_file_out_str,
             "--config",
             tmp_file_conf_str,
@@ -57,7 +60,7 @@ fn args_output_exec() -> anyhow::Result<()> {
     )?;
     assert!(
         command_out.status.success(),
-        "alumet-local-agent --output FILE should work"
+        "alumet-agent --output-file FILE should work"
     );
 
     // Check that something has been written, at the right place.

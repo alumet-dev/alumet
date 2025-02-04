@@ -4,7 +4,7 @@ use crate::common::{empty_temp_dir, run::run_agent_tee};
 
 pub fn args_bad_config_no_folder(binary: &str) -> anyhow::Result<()> {
     let tmp_dir = empty_temp_dir(&format!("{binary}-args_bad_config_no_folder"))?;
-    let bad_conf = tmp_dir.join("zzzzz.toml");
+    let bad_conf = tmp_dir.join("i-do-not-exist").join("zzzzz.toml");
 
     let bad_conf_filename = bad_conf.to_str().unwrap();
     let output = run_agent_tee(binary, &["--config", bad_conf_filename], &tmp_dir)?;
@@ -44,7 +44,7 @@ pub fn args_regen_config(binary: &str) -> anyhow::Result<()> {
     assert!(!conf.try_exists()?, "config file should not exist: {conf:?}");
 
     let conf_path_str = conf.to_str().unwrap();
-    let output = run_agent_tee(binary, &["--config", conf_path_str, "regen-config"], &tmp_dir)?;
+    let output = run_agent_tee(binary, &["--config", conf_path_str, "config", "regen"], &tmp_dir)?;
     assert!(output.status.success(), "command should succeed");
 
     let conf_content =

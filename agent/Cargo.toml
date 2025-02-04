@@ -1,0 +1,52 @@
+[package]
+name = "alumet-agent"
+version = "0.8.0"
+edition = "2021"
+rust-version = "1.78"
+description = "Agent that collects energy and performance metrics."
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+alumet = { path = "../alumet" }
+anyhow = "1.0.88"
+clap = { version = "4.5.17", features = ["derive", "env", "string"] }
+env_logger = "0.11.5"
+humantime-serde = "1.1.1"
+log = { version = "0.4", features = ["release_max_level_debug"] }
+serde = { version = "1.0.210", features = ["derive"] }
+tokio = { version = "1.40.0", features = ["rt"] }
+toml = "0.8.19"
+thiserror = "2.0.11"
+
+# Plugins that are available for every target
+plugin-csv = { path = "../plugin-csv" }
+plugin-influxdb = { path = "../plugin-influxdb" }
+plugin-relay = { path = "../plugin-relay" }
+plugin-mongodb = { path = "../plugin-mongodb" }
+
+# Linux-only dependencies
+[target.'cfg(target_os = "linux")'.dependencies]
+plugin-cgroupv2 = { path = "../plugin-cgroupv2" }
+plugin-nvidia = { path = "../plugin-nvidia" }
+plugin-oar2 = { path = "../plugin-oar2" }
+plugin-perf = { path = "../plugin-perf" }
+plugin-procfs = { path = "../plugin-procfs" }
+plugin-rapl = { path = "../plugin-rapl" }
+plugin-socket-control = { path = "../plugin-socket-control" }
+
+[[bin]]
+name = "alumet-agent"
+path = "src/bin/main.rs"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+assert_cmd = "2.0.16"
+libc = "0.2.159"
+tempfile = "3.15"
+
+[build-dependencies]
+vergen = { version = "9.0.4", default-features = false, features = ["build", "cargo", "rustc"] }
+vergen-gitcl = "1.0.5"

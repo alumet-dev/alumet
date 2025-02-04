@@ -1,60 +1,10 @@
-//! Tie Alumet to a running process.
-
 use std::{
     fs::{self, File, Metadata},
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
-    process::ExitStatus,
 };
 
-use alumet::{
-    pipeline::{
-        control::ControlMessage,
-        elements::source::{self, TriggerMessage},
-        matching::TypedElementSelector,
-        MeasurementPipeline,
-    },
-    plugin::event::StartConsumerMeasurement,
-    resources::ResourceConsumer,
-};
-use anyhow::{anyhow, Context};
-
-/// Spawns a child process and waits for it to exit.
-pub fn exec_child(external_command: String, args: Vec<String>) -> anyhow::Result<ExitStatus> {
-    // Spawn the process.
-    let p_result = std::process::Command::new(external_command.clone())
-        .args(args.clone())
-        .spawn();
-
-    let mut p = match p_result {
-        Ok(val) => val,
-        Err(e) => match e.kind() {
-            std::io::ErrorKind::NotFound => {
-                let return_error: String = handle_not_found(external_command, args);
-                return Err(e).with_context(|| return_error);
-            }
-            std::io::ErrorKind::PermissionDenied => {
-                let return_error: String = handle_permission_denied(external_command);
-                return Err(e).with_context(|| return_error);
-            }
-            _ => {
-                return Err(anyhow!("Error in child process: {e:?}"));
-            }
-        },
-    };
-
-    // Notify the plugins that there is a process to observe.
-    let pid = p.id();
-    log::info!("Child process '{external_command}' spawned with pid {pid}.");
-    alumet::plugin::event::start_consumer_measurement()
-        .publish(StartConsumerMeasurement(vec![ResourceConsumer::Process { pid }]));
-
-    // Wait for the process to terminate.
-    let status = p.wait().context("failed to wait for child process")?;
-    Ok(status)
-}
-
-fn handle_permission_denied(external_command: String) -> String {
+pub fn handle_permission_denied(external_command: String) -> String {
     let file_open_result = File::open(external_command.clone());
     let file_correctly_opened = if let Err(_err) = file_open_result {
         // Can't open the file, let's check it's parent
@@ -105,7 +55,7 @@ fn handle_permission_denied(external_command: String) -> String {
     format!("Error happened about file's permission {}", external_command)
 }
 
-fn handle_not_found(external_command: String, args: Vec<String>) -> String {
+pub fn handle_not_found(external_command: String, args: Vec<String>) -> String {
     fn resolve_application_path() -> std::io::Result<PathBuf> {
         std::env::current_exe()?.canonicalize()
     }
@@ -216,22 +166,10 @@ fn find_a_parent_with_perm_issue(path: String) -> anyhow::Result<std::path::Path
     Err("Unable to retrieve a parent for your file".to_string())
 }
 
-// Triggers one measurement (on all sources that support manual trigger).
-pub fn trigger_measurement_now(pipeline: &MeasurementPipeline) -> anyhow::Result<()> {
-    let control_handle = pipeline.control_handle();
-    let send_task = control_handle.send(ControlMessage::Source(source::ControlMessage::TriggerManually(
-        TriggerMessage {
-            selector: TypedElementSelector::all(),
-        },
-    )));
-    pipeline
-        .async_runtime()
-        .block_on(send_task)
-        .context("failed to send TriggerMessage")
-}
-
 #[cfg(test)]
 mod tests {
+    use std::{fs, path::PathBuf};
+
     use fs::Permissions;
     use tempfile::tempdir;
 

@@ -1,17 +1,48 @@
 //! Integration tests for the relay mode, client and server together.
+mod common;
 
+use anyhow::{anyhow, Context};
 use std::{
     process::{self, ExitStatus, Stdio},
     time::Duration,
 };
 
-use crate::common::{
+use common::{
     empty_temp_dir,
-    run::{command_run_agent, ChildGuard},
+    run::{command_run_agent, run_agent_tee, ChildGuard},
 };
-use anyhow::{anyhow, Context};
 
-/// Check that the client can send measurements to the server,
+/// Checks that the `--relay-server` option works when the relay-client plugin is enabled.
+#[test]
+fn args_bad_relay_server_address() {
+    let tmp_dir = empty_temp_dir("args_bad_relay_server_address").unwrap();
+    let out = run_agent_tee(
+        "alumet-agent",
+        &[
+            "--plugins",
+            "relay-client",
+            "--relay-out",
+            "BADuri:#é",
+            "exec",
+            "sleep 1",
+        ],
+        &tmp_dir,
+    )
+    .expect("failed to run the client and capture its output");
+    assert!(
+        !out.status.success(),
+        "Alumet relay client should fail because of the bad relay server address"
+    );
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    let msg = "BADuri:#é";
+    assert!(
+        stderr.contains(msg) || stdout.contains(msg),
+        "The incorrect URI should show up in the logs"
+    );
+}
+
+/// Checks that the client can send measurements to the server,
 /// which will write them to a CSV file.
 ///
 /// Note: we use a limited set of plugins so that it works in the CI environment.
@@ -20,21 +51,18 @@ fn client_to_server_to_csv() {
     // These tests are in the same test function because they must NOT run concurrently (same port).
 
     // works in CI
-    client_to_server_to_csv_on_address("ipv4", Some(("localhost", "50051"))).unwrap();
+    client_to_server_to_csv_on_address("ipv4", Some("localhost:50051")).unwrap();
 
     // doesn't work in CI
     if std::env::var_os("NO_IPV6").is_some() {
         println!("IPv6 test disabled by environment variable.");
     } else {
-        client_to_server_to_csv_on_address("ipv6", Some(("::1", "50051"))).unwrap();
+        client_to_server_to_csv_on_address("ipv6", Some("[::1]:50051")).unwrap();
         client_to_server_to_csv_on_address("default", None).unwrap();
     }
 }
 
-fn client_to_server_to_csv_on_address(
-    tag: &str,
-    addr_and_port: Option<(&'static str, &'static str)>,
-) -> anyhow::Result<()> {
+fn client_to_server_to_csv_on_address(tag: &str, addr_and_port: Option<&'static str>) -> anyhow::Result<()> {
     let tmp_dir = empty_temp_dir(&format!("client_to_server_to_csv-{tag}"))?;
 
     let server_config = tmp_dir.join("server.toml");
@@ -71,10 +99,10 @@ fn client_to_server_to_csv_on_address(
         "--config-override",
         &server_csv_output_conf,
     ]);
-    if let Some((server_addr, server_port)) = addr_and_port {
-        server_args.extend_from_slice(&["--address", server_addr, "--port", server_port]);
+    if let Some(addr_and_port) = addr_and_port {
+        server_args.extend_from_slice(&["--relay-in", addr_and_port]);
     }
-    let server_process: process::Child = command_run_agent("alumet-relay-server", &server_args)?
+    let server_process: process::Child = command_run_agent("alumet-agent", &server_args)?
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -83,13 +111,13 @@ fn client_to_server_to_csv_on_address(
     println!("spawned server process {}", server_process.id());
 
     // Wait for the server to start
-    let mut loop_limit = 50;
+    let mut loop_limit = 500;
     while !std::fs::exists(&server_config).context("could not check existence of config")? {
         if loop_limit == 0 {
             let _ = server_process.kill();
             panic!("The server config is not generated! Config path: {server_config_str}");
         }
-        std::thread::sleep(Duration::from_millis(50));
+        std::thread::sleep(Duration::from_millis(100));
         loop_limit -= 1;
     }
     std::thread::sleep(Duration::from_millis(250));
@@ -116,21 +144,16 @@ fn client_to_server_to_csv_on_address(
     .map(String::from)
     .collect();
 
-    if let Some((server_addr, port)) = addr_and_port {
-        let addr_in_uri = if server_addr.contains(':') {
-            format!("[{server_addr}]")
-        } else {
-            server_addr.to_owned()
-        };
+    if let Some(addr_and_port) = addr_and_port {
         client_args.extend_from_slice(&[
             // specify an URI that works in the CI
-            "--relay-server".into(),
-            format!("{addr_in_uri}:{port}"),
+            "--relay-out".into(),
+            addr_and_port.into(),
         ]);
     }
     let client_args: Vec<&str> = client_args.iter().map(|s| s.as_str()).collect();
 
-    let client_process = command_run_agent("alumet-relay-client", &client_args)?
+    let client_process = command_run_agent("alumet-agent", &client_args)?
         // .stdout(Stdio::piped())
         // .stderr(Stdio::piped())
         .env("RUST_LOG", "debug")
