@@ -2,7 +2,8 @@ name: "Create the release"
 
 on:
   release:
-    types: ["created", "published"]
+    types: ["created", "published", "prereleased"]
+  workflow_dispatch:
 
 jobs:
   gather-informations:
