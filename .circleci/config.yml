@@ -86,7 +86,7 @@ jobs:
             - v2-dependency-cache-{{ checksum ".combined_cache_key" }}
             - v2-dependency-cache
       - run:
-          name: Compile Alumet standard agent a a static MUSL binary
+          name: Compile Alumet standard agent as a static MUSL binary
           command: "cargo build -p alumet-agent --target=x86_64-unknown-linux-musl"
           environment:
             RUSTFLAGS: "-C target-feature=+crt-static"
