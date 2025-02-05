@@ -10,30 +10,34 @@ use alumet::{
 use crate::aggregations;
 
 pub struct AggregationTransform {
-    // Interval used to compute the aggregation.
+    /// Interval used to compute the aggregation.
     interval: Duration,
 
-    // Buffer used to store every measurement point affected by the aggregation.
-    internal_buffer: HashMap<(u64, ResourceConsumer, Resource), Vec<MeasurementPoint>>,
+    /// Buffer used to store every measurement point affected by the aggregation.
+    internal_buffer: HashMap<(u64, ResourceConsumer, Resource), Vec<MeasurementPoint>>, // TODO: add attributes to the key
     
-    // Store the correspondence table between aggregated metrics and the original ones.
-    // The key is the original metric's id and the value is the id of the aggregated metric.
+    /// Store the correspondence table between aggregated metrics and the original ones.
+    /// The key is the original metric's id and the value is the id of the aggregated metric.
     metric_correspondence_table: Arc<RwLock<HashMap<u64, u64>>>,
 
-    // Correspondence table between the metric's ID and its typed metric ID.
+    /// Correspondence table between the metric's ID and its typed metric ID.
     typed_metric_ids: Arc<RwLock<HashMap<u64, TypedMetricId<u64>>>>,
 
-    // Aggregation function.
+    /// Aggregation function.
     function: fn(Vec<MeasurementPoint>) -> WrappedMeasurementValue,
 }
 
 impl AggregationTransform {
     /// Instantiates a new instance of the aggregation transform plugin. 
-    pub fn new(interval: Duration, function: aggregations::Function) -> Self {
+    pub fn new(
+            interval: Duration,
+            function: aggregations::Function,
+            metric_correspondence_table: Arc<RwLock<HashMap<u64, u64>>>,
+        ) -> Self {
         Self {
             interval,
             internal_buffer: HashMap::<(u64,  ResourceConsumer, Resource), Vec<MeasurementPoint>>::new(),
-            metric_correspondence_table: Arc::new(RwLock::new(HashMap::<u64, u64>::new())), // TODO: init this arc new in the lib.rs
+            metric_correspondence_table,
             typed_metric_ids: Arc::new(RwLock::new(HashMap::<u64, TypedMetricId<u64>>::new())),
             function: function.get_function(),
         }
@@ -51,10 +55,10 @@ impl AggregationTransform {
                 let (i,j) = get_ids(self.interval, &values);
 
                 let sub_vec: Vec<MeasurementPoint> = values.drain(i..j).collect();
-                
+
                 // Init the new point.
                 let mut new_point = MeasurementPoint::new(
-                    Timestamp::now(),
+                    Timestamp::now(), // TODO: compute this timestamp based on the interval P1
                     *(*bis).get(&key.0).unwrap(),
                     key.clone().2,
                     key.clone().1,
@@ -64,7 +68,7 @@ impl AggregationTransform {
                         .map(|(key, value)| (key.to_owned(), value.clone()))
                         .collect()
                     );
-                
+
                 // Overwrite the 0 value by the result of the calculation.
                 let value = (self.function)(sub_vec);
                 new_point.value = value;
@@ -92,6 +96,8 @@ impl Transform for AggregationTransform {
                 measurement.consumer.clone(),
                 measurement.resource.clone(),
             );
+
+            // TODO: Fill typed_metrics_ids
 
             // If metric id not needed, then skip it.
             if !(*metric_correspondence_table_read).contains_key(&measurement.metric) {
