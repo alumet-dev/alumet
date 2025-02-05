@@ -1,8 +1,9 @@
 mod transform;
+mod aggregations;
 
-use std::{rc::Rc, sync::Arc, time::Duration};
+use std::{rc::Rc, time::Duration};
 
-use alumet::{metrics::{Metric, RawMetricId}, pipeline::{elements::transform::builder::TransformRegistration, registry::MetricSender, trigger::BoxFuture}, plugin::{
+use alumet::{metrics::{Metric, RawMetricId}, pipeline::registry::MetricSender, plugin::{
     rust::{deserialize_config, serialize_config, AlumetPlugin},
     ConfigTable,
 }};
@@ -10,7 +11,6 @@ use alumet::{metrics::{Metric, RawMetricId}, pipeline::{elements::transform::bui
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Handle;
-use futures::executor;
 use transform::AggregationTransform;
 
 pub struct AggregationPlugin {
@@ -39,7 +39,7 @@ impl AlumetPlugin for AggregationPlugin {
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
         // TODO: Init the correspondence table
-        let transform = Box::new(AggregationTransform::new(self.config.interval));
+        let transform = Box::new(AggregationTransform::new(self.config.interval, self.config.function));
         alumet.add_transform(transform);
 
         // TODO:  give metric sender to the transformPlugin
@@ -65,7 +65,7 @@ impl AlumetPlugin for AggregationPlugin {
                 .with_context(|| "metric not found")?;
             old_ids.push(raw_metric_id);
             let new_metric = Metric{
-                name: format!("{metric_name}-{}", self.config.function),
+                name: format!("{metric_name}-{}", self.config.function.get_string()),
                 unit: metric.unit.clone(),
                 description: metric.description.clone(),
                 value_type: metric.value_type.clone()};
@@ -109,7 +109,7 @@ struct Config {
     // TODO: add boolean to drop or not the received metric point
 
     // TODO: move from string to enum with sum, mean, etc.
-    function: String,
+    function: aggregations::Function,
 
     // List of metrics where to apply function.
     // Leave empty to apply function to every metrics. NO
@@ -121,7 +121,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             interval: Duration::from_secs(60),
-            function: "sum".to_string(),
+            function: aggregations::Function::Sum,
             metrics: Vec::<String>::new(),
         }
     }
