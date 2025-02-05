@@ -1,9 +1,9 @@
 mod transform;
 mod aggregations;
 
-use std::{rc::Rc, time::Duration};
+use std::{collections::HashMap, rc::Rc, sync::{Arc, RwLock}, time::Duration};
 
-use alumet::{metrics::{Metric, RawMetricId}, pipeline::registry::MetricSender, plugin::{
+use alumet::{metrics::{Metric, RawMetricId, TypedMetricId}, pipeline::registry::MetricSender, plugin::{
     rust::{deserialize_config, serialize_config, AlumetPlugin},
     ConfigTable,
 }};
@@ -16,7 +16,13 @@ use transform::AggregationTransform;
 pub struct AggregationPlugin {
     config: Config,
     metric_sender: Rc<Option<MetricSender>>,
-    // TODO: add correspondence table ? 
+
+    /// Store the correspondence table between aggregated metrics and the original ones.
+    /// The key is the original metric's id and the value is the id of the aggregated metric.
+    metric_correspondence_table: Arc<RwLock<HashMap<u64, u64>>>,
+
+    /// Correspondence table between the metric's ID and its typed metric ID.
+    typed_metric_ids: Arc<RwLock<HashMap<u64, TypedMetricId<u64>>>>,
 }
 
 impl AlumetPlugin for AggregationPlugin {
@@ -34,12 +40,23 @@ impl AlumetPlugin for AggregationPlugin {
 
     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
         let config = deserialize_config(config)?;
-        Ok(Box::new(AggregationPlugin { config , metric_sender: Rc::new(None)}))
+        Ok(Box::new(AggregationPlugin { 
+            config,
+            metric_sender: Rc::new(None),
+            metric_correspondence_table: Arc::new(RwLock::new(HashMap::<u64, u64>::new())),
+            typed_metric_ids: Arc::new(RwLock::new(HashMap::<u64, TypedMetricId<u64>>::new())),
+        }))
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
-        // TODO: Init the correspondence table
-        let transform = Box::new(AggregationTransform::new(self.config.interval, self.config.function));
+        let transform = Box::new(
+            AggregationTransform::new(
+                self.config.interval,
+                self.config.function,
+                self.metric_correspondence_table.clone(),
+                self.typed_metric_ids.clone(),
+            )
+        );
         alumet.add_transform(transform);
 
         // TODO:  give metric sender to the transformPlugin
