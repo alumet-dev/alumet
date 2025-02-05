@@ -33,13 +33,12 @@ impl AggregationTransform {
             interval: Duration,
             function: aggregations::Function,
             metric_correspondence_table: Arc<RwLock<HashMap<u64, u64>>>,
-            typed_metric_ids: Arc<RwLock<HashMap<u64, TypedMetricId<u64>>>>,
         ) -> Self {
         Self {
             interval,
             internal_buffer: HashMap::<(u64,  ResourceConsumer, Resource), Vec<MeasurementPoint>>::new(),
             metric_correspondence_table,
-            typed_metric_ids,
+            typed_metric_ids: Arc::new(RwLock::new(HashMap::<u64, TypedMetricId<u64>>::new())),
             function: function.get_function(),
         }
     }
@@ -59,7 +58,7 @@ impl AggregationTransform {
 
                 // Init the new point.
                 let mut new_point = MeasurementPoint::new(
-                    Timestamp::now(), // TODO: compute this timestamp based on the interval
+                    Timestamp::now(), // TODO: compute this timestamp based on the interval P1
                     *(*bis).get(&key.0).unwrap(),
                     key.clone().2,
                     key.clone().1,
@@ -97,6 +96,8 @@ impl Transform for AggregationTransform {
                 measurement.consumer.clone(),
                 measurement.resource.clone(),
             );
+
+            // TODO: Fill typed_metrics_ids
 
             // If metric id not needed, then skip it.
             if !(*metric_correspondence_table_read).contains_key(&measurement.metric) {

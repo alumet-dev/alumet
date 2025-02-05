@@ -8,7 +8,7 @@ use alumet::{metrics::{Metric, RawMetricId, TypedMetricId}, pipeline::registry::
     ConfigTable,
 }};
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Handle;
 use transform::AggregationTransform;
@@ -20,9 +20,6 @@ pub struct AggregationPlugin {
     /// Store the correspondence table between aggregated metrics and the original ones.
     /// The key is the original metric's id and the value is the id of the aggregated metric.
     metric_correspondence_table: Arc<RwLock<HashMap<u64, u64>>>,
-
-    /// Correspondence table between the metric's ID and its typed metric ID.
-    typed_metric_ids: Arc<RwLock<HashMap<u64, TypedMetricId<u64>>>>,
 }
 
 impl AlumetPlugin for AggregationPlugin {
@@ -44,7 +41,6 @@ impl AlumetPlugin for AggregationPlugin {
             config,
             metric_sender: Rc::new(None),
             metric_correspondence_table: Arc::new(RwLock::new(HashMap::<u64, u64>::new())),
-            typed_metric_ids: Arc::new(RwLock::new(HashMap::<u64, TypedMetricId<u64>>::new())),
         }))
     }
 
@@ -54,12 +50,11 @@ impl AlumetPlugin for AggregationPlugin {
                 self.config.interval,
                 self.config.function,
                 self.metric_correspondence_table.clone(),
-                self.typed_metric_ids.clone(),
             )
         );
         alumet.add_transform(transform);
 
-        // TODO:  give metric sender to the transformPlugin
+        // TODO:  give metric sender to the transformPlugin P2
         let mut metric_sender_ref = Rc::clone(&self.metric_sender);
 
         alumet.on_pipeline_start( move |ctx| {
@@ -89,14 +84,18 @@ impl AlumetPlugin for AggregationPlugin {
 
             new_metrics.push(new_metric);
         }
-        // TODO: add verif on len of old_ids and new mtridcs
-        // TODO: add newRawMetricId to correspondence_table
+
+        if new_metrics.len() != old_ids.len() {
+            return Err(anyhow!("Pas normal"))
+        }
+
         let handle = Handle::current();
         let _ = handle.enter();
-        futures::executor::block_on(truc(
+        futures::executor::block_on(register_new_metrics(
             Rc::get_mut(&mut self.metric_sender).unwrap().as_mut(),
             new_metrics,
             old_ids,
+            self.metric_correspondence_table.clone(),
         ));
         Ok(())
     }
@@ -106,12 +105,20 @@ impl AlumetPlugin for AggregationPlugin {
     }
 }
 
-async fn truc(test: Option<&mut MetricSender>, new_metrics:Vec<Metric>, old_ids: Vec<RawMetricId>) {
-    let reuslt = test.unwrap().create_metrics(new_metrics, alumet::pipeline::registry::DuplicateStrategy::Error).await.unwrap();
+async fn register_new_metrics(
+        metric_sender: Option<&mut MetricSender>,
+        new_metrics:Vec<Metric>,
+        old_ids: Vec<RawMetricId>,
+        metric_correspondence_table: Arc<RwLock<HashMap<u64, u64>>>,
+    ) {
+
+    let reuslt = metric_sender.unwrap().create_metrics(new_metrics, alumet::pipeline::registry::DuplicateStrategy::Error).await.unwrap();
     for (before, after) in std::iter::zip(old_ids, reuslt) {
         let new_id = after.unwrap();
+        let metric_correspondence_table_clone = Arc::clone(&metric_correspondence_table.clone());
+        let mut bis = (*metric_correspondence_table_clone).write().unwrap();
 
-        
+        bis.insert(before.as_u64(), new_id.as_u64());
     }
 } 
 
@@ -121,16 +128,15 @@ struct Config {
     #[serde(with = "humantime_serde")]
     interval: Duration,
 
-    // TODO: add boolean about moving aggregation window.
+    // TODO: add boolean about moving aggregation window. P3
 
-    // TODO: add boolean to drop or not the received metric point
+    // TODO: add boolean to drop or not the received metric point P2
 
-    // TODO: move from string to enum with sum, mean, etc.
     function: aggregations::Function,
 
     // List of metrics where to apply function.
     // Leave empty to apply function to every metrics. NO
-    // TODO: manage all/* metrics
+    // TODO: manage all/* metrics P3
     metrics: Vec<String>,
 }
 
