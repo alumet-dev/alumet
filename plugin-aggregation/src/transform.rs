@@ -1,27 +1,41 @@
 use std::{collections::HashMap, sync::{Arc, RwLock}, time::Duration};
 
 use alumet::{
-    measurement::{self, MeasurementBuffer, MeasurementPoint, Timestamp}, metrics::TypedMetricId, pipeline::{
+    measurement::{MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementValue}, metrics::TypedMetricId, pipeline::{
         elements::{error::TransformError, transform::TransformContext},
         Transform,
     }, resources::{Resource, ResourceConsumer}
 };
 
+use crate::aggregations;
+
 pub struct AggregationTransform {
+    // Interval used to compute the aggregation.
     interval: Duration,
 
+    // Buffer used to store every measurement point affected by the aggregation.
     internal_buffer: HashMap<(u64, ResourceConsumer, Resource), Vec<MeasurementPoint>>,
+    
+    // Store the correspondence table between aggregated metrics and the original ones.
+    // The key is the original metric's id and the value is the id of the aggregated metric.
     metric_correspondence_table: Arc<RwLock<HashMap<u64, u64>>>,
+
+    // Correspondence table between the metric's ID and its typed metric ID.
     typed_metric_ids: Arc<RwLock<HashMap<u64, TypedMetricId<u64>>>>,
+
+    // Aggregation function.
+    function: fn(Vec<MeasurementPoint>) -> WrappedMeasurementValue,
 }
 
 impl AggregationTransform {
-    pub fn new(interval: Duration) -> Self {
+    /// Instantiates a new instance of the aggregation transform plugin. 
+    pub fn new(interval: Duration, function: aggregations::Function) -> Self {
         Self {
             interval,
             internal_buffer: HashMap::<(u64,  ResourceConsumer, Resource), Vec<MeasurementPoint>>::new(),
             metric_correspondence_table: Arc::new(RwLock::new(HashMap::<u64, u64>::new())), // TODO: init this arc new in the lib.rs
-            typed_metric_ids: Arc::new(RwLock::new(HashMap::<u64, TypedMetricId<u64>>::new()))
+            typed_metric_ids: Arc::new(RwLock::new(HashMap::<u64, TypedMetricId<u64>>::new())),
+            function: function.get_function(),
         }
     }
 
@@ -32,20 +46,32 @@ impl AggregationTransform {
         let typed_metric_ids_clone = Arc::clone(&self.typed_metric_ids.clone());
         let bis = (*typed_metric_ids_clone).read().unwrap();
 
+        for (key, mut values) in self.internal_buffer.clone() {
+            while contains_enough_data(self.interval, &values) {
+                let (i,j) = get_ids(self.interval, &values);
 
-        for (key, values) in self.internal_buffer.clone() {
-            // TODO: check if values is big enough
-            // then apply the calculation to the sub vec
-            // and add the aggregated point to the aggregated_points buffer.
-            // let typed_metric = values[0].;
-            let new_point = MeasurementPoint::new(
-                Timestamp::now(),
-                *(*bis).get(&key.0).unwrap(),
-                key.2,
-                key.1,
-                0);
-            
-            aggregated_points.push(new_point);
+                let sub_vec: Vec<MeasurementPoint> = values.drain(i..j).collect();
+                
+                // Init the new point.
+                let mut new_point = MeasurementPoint::new(
+                    Timestamp::now(),
+                    *(*bis).get(&key.0).unwrap(),
+                    key.clone().2,
+                    key.clone().1,
+                    0)
+                    .with_attr_vec(
+                        sub_vec[0].attributes()
+                        .map(|(key, value)| (key.to_owned(), value.clone()))
+                        .collect()
+                    );
+                
+                // Overwrite the 0 value by the result of the calculation.
+                let value = (self.function)(sub_vec);
+                new_point.value = value;
+
+                // Push the new point to the result buffer.
+                aggregated_points.push(new_point);
+            }
         }
 
         measurements.merge(&mut aggregated_points);
@@ -103,43 +129,28 @@ impl Transform for AggregationTransform {
         self.buffer_bouncer(measurements);
 
         Ok(())
-
-        // TODO: implement the sum function
-        // TODO: implement the mean function
-
-        // for (key, value) in self.internal_buffer.clone().into_iter() {
-        //     if value
-        //         .last()
-        //         .unwrap()
-        //         .timestamp
-        //         .duration_since(value.first().unwrap().timestamp)?
-        //         > self.interval
-        //     {
-        //         let sum = self
-        //             .internal_buffer
-        //             .remove(&key)
-        //             .unwrap()
-        //             .iter()
-        //             .map(|x| x.clone().value)
-        //             .reduce(|x, y| {
-        //                 match (x, y) {
-        //                     (WrappedMeasurementValue::F64(fx), WrappedMeasurementValue::F64(fy)) => {
-        //                         WrappedMeasurementValue::F64(fx + fy)
-        //                     }
-        //                     (WrappedMeasurementValue::U64(ux), WrappedMeasurementValue::U64(uy)) => {
-        //                         WrappedMeasurementValue::U64(ux + uy)
-        //                     }
-        //                     (_, _) => panic!("Pas normal"), // TODO Fix this panic line
-        //                 }
-        //             })
-        //             .unwrap();
-
-        //         let mut value_clone = value.first().unwrap().clone();
-        //         value_clone.value = sum.clone();
-
-        //         // And fill it again
-        //         measurements.push(value_clone.clone());
-        //     }
-        // }
     }
+}
+
+/// Returns true if the vec contains enough data to compute the aggregation
+/// for the configured window.
+fn contains_enough_data(interval: Duration, values: &Vec<MeasurementPoint>) -> bool {
+    values[values.len()-1]
+        .timestamp
+        .duration_since(values[0].timestamp)
+        .unwrap()
+        .cmp(&interval)
+        .is_ge()
+}
+
+/// Get the IDs of the first and last measurement point that are
+/// inside the interval window.
+fn get_ids(interval: Duration, values: &Vec<MeasurementPoint>) -> (usize, usize) {
+    let i: usize = 0;
+    let first_value = values[0].clone();
+    let j = values.iter().position(|point| {
+        point.timestamp.duration_since(first_value.timestamp).unwrap().cmp(&interval).is_ge()
+    }).unwrap();
+
+    (i, j-1)
 }
