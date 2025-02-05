@@ -255,7 +255,7 @@ impl WrappedMeasurementValue {
 }
 
 /// An attribute value of any supported attribute type.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AttributeValue {
     F64(f64),
     U64(u64),

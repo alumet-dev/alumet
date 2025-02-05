@@ -69,27 +69,42 @@ impl Transform for EnergyEstimationTdpTransform {
                     .map(|(key, value)| (key.to_owned(), value.clone()))
                     .collect();
 
-                // Sort the attributes by key
-                for (key, value_attr) in &point_attributes {
-                    log::trace!(
-                        "read attribute key / value: {} / {}",
-                        key.as_str(),
-                        value_attr.to_string()
-                    );
-                    if key.as_str().contains("node") {
-                        let node_value: String = value_attr.to_string();
-                        log::trace!("read attribute node value: {}", node_value);
-                    }
-                }
+                // // Sort the attributes by key
+                // for (key, value_attr) in &point_attributes {
+                //     log::trace!(
+                //         "read attribute key / value: {} / {}",
+                //         key.as_str(),
+                //         value_attr.to_string()
+                //     );
+                //     if key.as_str().contains("node") {
+                //         let node_value: String = value_attr.to_string();
+                //         log::trace!("read attribute node value: {}", node_value);
+                //     }
+                // }
 
-                let new_m = MeasurementPoint::new(
+                let mut new_m = MeasurementPoint::new(
                     point.timestamp,
                     metric_id,
                     point.resource.clone(),
                     point.consumer.clone(),
-                    estimated_energy,
+                    0.0,
                 )
-                .with_attr_vec(point_attributes);
+                .with_attr_vec(point_attributes.clone());
+
+                if point_attributes.clone().contains(&(("cpu_state".to_string()), AttributeValue::String("idle".to_string()))) {
+                    let value = match point.value {
+                        WrappedMeasurementValue::F64(x) => x,
+                        WrappedMeasurementValue::U64(x) => x as f64,
+                    };
+                    let cpu_usage = 1.0 - (value)/(self.config.nb_cpu + self.config.nb_vcpu);
+                    
+                    if cpu_usage >= 0.5{
+                        new_m.value = WrappedMeasurementValue::F64(self.config.tdp);
+                    } else {
+                        new_m.value = WrappedMeasurementValue::F64(cpu_usage * self.config.tdp + ram_consumption_avrg) ;
+                    }
+                }
+
                 measurements.push(new_m.clone());
             }
         }
