@@ -130,7 +130,9 @@ struct Config {
 
     // TODO: add boolean about moving aggregation window. P3
 
-    // TODO: add boolean to drop or not the received metric point P2
+    // TODO: add boolean to drop or not the received metric point. P2
+
+    // TODO: add possibility to choose if the generated timestamp is at the left, center or right of the interval. P3
 
     function: aggregations::Function,
 
