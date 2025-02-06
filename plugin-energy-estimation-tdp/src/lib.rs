@@ -22,7 +22,6 @@ pub struct EnergyEstimationTdpPlugin {
 
 struct Metrics {
     //todo : add comment about new metrics
-
     system_cpu_usage: RawMetricId,
     system_estimated_energy_consumption: TypedMetricId<f64>,
 }

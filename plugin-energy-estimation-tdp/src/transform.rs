@@ -30,8 +30,11 @@ impl Transform for EnergyEstimationTdpTransform {
         // Using a nested scope to reduce the lock time.
         log::trace!("enter in apply transform function");
 
-        let pod_id = self.metrics.cpu_usage_per_pod.as_u64();
-        let metric_id = self.metrics.pod_estimate_attributed_energy;
+        // Harcoded ram energy consumption in Watts
+        let ram_consumption_avrg = 3.0;
+
+        let pod_id = self.metrics.system_cpu_usage.as_u64();
+        let metric_id = self.metrics.system_estimated_energy_consumption;
 
         log::trace!(
             "enter in apply transform function, number of measurements: {}",
@@ -39,7 +42,7 @@ impl Transform for EnergyEstimationTdpTransform {
         );
 
         for point in measurements.clone().iter() {
-            if point.metric.as_u64() == system_cpu_usage_metric {
+            if point.metric.as_u64() == pod_id {
                 let id = SystemTime::from(point.timestamp).duration_since(UNIX_EPOCH)?.as_secs();
                 log::trace!("we get a measurement for pod with timestamp: {}", id);
 
@@ -50,8 +53,9 @@ impl Transform for EnergyEstimationTdpTransform {
 
                 // from k8s plugin we get the cpu_usage_per_pod in micro second
                 // energy = cpu_usage_per_pod * nb_vcpu/nb_cpu * tdp / poll_interval
-                let kernel_cpu_time : f64 = value.parse().unwrap();
-                let estimated_energy = self.config.tdp * (kernel_cpu_time / (self.config.nb_cpu + self.config.nb_vcpu)) / 1000.0;
+                let kernel_cpu_time: f64 = value.parse().unwrap();
+                let estimated_energy =
+                    self.config.tdp * (kernel_cpu_time / (self.config.nb_cpu + self.config.nb_vcpu)) / 1000.0;
 
                 log::trace!(
                     "we get a measurement with resource:{}",
@@ -69,19 +73,6 @@ impl Transform for EnergyEstimationTdpTransform {
                     .map(|(key, value)| (key.to_owned(), value.clone()))
                     .collect();
 
-                // // Sort the attributes by key
-                // for (key, value_attr) in &point_attributes {
-                //     log::trace!(
-                //         "read attribute key / value: {} / {}",
-                //         key.as_str(),
-                //         value_attr.to_string()
-                //     );
-                //     if key.as_str().contains("node") {
-                //         let node_value: String = value_attr.to_string();
-                //         log::trace!("read attribute node value: {}", node_value);
-                //     }
-                // }
-
                 let mut new_m = MeasurementPoint::new(
                     point.timestamp,
                     metric_id,
@@ -91,17 +82,19 @@ impl Transform for EnergyEstimationTdpTransform {
                 )
                 .with_attr_vec(point_attributes.clone());
 
-                if point_attributes.clone().contains(&(("cpu_state".to_string()), AttributeValue::String("idle".to_string()))) {
+                if point_attributes
+                    .clone()
+                    .contains(&(("cpu_state".to_string()), AttributeValue::String("idle".to_string())))
+                {
                     let value = match point.value {
                         WrappedMeasurementValue::F64(x) => x,
                         WrappedMeasurementValue::U64(x) => x as f64,
                     };
-                    let cpu_usage = 1.0 - (value)/(self.config.nb_cpu + self.config.nb_vcpu);
-                    
-                    if cpu_usage >= 0.5{
+                    let cpu_usage = 1.0 - (value) / (self.config.nb_cpu + self.config.nb_vcpu);
+                    if cpu_usage >= 0.5 {
                         new_m.value = WrappedMeasurementValue::F64(self.config.tdp);
                     } else {
-                        new_m.value = WrappedMeasurementValue::F64(cpu_usage * self.config.tdp + ram_consumption_avrg) ;
+                        new_m.value = WrappedMeasurementValue::F64(cpu_usage * self.config.tdp + ram_consumption_avrg);
                     }
                 }
 
