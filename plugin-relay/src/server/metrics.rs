@@ -9,37 +9,41 @@ use anyhow::{anyhow, Context};
 
 const MAX_METRIC_ID: usize = 65535;
 
+/// Mapping between metric ids used by the client and metric ids used by the server.
 pub struct MetricIds {
     id_client_to_server: nohash_hasher::IntMap<u64, u64>,
     id_server_to_client: nohash_hasher::IntMap<u64, u64>,
 }
 
+/// Converts metric ids from the client to the server ids.
+/// Also adds the client name as an attribute of the measurement points.
 pub struct MetricConverter {
     inner: MetricSender,
-    client_tag: String,
     ids: MetricIds,
 }
 
 impl MetricConverter {
-    pub fn new(tx: MetricSender, client_tag: String) -> Self {
+    pub fn new(tx: MetricSender) -> Self {
         let ids = MetricIds {
             id_client_to_server: nohash_hasher::IntMap::with_capacity_and_hasher(64, Default::default()),
             id_server_to_client: nohash_hasher::IntMap::with_capacity_and_hasher(64, Default::default()),
         };
-        Self {
-            inner: tx,
-            client_tag,
-            ids,
-        }
+        Self { inner: tx, ids }
     }
 
-    pub async fn register_from_client(&mut self, metric_ids: Vec<u64>, metric_defs: Vec<Metric>) -> anyhow::Result<()> {
+    /// Registers new client metrics.
+    pub async fn register_from_client(
+        &mut self,
+        client: &str,
+        metric_ids: Vec<u64>,
+        metric_defs: Vec<Metric>,
+    ) -> anyhow::Result<()> {
         let results = self
             .inner
             .create_metrics(
                 metric_defs,
                 alumet::pipeline::registry::DuplicateStrategy::Rename {
-                    suffix: self.client_tag.clone(),
+                    suffix: format!("relay-client-{client}"),
                 },
             )
             .await
@@ -57,8 +61,7 @@ impl MetricConverter {
                 }
                 (Err(e), client_metric_id) => {
                     log::error!(
-                        "metric registration failed: client_metric_id={client_metric_id}, client_tag='{}'; {e:?}",
-                        self.client_tag
+                        "metric registration failed: client_metric_id={client_metric_id}, client_name='{client}'; {e:?}",
                     );
                 }
             }
@@ -66,16 +69,22 @@ impl MetricConverter {
         Ok(())
     }
 
+    /// Converts a client metric id to a server metric id.
     pub fn convert_from_client(&self, client_metric_id: u64) -> Option<u64> {
         self.ids.id_client_to_server.get(&client_metric_id).copied()
     }
 
-    pub fn convert_all(&self, buffer: &mut MeasurementBuffer) -> anyhow::Result<()> {
+    /// Converts the metric ids of all the points in the buffer, and adds the client name as an attribute.
+    pub fn convert_all(&self, client: &str, buffer: &mut MeasurementBuffer) -> anyhow::Result<()> {
         for m in buffer.iter_mut() {
+            // convert id
             let converted_id = self
                 .convert_from_client(m.metric.as_u64())
                 .context("invalid metric in measurement")?;
             m.metric = RawMetricId::from_u64(converted_id);
+
+            // add attribute
+            m.add_attr("relay_client", client.to_owned());
         }
         Ok(())
     }
