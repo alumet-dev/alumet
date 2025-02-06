@@ -27,6 +27,7 @@ pub struct TcpServer {
 
 impl TcpSource {
     async fn process_message(&mut self, msg: MessageBody<'_>) -> anyhow::Result<()> {
+        let remote_name = msg.sender;
         match msg.content {
             MessageEnum::Greet(greet) => {
                 // Ensure that the client and server are compatible and respond.
@@ -38,14 +39,14 @@ impl TcpSource {
                     .map_or_else(|err| format!("? ({err})"), |s| s.to_string());
                 if accept {
                     log::info!(
-                        "Client {remote_addr} is compatible: Alumet v{}, relay plugin v{}, protocol version{}",
+                        "Client {remote_name} ({remote_addr}) is compatible: Alumet v{}, relay plugin v{}, protocol version {}",
                         greet.alumet_core_version,
                         greet.relay_plugin_version,
                         greet.protocol_version
                     );
                 } else {
                     log::warn!(
-                        "Client {remote_addr} is NOT compatible: it uses protocol version {}, which is not compatible with our protocol version {}. Rejecting.",
+                        "Client {remote_name} ({remote_addr}) is NOT compatible: it uses protocol version {}, which is not compatible with our protocol version {}. Rejecting.",
                         greet.protocol_version, PROTOCOL_VERSION
                     );
                     return Ok(());
@@ -78,12 +79,14 @@ impl TcpSource {
                     metric_defs.push(alumet_metric);
                     metric_ids.push(protocol_metric.id);
                 }
-                self.metrics.register_from_client(metric_ids, metric_defs).await?;
+                self.metrics
+                    .register_from_client(&remote_name, metric_ids, metric_defs)
+                    .await?;
             }
             MessageEnum::SendMeasurements(send_measurements) => {
                 let mut alumet_measurements = send_measurements.buf.owned();
                 // convert the metrics
-                self.metrics.convert_all(&mut alumet_measurements)?;
+                self.metrics.convert_all(&remote_name, &mut alumet_measurements)?;
                 // send them
                 self.out_tx.send(alumet_measurements).await?;
             }
@@ -165,7 +168,7 @@ impl TcpServer {
             cancel_token: self.cancel_token.child_token(),
             tcp: MessageStream::new(tcp_stream),
             out_tx: self.measurement_tx.clone(),
-            metrics: MetricConverter::new(self.metrics_tx.clone(), format!("relay-client-{remote_addr}")),
+            metrics: MetricConverter::new(self.metrics_tx.clone()),
         };
         tokio::spawn(async move {
             if let Err(e) = source.receive_loop().await {
