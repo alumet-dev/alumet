@@ -3,14 +3,13 @@ mod aggregations;
 
 use std::{collections::HashMap, rc::Rc, sync::{Arc, RwLock}, time::Duration};
 
-use alumet::{metrics::{Metric, RawMetricId, TypedMetricId}, pipeline::registry::MetricSender, plugin::{
+use alumet::{metrics::{Metric, RawMetricId}, pipeline::registry::MetricSender, plugin::{
     rust::{deserialize_config, serialize_config, AlumetPlugin},
     ConfigTable,
 }};
 
 use anyhow::{anyhow, Context};
 use serde::{Deserialize, Serialize};
-use tokio::runtime::Handle;
 use transform::AggregationTransform;
 
 pub struct AggregationPlugin {
@@ -54,7 +53,7 @@ impl AlumetPlugin for AggregationPlugin {
         );
         alumet.add_transform(transform);
 
-        // TODO:  give metric sender to the transformPlugin P2
+        // TODO: give metric sender to the transformPlugin P2
         let mut metric_sender_ref = Rc::clone(&self.metric_sender);
 
         alumet.on_pipeline_start( move |ctx| {
@@ -89,9 +88,9 @@ impl AlumetPlugin for AggregationPlugin {
             return Err(anyhow!("Pas normal"))
         }
 
-        let handle = Handle::current();
-        let _ = handle.enter();
-        futures::executor::block_on(register_new_metrics(
+        // Let's create a runtime to await async function and fill hashmap
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+        rt.block_on(register_new_metrics(
             Rc::get_mut(&mut self.metric_sender).unwrap().as_mut(),
             new_metrics,
             old_ids,

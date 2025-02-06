@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::{Arc, RwLock}, time::Duration};
 
 use alumet::{
-    measurement::{MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementValue}, metrics::{RawMetricId, TypedMetricId}, pipeline::{
+    measurement::{MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementValue}, metrics::RawMetricId, pipeline::{
         elements::{error::TransformError, transform::TransformContext},
         Transform,
     }, resources::{Resource, ResourceConsumer}
