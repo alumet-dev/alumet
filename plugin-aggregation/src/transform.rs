@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::{Arc, RwLock}, time::Duration};
 
 use alumet::{
-    measurement::{MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementValue}, metrics::TypedMetricId, pipeline::{
+    measurement::{MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementValue}, metrics::RawMetricId, pipeline::{
         elements::{error::TransformError, transform::TransformContext},
         Transform,
     }, resources::{Resource, ResourceConsumer}
@@ -20,9 +20,6 @@ pub struct AggregationTransform {
     /// The key is the original metric's id and the value is the id of the aggregated metric.
     metric_correspondence_table: Arc<RwLock<HashMap<u64, u64>>>,
 
-    /// Correspondence table between the metric's ID and its typed metric ID.
-    typed_metric_ids: Arc<RwLock<HashMap<u64, TypedMetricId<u64>>>>,
-
     /// Aggregation function.
     function: fn(Vec<MeasurementPoint>) -> WrappedMeasurementValue,
 }
@@ -38,7 +35,6 @@ impl AggregationTransform {
             interval,
             internal_buffer: HashMap::<(u64,  ResourceConsumer, Resource), Vec<MeasurementPoint>>::new(),
             metric_correspondence_table,
-            typed_metric_ids: Arc::new(RwLock::new(HashMap::<u64, TypedMetricId<u64>>::new())),
             function: function.get_function(),
         }
     }
@@ -47,31 +43,27 @@ impl AggregationTransform {
     fn buffer_bouncer(&mut self, measurements: &mut alumet::measurement::MeasurementBuffer) {
         let mut aggregated_points = MeasurementBuffer::new();
 
-        let typed_metric_ids_clone = Arc::clone(&self.typed_metric_ids.clone());
-        let bis = (*typed_metric_ids_clone).read().unwrap();
-
         for (key, mut values) in self.internal_buffer.clone() {
             while contains_enough_data(self.interval, &values) {
                 let (i,j) = get_ids(self.interval, &values);
 
                 let sub_vec: Vec<MeasurementPoint> = values.drain(i..j).collect();
 
+                // Compute the value of the aggregated point.
+                let value = (self.function)(sub_vec.clone());
+
                 // Init the new point.
-                let mut new_point = MeasurementPoint::new(
+                let new_point = MeasurementPoint::new_untyped(
                     Timestamp::now(), // TODO: compute this timestamp based on the interval P1
-                    *(*bis).get(&key.0).unwrap(),
+                    RawMetricId::from_u64(key.clone().0),
                     key.clone().2,
                     key.clone().1,
-                    0)
+                    value)
                     .with_attr_vec(
                         sub_vec[0].attributes()
                         .map(|(key, value)| (key.to_owned(), value.clone()))
                         .collect()
                     );
-
-                // Overwrite the 0 value by the result of the calculation.
-                let value = (self.function)(sub_vec);
-                new_point.value = value;
 
                 // Push the new point to the result buffer.
                 aggregated_points.push(new_point);
@@ -96,8 +88,6 @@ impl Transform for AggregationTransform {
                 measurement.consumer.clone(),
                 measurement.resource.clone(),
             );
-
-            // TODO: Fill typed_metrics_ids
 
             // If metric id not needed, then skip it.
             if !(*metric_correspondence_table_read).contains_key(&measurement.metric) {
