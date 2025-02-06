@@ -30,7 +30,7 @@ impl Transform for EnergyEstimationTdpTransform {
         // Using a nested scope to reduce the lock time.
         log::trace!("enter in apply transform function");
 
-        // Harcoded ram energy consumption in Watts
+        // Hardcoded ram energy consumption in Watts
         let ram_consumption_avrg = 3.0;
 
         let pod_id = self.metrics.system_cpu_usage.as_u64();
