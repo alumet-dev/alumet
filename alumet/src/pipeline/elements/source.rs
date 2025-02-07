@@ -16,7 +16,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::error::PollError;
 use crate::measurement::{MeasurementAccumulator, MeasurementBuffer, Timestamp};
-use crate::pipeline::registry;
+use crate::metrics::online::{MetricReader, MetricSender};
 use crate::pipeline::trigger::{Trigger, TriggerConstraints, TriggerReason, TriggerSpec};
 use crate::pipeline::util::matching::SourceSelector;
 use crate::pipeline::util::naming::{NameGenerator, PluginName, SourceName};
@@ -36,7 +36,7 @@ pub(crate) struct SourceControl {
     /// Generates unique names for source tasks.
     names: NameGenerator,
     /// Read-only and write-only access to the metrics.
-    metrics: (registry::MetricReader, registry::MetricSender),
+    metrics: (MetricReader, MetricSender),
 }
 
 struct TaskManager {
@@ -74,7 +74,7 @@ impl SourceControl {
         in_tx: mpsc::Sender<MeasurementBuffer>,
         rt_normal: runtime::Handle,
         rt_priority: runtime::Handle,
-        metrics: (registry::MetricReader, registry::MetricSender),
+        metrics: (MetricReader, MetricSender),
     ) -> Self {
         Self {
             tasks: TaskManager {
@@ -295,9 +295,12 @@ pub mod builder {
 
     use crate::{
         measurement::MeasurementBuffer,
-        metrics::{Metric, MetricRegistry, RawMetricId},
+        metrics::{
+            def::{Metric, RawMetricId},
+            online::{MetricReader, MetricSender},
+            registry::MetricRegistry,
+        },
         pipeline::{
-            registry,
             trigger::TriggerSpec,
             util::naming::{PluginElementNamespace, SourceName},
         },
@@ -451,8 +454,8 @@ pub mod builder {
 
     pub(super) struct BuildContext<'a> {
         pub(super) metrics: &'a MetricRegistry,
-        pub(super) metrics_r: &'a registry::MetricReader,
-        pub(super) metrics_tx: &'a registry::MetricSender,
+        pub(super) metrics_r: &'a MetricReader,
+        pub(super) metrics_tx: &'a MetricSender,
         pub(super) namegen: &'a mut PluginElementNamespace,
     }
 
@@ -470,15 +473,15 @@ pub mod builder {
         /// Retrieves a metric by its name.
         fn metric_by_name(&self, name: &str) -> Option<(RawMetricId, &Metric)>;
         /// Returns a `MetricReader`, which allows to access the metric registry.
-        fn metrics_reader(&self) -> registry::MetricReader;
+        fn metrics_reader(&self) -> MetricReader;
         /// Returns a `MetricSender`, which allows to register new metrics while the pipeline is running.
-        fn metrics_sender(&self) -> registry::MetricSender;
+        fn metrics_sender(&self) -> MetricSender;
         /// Generates a name for the source.
         fn source_name(&mut self, name: &str) -> SourceName;
     }
 
     impl ManagedSourceBuildContext for BuildContext<'_> {
-        fn metric_by_name(&self, name: &str) -> Option<(crate::metrics::RawMetricId, &crate::metrics::Metric)> {
+        fn metric_by_name(&self, name: &str) -> Option<(RawMetricId, &Metric)> {
             self.metrics.by_name(name)
         }
 
@@ -488,15 +491,15 @@ pub mod builder {
     }
 
     impl AutonomousSourceBuildContext for BuildContext<'_> {
-        fn metric_by_name(&self, name: &str) -> Option<(crate::metrics::RawMetricId, &crate::metrics::Metric)> {
+        fn metric_by_name(&self, name: &str) -> Option<(RawMetricId, &Metric)> {
             ManagedSourceBuildContext::metric_by_name(self, name)
         }
 
-        fn metrics_reader(&self) -> registry::MetricReader {
+        fn metrics_reader(&self) -> MetricReader {
             self.metrics_r.clone()
         }
 
-        fn metrics_sender(&self) -> registry::MetricSender {
+        fn metrics_sender(&self) -> MetricSender {
             self.metrics_tx.clone()
         }
 

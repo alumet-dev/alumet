@@ -1,12 +1,16 @@
 //! Phases of the plugins lifecycle.
 use std::marker::PhantomData;
 
-use crate::metrics::MetricRegistry;
+use crate::metrics::def::{Metric, RawMetricId, TypedMetricId};
+use crate::metrics::error::MetricCreationError;
+use crate::metrics::online::listener::{
+    MetricListener, MetricListenerBuildContext, MetricListenerBuilder, MetricListenerRegistration,
+};
+use crate::metrics::online::{MetricReader, MetricSender};
+use crate::metrics::registry::MetricRegistry;
 use crate::pipeline::elements::{output, source, transform};
-use crate::pipeline::registry;
 use crate::{
     measurement::{MeasurementType, WrappedMeasurementType},
-    metrics::{Metric, MetricCreationError, RawMetricId, TypedMetricId},
     pipeline::{self, trigger, Output, PluginName, Source, Transform},
     units::PrefixedUnit,
 };
@@ -351,9 +355,9 @@ impl<'a> AlumetPreStart<'a> {
     }
 
     /// Registers a metric listener, which will be notified of all the new registered metrics.
-    pub fn add_metric_listener<F: registry::listener::MetricListener + Send + 'static>(&mut self, listener: F) {
-        let builder = |ctx: &mut dyn registry::listener::MetricListenerBuildContext| {
-            Ok(registry::listener::MetricListenerRegistration {
+    pub fn add_metric_listener<F: MetricListener + Send + 'static>(&mut self, listener: F) {
+        let builder = |ctx: &mut dyn MetricListenerBuildContext| {
+            Ok(MetricListenerRegistration {
                 name: ctx.listener_name(""),
                 listener: Box::new(listener),
             })
@@ -365,10 +369,7 @@ impl<'a> AlumetPreStart<'a> {
 
     /// Registers a metric listener builder, which will construct a listener that
     /// will be notified of all the new registered metrics.
-    pub fn add_metric_listener_builder<F: registry::listener::MetricListenerBuilder + Send + 'static>(
-        &mut self,
-        builder: F,
-    ) {
+    pub fn add_metric_listener_builder<F: MetricListenerBuilder + Send + 'static>(&mut self, builder: F) {
         let plugin = self.current_plugin_name();
         self.pipeline_builder
             .add_metric_listener_builder(plugin, Box::new(builder));
@@ -395,12 +396,12 @@ impl<'a> AlumetPostStart<'a> {
 
     /// Returns a handle that allows to register new metrics while the pipeline is running,
     /// and to subscribe to new registrations.
-    pub fn metrics_sender(&self) -> pipeline::registry::MetricSender {
+    pub fn metrics_sender(&self) -> MetricSender {
         self.pipeline.metrics_sender()
     }
 
     /// Returns a read-only access to the [`MetricRegistry`].
-    pub fn metrics_reader(&self) -> pipeline::registry::MetricReader {
+    pub fn metrics_reader(&self) -> MetricReader {
         self.pipeline.metrics_reader()
     }
 

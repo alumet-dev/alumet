@@ -421,7 +421,7 @@ fn print_stats(
     };
 
     // format pipeline statistics
-    let stats = pipeline_builder.stats();
+    let stats = pipeline_builder.inspect().stats();
 
     let n_sources = stats.sources;
     let n_transforms = stats.transforms;

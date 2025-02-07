@@ -13,10 +13,12 @@ use tokio::{
 };
 
 use super::error::TransformError;
+use crate::measurement::MeasurementBuffer;
+use crate::metrics::online::MetricReader;
+use crate::metrics::registry::MetricRegistry;
 use crate::pipeline::util::matching::TransformSelector;
 use crate::pipeline::util::naming::{NameGenerator, TransformName};
 use crate::pipeline::PluginName;
-use crate::{measurement::MeasurementBuffer, metrics::MetricRegistry, pipeline::registry::MetricReader};
 
 /// Transforms measurements (arbitrary transformation).
 pub trait Transform: Send {
@@ -165,7 +167,10 @@ impl TaskManager {
 
 pub mod builder {
     use crate::{
-        metrics::{Metric, MetricRegistry, RawMetricId},
+        metrics::{
+            def::{Metric, RawMetricId},
+            registry::MetricRegistry,
+        },
         pipeline::util::naming::{PluginElementNamespace, TransformName},
     };
 
@@ -214,7 +219,7 @@ pub mod builder {
     }
 
     impl TransformBuildContext for BuildContext<'_> {
-        fn metric_by_name(&self, name: &str) -> Option<(crate::metrics::RawMetricId, &crate::metrics::Metric)> {
+        fn metric_by_name(&self, name: &str) -> Option<(RawMetricId, &Metric)> {
             self.metrics.by_name(name)
         }
 

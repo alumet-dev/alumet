@@ -2,7 +2,7 @@
 
 use std::str::FromStr;
 
-use alumet::pipeline::control::{AnonymousControlHandle, ControlError, ControlMessage};
+use alumet::pipeline::control::{error::ControlError, AnonymousControlHandle, ControlMessage};
 use alumet::pipeline::matching::{ElementSelector, OutputSelector, SourceSelector, TransformSelector};
 use alumet::pipeline::{
     elements::{output, source, transform},
