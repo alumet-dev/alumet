@@ -11,7 +11,7 @@ use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
     pipeline::{
-        control::{ControlError, ScopedControlHandle, SourceCreationBuffer},
+        control::{error::ControlError, ScopedControlHandle, SourceCreationBuffer},
         elements::{error::PollError, source},
         matching::{NamePattern, NamePatterns, SourceSelector},
         trigger::TriggerSpec,

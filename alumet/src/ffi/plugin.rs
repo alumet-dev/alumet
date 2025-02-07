@@ -3,7 +3,7 @@ use std::ffi::{c_char, CStr};
 use libc::c_void;
 
 use crate::measurement::WrappedMeasurementType;
-use crate::metrics::RawMetricId;
+use crate::metrics::def::RawMetricId;
 use crate::pipeline::trigger;
 use crate::{plugin::AlumetPluginStart, units::Unit};
 

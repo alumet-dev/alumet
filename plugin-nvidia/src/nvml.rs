@@ -2,7 +2,7 @@ use std::fmt::Display;
 use std::sync::Arc;
 
 use alumet::measurement::Timestamp;
-use alumet::metrics::MetricCreationError;
+use alumet::metrics::error::MetricCreationError;
 use alumet::resources::ResourceConsumer;
 use alumet::units::PrefixedUnit;
 use alumet::{

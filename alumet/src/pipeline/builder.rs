@@ -2,11 +2,11 @@
 use std::time::Duration;
 
 use super::elements::{output, source, transform};
-use super::registry::listener::MetricListenerBuilder;
-use super::registry::{MetricReader, MetricSender};
-use crate::pipeline::registry::MetricRegistryControl;
+use crate::measurement::MeasurementBuffer;
+use crate::metrics::online::listener::MetricListenerBuilder;
+use crate::metrics::online::{MetricReader, MetricRegistryControl, MetricSender};
+use crate::metrics::registry::MetricRegistry;
 use crate::pipeline::util::channel;
-use crate::{measurement::MeasurementBuffer, metrics::MetricRegistry};
 
 use super::util::naming::PluginName;
 use super::{
@@ -54,6 +54,11 @@ pub struct Builder {
 
     threads_normal: Option<usize>,
     threads_high_priority: Option<usize>,
+}
+
+/// Allows to inspect the content of a pipeline builder.
+pub struct BuilderInspector<'a> {
+    inner: &'a Builder,
 }
 
 const DEFAULT_CHAN_BUF_SIZE: usize = 2048;
@@ -272,15 +277,9 @@ impl Builder {
         })
     }
 
-    /// Returns statistics about the current state of the builder.
-    pub fn stats(&self) -> BuilderStats {
-        BuilderStats {
-            sources: self.sources.len(),
-            transforms: self.transforms.len(),
-            outputs: self.outputs.len(),
-            metrics: self.metrics.len(),
-            metric_listeners: self.metric_listeners.len(),
-        }
+    /// Inspects the current state of the builder.
+    pub fn inspect(&self) -> BuilderInspector {
+        BuilderInspector { inner: self }
     }
 
     /// Returns a read-only access to the current state of the metric registry.
@@ -301,6 +300,19 @@ pub struct BuilderStats {
     pub metrics: usize,
     /// Number of registered metric listeners.
     pub metric_listeners: usize,
+}
+
+impl<'a> BuilderInspector<'a> {
+    /// Returns statistics about the builder: how many sources, transforms, etc.
+    pub fn stats(&self) -> BuilderStats {
+        BuilderStats {
+            sources: self.inner.sources.len(),
+            transforms: self.inner.transforms.len(),
+            outputs: self.inner.outputs.len(),
+            metrics: self.inner.metrics.len(),
+            metric_listeners: self.inner.metric_listeners.len(),
+        }
+    }
 }
 
 impl MeasurementPipeline {

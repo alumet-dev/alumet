@@ -17,14 +17,14 @@ use tokio::runtime;
 use tokio::task::{JoinError, JoinSet};
 
 use crate::measurement::MeasurementBuffer;
-use crate::metrics::MetricRegistry;
+use crate::metrics::online::MetricReader;
+use crate::metrics::registry::MetricRegistry;
 use crate::pipeline::util::channel::{self, RecvError};
 use crate::pipeline::util::matching::OutputSelector;
 use crate::pipeline::util::naming::{NameGenerator, OutputName};
 use crate::pipeline::util::stream::{ControlledStream, SharedStreamState};
 use crate::pipeline::PluginName;
 
-use super::super::registry;
 use super::error::WriteError;
 
 /// A blocking output that exports measurements to an external entity, like a file or a database.
@@ -48,7 +48,7 @@ pub(crate) struct OutputControl {
     tasks: TaskManager,
     names: NameGenerator,
     /// Read-only access to the metrics.
-    metrics: registry::MetricReader,
+    metrics: MetricReader,
 }
 
 struct TaskManager {
@@ -60,15 +60,11 @@ struct TaskManager {
     /// Handle of the "normal" async runtime. Used for creating new outputs.
     rt_normal: runtime::Handle,
 
-    metrics: registry::MetricReader,
+    metrics: MetricReader,
 }
 
 impl OutputControl {
-    pub fn new(
-        rx_provider: channel::ReceiverProvider,
-        rt_normal: runtime::Handle,
-        metrics: registry::MetricReader,
-    ) -> Self {
+    pub fn new(rx_provider: channel::ReceiverProvider, rt_normal: runtime::Handle, metrics: MetricReader) -> Self {
         Self {
             tasks: TaskManager {
                 spawned_tasks: JoinSet::new(),
@@ -292,7 +288,7 @@ async fn run_blocking_output<Rx: channel::MeasurementReceiver>(
     name: OutputName,
     guarded_output: Arc<Mutex<Box<dyn Output>>>,
     mut rx: Rx,
-    metrics_reader: registry::MetricReader,
+    metrics_reader: MetricReader,
     config: Arc<control_state::SharedOutputConfig>,
 ) -> anyhow::Result<()> {
     /// If `measurements` is an `Ok`, build an [`OutputContext`] and call `output.write(&measurements, &ctx)`.
@@ -300,7 +296,7 @@ async fn run_blocking_output<Rx: channel::MeasurementReceiver>(
     async fn write_measurements(
         name: &OutputName,
         output: Arc<Mutex<Box<dyn Output>>>,
-        metrics_r: registry::MetricReader,
+        metrics_r: MetricReader,
         maybe_measurements: Result<MeasurementBuffer, channel::RecvError>,
     ) -> anyhow::Result<ControlFlow<()>> {
         match maybe_measurements {
@@ -448,11 +444,12 @@ pub mod builder {
     use tokio::runtime;
 
     use crate::{
-        metrics::MetricRegistry,
-        pipeline::{
-            registry::{self, MetricReader},
-            util::naming::{OutputName, PluginElementNamespace},
+        metrics::{
+            def::{Metric, RawMetricId},
+            online::MetricReader,
+            registry::MetricRegistry,
         },
+        pipeline::util::naming::{OutputName, PluginElementNamespace},
     };
 
     use super::AsyncOutputStream;
@@ -540,7 +537,7 @@ pub mod builder {
     pub trait BlockingOutputBuildContext {
         fn output_name(&mut self, name: &str) -> OutputName;
 
-        fn metric_by_name(&self, name: &str) -> Option<(crate::metrics::RawMetricId, &crate::metrics::Metric)>;
+        fn metric_by_name(&self, name: &str) -> Option<(RawMetricId, &Metric)>;
     }
 
     pub trait AsyncOutputBuildContext {
@@ -549,7 +546,7 @@ pub mod builder {
         fn async_runtime(&self) -> &tokio::runtime::Handle;
 
         /// Returns a `MetricReader`, which allows to access the metric registry.
-        fn metrics_reader(&self) -> registry::MetricReader;
+        fn metrics_reader(&self) -> MetricReader;
     }
 
     impl BlockingOutputBuildContext for OutputBuildContext<'_> {
@@ -557,7 +554,7 @@ pub mod builder {
             OutputName(self.namegen.insert_deduplicate(name))
         }
 
-        fn metric_by_name(&self, name: &str) -> Option<(crate::metrics::RawMetricId, &crate::metrics::Metric)> {
+        fn metric_by_name(&self, name: &str) -> Option<(RawMetricId, &Metric)> {
             self.metrics.by_name(name)
         }
     }
@@ -571,7 +568,7 @@ pub mod builder {
             &self.runtime
         }
 
-        fn metrics_reader(&self) -> registry::MetricReader {
+        fn metrics_reader(&self) -> MetricReader {
             self.metrics_r.clone()
         }
     }

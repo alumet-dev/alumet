@@ -1,5 +1,5 @@
 use alumet::{
-    metrics::{MetricCreationError, TypedMetricId},
+    metrics::{error::MetricCreationError, TypedMetricId},
     plugin::AlumetPluginStart,
     units::{PrefixedUnit, Unit},
 };

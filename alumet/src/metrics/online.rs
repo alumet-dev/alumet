@@ -1,4 +1,4 @@
-//! Registry of metrics common to the whole pipeline.
+//! Online interaction with the metric registry.
 
 use std::{fmt::Debug, sync::Arc};
 
@@ -14,9 +14,13 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::metrics::{Metric, MetricCreationError, MetricRegistry, RawMetricId};
+use crate::pipeline::{util::naming::NameGenerator, PluginName};
 
-use super::{util::naming::NameGenerator, PluginName};
+use super::{
+    def::{Metric, RawMetricId},
+    error::MetricCreationError,
+    registry::MetricRegistry,
+};
 
 /// A message that can be sent to the task that controls the [`MetricRegistry`],
 /// for instance via [`MetricSender`].
@@ -51,7 +55,7 @@ pub(crate) struct MetricRegistryControl {
 
 pub mod listener {
     use crate::{
-        metrics::{Metric, RawMetricId},
+        metrics::def::{Metric, RawMetricId},
         pipeline::util::naming::{ListenerName, PluginElementNamespace},
     };
 
