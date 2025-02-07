@@ -1,8 +1,5 @@
 use core::f64;
-use std::{
-    sync::{Arc, Mutex},
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use alumet::{
     measurement::{AttributeValue, MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue},
@@ -16,12 +13,12 @@ use crate::Config;
 
 pub struct EnergyEstimationTdpTransform {
     pub config: Config,
-    pub metrics: Arc<Mutex<super::Metrics>>,
+    pub metrics: super::Metrics,
 }
 
 impl EnergyEstimationTdpTransform {
     /// Instantiates a new EnergyAttributionTransform with its private fields initialized.
-    pub fn new(config: Config, metrics: Arc<Mutex<super::Metrics>>) -> Self {
+    pub fn new(config: Config, metrics: super::Metrics) -> Self {
         Self { config, metrics }
     }
 }
@@ -33,15 +30,8 @@ impl Transform for EnergyEstimationTdpTransform {
         // Using a nested scope to reduce the lock time.
         log::trace!("enter in apply transform function");
 
-        let pod_id = {
-            let metrics = self.metrics.lock().unwrap();
-            metrics.cpu_usage_per_pod.unwrap().as_u64()
-        };
-
-        let metric_id = {
-            let metrics = self.metrics.lock().unwrap();
-            metrics.pod_estimate_attributed_energy.unwrap()
-        };
+        let pod_id = self.metrics.cpu_usage_per_pod.as_u64();
+        let metric_id = self.metrics.pod_estimate_attributed_energy;
 
         log::trace!(
             "enter in apply transform function, number of measurements: {}",
