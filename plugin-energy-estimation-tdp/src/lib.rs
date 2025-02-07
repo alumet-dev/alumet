@@ -21,13 +21,9 @@ pub struct EnergyEstimationTdpPlugin {
 }
 
 struct Metrics {
-    // To attribute the CPU consumption to K8S pods, we need 2 metrics:
-    // - cpu usage per pod
-    // - energy attribution (to store the result)
-
-    // The other parameters (tdp and number of virtual cpu is provided by configuration)
-    cpu_usage_per_pod: RawMetricId,
-    pod_estimate_attributed_energy: TypedMetricId<f64>,
+    //todo : add comment about new metrics
+    system_cpu_usage: RawMetricId,
+    system_estimated_energy_consumption: TypedMetricId<f64>,
 }
 
 impl AlumetPlugin for EnergyEstimationTdpPlugin {
@@ -54,14 +50,14 @@ impl AlumetPlugin for EnergyEstimationTdpPlugin {
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
         // Create the energy attribution metric and add its id to the
         // transform plugin metrics' list.
-        let pod_estimate_attributed_energy_metric = alumet.create_metric(
-            "pod_estimate_attributed_energy",
+        let system_estimated_energy = alumet.create_metric(
+            "system_estimated_energy",
             Unit::Joule,
-            "Pod's estimated energy consumption",
+            "System's estimated energy consumption",
         )?;
 
-        let cpu_usage = self.config.as_ref().unwrap().cpu_usage_per_pod.clone();
-        let config = self.config.take().unwrap();
+        let cpu_usage = self.config.as_ref().unwrap().system_cpu_usage.clone();
+        let config_cpy = self.config.take().unwrap();
 
         // Add the transform now but fill its metrics later.
         alumet.add_transform_builder(move |ctx| {
@@ -69,14 +65,14 @@ impl AlumetPlugin for EnergyEstimationTdpPlugin {
 
             let cpu_usage_metric = ctx
                 .metric_by_name(&cpu_usage)
-                .with_context(|| format!("metric not found : {}", cpu_usage))?
+                .with_context(|| format!("Metric not found : {}", cpu_usage))?
                 .0;
             let metrics = Metrics {
-                cpu_usage_per_pod: cpu_usage_metric,
-                pod_estimate_attributed_energy: pod_estimate_attributed_energy_metric,
+                system_cpu_usage: cpu_usage_metric,
+                system_estimated_energy_consumption: system_estimated_energy,
             };
 
-            let transform = Box::new(EnergyEstimationTdpTransform::new(config, metrics));
+            let transform = Box::new(EnergyEstimationTdpTransform::new(config_cpy, metrics));
             Ok(TransformRegistration { name, transform })
         });
         Ok(())
@@ -97,7 +93,7 @@ struct Config {
     tdp: f64,
     nb_vcpu: f64,
     nb_cpu: f64,
-    cpu_usage_per_pod: String,
+    system_cpu_usage: String,
 }
 
 impl Default for Config {
@@ -105,9 +101,9 @@ impl Default for Config {
         Self {
             poll_interval: Duration::from_secs(1), // 1Hz
             tdp: 100.0,
-            nb_vcpu: 1.0,
-            nb_cpu: 1.0,
-            cpu_usage_per_pod: String::from("cgroup_cpu_usage_total"),
+            nb_vcpu: 16.0,
+            nb_cpu: 16.0,
+            system_cpu_usage: String::from("kernel_cpu_time"),
         }
     }
 }
