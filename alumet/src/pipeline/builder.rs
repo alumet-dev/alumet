@@ -1,19 +1,6 @@
 //! Construction of measurement pipelines.
 use std::time::Duration;
 
-use super::elements::{output, source, transform};
-use crate::measurement::MeasurementBuffer;
-use crate::metrics::online::listener::MetricListenerBuilder;
-use crate::metrics::online::{MetricReader, MetricRegistryControl, MetricSender};
-use crate::metrics::registry::MetricRegistry;
-use crate::pipeline::util::channel;
-
-use super::util::naming::PluginName;
-use super::{
-    control::{AnonymousControlHandle, PipelineControl},
-    trigger::TriggerConstraints,
-    util,
-};
 use anyhow::Context;
 use tokio::time::error::Elapsed;
 use tokio::{
@@ -22,6 +9,27 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
+
+use super::control::key::{OutputKey, SourceKey, TransformKey};
+use super::elements::output::builder::OutputBuilder;
+use super::elements::source::builder::SourceBuilder;
+use super::elements::transform::builder::TransformBuilder;
+use super::elements::{output, source, transform};
+use super::naming::{
+    namespace::{DuplicateNameError, Namespaces},
+    PluginName,
+};
+use super::{
+    control::{AnonymousControlHandle, PipelineControl},
+    trigger::TriggerConstraints,
+    util,
+};
+use crate::measurement::MeasurementBuffer;
+use crate::metrics::online::listener::MetricListenerBuilder;
+use crate::metrics::online::{MetricReader, MetricRegistryControl, MetricSender};
+use crate::metrics::registry::MetricRegistry;
+use crate::pipeline::util::channel;
+use crate::pipeline::Output;
 
 /// A running measurement pipeline.
 pub struct MeasurementPipeline {
@@ -38,9 +46,10 @@ pub struct MeasurementPipeline {
 /// This type allows to configure the measurement pipeline bit by bit.
 /// It is usually more practical not to call [`build`](Self::build) but to use the [`agent::Builder`](crate::agent::Builder) instead.
 pub struct Builder {
-    sources: Vec<(PluginName, source::builder::SourceBuilder)>,
-    transforms: Vec<(PluginName, Box<dyn transform::builder::TransformBuilder>)>,
-    outputs: Vec<(PluginName, output::builder::OutputBuilder)>,
+    // Pipeline elements, by plugin and name. The tuple (plugin, element name) is enforced to be unique.
+    sources: Namespaces<SourceBuilder>,
+    transforms: Namespaces<Box<dyn TransformBuilder>>,
+    outputs: Namespaces<OutputBuilder>,
 
     /// Constraints to apply to the TriggerSpec of managed sources.
     trigger_constraints: TriggerConstraints,
@@ -50,8 +59,9 @@ pub struct Builder {
 
     /// Metrics
     pub(crate) metrics: MetricRegistry,
-    metric_listeners: Vec<(PluginName, Box<dyn MetricListenerBuilder>)>,
+    metric_listeners: Namespaces<Box<dyn MetricListenerBuilder>>,
 
+    // tokio::Runtime settings.
     threads_normal: Option<usize>,
     threads_high_priority: Option<usize>,
 }
@@ -66,13 +76,13 @@ const DEFAULT_CHAN_BUF_SIZE: usize = 2048;
 impl Builder {
     pub fn new() -> Self {
         Self {
-            sources: Vec::new(),
-            transforms: Vec::new(),
-            outputs: Vec::new(),
+            sources: Namespaces::new(),
+            transforms: Namespaces::new(),
+            outputs: Namespaces::new(),
             trigger_constraints: TriggerConstraints::default(),
             source_channel_size: DEFAULT_CHAN_BUF_SIZE,
             metrics: MetricRegistry::new(),
-            metric_listeners: Vec::new(),
+            metric_listeners: Namespaces::new(),
             threads_normal: None, // default to the number of cores
             threads_high_priority: None,
         }
@@ -95,27 +105,52 @@ impl Builder {
 
     /// Registers a listener that will be notified of the metrics that are created while the pipeline is running,
     /// with a dedicated builder.
-    pub fn add_metric_listener_builder(&mut self, plugin: PluginName, builder: Box<dyn MetricListenerBuilder>) {
-        self.metric_listeners.push((plugin, builder))
+    pub fn add_metric_listener_builder(
+        &mut self,
+        plugin: PluginName,
+        name: &str,
+        builder: Box<dyn MetricListenerBuilder>,
+    ) -> Result<(), DuplicateNameError> {
+        self.metric_listeners.add(plugin.0, name.to_owned(), builder)
     }
 
     /// Adds a source to the pipeline, with a dedicated builder.
-    pub fn add_source_builder(&mut self, plugin: PluginName, builder: source::builder::SourceBuilder) {
-        self.sources.push((plugin, builder))
+    pub fn add_source_builder(
+        &mut self,
+        plugin: PluginName,
+        name: &str,
+        builder: SourceBuilder,
+    ) -> Result<SourceKey, DuplicateNameError> {
+        match self.sources.add(plugin.0.clone(), name.to_owned(), builder) {
+            Ok(_) => Ok(SourceKey::new(plugin.0, name.to_owned())),
+            Err(e) => Err(e),
+        }
     }
 
     /// Adds a transform function to the pipeline, with a dedicated builder.
     pub fn add_transform_builder(
         &mut self,
         plugin: PluginName,
-        builder: Box<dyn transform::builder::TransformBuilder>,
-    ) {
-        self.transforms.push((plugin, builder))
+        name: &str,
+        builder: Box<dyn TransformBuilder>,
+    ) -> Result<TransformKey, DuplicateNameError> {
+        match self.transforms.add(plugin.0.clone(), name.to_owned(), builder) {
+            Ok(_) => Ok(TransformKey::new(plugin.0, name.to_owned())),
+            Err(e) => Err(e),
+        }
     }
 
     /// Adds an output to the pipeline, with a dedicated builder.
-    pub fn add_output_builder(&mut self, plugin: PluginName, builder: output::builder::OutputBuilder) {
-        self.outputs.push((plugin, builder))
+    pub fn add_output_builder(
+        &mut self,
+        plugin: PluginName,
+        name: &str,
+        builder: OutputBuilder,
+    ) -> Result<OutputKey, DuplicateNameError> {
+        match self.outputs.add(plugin.0.clone(), name.to_owned(), builder) {
+            Ok(_) => Ok(OutputKey::new(plugin.0, name.to_owned())),
+            Err(e) => Err(e),
+        }
     }
 
     /// Sets the number of non-high-priority threads to use.
@@ -138,24 +173,13 @@ impl Builder {
     ///
     /// The new pipeline is immediately started.
     pub fn build(mut self) -> anyhow::Result<MeasurementPipeline> {
-        use output::builder::{BlockingOutputBuildContext, BlockingOutputRegistration};
+        use crate::pipeline::elements::error::WriteError;
 
-        fn dummy_output_builder(
-            ctx: &mut dyn BlockingOutputBuildContext,
-        ) -> anyhow::Result<BlockingOutputRegistration> {
-            use crate::pipeline::{elements::error::WriteError, Output};
-
-            struct DummyOutput;
-            impl Output for DummyOutput {
-                fn write(&mut self, _m: &MeasurementBuffer, _ctx: &output::OutputContext) -> Result<(), WriteError> {
-                    Ok(())
-                }
+        struct DummyOutput;
+        impl Output for DummyOutput {
+            fn write(&mut self, _m: &MeasurementBuffer, _ctx: &output::OutputContext) -> Result<(), WriteError> {
+                Ok(())
             }
-
-            Ok(BlockingOutputRegistration {
-                name: ctx.output_name("dummy"),
-                output: Box::new(DummyOutput),
-            })
         }
 
         // Tokio runtime backed by "real-time" high priority threads.
@@ -209,12 +233,13 @@ impl Builder {
 
         if self.outputs.is_empty() {
             log::warn!("No output has been registered. A dummy output will be added to make the pipeline work, but you probably want to add a true output.");
-            let no_plugin = PluginName(String::from("_"));
-            let builder = output::builder::OutputBuilder::Blocking(Box::new(dummy_output_builder));
-            self.outputs.push((no_plugin, builder));
+            let builder = output::builder::OutputBuilder::Blocking(Box::new(|_| Ok(Box::new(DummyOutput))));
+            self.outputs
+                .add(String::from("alumet"), String::from("dummy"), builder)
+                .unwrap();
         }
 
-        if self.outputs.len() == 1 && self.transforms.is_empty() {
+        if self.outputs.total_count() == 1 && self.transforms.is_empty() {
             // OPTIMIZATION: there is only one output and no transform,
             // we can connect the inputs directly to the output.
             log::info!("Only one output and no transform, using a simplified and optimized measurement pipeline.");
@@ -306,11 +331,11 @@ impl<'a> BuilderInspector<'a> {
     /// Returns statistics about the builder: how many sources, transforms, etc.
     pub fn stats(&self) -> BuilderStats {
         BuilderStats {
-            sources: self.inner.sources.len(),
-            transforms: self.inner.transforms.len(),
-            outputs: self.inner.outputs.len(),
+            sources: self.inner.sources.total_count(),
+            transforms: self.inner.transforms.total_count(),
+            outputs: self.inner.outputs.total_count(),
             metrics: self.inner.metrics.len(),
-            metric_listeners: self.inner.metric_listeners.len(),
+            metric_listeners: self.inner.metric_listeners.total_count(),
         }
     }
 }

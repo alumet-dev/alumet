@@ -7,10 +7,6 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
-use builder::{
-    AsyncOutputBuildContext, AsyncOutputBuilder, BlockingOutputBuildContext, BlockingOutputBuilder, OutputBuildContext,
-    OutputBuilder,
-};
 use control_state::SingleOutputController;
 use futures::Stream;
 use tokio::runtime;
@@ -19,13 +15,21 @@ use tokio::task::{JoinError, JoinSet};
 use crate::measurement::MeasurementBuffer;
 use crate::metrics::online::MetricReader;
 use crate::metrics::registry::MetricRegistry;
+use crate::pipeline::naming::matching::OutputMatcher;
+use crate::pipeline::naming::namespace::Namespaces;
+use crate::pipeline::naming::OutputName;
 use crate::pipeline::util::channel::{self, RecvError};
-use crate::pipeline::util::matching::OutputSelector;
-use crate::pipeline::util::naming::{NameGenerator, OutputName};
 use crate::pipeline::util::stream::{ControlledStream, SharedStreamState};
-use crate::pipeline::PluginName;
 
 use super::error::WriteError;
+
+pub mod builder;
+mod control_state;
+
+use builder::{
+    AsyncOutputBuildContext, AsyncOutputBuilder, BlockingOutputBuildContext, BlockingOutputBuilder, OutputBuildContext,
+    OutputBuilder,
+};
 
 /// A blocking output that exports measurements to an external entity, like a file or a database.
 pub trait Output: Send {
@@ -46,7 +50,6 @@ pub struct OutputContext<'a> {
 
 pub(crate) struct OutputControl {
     tasks: TaskManager,
-    names: NameGenerator,
     /// Read-only access to the metrics.
     metrics: MetricReader,
 }
@@ -73,37 +76,35 @@ impl OutputControl {
                 rt_normal,
                 metrics: metrics.clone(),
             },
-            names: NameGenerator::new(),
             metrics,
         }
     }
 
-    pub fn blocking_create_outputs(&mut self, outputs: Vec<(PluginName, OutputBuilder)>) -> anyhow::Result<()> {
+    pub fn blocking_create_outputs(&mut self, outputs: Namespaces<OutputBuilder>) -> anyhow::Result<()> {
         let metrics = self.metrics.blocking_read();
-        for (plugin, builder) in outputs {
+        for ((plugin, output_name), builder) in outputs {
             let mut ctx = OutputBuildContext {
                 metrics: &metrics,
                 metrics_r: &self.metrics.clone(),
-                namegen: self.names.plugin_namespace(&plugin),
                 runtime: self.tasks.rt_normal.clone(),
             };
+            let full_name = OutputName::new(plugin.clone(), output_name);
             self.tasks
-                .create_output(&mut ctx, builder)
+                .create_output(&mut ctx, full_name, builder)
                 .inspect_err(|e| log::error!("Error in output creation requested by plugin {plugin}: {e:#}"))?;
         }
         Ok(())
     }
 
     #[allow(unused)]
-    pub async fn create_output(&mut self, plugin: PluginName, builder: builder::SendOutputBuilder) {
+    pub async fn create_output(&mut self, name: OutputName, builder: builder::SendOutputBuilder) {
         let metrics = self.metrics.read().await;
         let mut ctx = OutputBuildContext {
             metrics: &metrics,
             metrics_r: &self.metrics,
-            namegen: self.names.plugin_namespace(&plugin),
             runtime: self.tasks.rt_normal.clone(),
         };
-        self.tasks.create_output(&mut ctx, builder.into());
+        self.tasks.create_output(&mut ctx, name, builder.into());
     }
 
     pub fn handle_message(&mut self, msg: ControlMessage) -> anyhow::Result<()> {
@@ -131,7 +132,7 @@ impl OutputControl {
         // but that only works when the output is running.
         // If the output is paused, it needs to be stopped with a command.
         let stop_msg = ControlMessage {
-            selector: OutputSelector::all(),
+            matcher: OutputMatcher::wildcard(),
             new_state: TaskState::StopFinish,
         };
         self.handle_message(stop_msg)
@@ -143,20 +144,26 @@ impl OutputControl {
 }
 
 impl TaskManager {
-    fn create_output<'a>(&mut self, ctx: &'a mut OutputBuildContext<'a>, builder: OutputBuilder) -> anyhow::Result<()> {
+    fn create_output<'a>(
+        &mut self,
+        ctx: &'a mut OutputBuildContext<'a>,
+        name: OutputName,
+        builder: OutputBuilder,
+    ) -> anyhow::Result<()> {
         match builder {
-            OutputBuilder::Blocking(builder) => self.create_blocking_output(ctx, builder),
-            OutputBuilder::Async(builder) => self.create_async_output(ctx, builder),
+            OutputBuilder::Blocking(builder) => self.create_blocking_output(ctx, name, builder),
+            OutputBuilder::Async(builder) => self.create_async_output(ctx, name, builder),
         }
     }
 
     fn create_blocking_output(
         &mut self,
         ctx: &mut dyn BlockingOutputBuildContext,
+        name: OutputName,
         builder: Box<dyn BlockingOutputBuilder>,
     ) -> anyhow::Result<()> {
         // Build the output.
-        let reg = builder(ctx).context("output creation failed")?;
+        let output = builder(ctx).context("output creation failed")?;
 
         // Create the necessary context.
         let rx = self.rx_provider.get(); // to receive measurements
@@ -166,20 +173,20 @@ impl TaskManager {
         let config = Arc::new(control_state::SharedOutputConfig::new());
         let shared_config = config.clone();
         let control = SingleOutputController::Blocking(config);
-        self.controllers.push((reg.name.clone(), control));
+        self.controllers.push((name.clone(), control));
 
         // Put the output in a Mutex to overcome the lack of tokio::spawn_scoped.
-        let guarded_output = Arc::new(Mutex::new(reg.output));
+        let guarded_output = Arc::new(Mutex::new(output));
 
         // Spawn the task on the runtime.
         match rx {
             // Specialize on the kind of receiver at compile-time (for performance).
             channel::ReceiverEnum::Broadcast(rx) => {
-                let task = run_blocking_output(reg.name, guarded_output, rx, metrics, shared_config);
+                let task = run_blocking_output(name, guarded_output, rx, metrics, shared_config);
                 self.spawned_tasks.spawn_on(task, &self.rt_normal);
             }
             channel::ReceiverEnum::Single(rx) => {
-                let task = run_blocking_output(reg.name, guarded_output, rx, metrics, shared_config);
+                let task = run_blocking_output(name, guarded_output, rx, metrics, shared_config);
                 self.spawned_tasks.spawn_on(task, &self.rt_normal);
             }
         }
@@ -190,6 +197,7 @@ impl TaskManager {
     fn create_async_output(
         &mut self,
         ctx: &mut dyn AsyncOutputBuildContext,
+        name: OutputName,
         builder: Box<dyn AsyncOutputBuilder>,
     ) -> anyhow::Result<()> {
         use channel::MeasurementReceiver;
@@ -212,21 +220,21 @@ impl TaskManager {
         };
 
         // Create the output
-        let reg = builder(ctx, stream).context("output creation failed")?;
+        let output = builder(ctx, stream).context("output creation failed")?;
 
         // Create and store the task controller
         let control = SingleOutputController::Async(state);
-        self.controllers.push((reg.name.clone(), control));
+        self.controllers.push((name.clone(), control));
 
         // Spawn the output
-        let task = run_async_output(reg.name, reg.output);
+        let task = run_async_output(name, output);
         self.spawned_tasks.spawn_on(task, &self.rt_normal);
         Ok(())
     }
 
     fn reconfigure(&mut self, msg: ControlMessage) {
         for (name, output_config) in &mut self.controllers {
-            if msg.selector.matches(name) {
+            if msg.matcher.matches(name) {
                 output_config.set_state(msg.new_state);
             }
         }
@@ -254,7 +262,7 @@ impl TaskManager {
 #[derive(Debug)]
 pub struct ControlMessage {
     /// Which output(s) to reconfigure.
-    pub selector: OutputSelector,
+    pub matcher: OutputMatcher,
     /// The new state to apply to the selected output(s).
     pub new_state: TaskState,
 }
@@ -394,182 +402,4 @@ async fn run_async_output(name: OutputName, output: BoxedAsyncOutput) -> anyhow:
         log::error!("Error when asynchronously writing to {name} (will stop running): {e:?}");
         e.context(format!("error in async output {name}"))
     })
-}
-
-mod control_state {
-    use std::sync::{
-        atomic::{AtomicU8, Ordering},
-        Arc,
-    };
-    use tokio::sync::Notify;
-
-    use super::TaskState;
-    use crate::pipeline::util::stream::{SharedStreamState, StreamState};
-
-    pub enum SingleOutputController {
-        Blocking(Arc<SharedOutputConfig>),
-        Async(Arc<SharedStreamState>),
-    }
-
-    pub struct SharedOutputConfig {
-        pub change_notifier: Notify,
-        pub atomic_state: AtomicU8,
-    }
-
-    impl SharedOutputConfig {
-        pub fn new() -> Self {
-            Self {
-                change_notifier: Notify::new(),
-                atomic_state: AtomicU8::new(TaskState::Run as u8),
-            }
-        }
-
-        pub fn set_state(&self, state: TaskState) {
-            self.atomic_state.store(state as u8, Ordering::Relaxed);
-            self.change_notifier.notify_one();
-        }
-    }
-
-    impl SingleOutputController {
-        pub fn set_state(&mut self, state: TaskState) {
-            match self {
-                SingleOutputController::Blocking(shared) => shared.set_state(state),
-                SingleOutputController::Async(arc) => arc.set(StreamState::from(state as u8)),
-            }
-        }
-    }
-}
-
-pub mod builder {
-    use tokio::runtime;
-
-    use crate::{
-        metrics::{
-            def::{Metric, RawMetricId},
-            online::MetricReader,
-            registry::MetricRegistry,
-        },
-        pipeline::util::naming::{OutputName, PluginElementNamespace},
-    };
-
-    use super::AsyncOutputStream;
-
-    /// An output builder, for any type of output.
-    ///
-    /// Use this type in the pipeline builder.
-    pub enum OutputBuilder {
-        Blocking(Box<dyn BlockingOutputBuilder>),
-        Async(Box<dyn AsyncOutputBuilder>),
-    }
-
-    /// Like [`OutputBuilder`] but with a [`Send`] bound on the builder.
-    ///
-    /// Use this type in the pipeline control loop.
-    pub enum SendOutputBuilder {
-        Blocking(Box<dyn BlockingOutputBuilder + Send>),
-        Async(Box<dyn AsyncOutputBuilder + Send>),
-    }
-
-    impl From<SendOutputBuilder> for OutputBuilder {
-        fn from(value: SendOutputBuilder) -> Self {
-            match value {
-                SendOutputBuilder::Blocking(b) => OutputBuilder::Blocking(b),
-                SendOutputBuilder::Async(b) => OutputBuilder::Async(b),
-            }
-        }
-    }
-
-    pub struct BlockingOutputRegistration {
-        pub name: OutputName,
-        pub output: Box<dyn super::Output>,
-    }
-
-    pub struct AsyncOutputRegistration {
-        pub name: OutputName,
-        pub output: super::BoxedAsyncOutput,
-    }
-
-    /// Trait for builders of blocking outputs.
-    ///
-    ///  # Example
-    /// ```
-    /// use alumet::pipeline::elements::output::builder::{BlockingOutputBuilder, BlockingOutputRegistration, BlockingOutputBuildContext};
-    /// use alumet::pipeline::{trigger, Output};
-    ///
-    /// fn build_my_output() -> anyhow::Result<Box<dyn Output>> {
-    ///     todo!("build a new output")
-    /// }
-    ///
-    /// let builder: &dyn BlockingOutputBuilder = &|ctx: &mut dyn BlockingOutputBuildContext| {
-    ///     let output = build_my_output()?;
-    ///     Ok(BlockingOutputRegistration {
-    ///         name: ctx.output_name("my-output"),
-    ///         output,
-    ///     })
-    /// };
-    /// ```
-    pub trait BlockingOutputBuilder:
-        FnOnce(&mut dyn BlockingOutputBuildContext) -> anyhow::Result<BlockingOutputRegistration>
-    {
-    }
-    impl<F> BlockingOutputBuilder for F where
-        F: FnOnce(&mut dyn BlockingOutputBuildContext) -> anyhow::Result<BlockingOutputRegistration>
-    {
-    }
-
-    pub trait AsyncOutputBuilder:
-        FnOnce(&mut dyn AsyncOutputBuildContext, AsyncOutputStream) -> anyhow::Result<AsyncOutputRegistration>
-    {
-    }
-    impl<F> AsyncOutputBuilder for F where
-        F: FnOnce(&mut dyn AsyncOutputBuildContext, AsyncOutputStream) -> anyhow::Result<AsyncOutputRegistration>
-    {
-    }
-
-    /// Context provided when building new outputs.
-    pub(super) struct OutputBuildContext<'a> {
-        pub(super) metrics_r: &'a MetricReader,
-        pub(super) metrics: &'a MetricRegistry,
-        pub(super) namegen: &'a mut PluginElementNamespace,
-        pub(super) runtime: runtime::Handle,
-    }
-
-    pub trait BlockingOutputBuildContext {
-        fn output_name(&mut self, name: &str) -> OutputName;
-
-        fn metric_by_name(&self, name: &str) -> Option<(RawMetricId, &Metric)>;
-    }
-
-    pub trait AsyncOutputBuildContext {
-        fn output_name(&mut self, name: &str) -> OutputName;
-
-        fn async_runtime(&self) -> &tokio::runtime::Handle;
-
-        /// Returns a `MetricReader`, which allows to access the metric registry.
-        fn metrics_reader(&self) -> MetricReader;
-    }
-
-    impl BlockingOutputBuildContext for OutputBuildContext<'_> {
-        fn output_name(&mut self, name: &str) -> OutputName {
-            OutputName(self.namegen.insert_deduplicate(name))
-        }
-
-        fn metric_by_name(&self, name: &str) -> Option<(RawMetricId, &Metric)> {
-            self.metrics.by_name(name)
-        }
-    }
-
-    impl AsyncOutputBuildContext for OutputBuildContext<'_> {
-        fn output_name(&mut self, name: &str) -> OutputName {
-            BlockingOutputBuildContext::output_name(self, name)
-        }
-
-        fn async_runtime(&self) -> &tokio::runtime::Handle {
-            &self.runtime
-        }
-
-        fn metrics_reader(&self) -> MetricReader {
-            self.metrics_r.clone()
-        }
-    }
 }

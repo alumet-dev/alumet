@@ -7,7 +7,8 @@ use crate::pipeline::{
         source::{self, builder::ManagedSourceBuilder},
         transform,
     },
-    trigger, PluginName, Source,
+    naming::{PluginName, SourceName},
+    trigger, Source,
 };
 
 use super::{
@@ -131,8 +132,8 @@ impl ScopedControlHandle {
         source: Box<dyn Source>,
         trigger: trigger::TriggerSpec,
     ) -> Result<(), ControlError> {
-        let build = self.managed_source_builder(name, trigger, source);
-        self.add_source_builder(build)
+        let builder = self.managed_source_builder(trigger, source);
+        self.add_source_builder(name, builder)
     }
 
     /// Adds a measurement source to the Alumet pipeline, with an explicit builder.
@@ -142,9 +143,13 @@ impl ScopedControlHandle {
     ///
     /// # Bulk registration of sources
     /// To add multiple sources, it is more efficient to use [`source_buffer`](Self::source_buffer) instead of many `add_source_builder`.
-    pub fn add_source_builder<F: ManagedSourceBuilder + Send + 'static>(&self, builder: F) -> Result<(), ControlError> {
+    pub fn add_source_builder<F: ManagedSourceBuilder + Send + 'static>(
+        &self,
+        name: &str,
+        builder: F,
+    ) -> Result<(), ControlError> {
         let message = ControlMessage::Source(source::ControlMessage::CreateOne(source::CreateOneMessage {
-            plugin: self.plugin.clone(),
+            name: SourceName::new(self.plugin.0.clone(), name.to_owned()),
             builder: source::builder::SendSourceBuilder::Managed(Box::new(builder)),
         }));
         self.inner.try_send(message).map_err(|e| e.into())
@@ -159,10 +164,11 @@ impl ScopedControlHandle {
     /// To add multiple sources, it is more efficient to use [`source_buffer`](Self::source_buffer) instead of many `add_source_builder`.
     pub fn add_autonomous_source_builder<F: source::builder::AutonomousSourceBuilder + Send + 'static>(
         &self,
+        name: &str,
         builder: F,
     ) -> Result<(), ControlError> {
         let message = ControlMessage::Source(source::ControlMessage::CreateOne(source::CreateOneMessage {
-            plugin: self.plugin.clone(),
+            name: SourceName::new(self.plugin.0.clone(), name.to_owned()),
             builder: source::builder::SendSourceBuilder::Autonomous(Box::new(builder)),
         }));
         self.inner.try_send(message).map_err(|e| e.into())
@@ -171,16 +177,12 @@ impl ScopedControlHandle {
     /// Returns a source builder that returns the given boxed source.
     pub(super) fn managed_source_builder(
         &self,
-        name: &str,
         trigger: trigger::TriggerSpec,
         source: Box<dyn Source>,
-    ) -> impl FnOnce(
-        &mut dyn source::builder::ManagedSourceBuildContext,
-    ) -> anyhow::Result<source::builder::ManagedSourceRegistration> {
-        let source_name = name.to_owned();
+    ) -> impl FnOnce(&mut dyn source::builder::ManagedSourceBuildContext) -> anyhow::Result<source::builder::ManagedSource>
+    {
         move |ctx: &mut dyn source::builder::ManagedSourceBuildContext| {
-            Ok(source::builder::ManagedSourceRegistration {
-                name: ctx.source_name(&source_name),
+            Ok(source::builder::ManagedSource {
                 trigger_spec: trigger,
                 source,
             })

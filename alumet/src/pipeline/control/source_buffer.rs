@@ -4,6 +4,7 @@ use crate::pipeline::{
         builder::{AutonomousSourceBuilder, ManagedSourceBuilder, SendSourceBuilder},
         CreateManyMessage,
     },
+    naming::SourceName,
     trigger, Source,
 };
 
@@ -42,7 +43,7 @@ use super::{error::ControlError, ControlMessage, ScopedControlHandle};
 /// in order to handle the errors. The drop implementation silently ignores flushing errors.
 pub struct SourceCreationBuffer<'a> {
     pub(super) handle: &'a mut ScopedControlHandle,
-    pub(super) buffer: Vec<SendSourceBuilder>,
+    pub(super) buffer: Vec<(SourceName, SendSourceBuilder)>,
 }
 
 impl SourceCreationBuffer<'_> {
@@ -55,7 +56,6 @@ impl SourceCreationBuffer<'_> {
             .inner
             .try_send(ControlMessage::Source(source::ControlMessage::CreateMany(
                 CreateManyMessage {
-                    plugin: self.handle.plugin.clone(),
                     builders: std::mem::take(&mut self.buffer),
                 },
             )))
@@ -64,20 +64,25 @@ impl SourceCreationBuffer<'_> {
 
     /// Adds a managed source to the buffer.
     pub fn add_source(&mut self, name: &str, source: Box<dyn Source>, trigger: trigger::TriggerSpec) {
-        let build = self.handle.managed_source_builder(name, trigger, source);
-        self.add_source_builder(build)
+        let builder = self.handle.managed_source_builder(trigger, source);
+        let name = SourceName::new(self.handle.plugin.0.clone(), name.to_owned());
+        self.add_source_builder(name, builder)
     }
 
     /// Adds a source to the buffer, with an explicit builder.
-    pub fn add_source_builder<F: ManagedSourceBuilder + Send + 'static>(&mut self, builder: F) {
+    pub fn add_source_builder<F: ManagedSourceBuilder + Send + 'static>(&mut self, name: SourceName, builder: F) {
         let builder = SendSourceBuilder::Managed(Box::new(builder));
-        self.buffer.push(builder);
+        self.buffer.push((name, builder));
     }
 
     /// Adds an autonomous source builder to the buffer.
-    pub fn add_autonomous_source_builder<F: AutonomousSourceBuilder + Send + 'static>(&mut self, builder: F) {
+    pub fn add_autonomous_source_builder<F: AutonomousSourceBuilder + Send + 'static>(
+        &mut self,
+        name: SourceName,
+        builder: F,
+    ) {
         let builder = SendSourceBuilder::Autonomous(Box::new(builder));
-        self.buffer.push(builder);
+        self.buffer.push((name, builder));
     }
 }
 
