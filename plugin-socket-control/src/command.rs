@@ -60,17 +60,23 @@ pub fn parse(command: &str) -> anyhow::Result<Command> {
     fn parse_control_args(selector: ElementSelector, args: &[&str]) -> anyhow::Result<Vec<ControlMessage>> {
         fn msg_config_source(selector: SourceSelector, command: source::ConfigureCommand) -> ControlMessage {
             ControlMessage::Source(source::ControlMessage::Configure(source::ConfigureMessage {
-                selector,
+                matcher: selector,
                 command,
             }))
         }
 
         fn msg_config_transform(selector: TransformSelector, new_state: transform::TaskState) -> ControlMessage {
-            ControlMessage::Transform(transform::ControlMessage { selector, new_state })
+            ControlMessage::Transform(transform::ControlMessage {
+                matcher: selector,
+                new_state,
+            })
         }
 
         fn msg_config_output(selector: OutputSelector, new_state: output::TaskState) -> ControlMessage {
-            ControlMessage::Output(output::ControlMessage { selector, new_state })
+            ControlMessage::Output(output::ControlMessage {
+                matcher: selector,
+                new_state,
+            })
         }
 
         match args {
@@ -115,8 +121,8 @@ pub fn parse(command: &str) -> anyhow::Result<Command> {
                 )),
             },
             ["trigger-now"] => match selector {
-                ElementSelector::Source(sel) => {
-                    let msg = source::ControlMessage::TriggerManually(source::TriggerMessage { selector: sel });
+                ElementSelector::Source(matcher) => {
+                    let msg = source::ControlMessage::TriggerManually(source::TriggerMessage { matcher });
                     Ok(vec![ControlMessage::Source(msg)])
                 }
                 _ => Err(anyhow!(
@@ -165,7 +171,7 @@ mod tests {
             parse("control my-plugin/sources/my-source pause")?,
             vec![ControlMessage::Source(source::ControlMessage::Configure(
                 source::ConfigureMessage {
-                    selector: SourceSelector::from(NamePatterns {
+                    matcher: SourceSelector::from(NamePatterns {
                         plugin: NamePattern::Exact(String::from("my-plugin")),
                         name: NamePattern::Exact(String::from("my-source")),
                     }),
@@ -177,7 +183,7 @@ mod tests {
             parse("control */sources/* resume")?,
             vec![ControlMessage::Source(source::ControlMessage::Configure(
                 source::ConfigureMessage {
-                    selector: SourceSelector::all(),
+                    matcher: SourceSelector::all(),
                     command: source::ConfigureCommand::Resume,
                 },
             ))],
@@ -186,7 +192,7 @@ mod tests {
             parse("control */src/* stop")?,
             vec![ControlMessage::Source(source::ControlMessage::Configure(
                 source::ConfigureMessage {
-                    selector: SourceSelector::all(),
+                    matcher: SourceSelector::all(),
                     command: source::ConfigureCommand::Stop,
                 },
             ))],
@@ -195,21 +201,21 @@ mod tests {
             parse("control sources trigger-now")?,
             vec![ControlMessage::Source(source::ControlMessage::TriggerManually(
                 source::TriggerMessage {
-                    selector: SourceSelector::all(),
+                    matcher: SourceSelector::all(),
                 },
             ))],
         );
         assert_control_eq(
             parse("control */out/* stop")?,
             vec![ControlMessage::Output(output::ControlMessage {
-                selector: OutputSelector::all(),
+                matcher: OutputSelector::all(),
                 new_state: output::TaskState::StopNow,
             })],
         );
         assert_control_eq(
             parse("control */tra/* enable")?,
             vec![ControlMessage::Transform(transform::ControlMessage {
-                selector: TransformSelector::all(),
+                matcher: TransformSelector::all(),
                 new_state: transform::TaskState::Enabled,
             })],
         );
@@ -217,15 +223,15 @@ mod tests {
             parse("control * pause")?,
             vec![
                 ControlMessage::Source(source::ControlMessage::Configure(source::ConfigureMessage {
-                    selector: SourceSelector::all(),
+                    matcher: SourceSelector::all(),
                     command: source::ConfigureCommand::Pause,
                 })),
                 ControlMessage::Transform(transform::ControlMessage {
-                    selector: TransformSelector::all(),
+                    matcher: TransformSelector::all(),
                     new_state: transform::TaskState::Disabled,
                 }),
                 ControlMessage::Output(output::ControlMessage {
-                    selector: OutputSelector::all(),
+                    matcher: OutputSelector::all(),
                     new_state: output::TaskState::Pause,
                 }),
             ],
@@ -234,7 +240,7 @@ mod tests {
             parse("control sources set-period 10ms")?,
             vec![ControlMessage::Source(source::ControlMessage::Configure(
                 source::ConfigureMessage {
-                    selector: SourceSelector::all(),
+                    matcher: SourceSelector::all(),
                     command: source::ConfigureCommand::SetTrigger(TriggerSpec::at_interval(Duration::from_millis(10))),
                 },
             ))],
@@ -272,7 +278,7 @@ mod tests {
 
             match (a, b) {
                 (source::ControlMessage::Configure(c1), source::ControlMessage::Configure(c2)) => {
-                    c1.selector == c2.selector
+                    c1.matcher == c2.matcher
                         && match (&c1.command, &c2.command) {
                             (ConfigureCommand::Pause, ConfigureCommand::Pause) => true,
                             (ConfigureCommand::Resume, ConfigureCommand::Resume) => true,
@@ -293,18 +299,18 @@ mod tests {
                             .all(|(a, b)| source_builder_eq(a, b))
                 }
                 (source::ControlMessage::TriggerManually(t1), source::ControlMessage::TriggerManually(t2)) => {
-                    t1.selector == t2.selector
+                    t1.matcher == t2.matcher
                 }
                 _ => false,
             }
         }
 
         fn transform_msg_eq(a: &transform::ControlMessage, b: &transform::ControlMessage) -> bool {
-            a.selector == b.selector && a.new_state == b.new_state
+            a.matcher == b.matcher && a.new_state == b.new_state
         }
 
         fn output_msg_eq(a: &output::ControlMessage, b: &output::ControlMessage) -> bool {
-            a.selector == b.selector && a.new_state == b.new_state
+            a.matcher == b.matcher && a.new_state == b.new_state
         }
 
         match (a, b) {

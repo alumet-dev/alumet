@@ -294,7 +294,7 @@ impl ManualProcessMonitor {
             .anonymous()
             .try_send(alumet::pipeline::control::ControlMessage::Source(
                 source::ControlMessage::TriggerManually(source::TriggerMessage {
-                    selector: SourceSelector::from(NamePatterns {
+                    matcher: SourceSelector::from(NamePatterns {
                         plugin: NamePattern::Exact(String::from("procfs")),
                         name: NamePattern::Exact(source_name),
                     }),

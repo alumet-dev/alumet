@@ -8,6 +8,7 @@ use tokio_util::sync::CancellationToken;
 
 pub mod error;
 pub mod handle;
+pub mod key;
 mod source_buffer;
 
 pub use handle::{AnonymousControlHandle, ControlMessage, ScopedControlHandle};

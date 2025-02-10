@@ -7,7 +7,6 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use anyhow::Context;
-use builder::BuildContext;
 use tokio::runtime;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
@@ -17,9 +16,10 @@ use tokio_util::sync::CancellationToken;
 use super::error::PollError;
 use crate::measurement::{MeasurementAccumulator, MeasurementBuffer, Timestamp};
 use crate::metrics::online::{MetricReader, MetricSender};
+use crate::pipeline::naming::matching::SourceMatcher;
+use crate::pipeline::naming::{namespace::Namespaces, SourceName};
 use crate::pipeline::trigger::{Trigger, TriggerConstraints, TriggerReason, TriggerSpec};
-use crate::pipeline::util::matching::SourceSelector;
-use crate::pipeline::util::naming::{NameGenerator, PluginName, SourceName};
+use builder::BuildContext;
 
 pub type AutonomousSource = Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>;
 
@@ -33,8 +33,6 @@ pub trait Source: Send {
 pub(crate) struct SourceControl {
     /// Manages source tasks. Separated from `names` and `metrics` for borrow-checking reasons.
     tasks: TaskManager,
-    /// Generates unique names for source tasks.
-    names: NameGenerator,
     /// Read-only and write-only access to the metrics.
     metrics: (MetricReader, MetricSender),
 }
@@ -86,26 +84,24 @@ impl SourceControl {
                 rt_normal,
                 rt_priority,
             },
-            names: NameGenerator::new(),
             metrics,
         }
     }
 
-    pub fn blocking_create_sources(
-        &mut self,
-        sources: Vec<(PluginName, builder::SourceBuilder)>,
-    ) -> anyhow::Result<()> {
+    pub fn blocking_create_sources(&mut self, sources: Namespaces<builder::SourceBuilder>) -> anyhow::Result<()> {
         let metrics = self.metrics.0.blocking_read();
-        for (plugin, builder) in sources {
+        for ((plugin, name), builder) in sources {
             let mut ctx = builder::BuildContext {
                 metrics: &metrics,
                 metrics_r: &self.metrics.0,
                 metrics_tx: &self.metrics.1,
-                namegen: self.names.plugin_namespace(&plugin),
             };
-            self.tasks.create_source(&mut ctx, builder).inspect_err(|e| {
-                log::error!("Error in source creation requested by plugin {plugin}: {e:#}");
-            })?;
+            let full_name = SourceName::new(plugin.clone(), name);
+            self.tasks
+                .create_source(&mut ctx, full_name, builder)
+                .inspect_err(|e| {
+                    log::error!("Error in source creation requested by plugin {plugin}: {e:#}");
+                })?;
             // `blocking_create_sources` is called during the startup phase. It's ok to fail early.
         }
         Ok(())
@@ -113,8 +109,7 @@ impl SourceControl {
 
     pub async fn create_sources(
         &mut self,
-        plugin: PluginName,
-        builders: Vec<builder::SendSourceBuilder>,
+        builders: Vec<(SourceName, builder::SendSourceBuilder)>,
     ) -> anyhow::Result<()> {
         // We only get the lock and BuildContext once for all the sources.
         let metrics = self.metrics.0.read().await;
@@ -122,25 +117,27 @@ impl SourceControl {
             metrics: &metrics,
             metrics_r: &self.metrics.0,
             metrics_tx: &self.metrics.1,
-            namegen: self.names.plugin_namespace(&plugin),
         };
         let n_sources = builders.len();
-        log::debug!("Creating {n_sources} sources for plugin {plugin}");
+        log::debug!("Creating {n_sources} sources...");
 
         // `create_sources` is called while the pipeline is running, we want to be resilient to errors.
         // Try to build as many sources as possible, even if some fail.
         let mut n_errors = 0;
-        for builder in builders {
-            let _ = self.tasks.create_source(&mut ctx, builder.into()).inspect_err(|e| {
-                log::error!("Error in source creation requested by plugin {plugin}: {e:?}");
-                n_errors += 1;
-            });
+        for (name, builder) in builders {
+            let _ = self
+                .tasks
+                .create_source(&mut ctx, name.clone(), builder.into())
+                .inspect_err(|e| {
+                    log::error!("Error while creating source '{name}': {e:?}");
+                    n_errors += 1;
+                });
         }
         if n_errors == 0 {
             Ok(())
         } else {
             Err(anyhow::anyhow!(
-                "plugin {plugin} requested to create {n_sources} sources, {n_errors} failed (see logs above)"
+                "failed to create {n_errors}/{n_sources} sources (see logs above)"
             ))
         }
     }
@@ -149,8 +146,8 @@ impl SourceControl {
         log::trace!("handling {msg:?}");
         match msg {
             ControlMessage::Configure(msg) => self.tasks.reconfigure(msg),
-            ControlMessage::CreateOne(msg) => self.create_sources(msg.plugin, vec![msg.builder]).await?,
-            ControlMessage::CreateMany(msg) => self.create_sources(msg.plugin, msg.builders).await?,
+            ControlMessage::CreateOne(msg) => self.create_sources(vec![(msg.name, msg.builder)]).await?,
+            ControlMessage::CreateMany(msg) => self.create_sources(msg.builders).await?,
             ControlMessage::TriggerManually(msg) => self.tasks.trigger_manually(msg),
         }
         Ok(())
@@ -178,7 +175,7 @@ impl SourceControl {
 
         // Send a stop message to all managed sources.
         let stop_msg = ConfigureMessage {
-            selector: SourceSelector::all(),
+            matcher: SourceMatcher::wildcard(),
             command: ConfigureCommand::Stop,
         };
         self.tasks.reconfigure(stop_msg);
@@ -197,19 +194,24 @@ impl SourceControl {
 }
 
 impl TaskManager {
-    fn create_source(&mut self, ctx: &mut BuildContext, builder: builder::SourceBuilder) -> anyhow::Result<()> {
+    fn create_source(
+        &mut self,
+        ctx: &mut BuildContext,
+        name: SourceName,
+        builder: builder::SourceBuilder,
+    ) -> anyhow::Result<()> {
         match builder {
             builder::SourceBuilder::Managed(build) => {
                 // Build the source
-                let mut reg = build(ctx).context("managed source creation failed")?;
+                let mut source = build(ctx).context("managed source creation failed")?;
 
                 // Apply constraints on the source trigger
-                log::trace!("New managed source: {} with spec {:?}", reg.name, reg.trigger_spec);
-                reg.trigger_spec.constrain(&self.trigger_constraints);
-                log::trace!("spec after constraints: {:?}", reg.trigger_spec);
+                log::trace!("New managed source: {} with spec {:?}", name, source.trigger_spec);
+                source.trigger_spec.constrain(&self.trigger_constraints);
+                log::trace!("spec after constraints: {:?}", source.trigger_spec);
 
                 // Choose the right tokio runtime (i.e. thread pool)
-                let runtime = if reg.trigger_spec.requests_realtime_priority() {
+                let runtime = if source.trigger_spec.requests_realtime_priority() {
                     log::trace!("selected realtime runtime");
                     &self.rt_priority
                 } else {
@@ -221,17 +223,17 @@ impl TaskManager {
                 // Some triggers need to be built with an executor available, therefore we use `Handle::enter()`.
                 let trigger = {
                     let _guard = runtime.enter();
-                    Trigger::new(reg.trigger_spec).context("error in Trigger::new")?
+                    Trigger::new(source.trigger_spec).context("error in Trigger::new")?
                 };
                 log::trace!("new trigger created from the spec");
 
                 // Create a controller to control the async task.
                 let (controller, config) = task_controller::new_managed(trigger);
-                self.controllers.push((reg.name.clone(), controller));
+                self.controllers.push((name.clone(), controller));
                 log::trace!("new controller initialized");
 
                 // Create the future (async task).
-                let source_task = run_managed(reg.name, reg.source, self.in_tx.clone(), config);
+                let source_task = run_managed(name, source.source, self.in_tx.clone(), config);
                 log::trace!("source task created");
 
                 // Spawn the future (execute the async task on the thread pool)
@@ -240,12 +242,12 @@ impl TaskManager {
             builder::SourceBuilder::Autonomous(build) => {
                 let token = self.shutdown_token.child_token();
                 let tx = self.in_tx.clone();
-                let reg = build(ctx, token.clone(), tx).context("autonomous source creation failed")?;
-                log::trace!("New autonomous source: {}", reg.name);
+                let source = build(ctx, token.clone(), tx).context("autonomous source creation failed")?;
+                log::trace!("New autonomous source: {}", name);
 
-                let source_task = run_autonomous(reg.name.clone(), reg.source);
+                let source_task = run_autonomous(name.clone(), source);
                 let controller = task_controller::new_autonomous(token);
-                self.controllers.push((reg.name, controller));
+                self.controllers.push((name, controller));
                 log::trace!("new controller initialized");
 
                 self.spawned_tasks.spawn_on(source_task, &self.rt_normal);
@@ -256,8 +258,6 @@ impl TaskManager {
     }
 
     fn reconfigure(&mut self, msg: ConfigureMessage) {
-        let selector = msg.selector;
-
         // Simplifies the command and applies trigger constraints if needed.
         let command = match msg.command {
             ConfigureCommand::Pause => Reconfiguration::SetState(TaskState::Pause),
@@ -270,17 +270,16 @@ impl TaskManager {
         };
 
         for (name, source_controller) in &mut self.controllers {
-            if selector.matches(name) {
+            if msg.matcher.matches(name) {
                 source_controller.reconfigure(&command);
             }
         }
     }
 
     fn trigger_manually(&mut self, msg: TriggerMessage) {
-        let selector = msg.selector;
         let mut matches = 0;
         for (name, source_controller) in &mut self.controllers {
-            if selector.matches(name) {
+            if msg.matcher.matches(name) {
                 matches += 1;
                 source_controller.trigger_now();
             }
@@ -289,225 +288,7 @@ impl TaskManager {
     }
 }
 
-pub mod builder {
-    use tokio::sync::mpsc::Sender;
-    use tokio_util::sync::CancellationToken;
-
-    use crate::{
-        measurement::MeasurementBuffer,
-        metrics::{
-            def::{Metric, RawMetricId},
-            online::{MetricReader, MetricSender},
-            registry::MetricRegistry,
-        },
-        pipeline::{
-            trigger::TriggerSpec,
-            util::naming::{PluginElementNamespace, SourceName},
-        },
-    };
-
-    // Trait aliases are unstable, and the following is not enough to help deduplicating code in plugin::phases.
-    //
-    //     pub type ManagedSourceBuilder = dyn FnOnce(&mut dyn SourceBuildContext) -> ManagedSourceRegistration;
-    //
-    // Therefore, we define a subtrait that is automatically implemented for closures.
-
-    /// Trait for managed source builders.
-    ///
-    /// # Example
-    /// ```
-    /// use alumet::pipeline::elements::source::builder::{ManagedSourceBuilder, ManagedSourceRegistration, ManagedSourceBuildContext};
-    /// use alumet::pipeline::{trigger, Source};
-    /// use std::time::Duration;
-    ///
-    /// fn build_my_source() -> anyhow::Result<Box<dyn Source>> {
-    ///     todo!("build a new source")
-    /// }
-    ///
-    /// let builder: &dyn ManagedSourceBuilder = &|ctx: &mut dyn ManagedSourceBuildContext| {
-    ///     let source = build_my_source()?;
-    ///     Ok(ManagedSourceRegistration {
-    ///         name: ctx.source_name("my-source"),
-    ///         trigger_spec: trigger::TriggerSpec::at_interval(Duration::from_secs(1)),
-    ///         source,
-    ///     })
-    /// };
-    /// ```
-    pub trait ManagedSourceBuilder:
-        FnOnce(&mut dyn ManagedSourceBuildContext) -> anyhow::Result<ManagedSourceRegistration>
-    {
-    }
-    impl<F> ManagedSourceBuilder for F where
-        F: FnOnce(&mut dyn ManagedSourceBuildContext) -> anyhow::Result<ManagedSourceRegistration>
-    {
-    }
-
-    /// Trait for autonomous source builders.
-    ///
-    /// # Example
-    /// ```
-    /// use alumet::pipeline::elements::source::builder::{AutonomousSourceBuilder, AutonomousSourceRegistration, AutonomousSourceBuildContext};
-    /// use alumet::pipeline::{trigger, Source};
-    /// use alumet::measurement::MeasurementBuffer;
-    ///
-    /// use std::time::Duration;
-    /// use tokio::sync::mpsc::Sender;
-    /// use tokio_util::sync::CancellationToken;
-    ///
-    /// async fn my_autonomous_source(shutdown: CancellationToken, tx: Sender<MeasurementBuffer>) -> anyhow::Result<()> {
-    ///     let fut = async { todo!("async trigger") };
-    ///     loop {
-    ///         tokio::select! {
-    ///             _ = shutdown.cancelled() => {
-    ///                 // stop here
-    ///                 break;
-    ///             },
-    ///             _ = fut => {
-    ///                 todo!("measure something and send it to tx");
-    ///             }
-    ///         }
-    ///     }
-    ///     Ok(())
-    /// }
-    ///
-    /// let builder: &dyn AutonomousSourceBuilder = &|ctx: &mut dyn AutonomousSourceBuildContext, shutdown: CancellationToken, tx: Sender<MeasurementBuffer>| {
-    ///     let source = Box::pin(my_autonomous_source(shutdown, tx));
-    ///     Ok(AutonomousSourceRegistration {
-    ///         name: ctx.source_name("my-autonomous-source"),
-    ///         source,
-    ///         // No trigger here, the source is autonomous and triggers itself.
-    ///     })
-    /// };
-    /// ```
-    pub trait AutonomousSourceBuilder:
-        FnOnce(
-        &mut dyn AutonomousSourceBuildContext,
-        CancellationToken,
-        Sender<MeasurementBuffer>,
-    ) -> anyhow::Result<AutonomousSourceRegistration>
-    {
-    }
-    impl<F> AutonomousSourceBuilder for F where
-        F: FnOnce(
-            &mut dyn AutonomousSourceBuildContext,
-            CancellationToken,
-            Sender<MeasurementBuffer>,
-        ) -> anyhow::Result<AutonomousSourceRegistration>
-    {
-    }
-
-    /// A source builder, for a managed or autonomous source.
-    ///
-    /// Use this type in the pipeline Builder.
-    pub enum SourceBuilder {
-        Managed(Box<dyn ManagedSourceBuilder>),
-        Autonomous(Box<dyn AutonomousSourceBuilder>),
-    }
-
-    /// Like [`SourceBuilder`] but with a [`Send`] bound on the builder.
-    ///
-    /// Use this type in the pipeline control loop.
-    pub enum SendSourceBuilder {
-        Managed(Box<dyn ManagedSourceBuilder + Send>),
-        Autonomous(Box<dyn AutonomousSourceBuilder + Send>),
-    }
-
-    impl From<SendSourceBuilder> for SourceBuilder {
-        fn from(value: SendSourceBuilder) -> Self {
-            match value {
-                SendSourceBuilder::Managed(b) => SourceBuilder::Managed(b),
-                SendSourceBuilder::Autonomous(b) => SourceBuilder::Autonomous(b),
-            }
-        }
-    }
-
-    impl std::fmt::Debug for SourceBuilder {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            match self {
-                Self::Managed(_) => f.debug_tuple("Managed").field(&"Box<dyn _>").finish(),
-                Self::Autonomous(_) => f.debug_tuple("Autonomous").field(&"Box<dyn _>").finish(),
-            }
-        }
-    }
-
-    impl std::fmt::Debug for SendSourceBuilder {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            match self {
-                Self::Managed(_) => f.debug_tuple("Managed").field(&"Box<dyn _>").finish(),
-                Self::Autonomous(_) => f.debug_tuple("Autonomous").field(&"Box<dyn _>").finish(),
-            }
-        }
-    }
-
-    /// Information required to register a new managed source to the measurement pipeline.
-    pub struct ManagedSourceRegistration {
-        pub name: SourceName,
-        pub trigger_spec: TriggerSpec,
-        pub source: Box<dyn super::Source>,
-    }
-
-    /// Information required to register a new autonomous source to the measurement pipeline.
-    pub struct AutonomousSourceRegistration {
-        pub name: SourceName,
-        pub source: super::AutonomousSource,
-    }
-
-    pub(super) struct BuildContext<'a> {
-        pub(super) metrics: &'a MetricRegistry,
-        pub(super) metrics_r: &'a MetricReader,
-        pub(super) metrics_tx: &'a MetricSender,
-        pub(super) namegen: &'a mut PluginElementNamespace,
-    }
-
-    /// Context accessible when building a managed source.
-    pub trait ManagedSourceBuildContext {
-        /// Retrieves a metric by its name.
-        fn metric_by_name(&self, name: &str) -> Option<(RawMetricId, &Metric)>;
-
-        /// Generates a name for the source.
-        fn source_name(&mut self, name: &str) -> SourceName;
-    }
-
-    /// Context accessible when building an autonomous source (not triggered by Alumet).
-    pub trait AutonomousSourceBuildContext {
-        /// Retrieves a metric by its name.
-        fn metric_by_name(&self, name: &str) -> Option<(RawMetricId, &Metric)>;
-        /// Returns a `MetricReader`, which allows to access the metric registry.
-        fn metrics_reader(&self) -> MetricReader;
-        /// Returns a `MetricSender`, which allows to register new metrics while the pipeline is running.
-        fn metrics_sender(&self) -> MetricSender;
-        /// Generates a name for the source.
-        fn source_name(&mut self, name: &str) -> SourceName;
-    }
-
-    impl ManagedSourceBuildContext for BuildContext<'_> {
-        fn metric_by_name(&self, name: &str) -> Option<(RawMetricId, &Metric)> {
-            self.metrics.by_name(name)
-        }
-
-        fn source_name(&mut self, name: &str) -> SourceName {
-            SourceName(self.namegen.insert_deduplicate(name))
-        }
-    }
-
-    impl AutonomousSourceBuildContext for BuildContext<'_> {
-        fn metric_by_name(&self, name: &str) -> Option<(RawMetricId, &Metric)> {
-            ManagedSourceBuildContext::metric_by_name(self, name)
-        }
-
-        fn metrics_reader(&self) -> MetricReader {
-            self.metrics_r.clone()
-        }
-
-        fn metrics_sender(&self) -> MetricSender {
-            self.metrics_tx.clone()
-        }
-
-        fn source_name(&mut self, name: &str) -> SourceName {
-            ManagedSourceBuildContext::source_name(self, name)
-        }
-    }
-}
+pub mod builder;
 
 /// A control message for sources.
 #[derive(Debug)]
@@ -532,26 +313,25 @@ pub enum ControlMessage {
 #[derive(Debug)]
 pub struct ConfigureMessage {
     /// Which transform(s) to reconfigure.
-    pub selector: SourceSelector,
+    pub matcher: SourceMatcher,
     pub command: ConfigureCommand,
 }
 
 #[derive(Debug)]
 pub struct CreateOneMessage {
-    pub plugin: PluginName,
+    pub name: SourceName,
     pub builder: builder::SendSourceBuilder,
 }
 
 #[derive(Debug)]
 pub struct CreateManyMessage {
-    pub plugin: PluginName,
-    pub builders: Vec<builder::SendSourceBuilder>,
+    pub builders: Vec<(SourceName, builder::SendSourceBuilder)>,
 }
 
 #[derive(Debug)]
 pub struct TriggerMessage {
     /// Which transform(s) to trigger.
-    pub selector: SourceSelector,
+    pub matcher: SourceMatcher,
 }
 
 /// A command to send to a managed [`Source`].
@@ -590,94 +370,7 @@ impl From<u8> for TaskState {
     }
 }
 
-mod task_controller {
-    use std::sync::{
-        atomic::{AtomicU8, Ordering},
-        Arc, Mutex,
-    };
-
-    use tokio::sync::Notify;
-    use tokio_util::sync::CancellationToken;
-
-    use crate::pipeline::trigger::{ManualTrigger, Trigger};
-
-    use super::{Reconfiguration, TaskState};
-
-    /// A controller for a single source.
-    pub enum SingleSourceController {
-        /// Dynamic configuration of a managed source + manual trigger.
-        ///
-        /// This is more flexible than the token of autonomous sources.
-        Managed(Arc<SharedSourceConfig>),
-
-        /// When cancelled, shuts the autonomous source down.
-        ///
-        /// It's up to the autonomous source to use this token properly, Alumet cannot guarantee
-        /// that the source will react to the cancellation (but it should!).
-        Autonomous(CancellationToken),
-    }
-
-    // struct SourceConfigReader(Arc<SharedSourceConfig>);
-
-    pub struct SharedSourceConfig {
-        pub change_notifier: Notify,
-        pub atomic_state: AtomicU8,
-        pub new_trigger: Mutex<Option<Trigger>>,
-        pub manual_trigger: Option<ManualTrigger>,
-    }
-
-    pub fn new_managed(initial_trigger: Trigger) -> (SingleSourceController, Arc<SharedSourceConfig>) {
-        let manual_trigger = initial_trigger.manual_trigger();
-        let config = Arc::new(SharedSourceConfig {
-            change_notifier: Notify::new(),
-            atomic_state: AtomicU8::new(TaskState::Run as u8),
-            new_trigger: Mutex::new(Some(initial_trigger)),
-            manual_trigger,
-        });
-        (SingleSourceController::Managed(config.clone()), config)
-    }
-
-    pub fn new_autonomous(shutdown_token: CancellationToken) -> SingleSourceController {
-        SingleSourceController::Autonomous(shutdown_token)
-    }
-
-    impl SingleSourceController {
-        pub fn reconfigure(&mut self, command: &Reconfiguration) {
-            match self {
-                SingleSourceController::Managed(shared) => {
-                    match &command {
-                        Reconfiguration::SetState(new_state) => {
-                            // TODO use a bit to signal that there's a new trigger?
-                            shared.atomic_state.store(*new_state as u8, Ordering::Relaxed);
-                        }
-                        Reconfiguration::SetTrigger(new_spec) => {
-                            let trigger = Trigger::new(new_spec.to_owned()).unwrap();
-                            *shared.new_trigger.lock().unwrap() = Some(trigger);
-                        }
-                    }
-                    shared.change_notifier.notify_one();
-                }
-                SingleSourceController::Autonomous(shutdown_token) => match &command {
-                    Reconfiguration::SetState(TaskState::Stop) => {
-                        shutdown_token.cancel();
-                    }
-                    _ => todo!("invalid command for autonomous source"),
-                },
-            }
-        }
-
-        pub fn trigger_now(&mut self) {
-            match self {
-                SingleSourceController::Managed(shared) => {
-                    if let Some(t) = &shared.manual_trigger {
-                        t.trigger_now();
-                    }
-                }
-                _ => (),
-            }
-        }
-    }
-}
+mod task_controller;
 
 pub(crate) async fn run_managed(
     source_name: SourceName,
