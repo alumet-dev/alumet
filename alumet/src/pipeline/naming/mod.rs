@@ -1,14 +1,16 @@
 use std::fmt::Display;
 
-pub mod dedup;
+pub mod generate;
 pub mod matching;
 pub mod namespace;
 
-pub(crate) use dedup::NameDeduplicator;
-
+/// The name of a plugin.
+///
+/// The purpose of this type is to avoid any ambiguity or potential mistake when working with names.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PluginName(pub String);
 
+/// Indicates the type of a pipeline element.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ElementKind {
     Source,
@@ -16,7 +18,19 @@ pub enum ElementKind {
     Output,
 }
 
-/// The name of a pipeline element (source, transform, output).
+/// The full name of a pipeline element.
+///
+/// # Example
+/// ```
+/// let source_name = ElementName {
+///     kind: ElementKind::Source,
+///     plugin: String::from("example"),
+///     element: String::from("the_source"),
+/// };
+///
+/// // If you know the type (as it is the case here), prefer specialized types:
+/// let source_name = SourceName::new(String::from("example"), String::from("the_source"));
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ElementName {
     /// Which type of element this is.
@@ -27,10 +41,15 @@ pub struct ElementName {
     pub element: String,
 }
 
+/// The full name of a source.
 #[derive(Debug, Clone)]
 pub struct SourceName(ElementName);
+
+/// The full name of a transform.
 #[derive(Debug, Clone)]
 pub struct TransformName(ElementName);
+
+/// The full name of an output.
 #[derive(Debug, Clone)]
 pub struct OutputName(ElementName);
 
