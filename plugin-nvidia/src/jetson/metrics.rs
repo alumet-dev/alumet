@@ -148,9 +148,10 @@ fn detect_hierarchy<P: AsRef<Path>>(
                 }
             }
         }
+        // The directory does not exist, simply return an empty list of sensors.
         Err(e) if e.kind() == ErrorKind::NotFound => {
-            // The directory does not exist, simply return an empty list of sensors.
-            return Err(anyhow!("Failed to enter in INA directory : {e}"));
+            eprintln!("INA directory does not exist : {e}");
+            ()
         }
         Err(e) => {
             return Err(anyhow!(
@@ -224,13 +225,20 @@ fn detect_hierarchy_old_v4<P: AsRef<Path>>(sys_ina: P) -> anyhow::Result<Vec<Ina
     /// Look for a path of the form <sensor_path>/iio:device<id>
     fn sensor_channels_dir(sensor_path: &Path) -> anyhow::Result<PathBuf> {
         for child in read_dir(sensor_path)? {
-            let child = child?;
-            let path = child.path();
-            if path.file_name().unwrap().to_string_lossy().starts_with("iio:device") {
-                return Ok(path);
+            match child {
+                Ok(child) => {
+                    let path = child.path();
+                    if path.file_name().unwrap().to_string_lossy().starts_with("iio:device") {
+                        return Ok(path);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to reading child directory: {}", e);
+                    continue;
+                }
             }
         }
-        Err(anyhow!("not found"))
+        Err(anyhow!("No iio:device directory found"))
     }
 
     fn is_label_file(prefix: &Option<Match>, suffix: &Option<Match>) -> anyhow::Result<bool> {
@@ -409,12 +417,14 @@ mod tests {
     // Test `detect_hierarchy_modern` and `detect_hierarchy_old_v4` functions without INA file system
     #[test]
     fn test_without_detected_ina_hierarchy() {
-        let result = detect_hierarchy_modern(PathBuf::new());
-        assert!(result.is_err());
-        let result = detect_hierarchy_old_v4(PathBuf::new());
-        assert!(result.is_err());
+        let path = PathBuf::new();
+        let modern = detect_hierarchy_modern(&path);
+        let old = detect_hierarchy_old_v4(&path);
+        assert!(modern.is_ok());
+        assert!(old.is_ok());
     }
 
+    // Test `detect_hierarchy` function with folder error
     #[test]
     fn test_detect_hierarchy_dir_error() {
         let result = detect_hierarchy(
@@ -495,6 +505,7 @@ mod tests {
     // Test `detect_ina_sensors` function
     #[test]
     fn test_detect_ina_sensors_with_detect_hierarchy_modern_error() {
-        assert!(detect_ina_sensors().is_err());
+        let result = detect_ina_sensors();
+        assert!(result.is_ok());
     }
 }
