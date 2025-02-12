@@ -22,13 +22,19 @@ pub enum ElementKind {
 ///
 /// # Example
 /// ```
+/// use alumet::pipeline::naming::{ElementKind, ElementName};
+///
 /// let source_name = ElementName {
 ///     kind: ElementKind::Source,
 ///     plugin: String::from("example"),
 ///     element: String::from("the_source"),
 /// };
+/// ```
 ///
-/// // If you know the type (as it is the case here), prefer specialized types:
+/// Note: if you know the type (as it is the case here), prefer specialized types such as [`SourceName`]:
+/// ```
+/// use alumet::pipeline::naming::SourceName;
+///
 /// let source_name = SourceName::new(String::from("example"), String::from("the_source"));
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -37,7 +37,7 @@ impl From<SendOutputBuilder> for OutputBuilder {
 ///
 ///  # Example
 /// ```
-/// use alumet::pipeline::elements::output::builder::{BlockingOutputBuilder, BlockingOutputRegistration, BlockingOutputBuildContext};
+/// use alumet::pipeline::elements::output::builder::{BlockingOutputBuilder, BlockingOutputBuildContext};
 /// use alumet::pipeline::{trigger, Output};
 ///
 /// fn build_my_output() -> anyhow::Result<Box<dyn Output>> {
@@ -46,10 +46,7 @@ impl From<SendOutputBuilder> for OutputBuilder {
 ///
 /// let builder: &dyn BlockingOutputBuilder = &|ctx: &mut dyn BlockingOutputBuildContext| {
 ///     let output = build_my_output()?;
-///     Ok(BlockingOutputRegistration {
-///         name: ctx.output_name("my-output"),
-///         output,
-///     })
+///     Ok(output)
 /// };
 /// ```
 pub trait BlockingOutputBuilder:
