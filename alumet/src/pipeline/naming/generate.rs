@@ -14,6 +14,17 @@ use std::{
 /// # Thread safety
 /// `NameGenerator` is [`Send`] and [`Sync`]: it can be sent to threads and shared between threads safely.
 /// You may need to wrap the generator in an [`Arc`].
+///
+/// # Example
+///
+/// ```
+/// use alumet::pipeline::naming::generate::NameGenerator;
+///
+/// let namegen = NameGenerator::new("prefix");
+/// assert_eq!(namegen.next_name(), "prefix-0");
+/// assert_eq!(namegen.next_name(), "prefix-1");
+/// ```
+///
 pub struct NameGenerator {
     prefix: Cow<'static, str>,
     counter: AtomicU32,

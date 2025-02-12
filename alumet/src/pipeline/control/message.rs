@@ -19,21 +19,21 @@ pub mod matching {
     };
 
     /// Matches some sources of the pipeline.
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, PartialEq)]
     pub enum SourceMatcher {
         Key(SourceKey),
         Name(SourceNamePattern),
     }
 
     /// Matches some outputs of the pipeline.
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, PartialEq)]
     pub enum OutputMatcher {
         Key(OutputKey),
         Name(OutputNamePattern),
     }
 
     /// Matches some transforms of the pipeline.
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, PartialEq)]
     pub enum TransformMatcher {
         Key(TransformKey),
         Name(TransformNamePattern),
@@ -43,7 +43,7 @@ pub mod matching {
         pub(crate) fn matches(&self, name: &SourceName) -> bool {
             match self {
                 SourceMatcher::Key(source_key) => &source_key.0 == name,
-                SourceMatcher::Name(source_name_pattern) => source_name_pattern.matches(&name),
+                SourceMatcher::Name(source_name_pattern) => source_name_pattern.matches(name),
             }
         }
     }
@@ -53,7 +53,7 @@ pub mod matching {
         pub(crate) fn matches(&self, name: &TransformName) -> bool {
             match self {
                 TransformMatcher::Key(transform_key) => &transform_key.0 == name,
-                TransformMatcher::Name(transform_name_pattern) => transform_name_pattern.matches(&name),
+                TransformMatcher::Name(transform_name_pattern) => transform_name_pattern.matches(name),
             }
         }
     }
@@ -63,7 +63,7 @@ pub mod matching {
         pub(crate) fn matches(&self, name: &OutputName) -> bool {
             match self {
                 OutputMatcher::Key(output_key) => &output_key.0 == name,
-                OutputMatcher::Name(output_name_pattern) => output_name_pattern.matches(&name),
+                OutputMatcher::Name(output_name_pattern) => output_name_pattern.matches(name),
             }
         }
     }

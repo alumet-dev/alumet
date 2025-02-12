@@ -1,5 +1,5 @@
 use alumet::metrics::{Metric, RawMetricId};
-use alumet::pipeline::elements::output::{builder::AsyncOutputRegistration, BoxedAsyncOutput};
+use alumet::pipeline::elements::output::BoxedAsyncOutput;
 use alumet::plugin::{
     rust::{deserialize_config, serialize_config, AlumetPlugin},
     AlumetPluginStart, ConfigTable,
@@ -144,7 +144,7 @@ impl AlumetPlugin for RelayClientPlugin {
         let (metrics_tx, metrics_rx) = mpsc::unbounded_channel();
 
         // The output is async :)
-        alumet.add_async_output_builder(move |ctx, stream| {
+        alumet.add_async_output_builder("tcp_client", move |ctx, stream| {
             let alumet_link = output::AlumetLink {
                 in_measurements: stream,
                 in_metrics: metrics_rx,
@@ -157,10 +157,7 @@ impl AlumetPlugin for RelayClientPlugin {
                 .context("relay connection error")?;
 
             let output: BoxedAsyncOutput = Box::pin(tcp.send_loop());
-            Ok(AsyncOutputRegistration {
-                name: ctx.output_name("relay-tcp"),
-                output,
-            })
+            Ok(output)
         });
 
         alumet.on_pre_pipeline_start(move |pre_start| {
@@ -172,11 +169,11 @@ impl AlumetPlugin for RelayClientPlugin {
                 .context("failed to send the initial metrics to the TCP output")?;
 
             // hook to register the late metrics
-            pre_start.add_metric_listener(move |new_metrics| {
+            pre_start.add_metric_listener("late_metrics_hook", move |new_metrics| {
                 metrics_tx
                     .send(new_metrics)
                     .context("failed to send late metrics to the TCP output")
-            });
+            })?;
             Ok(())
         });
         Ok(())

@@ -3,6 +3,7 @@ use std::fmt::Display;
 pub mod generate;
 pub mod matching;
 pub mod namespace;
+pub mod parsing;
 
 /// The name of a plugin.
 ///
