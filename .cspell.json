@@ -27,21 +27,23 @@
             "languageId": "rust",
             "includeRegExpList": [
                 "comments",
-                "string"
+                "rust_error_messages",
+                "rust_string_format",
             ],
             "ignoreRegExpList": [
+                "rustdoc_code_block",
                 "`.*`",
                 "\\/[\\w.\\-_]+",
                 "[\\w.\\-_]+\\/",
                 "pod[a-zA-Z0-9]+",
                 "\", .*\"",
-                "JWT"
+                "JWT",
             ]
         },
         {
             "languageId": "markdown",
             "ignoreRegExpList": [
-                "/^\\s*```[\\s\\S]*?^\\s*```/gm"
+                "markdown_code_block"
             ]
         }
     ],
@@ -88,6 +90,28 @@
         {
             "name": "JWT",
             "pattern": "/([A-Za-z0-9+\/]+={0,2}\\.[A-Za-z0-9+\/]+={0,2}\\.[A-Za-z0-9+\/]+={0,2})/g"
+        },
+        {
+            "name": "markdown_code_block",
+            "pattern": "^```[\\s\\S]*?^\\s*```/gm"
+        },
+        {
+            // Markdown code block in Rust documentation.
+            // NOTE: with /gm it doesn't work!
+            "name": "rustdoc_code_block",
+            "pattern": "^\\/\\/\\/ ```[\\s\\S]*?^\\/\\/\\/ ```"
+        },
+        {
+            // .expect("this") or .context("this")
+            // See https://github.com/streetsidesoftware/cspell/issues/6080
+            // Note that parentheses are automatically excluded by cspell.
+            "name": "rust_error_messages",
+            "pattern": "(?<=\\.(expect|context|panic!))\\(\".+\"\\)"
+        },
+        {
+            // format!("this") or formatdoc!("this") or indoc!("this")
+            "name": "rust-string-format",
+            "pattern": "(?<=\\.(format!|formatdoc!|indoc!))\\(\".+\"\\)"
         }
     ]
 }
