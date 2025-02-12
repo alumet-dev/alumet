@@ -6,8 +6,8 @@ use alumet::measurement::{
     MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementValue,
 };
 use alumet::metrics::TypedMetricId;
-use alumet::pipeline::elements::error::PollError;
 use alumet::pipeline::elements::output::{OutputContext, WriteError};
+use alumet::pipeline::elements::source::PollError;
 use alumet::pipeline::elements::transform::{TransformContext, TransformError};
 use alumet::pipeline::{trigger, Output, Source, Transform};
 use alumet::plugin::{AlumetPluginStart, AlumetPostStart, AlumetPreStart, Plugin};

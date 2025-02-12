@@ -11,7 +11,7 @@ use crate::{
     pipeline::trigger::TriggerSpec,
 };
 
-use super::AutonomousSource;
+use super::interface::{AutonomousSource, Source};
 
 // Trait aliases are unstable, and the following is not enough to help deduplicating code in plugin::phases.
 //
@@ -143,7 +143,7 @@ impl std::fmt::Debug for SendSourceBuilder {
 /// Information required to register a new managed source to the measurement pipeline.
 pub struct ManagedSource {
     pub trigger_spec: TriggerSpec,
-    pub source: Box<dyn super::Source>,
+    pub source: Box<dyn Source>,
 }
 
 pub(super) struct BuildContext<'a> {

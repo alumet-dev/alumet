@@ -31,6 +31,7 @@ use crate::metrics::online::listener::MetricListenerBuilder;
 use crate::metrics::online::{MetricReader, MetricRegistryControl, MetricSender};
 use crate::metrics::registry::MetricRegistry;
 use crate::pipeline::elements::output::control::OutputControl;
+use crate::pipeline::elements::source::control::SourceControl;
 use crate::pipeline::elements::transform::control::TransformControl;
 use crate::pipeline::util::channel;
 use crate::pipeline::Output;
@@ -274,7 +275,7 @@ impl Builder {
         };
 
         // Sources, last in order not to loose any measurement if they start measuring right away.
-        let mut source_control = source::SourceControl::new(
+        let mut source_control = SourceControl::new(
             self.trigger_constraints,
             pipeline_shutdown.clone(),
             in_tx,

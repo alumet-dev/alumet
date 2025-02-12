@@ -6,9 +6,8 @@ use std::sync::{
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
+use super::control::{Reconfiguration, TaskState};
 use crate::pipeline::trigger::{ManualTrigger, Trigger};
-
-use super::{Reconfiguration, TaskState};
 
 /// A controller for a single source.
 pub enum SingleSourceController {
