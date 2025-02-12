@@ -39,7 +39,7 @@ pub struct ScopedControlHandle {
 /// A message that can be sent "to the pipeline" (I'm simplifying here) in order to control it.
 #[derive(Debug)]
 pub enum ControlMessage {
-    Source(source::ControlMessage),
+    Source(source::control::ControlMessage),
     Transform(transform::control::ControlMessage),
     Output(output::control::ControlMessage),
 }
@@ -148,10 +148,12 @@ impl ScopedControlHandle {
         name: &str,
         builder: F,
     ) -> Result<(), ControlError> {
-        let message = ControlMessage::Source(source::ControlMessage::CreateOne(source::CreateOneMessage {
-            name: SourceName::new(self.plugin.0.clone(), name.to_owned()),
-            builder: source::builder::SendSourceBuilder::Managed(Box::new(builder)),
-        }));
+        let message = ControlMessage::Source(source::control::ControlMessage::CreateOne(
+            source::control::CreateOneMessage {
+                name: SourceName::new(self.plugin.0.clone(), name.to_owned()),
+                builder: source::builder::SendSourceBuilder::Managed(Box::new(builder)),
+            },
+        ));
         self.inner.try_send(message).map_err(|e| e.into())
     }
 
@@ -167,10 +169,12 @@ impl ScopedControlHandle {
         name: &str,
         builder: F,
     ) -> Result<(), ControlError> {
-        let message = ControlMessage::Source(source::ControlMessage::CreateOne(source::CreateOneMessage {
-            name: SourceName::new(self.plugin.0.clone(), name.to_owned()),
-            builder: source::builder::SendSourceBuilder::Autonomous(Box::new(builder)),
-        }));
+        let message = ControlMessage::Source(source::control::ControlMessage::CreateOne(
+            source::control::CreateOneMessage {
+                name: SourceName::new(self.plugin.0.clone(), name.to_owned()),
+                builder: source::builder::SendSourceBuilder::Autonomous(Box::new(builder)),
+            },
+        ));
         self.inner.try_send(message).map_err(|e| e.into())
     }
 
@@ -181,7 +185,7 @@ impl ScopedControlHandle {
         source: Box<dyn Source>,
     ) -> impl FnOnce(&mut dyn source::builder::ManagedSourceBuildContext) -> anyhow::Result<source::builder::ManagedSource>
     {
-        move |ctx: &mut dyn source::builder::ManagedSourceBuildContext| {
+        move |_ctx: &mut dyn source::builder::ManagedSourceBuildContext| {
             Ok(source::builder::ManagedSource {
                 trigger_spec: trigger,
                 source,

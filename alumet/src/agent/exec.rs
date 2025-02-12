@@ -89,11 +89,11 @@ fn trigger_measurement_now(pipeline: &MeasurementPipeline) -> anyhow::Result<()>
     use crate::pipeline::elements::source;
 
     let control_handle = pipeline.control_handle();
-    let send_task = control_handle.send(ControlMessage::Source(source::ControlMessage::TriggerManually(
-        source::TriggerMessage {
+    let send_task = control_handle.send(ControlMessage::Source(
+        source::control::ControlMessage::TriggerManually(source::control::TriggerMessage {
             matcher: SourceMatcher::wildcard(),
-        },
-    )));
+        }),
+    ));
     pipeline
         .async_runtime()
         .block_on(send_task)

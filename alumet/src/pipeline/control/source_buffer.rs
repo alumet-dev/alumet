@@ -2,7 +2,6 @@ use crate::pipeline::{
     elements::source::{
         self,
         builder::{AutonomousSourceBuilder, ManagedSourceBuilder, SendSourceBuilder},
-        CreateManyMessage,
     },
     naming::SourceName,
     trigger, Source,
@@ -54,8 +53,8 @@ impl SourceCreationBuffer<'_> {
     pub fn flush(&mut self) -> Result<(), ControlError> {
         self.handle
             .inner
-            .try_send(ControlMessage::Source(source::ControlMessage::CreateMany(
-                CreateManyMessage {
+            .try_send(ControlMessage::Source(source::control::ControlMessage::CreateMany(
+                source::control::CreateManyMessage {
                     builders: std::mem::take(&mut self.buffer),
                 },
             )))
