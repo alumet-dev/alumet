@@ -54,6 +54,14 @@ impl<V> Namespaces<V> {
     pub fn is_empty(&self) -> bool {
         self.map.is_empty()
     }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&(String, String), &V)> {
+        self.map.iter()
+    }
+
+    pub fn flat_keys(&self) -> impl Iterator<Item = &(String, String)> {
+        self.map.keys()
+    }
 }
 
 impl<V> IntoIterator for Namespaces<V> {
@@ -63,5 +71,15 @@ impl<V> IntoIterator for Namespaces<V> {
 
     fn into_iter(self) -> Self::IntoIter {
         self.map.into_iter()
+    }
+}
+
+impl<'a, V> IntoIterator for &'a Namespaces<V> {
+    type Item = (&'a (String, String), &'a V);
+
+    type IntoIter = std::collections::hash_map::Iter<'a, (String, String), V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.map.iter()
     }
 }

@@ -2,6 +2,9 @@
 
 use crate::pipeline::naming::{ElementKind, ElementName};
 
+// The inner field is private because it could be replaced by an integer in the future
+// in order to reduce the size of the key and improve performance.
+
 pub struct SourceKey(ElementName);
 pub struct TransformKey(ElementName);
 pub struct OutputKey(ElementName);
