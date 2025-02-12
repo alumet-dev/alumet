@@ -8,7 +8,7 @@ use std::{
 use anyhow::Context;
 
 use crate::{
-    pipeline::{control::ControlMessage, matching::TypedElementSelector, MeasurementPipeline},
+    pipeline::{control::ControlMessage, naming::matching::SourceNamePattern, MeasurementPipeline},
     plugin::event::StartConsumerMeasurement,
     resources::ResourceConsumer,
 };
@@ -89,11 +89,11 @@ fn trigger_measurement_now(pipeline: &MeasurementPipeline) -> anyhow::Result<()>
     use crate::pipeline::elements::source;
 
     let control_handle = pipeline.control_handle();
-    let send_task = control_handle.send(ControlMessage::Source(source::ControlMessage::TriggerManually(
-        source::TriggerMessage {
-            selector: TypedElementSelector::all(),
-        },
-    )));
+    let send_task = control_handle.send(ControlMessage::Source(
+        source::control::ControlMessage::TriggerManually(source::control::TriggerMessage {
+            matcher: SourceNamePattern::wildcard().into(),
+        }),
+    ));
     pipeline
         .async_runtime()
         .block_on(send_task)

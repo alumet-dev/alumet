@@ -1,18 +1,20 @@
 use std::time::Duration;
 
+use anyhow::Context;
+
 use super::points::{error_point, panic_point};
+
 use alumet::measurement::{MeasurementAccumulator, MeasurementBuffer, Timestamp};
-use alumet::pipeline::elements::error::{PollError, TransformError, WriteError};
-use alumet::pipeline::elements::output::{builder::BlockingOutputRegistration, OutputContext};
-use alumet::pipeline::elements::source::builder::ManagedSourceRegistration;
-use alumet::pipeline::elements::transform::{builder::TransformRegistration, TransformContext};
+use alumet::pipeline::elements::error::PollError;
+use alumet::pipeline::elements::output::{OutputContext, WriteError};
+use alumet::pipeline::elements::source::builder::ManagedSource;
+use alumet::pipeline::elements::transform::{TransformContext, TransformError};
 use alumet::pipeline::trigger::TriggerSpec;
 use alumet::pipeline::{Output, Source, Transform};
 use alumet::plugin::{
     rust::{serialize_config, AlumetPlugin},
     AlumetPluginStart, AlumetPostStart, ConfigTable,
 };
-use anyhow::Context;
 
 pub struct BadPlugin;
 pub struct BadSource1;
@@ -44,28 +46,27 @@ impl AlumetPlugin for BadPlugin {
 
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         error_point!(start);
-        alumet.add_source_builder(|ctx| {
-            error_point!(source1_build);
-            Ok(ManagedSourceRegistration {
-                name: ctx.source_name("source1"),
-                trigger_spec: TriggerSpec::at_interval(Duration::from_millis(100)),
-                source: Box::new(BadSource1),
+        alumet
+            .add_source_builder("source1", |_| {
+                error_point!(source1_build);
+                Ok(ManagedSource {
+                    trigger_spec: TriggerSpec::at_interval(Duration::from_millis(100)),
+                    source: Box::new(BadSource1),
+                })
             })
-        });
-        alumet.add_transform_builder(|ctx| {
-            error_point!(transf_build);
-            Ok(TransformRegistration {
-                name: ctx.transform_name("transform"),
-                transform: Box::new(BadTransform),
+            .expect("name 'source1' should be unique among sources");
+        alumet
+            .add_transform_builder("transform", |_| {
+                error_point!(transf_build);
+                Ok(Box::new(BadTransform))
             })
-        });
-        alumet.add_blocking_output_builder(|ctx| {
-            error_point!(output_build);
-            Ok(BlockingOutputRegistration {
-                name: ctx.output_name("output"),
-                output: Box::new(BadOutput),
+            .expect("name 'transform' should be unique among transforms");
+        alumet
+            .add_blocking_output_builder("output", |_| {
+                error_point!(output_build);
+                Ok(Box::new(BadOutput))
             })
-        });
+            .expect("name 'output' should be unique among outputs");
         Ok(())
     }
 
@@ -78,10 +79,9 @@ impl AlumetPlugin for BadPlugin {
         error_point!(post_pipeline_start);
         let control_handle = alumet.pipeline_control();
         control_handle
-            .add_source_builder(|ctx| {
+            .add_source_builder("source2", |_| {
                 error_point!(source2_build);
-                Ok(ManagedSourceRegistration {
-                    name: ctx.source_name("source2"),
+                Ok(ManagedSource {
                     trigger_spec: TriggerSpec::at_interval(Duration::from_millis(100)),
                     source: Box::new(BadSource2),
                 })

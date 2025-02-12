@@ -1,7 +1,7 @@
 use alumet::{
     measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
-    pipeline::elements::error::{PollError, PollRetry},
+    pipeline::elements::source::error::{PollError, PollRetry},
     plugin::util::CounterDiff,
     resources::{Resource, ResourceConsumer},
 };

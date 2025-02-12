@@ -7,7 +7,7 @@ use std::{
 
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
-    metrics::{MetricCreationError, TypedMetricId},
+    metrics::{error::MetricCreationError, TypedMetricId},
     pipeline::{elements::error::PollError, Source},
     plugin::AlumetPluginStart,
     resources::{Resource, ResourceConsumer},

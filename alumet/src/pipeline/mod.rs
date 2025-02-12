@@ -13,9 +13,9 @@
 pub mod builder;
 pub mod control;
 pub mod elements;
-pub mod registry;
+pub mod naming;
 pub mod trigger;
-mod util;
+pub(crate) mod util;
 
 pub use elements::output::Output;
 pub use elements::source::Source;
@@ -23,5 +23,4 @@ pub use elements::transform::Transform;
 
 pub use builder::Builder;
 pub use builder::MeasurementPipeline;
-pub use util::matching;
-pub use util::naming::{ElementKind, PluginName};
+pub use naming::matching;

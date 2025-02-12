@@ -32,9 +32,9 @@ use std::borrow::Cow;
 use std::time::UNIX_EPOCH;
 use std::{collections::HashMap, fmt::Display, time::SystemTime};
 
+use crate::metrics::def::{RawMetricId, TypedMetricId};
 use crate::resources::ResourceConsumer;
 
-use super::metrics::{RawMetricId, TypedMetricId};
 use super::resources::Resource;
 
 /// A value that has been measured at a given point in time.

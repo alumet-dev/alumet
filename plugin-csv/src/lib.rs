@@ -42,7 +42,7 @@ impl AlumetPlugin for CsvPlugin {
             self.config.csv_delimiter,
             self.config.csv_escaped_quote.take().unwrap_or(String::from("\"\"")),
         )?);
-        alumet.add_blocking_output(output);
+        alumet.add_blocking_output("out", output)?;
         Ok(())
     }
 

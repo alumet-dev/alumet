@@ -1,11 +1,8 @@
 use std::net::ToSocketAddrs;
 
-use alumet::{
-    pipeline::elements::source::builder::AutonomousSourceRegistration,
-    plugin::{
-        rust::{deserialize_config, serialize_config, AlumetPlugin},
-        AlumetPluginStart, ConfigTable,
-    },
+use alumet::plugin::{
+    rust::{deserialize_config, serialize_config, AlumetPlugin},
+    AlumetPluginStart, ConfigTable,
 };
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
@@ -65,7 +62,7 @@ impl AlumetPlugin for RelayServerPlugin {
             .collect();
 
         // Register the source builder.
-        alumet.add_autonomous_source_builder(move |ctx, cancel_token, out_tx| {
+        alumet.add_autonomous_source_builder("tcp_server", move |ctx, cancel_token, out_tx| {
             log::info!("Starting relay server on: {addr:?}");
             let metrics_tx = ctx.metrics_sender();
             let source = Box::pin(async move {
@@ -74,11 +71,8 @@ impl AlumetPlugin for RelayServerPlugin {
                 let server = source::TcpServer::new(cancel_token, listener, out_tx, metrics_tx);
                 server.accept_loop().await
             });
-            Ok(AutonomousSourceRegistration {
-                name: ctx.source_name("relay-server"),
-                source,
-            })
-        });
+            Ok(source)
+        })?;
         Ok(())
     }
 

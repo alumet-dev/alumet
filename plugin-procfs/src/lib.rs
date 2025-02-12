@@ -84,7 +84,7 @@ fn start_kernel_probe(
     let metrics = kernel::KernelMetrics::new(alumet).context("unable to register metrics for kernel probe")?;
     let source =
         kernel::KernelStatsProbe::new(metrics, procfs::KernelStats::PATH).context("unable to create kernel probe")?;
-    alumet.add_source(Box::new(source), trigger);
+    alumet.add_source("kernel", Box::new(source), trigger)?;
     Ok(())
 }
 
@@ -105,7 +105,7 @@ fn start_memory_probe(
         })
         .collect();
     let source = memory::MeminfoProbe::new(metrics?, procfs::Meminfo::PATH).context("unable to create memory probe")?;
-    alumet.add_source(Box::new(source), trigger);
+    alumet.add_source("memory", Box::new(source), trigger)?;
     Ok(())
 }
 

@@ -2425,6 +2425,8 @@ dependencies = [
  "anyhow",
  "humantime",
  "log",
+ "pretty_assertions",
+ "regex",
  "serde",
  "tokio",
  "tokio-util",

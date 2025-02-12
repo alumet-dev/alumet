@@ -1,15 +1,18 @@
 //! Phases of the plugins lifecycle.
 use std::marker::PhantomData;
 
-use crate::metrics::MetricRegistry;
+use crate::measurement::{MeasurementType, WrappedMeasurementType};
+use crate::metrics::def::{Metric, RawMetricId, TypedMetricId};
+use crate::metrics::error::MetricCreationError;
+use crate::metrics::online::listener::{MetricListener, MetricListenerBuilder};
+use crate::metrics::online::{MetricReader, MetricSender};
+use crate::metrics::registry::MetricRegistry;
+use crate::pipeline::control::key::{OutputKey, SourceKey, TransformKey};
+use crate::pipeline::elements::source::builder::{ManagedSource, SourceBuilder};
 use crate::pipeline::elements::{output, source, transform};
-use crate::pipeline::registry;
-use crate::{
-    measurement::{MeasurementType, WrappedMeasurementType},
-    metrics::{Metric, MetricCreationError, RawMetricId, TypedMetricId},
-    pipeline::{self, trigger, Output, PluginName, Source, Transform},
-    units::PrefixedUnit,
-};
+use crate::pipeline::naming::{namespace::DuplicateNameError, PluginName};
+use crate::pipeline::{self, trigger, Output, Source, Transform};
+use crate::units::PrefixedUnit;
 
 /// Structure passed to plugins for the start-up phase.
 ///
@@ -95,17 +98,13 @@ impl<'a> AlumetPluginStart<'a> {
     }
 
     /// Adds a _managed_ measurement source to the Alumet pipeline.
-    pub fn add_source(&mut self, source: Box<dyn Source>, trigger: trigger::TriggerSpec) {
-        let plugin = self.current_plugin_name();
-        let builder = |ctx: &mut dyn source::builder::ManagedSourceBuildContext| {
-            Ok(source::builder::ManagedSourceRegistration {
-                name: ctx.source_name(""),
-                trigger_spec: trigger,
-                source,
-            })
-        };
-        self.pipeline_builder
-            .add_source_builder(plugin, source::builder::SourceBuilder::Managed(Box::new(builder)))
+    pub fn add_source(
+        &mut self,
+        name: &str,
+        source: Box<dyn Source>,
+        trigger_spec: trigger::TriggerSpec,
+    ) -> Result<SourceKey, DuplicateNameError> {
+        self.add_source_builder(name, |_| Ok(ManagedSource { trigger_spec, source }))
     }
 
     /// Adds the builder of a _managed_ measurement source to the Alumet pipeline.
@@ -116,10 +115,14 @@ impl<'a> AlumetPluginStart<'a> {
     ///
     /// The downside is a more complicated code.
     /// In general, you should prefer to use [`add_source`](Self::add_source) if possible.
-    pub fn add_source_builder<F: source::builder::ManagedSourceBuilder + 'static>(&mut self, builder: F) {
+    pub fn add_source_builder<F: source::builder::ManagedSourceBuilder + 'static>(
+        &mut self,
+        name: &str,
+        builder: F,
+    ) -> Result<SourceKey, DuplicateNameError> {
         let plugin = self.current_plugin_name();
         self.pipeline_builder
-            .add_source_builder(plugin, source::builder::SourceBuilder::Managed(Box::new(builder)));
+            .add_source_builder(plugin, name, SourceBuilder::Managed(Box::new(builder)))
     }
 
     /// Adds the builder of an _autonomous_ source to the Alumet pipeline.
@@ -136,14 +139,14 @@ impl<'a> AlumetPluginStart<'a> {
     /// # Example
     /// ```no_run
     /// use std::time::SystemTime;
+    ///
     /// use alumet::measurement::{MeasurementBuffer, MeasurementPoint, Timestamp};
     /// use alumet::units::Unit;
-    /// use alumet::pipeline::elements::source::builder::AutonomousSourceRegistration;
     /// # use alumet::plugin::AlumetPluginStart;
     ///
     /// # let alumet: &AlumetPluginStart = todo!();
     /// let metric = alumet.create_metric::<u64>("my_metric", Unit::Second, "...").unwrap();
-    /// alumet.add_autonomous_source_builder(move |ctx, cancel_token, tx| {
+    /// alumet.add_autonomous_source_builder("source_name", move |ctx, cancel_token, tx| {
     ///     let out_tx = tx.clone();
     ///     let source = Box::pin(async move {
     ///         let mut buf = MeasurementBuffer::new();
@@ -165,16 +168,17 @@ impl<'a> AlumetPluginStart<'a> {
     ///         }
     ///         Ok(())
     ///     });
-    ///     Ok(AutonomousSourceRegistration {
-    ///         name: ctx.source_name("my-source"),
-    ///         source,
-    ///     })
-    /// })
+    ///     Ok(source)
+    /// }).expect("source names should be unique (in the same plugin)");
     /// ```
-    pub fn add_autonomous_source_builder<F: source::builder::AutonomousSourceBuilder + 'static>(&mut self, builder: F) {
+    pub fn add_autonomous_source_builder<F: source::builder::AutonomousSourceBuilder + 'static>(
+        &mut self,
+        name: &str,
+        builder: F,
+    ) -> Result<SourceKey, DuplicateNameError> {
         let plugin = self.current_plugin_name();
         self.pipeline_builder
-            .add_source_builder(plugin, source::builder::SourceBuilder::Autonomous(Box::new(builder)));
+            .add_source_builder(plugin, name, SourceBuilder::Autonomous(Box::new(builder)))
     }
 
     /// Adds a transform step to the Alumet pipeline.
@@ -201,17 +205,14 @@ impl<'a> AlumetPluginStart<'a> {
     /// // In start(&mut self, alumet: &mut AlumetPluginStart),
     /// // add the transform to the pipeline.
     /// let transform = ExampleTransform;
-    /// alumet.add_transform(Box::new(transform));
+    /// alumet.add_transform("name", Box::new(transform));
     /// ```
-    pub fn add_transform(&mut self, transform: Box<dyn Transform>) {
-        let plugin = self.current_plugin_name();
-        let builder = |ctx: &mut dyn transform::builder::TransformBuildContext| {
-            Ok(transform::builder::TransformRegistration {
-                name: ctx.transform_name(""),
-                transform,
-            })
-        };
-        self.pipeline_builder.add_transform_builder(plugin, Box::new(builder));
+    pub fn add_transform(
+        &mut self,
+        name: &str,
+        transform: Box<dyn Transform>,
+    ) -> Result<TransformKey, DuplicateNameError> {
+        self.add_transform_builder(name, |_| Ok(transform))
     }
 
     /// Adds the builder of a transform step to the Alumet pipeline.
@@ -219,23 +220,25 @@ impl<'a> AlumetPluginStart<'a> {
     /// # Example
     ///
     /// ```no_run
-    /// use alumet::pipeline::elements::transform::{
-    ///     Transform,
-    ///     builder::TransformRegistration
-    /// };
     ///
     /// # use alumet::plugin::AlumetPluginStart;
-    ///
     /// # let alumet: &AlumetPluginStart = todo!();
-    /// alumet.add_transform_builder(move |ctx| {
-    ///     let name = ctx.transform_name("example");
+    ///
+    /// use alumet::pipeline::elements::transform::Transform;
+    ///
+    /// alumet.add_transform_builder("name", move |ctx| {
     ///     let transform: Box<dyn Transform> = todo!();
-    ///     Ok(TransformRegistration { name, transform })
+    ///     Ok(transform)
     /// });
     /// ```
-    pub fn add_transform_builder<F: transform::builder::TransformBuilder + 'static>(&mut self, builder: F) {
+    pub fn add_transform_builder<F: transform::builder::TransformBuilder + 'static>(
+        &mut self,
+        name: &str,
+        builder: F,
+    ) -> Result<TransformKey, DuplicateNameError> {
         let plugin = self.current_plugin_name();
-        self.pipeline_builder.add_transform_builder(plugin, Box::new(builder));
+        self.pipeline_builder
+            .add_transform_builder(plugin, name, Box::new(builder))
     }
 
     /// Adds a _blocking_ output to the Alumet pipeline.
@@ -266,18 +269,14 @@ impl<'a> AlumetPluginStart<'a> {
     /// // In start(&mut self, alumet: &mut AlumetPluginStart),
     /// // add the output to the pipeline.
     /// let output = ExampleOutput;
-    /// alumet.add_blocking_output(Box::new(output));
+    /// alumet.add_blocking_output("name", Box::new(output));
     /// ```
-    pub fn add_blocking_output(&mut self, output: Box<dyn Output>) {
-        let plugin = self.current_plugin_name();
-        let build = |ctx: &mut dyn output::builder::BlockingOutputBuildContext| {
-            Ok(output::builder::BlockingOutputRegistration {
-                name: ctx.output_name(""),
-                output,
-            })
-        };
-        let builder = output::builder::OutputBuilder::Blocking(Box::new(build));
-        self.pipeline_builder.add_output_builder(plugin, builder);
+    pub fn add_blocking_output(
+        &mut self,
+        name: &str,
+        output: Box<dyn Output>,
+    ) -> Result<OutputKey, DuplicateNameError> {
+        self.add_blocking_output_builder(name, |_| Ok(output))
     }
 
     /// Adds the builder of a _blocking_ output to the Alumet pipeline.
@@ -289,17 +288,25 @@ impl<'a> AlumetPluginStart<'a> {
     /// # Async outputs
     /// If you intend to use async functions to implement your output, consider using [`add_async_output_builder`](Self::add_async_output_builder)
     /// instead.
-    pub fn add_blocking_output_builder<F: output::builder::BlockingOutputBuilder + 'static>(&mut self, builder: F) {
+    pub fn add_blocking_output_builder<F: output::builder::BlockingOutputBuilder + 'static>(
+        &mut self,
+        name: &str,
+        builder: F,
+    ) -> Result<OutputKey, DuplicateNameError> {
         let plugin = self.current_plugin_name();
         let builder = output::builder::OutputBuilder::Blocking(Box::new(builder));
-        self.pipeline_builder.add_output_builder(plugin, builder);
+        self.pipeline_builder.add_output_builder(plugin, name, builder)
     }
 
     /// Adds the builder of an _async_ output to the Alumet pipeline.
-    pub fn add_async_output_builder<F: output::builder::AsyncOutputBuilder + 'static>(&mut self, builder: F) {
+    pub fn add_async_output_builder<F: output::builder::AsyncOutputBuilder + 'static>(
+        &mut self,
+        name: &str,
+        builder: F,
+    ) -> Result<OutputKey, DuplicateNameError> {
         let plugin = self.current_plugin_name();
         let builder = output::builder::OutputBuilder::Async(Box::new(builder));
-        self.pipeline_builder.add_output_builder(plugin, builder);
+        self.pipeline_builder.add_output_builder(plugin, name, builder)
     }
 
     /// Registers a callback that will run just after the pipeline startup.
@@ -351,27 +358,26 @@ impl<'a> AlumetPreStart<'a> {
     }
 
     /// Registers a metric listener, which will be notified of all the new registered metrics.
-    pub fn add_metric_listener<F: registry::listener::MetricListener + Send + 'static>(&mut self, listener: F) {
-        let builder = |ctx: &mut dyn registry::listener::MetricListenerBuildContext| {
-            Ok(registry::listener::MetricListenerRegistration {
-                name: ctx.listener_name(""),
-                listener: Box::new(listener),
-            })
-        };
+    pub fn add_metric_listener<F: MetricListener + Send + 'static>(
+        &mut self,
+        name: &str,
+        listener: F,
+    ) -> Result<(), DuplicateNameError> {
         let plugin = self.current_plugin_name();
         self.pipeline_builder
-            .add_metric_listener_builder(plugin, Box::new(builder));
+            .add_metric_listener_builder(plugin, name, Box::new(|_| Ok(Box::new(listener))))
     }
 
     /// Registers a metric listener builder, which will construct a listener that
     /// will be notified of all the new registered metrics.
-    pub fn add_metric_listener_builder<F: registry::listener::MetricListenerBuilder + Send + 'static>(
+    pub fn add_metric_listener_builder<F: MetricListenerBuilder + Send + 'static>(
         &mut self,
+        name: &str,
         builder: F,
-    ) {
+    ) -> Result<(), DuplicateNameError> {
         let plugin = self.current_plugin_name();
         self.pipeline_builder
-            .add_metric_listener_builder(plugin, Box::new(builder));
+            .add_metric_listener_builder(plugin, name, Box::new(builder))
     }
 }
 
@@ -395,12 +401,12 @@ impl<'a> AlumetPostStart<'a> {
 
     /// Returns a handle that allows to register new metrics while the pipeline is running,
     /// and to subscribe to new registrations.
-    pub fn metrics_sender(&self) -> pipeline::registry::MetricSender {
+    pub fn metrics_sender(&self) -> MetricSender {
         self.pipeline.metrics_sender()
     }
 
     /// Returns a read-only access to the [`MetricRegistry`].
-    pub fn metrics_reader(&self) -> pipeline::registry::MetricReader {
+    pub fn metrics_reader(&self) -> MetricReader {
         self.pipeline.metrics_reader()
     }
 

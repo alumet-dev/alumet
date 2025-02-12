@@ -11,9 +11,12 @@ use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
     pipeline::{
-        control::{ControlError, ScopedControlHandle, SourceCreationBuffer},
-        elements::{error::PollError, source},
-        matching::{NamePattern, NamePatterns, SourceSelector},
+        control::{error::ControlError, message::matching::SourceMatcher, ScopedControlHandle, SourceCreationBuffer},
+        elements::{
+            error::PollError,
+            source::{self, control::TriggerMessage},
+        },
+        matching::{SourceNamePattern, StringPattern},
         trigger::TriggerSpec,
         Source,
     },
@@ -290,15 +293,14 @@ impl ManualProcessMonitor {
         self.source_spawner.create_source_in(p, &self.settings, source_buf)?;
         // TODO find a more elegant way to immediately trigger a source that has just been created
         let source_name = format!("pid-{pid}");
+        let matcher = SourceMatcher::Name(SourceNamePattern::new(
+            StringPattern::Exact(String::from("procfs")),
+            StringPattern::Exact(source_name),
+        ));
         self.alumet_handle
             .anonymous()
             .try_send(alumet::pipeline::control::ControlMessage::Source(
-                source::ControlMessage::TriggerManually(source::TriggerMessage {
-                    selector: SourceSelector::from(NamePatterns {
-                        plugin: NamePattern::Exact(String::from("procfs")),
-                        name: NamePattern::Exact(source_name),
-                    }),
-                }),
+                source::control::ControlMessage::TriggerManually(TriggerMessage { matcher }),
             ))
             .map_err(ControlError::from)
             .context("failed to trigger the new source")?;

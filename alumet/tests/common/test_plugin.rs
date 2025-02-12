@@ -6,9 +6,9 @@ use alumet::measurement::{
     MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementValue,
 };
 use alumet::metrics::TypedMetricId;
-use alumet::pipeline::elements::error::{PollError, TransformError, WriteError};
-use alumet::pipeline::elements::output::OutputContext;
-use alumet::pipeline::elements::transform::TransformContext;
+use alumet::pipeline::elements::output::{OutputContext, WriteError};
+use alumet::pipeline::elements::source::PollError;
+use alumet::pipeline::elements::transform::{TransformContext, TransformError};
 use alumet::pipeline::{trigger, Output, Source, Transform};
 use alumet::plugin::{AlumetPluginStart, AlumetPostStart, AlumetPreStart, Plugin};
 use alumet::resources::{Resource, ResourceConsumer};
@@ -114,14 +114,20 @@ impl Plugin for TestPlugin {
             n_polled: self.counters.n_polled.clone(),
         });
         let trigger = trigger::builder::time_interval(Duration::from_secs(1)).build().unwrap();
-        alumet.add_source(source, trigger);
-        alumet.add_transform(Box::new(TestTransform {
-            n_transform_in: self.counters.n_transform_in.clone(),
-            n_transform_out: self.counters.n_transform_out.clone(),
-        }));
-        alumet.add_blocking_output(Box::new(TestOutput {
-            n_written: self.counters.n_written.clone(),
-        }));
+        alumet.add_source("test", source, trigger)?;
+        alumet.add_transform(
+            "test",
+            Box::new(TestTransform {
+                n_transform_in: self.counters.n_transform_in.clone(),
+                n_transform_out: self.counters.n_transform_out.clone(),
+            }),
+        )?;
+        alumet.add_blocking_output(
+            "test",
+            Box::new(TestOutput {
+                n_written: self.counters.n_written.clone(),
+            }),
+        )?;
 
         // Update state (for testing purposes)
         self.state.set(State::Started);

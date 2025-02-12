@@ -3,7 +3,7 @@ use std::ffi::{c_char, CStr};
 use libc::c_void;
 
 use crate::measurement::WrappedMeasurementType;
-use crate::metrics::RawMetricId;
+use crate::metrics::def::RawMetricId;
 use crate::pipeline::trigger;
 use crate::{plugin::AlumetPluginStart, units::Unit};
 
@@ -62,6 +62,7 @@ pub extern "C" fn alumet_add_source(
         drop_fn: source_drop_fn,
     });
     alumet.add_source(
+        "fixme", // TODO update the API to ask for a name or generate one
         source,
         trigger::builder::time_interval(poll_interval.into())
             .flush_interval(flush_interval.into())
@@ -81,7 +82,7 @@ pub extern "C" fn alumet_add_transform(
         apply_fn: transform_apply_fn,
         drop_fn: transform_drop_fn,
     });
-    alumet.add_transform(transform);
+    alumet.add_transform("fixme", transform);
 }
 #[no_mangle]
 pub extern "C" fn alumet_add_output(
@@ -95,5 +96,5 @@ pub extern "C" fn alumet_add_output(
         write_fn: output_write_fn,
         drop_fn: output_drop_fn,
     });
-    alumet.add_blocking_output(output);
+    alumet.add_blocking_output("fixme", output);
 }
