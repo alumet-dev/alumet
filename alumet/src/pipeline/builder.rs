@@ -11,30 +11,30 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-use super::control::key::{OutputKey, SourceKey, TransformKey};
-use super::elements::output::builder::OutputBuilder;
-use super::elements::source::builder::SourceBuilder;
-use super::elements::transform::builder::TransformBuilder;
-use super::elements::{output, source};
-use super::naming::{
-    namespace::{DuplicateNameError, Namespaces},
-    PluginName,
-};
-use super::naming::{OutputName, SourceName, TransformName};
-use super::{
-    control::{AnonymousControlHandle, PipelineControl},
-    trigger::TriggerConstraints,
-    util,
-};
 use crate::measurement::MeasurementBuffer;
 use crate::metrics::online::listener::MetricListenerBuilder;
 use crate::metrics::online::{MetricReader, MetricRegistryControl, MetricSender};
 use crate::metrics::registry::MetricRegistry;
 use crate::pipeline::elements::output::control::OutputControl;
+use crate::pipeline::elements::output::OutputContext;
 use crate::pipeline::elements::source::control::SourceControl;
 use crate::pipeline::elements::transform::control::TransformControl;
 use crate::pipeline::util::channel;
 use crate::pipeline::Output;
+
+use super::elements::output::builder::OutputBuilder;
+use super::elements::source::builder::SourceBuilder;
+use super::elements::transform::builder::TransformBuilder;
+use super::naming::{
+    namespace::{DuplicateNameError, Namespaces},
+    OutputName, PluginName, SourceName, TransformName,
+};
+use super::{
+    control::key::{OutputKey, SourceKey, TransformKey},
+    control::{AnonymousControlHandle, PipelineControl},
+    trigger::TriggerConstraints,
+    util,
+};
 
 /// A running measurement pipeline.
 pub struct MeasurementPipeline {
@@ -127,7 +127,7 @@ impl Builder {
         builder: SourceBuilder,
     ) -> Result<SourceKey, DuplicateNameError> {
         match self.sources.add(plugin.0.clone(), name.to_owned(), builder) {
-            Ok(_) => Ok(SourceKey::new(plugin.0, name.to_owned())),
+            Ok(_) => Ok(SourceKey::new(SourceName::new(plugin.0, name.to_owned()))),
             Err(e) => Err(e),
         }
     }
@@ -140,7 +140,7 @@ impl Builder {
         builder: Box<dyn TransformBuilder>,
     ) -> Result<TransformKey, DuplicateNameError> {
         match self.transforms.add(plugin.0.clone(), name.to_owned(), builder) {
-            Ok(_) => Ok(TransformKey::new(plugin.0, name.to_owned())),
+            Ok(_) => Ok(TransformKey::new(TransformName::new(plugin.0, name.to_owned()))),
             Err(e) => Err(e),
         }
     }
@@ -153,7 +153,7 @@ impl Builder {
         builder: OutputBuilder,
     ) -> Result<OutputKey, DuplicateNameError> {
         match self.outputs.add(plugin.0.clone(), name.to_owned(), builder) {
-            Ok(_) => Ok(OutputKey::new(plugin.0, name.to_owned())),
+            Ok(_) => Ok(OutputKey::new(OutputName::new(plugin.0, name.to_owned()))),
             Err(e) => Err(e),
         }
     }
@@ -182,7 +182,7 @@ impl Builder {
 
         struct DummyOutput;
         impl Output for DummyOutput {
-            fn write(&mut self, _m: &MeasurementBuffer, _ctx: &output::OutputContext) -> Result<(), WriteError> {
+            fn write(&mut self, _m: &MeasurementBuffer, _ctx: &OutputContext) -> Result<(), WriteError> {
                 Ok(())
             }
         }
@@ -238,7 +238,7 @@ impl Builder {
 
         if self.outputs.is_empty() {
             log::warn!("No output has been registered. A dummy output will be added to make the pipeline work, but you probably want to add a true output.");
-            let builder = output::builder::OutputBuilder::Blocking(Box::new(|_| Ok(Box::new(DummyOutput))));
+            let builder = OutputBuilder::Blocking(Box::new(|_| Ok(Box::new(DummyOutput))));
             self.outputs
                 .add(String::from("alumet"), String::from("dummy"), builder)
                 .unwrap();

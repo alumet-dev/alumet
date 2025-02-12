@@ -159,7 +159,7 @@ mod tests {
     use alumet::pipeline::{
         control::ControlMessage,
         elements::{output, source, transform},
-        matching::{NamePattern, NamePatterns, OutputSelector, SourceSelector, TransformSelector},
+        matching::{StringPattern, NamePatterns, OutputSelector, SourceSelector, TransformSelector},
         trigger::TriggerSpec,
     };
 
@@ -172,8 +172,8 @@ mod tests {
             vec![ControlMessage::Source(source::ControlMessage::Configure(
                 source::ConfigureMessage {
                     matcher: SourceSelector::from(NamePatterns {
-                        plugin: NamePattern::Exact(String::from("my-plugin")),
-                        name: NamePattern::Exact(String::from("my-source")),
+                        plugin: StringPattern::Exact(String::from("my-plugin")),
+                        name: StringPattern::Exact(String::from("my-source")),
                     }),
                     command: source::ConfigureCommand::Pause,
                 },

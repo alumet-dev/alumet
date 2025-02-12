@@ -1,12 +1,9 @@
 use tokio::runtime;
 
-use crate::{
-    metrics::{
-        def::{Metric, RawMetricId},
-        online::MetricReader,
-        registry::MetricRegistry,
-    },
-    pipeline::naming::OutputName,
+use crate::metrics::{
+    def::{Metric, RawMetricId},
+    online::MetricReader,
+    registry::MetricRegistry,
 };
 
 use super::{AsyncOutputStream, BoxedAsyncOutput, Output};

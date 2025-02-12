@@ -1,40 +1,31 @@
 //! Keys associated to individual elements.
 
-use crate::pipeline::naming::{ElementKind, ElementName};
+use crate::pipeline::naming::{ElementKind, ElementName, OutputName, SourceName, TransformName};
 
 // The inner field is private because it could be replaced by an integer in the future
 // in order to reduce the size of the key and improve performance.
 
-pub struct SourceKey(ElementName);
-pub struct TransformKey(ElementName);
-pub struct OutputKey(ElementName);
+#[derive(Debug, Clone)]
+pub struct SourceKey(pub(super) SourceName);
+#[derive(Debug, Clone)]
+pub struct TransformKey(pub(super) TransformName);
+#[derive(Debug, Clone)]
+pub struct OutputKey(pub(super) OutputName);
 
 impl SourceKey {
-    pub(crate) fn new(plugin: String, name: String) -> Self {
-        Self(ElementName {
-            plugin,
-            kind: ElementKind::Source,
-            element: name,
-        })
+    pub(crate) fn new(name: SourceName) -> Self {
+        Self(name)
     }
 }
 
 impl TransformKey {
-    pub(crate) fn new(plugin: String, name: String) -> Self {
-        Self(ElementName {
-            plugin,
-            kind: ElementKind::Transform,
-            element: name,
-        })
+    pub(crate) fn new(name: TransformName) -> Self {
+        Self(name)
     }
 }
 
 impl OutputKey {
-    pub(crate) fn new(plugin: String, name: String) -> Self {
-        Self(ElementName {
-            plugin,
-            kind: ElementKind::Output,
-            element: name,
-        })
+    pub(crate) fn new(name: OutputName) -> Self {
+        Self(name)
     }
 }
