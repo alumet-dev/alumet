@@ -40,7 +40,7 @@ pub struct ScopedControlHandle {
 #[derive(Debug)]
 pub enum ControlMessage {
     Source(source::ControlMessage),
-    Transform(transform::ControlMessage),
+    Transform(transform::control::ControlMessage),
     Output(output::ControlMessage),
 }
 

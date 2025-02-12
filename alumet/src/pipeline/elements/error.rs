@@ -19,15 +19,6 @@ pub enum PollError {
     NormalStop,
 }
 
-/// Error which can occur during [`Transform::apply`](super::super::Transform::apply).
-#[derive(Debug)]
-pub enum TransformError {
-    /// The transformation failed and cannot recover from this failure, it should not be used anymore.
-    Fatal(anyhow::Error),
-    /// The measurements to transform are invalid, but the `Transform` itself is fine and can be used on other measurements.
-    UnexpectedInput(anyhow::Error),
-}
-
 /// Error which can occur during [`Output::write`](super::super::Output::write).
 #[derive(Debug)]
 pub enum WriteError {
@@ -52,17 +43,7 @@ impl fmt::Display for PollError {
         }
     }
 }
-impl fmt::Display for TransformError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            TransformError::Fatal(e) => write!(f, "fatal error in Transform::apply: {e}"),
-            TransformError::UnexpectedInput(e) => write!(
-                f,
-                "unexpected input for transform, is the plugin properly configured? {e}"
-            ),
-        }
-    }
-}
+
 impl fmt::Display for WriteError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -73,17 +54,12 @@ impl fmt::Display for WriteError {
 }
 
 // Allow to convert from anyhow::Error to pipeline errors
-
 impl<T: Into<anyhow::Error>> From<T> for PollError {
     fn from(value: T) -> Self {
         Self::Fatal(value.into())
     }
 }
-impl<T: Into<anyhow::Error>> From<T> for TransformError {
-    fn from(value: T) -> Self {
-        Self::Fatal(value.into())
-    }
-}
+
 impl<T: Into<anyhow::Error>> From<T> for WriteError {
     fn from(value: T) -> Self {
         Self::Fatal(value.into())

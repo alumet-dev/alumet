@@ -31,6 +31,7 @@ use crate::measurement::MeasurementBuffer;
 use crate::metrics::online::listener::MetricListenerBuilder;
 use crate::metrics::online::{MetricReader, MetricRegistryControl, MetricSender};
 use crate::metrics::registry::MetricRegistry;
+use crate::pipeline::elements::transform::control::TransformControl;
 use crate::pipeline::util::channel;
 use crate::pipeline::Output;
 
@@ -255,7 +256,7 @@ impl Builder {
                 .context("output creation failed")?;
 
             // No transforms
-            transform_control = transform::TransformControl::empty();
+            transform_control = TransformControl::empty();
         } else {
             // Broadcast queue: transforms -> outputs
             let out_tx = broadcast::Sender::<MeasurementBuffer>::new(self.source_channel_size);
@@ -268,13 +269,8 @@ impl Builder {
                 .context("output creation failed")?;
 
             // Transforms
-            transform_control = transform::TransformControl::with_transforms(
-                self.transforms,
-                metrics_r.clone(),
-                in_rx,
-                out_tx,
-                rt_handle,
-            )?;
+            transform_control =
+                TransformControl::with_transforms(self.transforms, metrics_r.clone(), in_rx, out_tx, rt_handle)?;
         };
 
         // Sources, last in order not to loose any measurement if they start measuring right away.
