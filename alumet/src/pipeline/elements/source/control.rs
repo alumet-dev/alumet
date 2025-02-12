@@ -9,8 +9,9 @@ use tokio_util::sync::CancellationToken;
 use super::builder;
 use crate::measurement::MeasurementBuffer;
 use crate::metrics::online::{MetricReader, MetricSender};
+use crate::pipeline::control::message::matching::SourceMatcher;
 use crate::pipeline::elements::source::run::{run_autonomous, run_managed};
-use crate::pipeline::naming::matching::SourceMatcher;
+use crate::pipeline::matching::SourceNamePattern;
 use crate::pipeline::naming::{namespace::Namespaces, SourceName};
 use crate::pipeline::trigger::{Trigger, TriggerConstraints, TriggerSpec};
 
@@ -240,7 +241,7 @@ impl SourceControl {
 
         // Send a stop message to all managed sources.
         let stop_msg = ConfigureMessage {
-            matcher: SourceMatcher::wildcard(),
+            matcher: SourceMatcher::Name(SourceNamePattern::wildcard()),
             command: ConfigureCommand::Stop,
         };
         self.tasks.reconfigure(stop_msg);

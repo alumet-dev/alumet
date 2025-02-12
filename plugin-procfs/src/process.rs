@@ -13,7 +13,7 @@ use alumet::{
     pipeline::{
         control::{error::ControlError, ScopedControlHandle, SourceCreationBuffer},
         elements::{error::PollError, source},
-        matching::{NamePattern, NamePatterns, SourceSelector},
+        matching::{StringPattern, NamePatterns, SourceSelector},
         trigger::TriggerSpec,
         Source,
     },
@@ -295,8 +295,8 @@ impl ManualProcessMonitor {
             .try_send(alumet::pipeline::control::ControlMessage::Source(
                 source::ControlMessage::TriggerManually(source::TriggerMessage {
                     matcher: SourceSelector::from(NamePatterns {
-                        plugin: NamePattern::Exact(String::from("procfs")),
-                        name: NamePattern::Exact(source_name),
+                        plugin: StringPattern::Exact(String::from("procfs")),
+                        name: StringPattern::Exact(source_name),
                     }),
                 }),
             ))

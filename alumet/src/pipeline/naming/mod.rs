@@ -130,9 +130,17 @@ impl ElementName {
     }
 }
 
+// ===== Conversion from specific names to generic name
+
 impl From<SourceName> for ElementName {
     fn from(value: SourceName) -> Self {
         value.0
+    }
+}
+
+impl<'a> From<&'a SourceName> for &'a ElementName {
+    fn from(value: &'a SourceName) -> Self {
+        &value.0
     }
 }
 
@@ -142,11 +150,25 @@ impl From<TransformName> for ElementName {
     }
 }
 
+impl<'a> From<&'a TransformName> for &'a ElementName {
+    fn from(value: &'a TransformName) -> Self {
+        &value.0
+    }
+}
+
 impl From<OutputName> for ElementName {
     fn from(value: OutputName) -> Self {
         value.0
     }
 }
+
+impl<'a> From<&'a OutputName> for &'a ElementName {
+    fn from(value: &'a OutputName) -> Self {
+        &value.0
+    }
+}
+
+// ===== Implementations of Display
 
 impl Display for ElementKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

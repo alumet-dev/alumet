@@ -9,9 +9,11 @@ use tokio_util::sync::CancellationToken;
 pub mod error;
 pub mod handle;
 pub mod key;
+pub mod message;
 mod source_buffer;
 
-pub use handle::{AnonymousControlHandle, ControlMessage, ScopedControlHandle};
+pub use handle::{AnonymousControlHandle, ScopedControlHandle};
+pub use message::ControlMessage;
 pub use source_buffer::SourceCreationBuffer;
 
 /// Encapsulates sources, transforms and outputs control.

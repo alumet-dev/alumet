@@ -15,16 +15,40 @@ pub enum ControlError {
 #[derive(Debug, Error)]
 pub enum ControlSendError {
     #[error("Cannot send the message because the channel is full - {0:?}")]
-    ChannelFull(super::handle::ControlMessage),
+    ChannelFull(super::message::ControlMessage),
     #[error("Cannot send the message because the pipeline has shut down")]
     Shutdown,
 }
 
-impl From<ControlSendError> for ControlError {
-    fn from(value: ControlSendError) -> Self {
-        match value {
+impl ControlSendError {
+    /// Removes the `ControlMessage` from the error type.
+    ///
+    /// The returned error is guaranteed to be `Send`, `Sync` and `Clone`-able.
+    pub fn erased(self) -> ControlError {
+        match self {
             ControlSendError::ChannelFull(_) => ControlError::ChannelFull,
             ControlSendError::Shutdown => ControlError::Shutdown,
         }
+    }
+}
+
+impl From<ControlSendError> for ControlError {
+    fn from(value: ControlSendError) -> Self {
+        value.erased()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::pipeline::util::{assert_send, assert_sync};
+
+    use super::{ControlError, ControlSendError};
+
+    #[test]
+    fn typing() {
+        assert_send::<ControlError>();
+        assert_send::<ControlSendError>();
+        assert_sync::<ControlError>();
+        // assert_sync::<ControlSendError>(); does NOT work
     }
 }

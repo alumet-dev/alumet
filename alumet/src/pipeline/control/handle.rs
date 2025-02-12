@@ -13,6 +13,7 @@ use crate::pipeline::{
 
 use super::{
     error::{ControlError, ControlSendError},
+    message::ControlMessage,
     SourceCreationBuffer,
 };
 
@@ -34,14 +35,6 @@ pub struct AnonymousControlHandle {
 pub struct ScopedControlHandle {
     pub(super) inner: AnonymousControlHandle,
     pub(super) plugin: PluginName,
-}
-
-/// A message that can be sent "to the pipeline" (I'm simplifying here) in order to control it.
-#[derive(Debug)]
-pub enum ControlMessage {
-    Source(source::control::ControlMessage),
-    Transform(transform::control::ControlMessage),
-    Output(output::control::ControlMessage),
 }
 
 #[cfg(test)]

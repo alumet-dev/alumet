@@ -11,7 +11,7 @@ use tokio::{
 
 use crate::metrics::online::MetricReader;
 use crate::pipeline::elements::output::run::run_async_output;
-use crate::pipeline::matching::OutputMatcher;
+use crate::pipeline::matching::OutputNamePattern;
 use crate::pipeline::naming::{namespace::Namespaces, OutputName};
 use crate::pipeline::util::channel;
 use crate::pipeline::util::stream::{ControlledStream, SharedStreamState};
@@ -29,7 +29,7 @@ use super::{
 #[derive(Debug)]
 pub struct ControlMessage {
     /// Which output(s) to reconfigure.
-    pub matcher: OutputMatcher,
+    pub matcher: OutputNamePattern,
     /// The new state to apply to the selected output(s).
     pub new_state: TaskState,
 }
@@ -176,7 +176,7 @@ impl OutputControl {
         // but that only works when the output is running.
         // If the output is paused, it needs to be stopped with a command.
         let stop_msg = ControlMessage {
-            matcher: OutputMatcher::wildcard(),
+            matcher: OutputNamePattern::wildcard(),
             new_state: TaskState::StopFinish,
         };
         self.handle_message(stop_msg)
