@@ -1,5 +1,4 @@
 //! Construction of measurement pipelines.
-use std::collections::HashMap;
 use std::time::Duration;
 
 use anyhow::Context;
@@ -16,7 +15,7 @@ use super::control::key::{OutputKey, SourceKey, TransformKey};
 use super::elements::output::builder::OutputBuilder;
 use super::elements::source::builder::SourceBuilder;
 use super::elements::transform::builder::TransformBuilder;
-use super::elements::{output, source, transform};
+use super::elements::{output, source};
 use super::naming::{
     namespace::{DuplicateNameError, Namespaces},
     PluginName,
@@ -31,6 +30,7 @@ use crate::measurement::MeasurementBuffer;
 use crate::metrics::online::listener::MetricListenerBuilder;
 use crate::metrics::online::{MetricReader, MetricRegistryControl, MetricSender};
 use crate::metrics::registry::MetricRegistry;
+use crate::pipeline::elements::output::control::OutputControl;
 use crate::pipeline::elements::transform::control::TransformControl;
 use crate::pipeline::util::channel;
 use crate::pipeline::Output;
@@ -177,7 +177,7 @@ impl Builder {
     ///
     /// The new pipeline is immediately started.
     pub fn build(mut self) -> anyhow::Result<MeasurementPipeline> {
-        use crate::pipeline::elements::error::WriteError;
+        use crate::pipeline::elements::output::error::WriteError;
 
         struct DummyOutput;
         impl Output for DummyOutput {
@@ -250,7 +250,7 @@ impl Builder {
 
             // Outputs
             let out_rx_provider = channel::ReceiverProvider::from(in_rx);
-            output_control = output::OutputControl::new(out_rx_provider, rt_handle.clone(), metrics_r.clone());
+            output_control = OutputControl::new(out_rx_provider, rt_handle.clone(), metrics_r.clone());
             output_control
                 .blocking_create_outputs(self.outputs)
                 .context("output creation failed")?;
@@ -263,7 +263,7 @@ impl Builder {
 
             // Outputs
             let out_rx_provider = channel::ReceiverProvider::from(out_tx.clone());
-            output_control = output::OutputControl::new(out_rx_provider, rt_handle.clone(), metrics_r.clone());
+            output_control = OutputControl::new(out_rx_provider, rt_handle.clone(), metrics_r.clone());
             output_control
                 .blocking_create_outputs(self.outputs)
                 .context("output creation failed")?;

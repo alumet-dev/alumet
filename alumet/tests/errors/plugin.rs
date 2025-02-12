@@ -5,8 +5,8 @@ use anyhow::Context;
 use super::points::{error_point, panic_point};
 
 use alumet::measurement::{MeasurementAccumulator, MeasurementBuffer, Timestamp};
-use alumet::pipeline::elements::error::{PollError, WriteError};
-use alumet::pipeline::elements::output::OutputContext;
+use alumet::pipeline::elements::error::PollError;
+use alumet::pipeline::elements::output::{OutputContext, WriteError};
 use alumet::pipeline::elements::source::builder::ManagedSource;
 use alumet::pipeline::elements::transform::{TransformContext, TransformError};
 use alumet::pipeline::trigger::TriggerSpec;

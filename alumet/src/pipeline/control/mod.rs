@@ -18,14 +18,14 @@ pub use source_buffer::SourceCreationBuffer;
 pub(crate) struct PipelineControl {
     sources: source::SourceControl,
     transforms: transform::control::TransformControl,
-    outputs: output::OutputControl,
+    outputs: output::control::OutputControl,
 }
 
 impl PipelineControl {
     pub fn new(
         sources: source::SourceControl,
         transforms: transform::control::TransformControl,
-        outputs: output::OutputControl,
+        outputs: output::control::OutputControl,
     ) -> Self {
         Self {
             sources,

@@ -6,7 +6,8 @@ use crate::{
     pipeline::{
         self,
         elements::{
-            error, output,
+            error,
+            output::{self, error::WriteError},
             transform::{self, TransformError},
         },
     },
@@ -56,11 +57,7 @@ impl pipeline::Transform for FfiTransform {
     }
 }
 impl pipeline::Output for FfiOutput {
-    fn write(
-        &mut self,
-        measurements: &MeasurementBuffer,
-        ctx: &output::OutputContext,
-    ) -> Result<(), error::WriteError> {
+    fn write(&mut self, measurements: &MeasurementBuffer, ctx: &output::OutputContext) -> Result<(), WriteError> {
         let ffi_ctx = FfiOutputContext { inner: ctx };
         (self.write_fn)(self.data, measurements, &ffi_ctx);
         Ok(())
