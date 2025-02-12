@@ -42,15 +42,15 @@ pub struct ElementName {
 }
 
 /// The full name of a source.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceName(ElementName);
 
 /// The full name of a transform.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransformName(ElementName);
 
 /// The full name of an output.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutputName(ElementName);
 
 impl SourceName {
@@ -60,6 +60,14 @@ impl SourceName {
             kind: ElementKind::Source,
             element: source_name,
         })
+    }
+
+    pub fn plugin(&self) -> &str {
+        &self.0.plugin
+    }
+
+    pub fn source(&self) -> &str {
+        &self.0.element
     }
 }
 
@@ -71,6 +79,14 @@ impl TransformName {
             element: transform_name,
         })
     }
+
+    pub fn plugin(&self) -> &str {
+        &self.0.plugin
+    }
+
+    pub fn transform(&self) -> &str {
+        &self.0.element
+    }
 }
 
 impl OutputName {
@@ -80,6 +96,14 @@ impl OutputName {
             kind: ElementKind::Output,
             element: output_name,
         })
+    }
+
+    pub fn plugin(&self) -> &str {
+        &self.0.plugin
+    }
+
+    pub fn output(&self) -> &str {
+        &self.0.element
     }
 }
 

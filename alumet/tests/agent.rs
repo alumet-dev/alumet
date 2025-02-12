@@ -130,6 +130,7 @@ fn test_plugin_lifecycle() {
                 sorted(expected_metrics),
                 sorted(
                     builder
+                        .inspect()
                         .metrics()
                         .iter()
                         .map(|(_id, m)| m.name.clone())

@@ -1,7 +1,9 @@
 //! Construction of measurement pipelines.
+use std::collections::HashMap;
 use std::time::Duration;
 
 use anyhow::Context;
+use fxhash::FxHashMap;
 use tokio::time::error::Elapsed;
 use tokio::{
     runtime::Runtime,
@@ -19,6 +21,7 @@ use super::naming::{
     namespace::{DuplicateNameError, Namespaces},
     PluginName,
 };
+use super::naming::{OutputName, SourceName, TransformName};
 use super::{
     control::{AnonymousControlHandle, PipelineControl},
     trigger::TriggerConstraints,
@@ -303,13 +306,35 @@ impl Builder {
     }
 
     /// Inspects the current state of the builder.
+    ///
+    /// # Example
+    /// ```
+    /// use alumet::pipeline;
+    /// use alumet::pipeline::naming::SourceName;
+    ///
+    /// # use alumet::pipeline::naming::PluginName;
+    /// # use alumet::pipeline::elements::source::builder::SourceBuilder;
+    /// # fn f(plugin: PluginName, source: SourceBuilder) {
+    ///
+    /// // Create a pipeline builder.
+    /// let mut pipeline = pipeline::Builder::new();
+    ///
+    /// // Register a source.
+    /// pipeline.add_source_builder(plugin, "example", source);
+    ///
+    /// // Get the number of sources.
+    /// let inspect = pipeline.inspect();
+    /// let n_sources = inspect.stats().sources;
+    /// assert_eq!(n_sources, 1);
+    ///
+    /// // Get the names of the sources.
+    /// let names = inspect.sources();
+    /// assert_eq!(names[0].source(), "example");
+    ///
+    /// # }
+    /// ```
     pub fn inspect(&self) -> BuilderInspector {
         BuilderInspector { inner: self }
-    }
-
-    /// Returns a read-only access to the current state of the metric registry.
-    pub fn metrics(&self) -> &MetricRegistry {
-        &self.metrics
     }
 }
 
@@ -328,6 +353,11 @@ pub struct BuilderStats {
 }
 
 impl<'a> BuilderInspector<'a> {
+    /// Returns a read-only access to the current state of the metric registry.
+    pub fn metrics(&self) -> &MetricRegistry {
+        &self.inner.metrics
+    }
+
     /// Returns statistics about the builder: how many sources, transforms, etc.
     pub fn stats(&self) -> BuilderStats {
         BuilderStats {
@@ -337,6 +367,67 @@ impl<'a> BuilderInspector<'a> {
             metrics: self.inner.metrics.len(),
             metric_listeners: self.inner.metric_listeners.total_count(),
         }
+    }
+
+    /// Lists the names of the registered sources.
+    pub fn sources(&self) -> Vec<SourceName> {
+        self.inner
+            .sources
+            .flat_keys()
+            .map(|(plugin, source)| SourceName::new(plugin.to_owned(), source.to_owned()))
+            .collect()
+    }
+
+    /// Lists the names of the registered sources, grouped by plugin.
+    pub fn sources_by_plugin(&self) -> impl Iterator<Item = (PluginName, Vec<SourceName>)> {
+        // Returns impl Iterator because we don't want to commit to FxHashMap.
+        let mut map: FxHashMap<PluginName, Vec<SourceName>> = FxHashMap::default();
+        for (plugin, source) in self.inner.sources.flat_keys() {
+            let key = PluginName(plugin.to_owned());
+            let name = SourceName::new(plugin.to_owned(), source.to_owned());
+            map.entry(key).or_insert(Default::default()).push(name);
+        }
+        map.into_iter()
+    }
+
+    /// Lists the names of the registered transforms.
+    pub fn transforms(&self) -> Vec<TransformName> {
+        self.inner
+            .transforms
+            .flat_keys()
+            .map(|(plugin, transform)| TransformName::new(plugin.to_owned(), transform.to_owned()))
+            .collect()
+    }
+
+    /// Lists the names of the registered transforms, grouped by plugin.
+    pub fn transforms_by_plugin(&self) -> impl Iterator<Item = (PluginName, Vec<TransformName>)> {
+        let mut map: FxHashMap<PluginName, Vec<TransformName>> = FxHashMap::default();
+        for (plugin, transform) in self.inner.transforms.flat_keys() {
+            let key = PluginName(plugin.to_owned());
+            let name = TransformName::new(plugin.to_owned(), transform.to_owned());
+            map.entry(key).or_insert(Default::default()).push(name);
+        }
+        map.into_iter()
+    }
+
+    /// Lists the names of the registered outputs.
+    pub fn outputs(&self) -> Vec<OutputName> {
+        self.inner
+            .outputs
+            .flat_keys()
+            .map(|(plugin, output)| OutputName::new(plugin.to_owned(), output.to_owned()))
+            .collect()
+    }
+
+    /// Lists the names of the registered outputs, grouped by plugin.
+    pub fn outputs_by_plugin(&self) -> impl Iterator<Item = (PluginName, Vec<OutputName>)> {
+        let mut map: FxHashMap<PluginName, Vec<OutputName>> = FxHashMap::default();
+        for (plugin, output) in self.inner.outputs.flat_keys() {
+            let key = PluginName(plugin.to_owned());
+            let name = OutputName::new(plugin.to_owned(), output.to_owned());
+            map.entry(key).or_insert(Default::default()).push(name);
+        }
+        map.into_iter()
     }
 }
 
