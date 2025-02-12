@@ -41,7 +41,7 @@ pub struct ScopedControlHandle {
 pub enum ControlMessage {
     Source(source::ControlMessage),
     Transform(transform::control::ControlMessage),
-    Output(output::ControlMessage),
+    Output(output::control::ControlMessage),
 }
 
 #[cfg(test)]
