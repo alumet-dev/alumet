@@ -9,7 +9,7 @@ use std::{
 ///
 /// # Uniqueness
 /// Every name returned by the generator is unique, in that it will never return the same name twice.
-/// It is your responsability to ensure that you **do not give the same prefix to different generators**.
+/// It is your responsibility to ensure that you **do not give the same prefix to different generators**.
 ///
 /// # Thread safety
 /// `NameGenerator` is [`Send`] and [`Sync`]: it can be sent to threads and shared between threads safely.
