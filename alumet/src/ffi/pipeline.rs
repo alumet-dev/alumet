@@ -5,7 +5,10 @@ use crate::{
     measurement::{MeasurementAccumulator, MeasurementBuffer},
     pipeline::{
         self,
-        elements::{error, output, transform},
+        elements::{
+            error, output,
+            transform::{self, TransformError},
+        },
     },
 };
 
@@ -46,7 +49,7 @@ impl pipeline::Transform for FfiTransform {
         &mut self,
         measurements: &mut MeasurementBuffer,
         ctx: &transform::TransformContext,
-    ) -> Result<(), error::TransformError> {
+    ) -> Result<(), TransformError> {
         let ffi_ctx = FfiTransformContext { inner: ctx };
         (self.apply_fn)(self.data, measurements, &ffi_ctx);
         Ok(())
