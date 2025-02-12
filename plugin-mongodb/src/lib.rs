@@ -53,11 +53,14 @@ impl AlumetPlugin for MongoDbPlugin {
         log::info!("Test successful.");
 
         // Create the output.
-        alumet.add_blocking_output(Box::new(MongoDbOutput {
-            client: Client::with_uri_str(mongodb2::build_mongo_uri(&config)).unwrap(),
-            database: config.database,
-            collection: config.collection,
-        }));
+        alumet.add_blocking_output(
+            "out",
+            Box::new(MongoDbOutput {
+                client: Client::with_uri_str(mongodb2::build_mongo_uri(&config)).unwrap(),
+                database: config.database,
+                collection: config.collection,
+            }),
+        )?;
         Ok(())
     }
 

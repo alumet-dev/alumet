@@ -1,6 +1,5 @@
 use alumet::{
     metrics::{RawMetricId, TypedMetricId},
-    pipeline::elements::transform::builder::TransformRegistration,
     plugin::{
         rust::{deserialize_config, serialize_config, AlumetPlugin},
         ConfigTable,
@@ -64,9 +63,7 @@ impl AlumetPlugin for EnergyEstimationTdpPlugin {
         let config = self.config.take().unwrap();
 
         // Add the transform now but fill its metrics later.
-        alumet.add_transform_builder(move |ctx| {
-            let name = ctx.transform_name("energy_estimation_tdp");
-
+        alumet.add_transform_builder("transform", move |ctx| {
             let cpu_usage_metric = ctx
                 .metric_by_name(&cpu_usage)
                 .with_context(|| format!("metric not found : {}", cpu_usage))?
@@ -77,8 +74,8 @@ impl AlumetPlugin for EnergyEstimationTdpPlugin {
             };
 
             let transform = Box::new(EnergyEstimationTdpTransform::new(config, metrics));
-            Ok(TransformRegistration { name, transform })
-        });
+            Ok(transform)
+        })?;
         Ok(())
     }
 

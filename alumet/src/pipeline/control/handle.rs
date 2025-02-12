@@ -2,11 +2,7 @@ use tokio::sync::mpsc::{self, Sender};
 use tokio_util::sync::CancellationToken;
 
 use crate::pipeline::{
-    elements::{
-        output,
-        source::{self, builder::ManagedSourceBuilder},
-        transform,
-    },
+    elements::source::{self, builder::ManagedSourceBuilder},
     naming::{PluginName, SourceName},
     trigger, Source,
 };

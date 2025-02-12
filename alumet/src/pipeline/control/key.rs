@@ -5,11 +5,11 @@ use crate::pipeline::naming::{ElementKind, ElementName, OutputName, SourceName, 
 // The inner field is private because it could be replaced by an integer in the future
 // in order to reduce the size of the key and improve performance.
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SourceKey(pub(super) SourceName);
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TransformKey(pub(super) TransformName);
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct OutputKey(pub(super) OutputName);
 
 impl SourceKey {

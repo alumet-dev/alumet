@@ -94,11 +94,12 @@ impl NvidiaPlugin {
 
         for maybe_device in nvml.devices {
             if let Some(device) = maybe_device {
+                let source_name = format!("device_{}", device.bus_id);
                 let source = nvml::NvmlSource::new(device, metrics.clone())?;
                 let trigger = TriggerSpec::builder(self.config.poll_interval)
                     .flush_interval(self.config.flush_interval)
                     .build()?;
-                alumet.add_source(Box::new(source), trigger);
+                alumet.add_source(&source_name, Box::new(source), trigger)?;
             }
         }
         Ok(())
@@ -125,7 +126,7 @@ impl NvidiaPlugin {
         let trigger = TriggerSpec::builder(self.config.poll_interval)
             .flush_interval(self.config.flush_interval)
             .build()?;
-        alumet.add_source(Box::new(source), trigger);
+        alumet.add_source("builtin_ina", Box::new(source), trigger)?;
         Ok(())
     }
 }

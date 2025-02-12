@@ -11,7 +11,7 @@ use tokio::{
 
 use crate::measurement::MeasurementBuffer;
 use crate::metrics::online::MetricReader;
-use crate::pipeline::naming::matching::TransformNamePattern;
+use crate::pipeline::control::message::matching::TransformMatcher;
 use crate::pipeline::naming::{namespace::Namespaces, TransformName};
 
 use super::builder::{BuildContext, TransformBuilder};
@@ -140,7 +140,7 @@ impl TaskManager {
 #[derive(Debug)]
 pub struct ControlMessage {
     /// Which transform(s) to reconfigure.
-    pub matcher: TransformNamePattern,
+    pub matcher: TransformMatcher,
     /// The new state to apply to the selected transform(s).
     pub new_state: TaskState,
 }

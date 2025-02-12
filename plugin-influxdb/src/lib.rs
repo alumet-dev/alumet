@@ -54,14 +54,17 @@ impl AlumetPlugin for InfluxDbPlugin {
         log::info!("Test successful.");
 
         // Create the output.
-        alumet.add_blocking_output(Box::new(InfluxDbOutput {
-            client: influx_client,
-            org: config.org,
-            bucket: config.bucket,
-            attributes_as: config.attributes_as,
-            attributes_as_tags: config.attributes_as_tags.unwrap_or_default(),
-            attributes_as_fields: config.attributes_as_fields.unwrap_or_default(),
-        }));
+        alumet.add_blocking_output(
+            "out",
+            Box::new(InfluxDbOutput {
+                client: influx_client,
+                org: config.org,
+                bucket: config.bucket,
+                attributes_as: config.attributes_as,
+                attributes_as_tags: config.attributes_as_tags.unwrap_or_default(),
+                attributes_as_fields: config.attributes_as_fields.unwrap_or_default(),
+            }),
+        )?;
         Ok(())
     }
 

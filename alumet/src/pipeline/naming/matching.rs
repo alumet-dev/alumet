@@ -31,14 +31,14 @@ pub enum StringPattern {
 // They can only be created if it can be proved that the kind to be matched is the right one.
 
 /// Matches some source names.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SourceNamePattern(ElementNamePattern);
 
 /// Matches some transform names.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TransformNamePattern(ElementNamePattern);
 /// Matches some output names.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct OutputNamePattern(ElementNamePattern);
 
 #[derive(Debug, Error)]
@@ -118,6 +118,10 @@ impl SourceNamePattern {
         })
     }
 
+    pub fn exact<S: Into<String>>(plugin: S, source: S) -> Self {
+        Self::new(StringPattern::Exact(plugin.into()), StringPattern::Exact(source.into()))
+    }
+
     /// Creates a "wildcard" pattern that matches all sources.
     pub fn wildcard() -> Self {
         Self::new(StringPattern::Any, StringPattern::Any)
@@ -137,6 +141,10 @@ impl TransformNamePattern {
         })
     }
 
+    pub fn exact<S: Into<String>>(plugin: S, source: S) -> Self {
+        Self::new(StringPattern::Exact(plugin.into()), StringPattern::Exact(source.into()))
+    }
+
     /// Creates a "wildcard" pattern that matches all transforms.
     pub fn wildcard() -> Self {
         Self::new(StringPattern::Any, StringPattern::Any)
@@ -154,6 +162,10 @@ impl OutputNamePattern {
             plugin,
             element: output,
         })
+    }
+
+    pub fn exact<S: Into<String>>(plugin: S, source: S) -> Self {
+        Self::new(StringPattern::Exact(plugin.into()), StringPattern::Exact(source.into()))
     }
 
     /// Creates a "wildcard" pattern that matches all outputs.
@@ -177,9 +189,12 @@ impl From<SourceNamePattern> for ElementNamePattern {
 impl TryFrom<ElementNamePattern> for SourceNamePattern {
     type Error = IncompatibleKindError;
 
-    fn try_from(value: ElementNamePattern) -> Result<Self, Self::Error> {
+    fn try_from(mut value: ElementNamePattern) -> Result<Self, Self::Error> {
         match value.kind {
-            None | Some(ElementKind::Source) => Ok(SourceNamePattern(value)),
+            None | Some(ElementKind::Source) => {
+                value.kind = Some(ElementKind::Source);
+                Ok(SourceNamePattern(value))
+            }
             Some(bad) => Err(IncompatibleKindError {
                 expected: ElementKind::Source,
                 actual: bad,
@@ -209,9 +224,12 @@ impl From<TransformNamePattern> for ElementNamePattern {
 impl TryFrom<ElementNamePattern> for TransformNamePattern {
     type Error = IncompatibleKindError;
 
-    fn try_from(value: ElementNamePattern) -> Result<Self, Self::Error> {
+    fn try_from(mut value: ElementNamePattern) -> Result<Self, Self::Error> {
         match value.kind {
-            None | Some(ElementKind::Transform) => Ok(TransformNamePattern(value)),
+            None | Some(ElementKind::Transform) => {
+                value.kind = Some(ElementKind::Transform);
+                Ok(TransformNamePattern(value))
+            }
             Some(bad) => Err(IncompatibleKindError {
                 expected: ElementKind::Transform,
                 actual: bad,
@@ -241,9 +259,12 @@ impl From<OutputNamePattern> for ElementNamePattern {
 impl TryFrom<ElementNamePattern> for OutputNamePattern {
     type Error = IncompatibleKindError;
 
-    fn try_from(value: ElementNamePattern) -> Result<Self, Self::Error> {
+    fn try_from(mut value: ElementNamePattern) -> Result<Self, Self::Error> {
         match value.kind {
-            None | Some(ElementKind::Output) => Ok(OutputNamePattern(value)),
+            None | Some(ElementKind::Output) => {
+                value.kind = Some(ElementKind::Output);
+                Ok(OutputNamePattern(value))
+            }
             Some(bad) => Err(IncompatibleKindError {
                 expected: ElementKind::Output,
                 actual: bad,
@@ -262,99 +283,54 @@ impl OutputNamePattern {
     }
 }
 
-/// Parse strings into matching structures.
-mod parsing {
-    use std::str::FromStr;
-    use thiserror::Error;
-
-    use crate::pipeline::naming::ElementKind;
-
-    use super::StringPattern;
-
-    /// Parses a string to an `ElementKind`.
-    ///
-    /// `"*"`, `"all"` and `"any"` parse to `None`, which indicate that any kind of element is
-    /// accepted by the [`ElementPattern`].
-    pub fn parse_kind(kind: &str) -> Result<Option<ElementKind>, KindParseError> {
-        match kind {
-            "src" | "source" | "sources" => Ok(Some(ElementKind::Source)),
-            "tra" | "transform" | "transforms" => Ok(Some(ElementKind::Transform)),
-            "out" | "output" | "outputs" => Ok(Some(ElementKind::Output)),
-            "*" | "all" | "any" => Ok(None),
-            _ => Err(KindParseError),
-        }
-    }
-
-    #[derive(Debug)]
-    pub struct KindParseError;
-
-    #[derive(Debug, Error, PartialEq, Eq)]
-    pub enum NamePatternParseError {
-        #[error("Invalid pattern: asterisk '*' in the middle of the string")]
-        Asterisk,
-        #[error("Invalid pattern: the string is empty")]
-        Empty,
-    }
-
-    impl FromStr for StringPattern {
-        type Err = NamePatternParseError;
-
-        /// Parses a `NamePattern`.
-        ///
-        /// The only special character in name patterns is `*`, which acts as a "wildcard".
-        /// For instance, `a*` matches every name that begins with `a`.
-        fn from_str(s: &str) -> Result<Self, Self::Err> {
-            if s.is_empty() {
-                Err(NamePatternParseError::Empty)
-            } else if s == "*" {
-                Ok(StringPattern::Any)
-            } else if let Some(suffix) = s.strip_prefix('*') {
-                if suffix.contains('*') {
-                    Err(NamePatternParseError::Asterisk)
-                } else {
-                    Ok(StringPattern::EndWith(suffix.to_owned()))
-                }
-            } else if let Some(prefix) = s.strip_suffix('*') {
-                if prefix.contains('*') {
-                    Err(NamePatternParseError::Asterisk)
-                } else {
-                    Ok(StringPattern::StartWith(prefix.to_owned()))
-                }
-            } else {
-                if s.contains('*') {
-                    Err(NamePatternParseError::Asterisk)
-                } else {
-                    Ok(StringPattern::Exact(s.to_owned()))
-                }
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
-    use crate::pipeline::naming::matching::{parsing::NamePatternParseError, StringPattern};
+    use crate::pipeline::matching::{
+        ElementNamePattern, OutputNamePattern, SourceNamePattern, StringPattern, TransformNamePattern,
+    };
+    use crate::pipeline::naming::ElementKind;
 
     #[test]
-    fn parse_name_pattern() -> anyhow::Result<()> {
-        assert_eq!(StringPattern::from_str("*")?, StringPattern::Any);
+    fn convert_generic_wildcard_to_specific() {
         assert_eq!(
-            StringPattern::from_str("*abcd")?,
-            StringPattern::EndWith("abcd".to_owned())
+            SourceNamePattern::try_from(ElementNamePattern::wildcard()).unwrap(),
+            SourceNamePattern::wildcard()
         );
         assert_eq!(
-            StringPattern::from_str("abcd*")?,
-            StringPattern::StartWith("abcd".to_owned())
+            TransformNamePattern::try_from(ElementNamePattern::wildcard()).unwrap(),
+            TransformNamePattern::wildcard()
         );
         assert_eq!(
-            StringPattern::from_str("exact")?,
-            StringPattern::Exact("exact".to_owned())
+            OutputNamePattern::try_from(ElementNamePattern::wildcard()).unwrap(),
+            OutputNamePattern::wildcard()
         );
-        assert_eq!(StringPattern::from_str("a*b"), Err(NamePatternParseError::Asterisk));
-        assert_eq!(StringPattern::from_str("a*b*c"), Err(NamePatternParseError::Asterisk));
-        assert_eq!(StringPattern::from_str(""), Err(NamePatternParseError::Empty));
-        Ok(())
+    }
+
+    #[test]
+    fn convert_speficic_wildcard_to_generic() {
+        assert_eq!(
+            ElementNamePattern::try_from(SourceNamePattern::wildcard()).unwrap(),
+            ElementNamePattern {
+                kind: Some(ElementKind::Source),
+                plugin: StringPattern::Any,
+                element: StringPattern::Any
+            }
+        );
+        assert_eq!(
+            ElementNamePattern::try_from(TransformNamePattern::wildcard()).unwrap(),
+            ElementNamePattern {
+                kind: Some(ElementKind::Transform),
+                plugin: StringPattern::Any,
+                element: StringPattern::Any
+            }
+        );
+        assert_eq!(
+            ElementNamePattern::try_from(OutputNamePattern::wildcard()).unwrap(),
+            ElementNamePattern {
+                kind: Some(ElementKind::Output),
+                plugin: StringPattern::Any,
+                element: StringPattern::Any
+            }
+        );
     }
 }

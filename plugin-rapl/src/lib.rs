@@ -167,7 +167,7 @@ impl AlumetPlugin for RaplPlugin {
             .update_interval(self.config.flush_interval)
             .build()
             .unwrap();
-        alumet.add_source(source, trigger);
+        alumet.add_source("in", source, trigger)?;
         Ok(())
     }
 

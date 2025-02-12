@@ -2,8 +2,13 @@
 
 use std::str::FromStr;
 
+use alumet::pipeline::control::message::matching::{OutputMatcher, SourceMatcher, TransformMatcher};
 use alumet::pipeline::control::{error::ControlError, AnonymousControlHandle, ControlMessage};
-use alumet::pipeline::matching::{ElementSelector, OutputSelector, SourceSelector, TransformSelector};
+use alumet::pipeline::matching::{
+    ElementNamePattern, OutputNamePattern, SourceNamePattern, StringPattern, TransformNamePattern,
+};
+use alumet::pipeline::naming::parsing::parse_kind;
+use alumet::pipeline::naming::ElementKind;
 use alumet::pipeline::{
     elements::{output, source, transform},
     trigger,
@@ -39,7 +44,7 @@ impl Command {
 /// ## Available commands
 ///
 /// - `shutdown` or `stop`: shutdowns the measurement pipeline
-/// - `control <SELECTOR> [ARGS...]`: reconfigures a part of the pipeline (see below)
+/// - `control <PATTERN> [ARGS...]`: reconfigures a part of the pipeline (see below)
 ///
 /// ### Control arguments
 ///
@@ -57,72 +62,111 @@ impl Command {
 ///     - `trigger-now`: requests Alumet to poll the source (only works if the source enables manual trigger)
 ///
 pub fn parse(command: &str) -> anyhow::Result<Command> {
-    fn parse_control_args(selector: ElementSelector, args: &[&str]) -> anyhow::Result<Vec<ControlMessage>> {
-        fn msg_config_source(selector: SourceSelector, command: source::ConfigureCommand) -> ControlMessage {
-            ControlMessage::Source(source::ControlMessage::Configure(source::ConfigureMessage {
-                matcher: selector,
-                command,
-            }))
+    fn parse_control_args(pat: ElementNamePattern, args: &[&str]) -> anyhow::Result<Vec<ControlMessage>> {
+        fn msg_config_source(pat: SourceNamePattern, command: source::control::ConfigureCommand) -> ControlMessage {
+            ControlMessage::Source(source::control::ControlMessage::Configure(
+                source::control::ConfigureMessage {
+                    matcher: SourceMatcher::Name(pat),
+                    command,
+                },
+            ))
         }
 
-        fn msg_config_transform(selector: TransformSelector, new_state: transform::TaskState) -> ControlMessage {
-            ControlMessage::Transform(transform::ControlMessage {
-                matcher: selector,
+        fn msg_config_transform(pat: TransformNamePattern, new_state: transform::control::TaskState) -> ControlMessage {
+            ControlMessage::Transform(transform::control::ControlMessage {
+                matcher: TransformMatcher::Name(pat),
                 new_state,
             })
         }
 
-        fn msg_config_output(selector: OutputSelector, new_state: output::TaskState) -> ControlMessage {
-            ControlMessage::Output(output::ControlMessage {
-                matcher: selector,
+        fn msg_config_output(pat: OutputNamePattern, new_state: output::control::TaskState) -> ControlMessage {
+            ControlMessage::Output(output::control::ControlMessage {
+                matcher: OutputMatcher::Name(pat),
                 new_state,
             })
         }
 
         match args {
             [] => Err(anyhow!("missing arguments after the selector")),
-            ["pause"] | ["disable"] => match selector {
-                ElementSelector::Source(sel) => Ok(vec![msg_config_source(sel, source::ConfigureCommand::Pause)]),
-                ElementSelector::Transform(sel) => Ok(vec![msg_config_transform(sel, transform::TaskState::Disabled)]),
-                ElementSelector::Output(sel) => Ok(vec![msg_config_output(sel, output::TaskState::Pause)]),
-                ElementSelector::Any(sel) => {
-                    let for_sources = msg_config_source(sel.clone().into(), source::ConfigureCommand::Pause);
-                    let for_transforms = msg_config_transform(sel.clone().into(), transform::TaskState::Disabled);
-                    let for_outputs = msg_config_output(sel.into(), output::TaskState::Pause);
+            ["pause"] | ["disable"] => match &pat.kind {
+                Some(ElementKind::Source) => Ok(vec![msg_config_source(
+                    pat.try_into().unwrap(),
+                    source::control::ConfigureCommand::Pause,
+                )]),
+                Some(ElementKind::Transform) => Ok(vec![msg_config_transform(
+                    pat.try_into().unwrap(),
+                    transform::control::TaskState::Disabled,
+                )]),
+                Some(ElementKind::Output) => Ok(vec![msg_config_output(
+                    pat.try_into().unwrap(),
+                    output::control::TaskState::Pause,
+                )]),
+                None => {
+                    let for_sources = msg_config_source(
+                        pat.clone().try_into().unwrap(),
+                        source::control::ConfigureCommand::Pause,
+                    );
+                    let for_transforms =
+                        msg_config_transform(pat.clone().try_into().unwrap(), transform::control::TaskState::Disabled);
+                    let for_outputs = msg_config_output(pat.try_into().unwrap(), output::control::TaskState::Pause);
                     Ok(vec![for_sources, for_transforms, for_outputs])
                 }
             },
-            ["resume"] | ["enable"] => match selector {
-                ElementSelector::Source(sel) => Ok(vec![msg_config_source(sel, source::ConfigureCommand::Resume)]),
-                ElementSelector::Transform(sel) => Ok(vec![msg_config_transform(sel, transform::TaskState::Enabled)]),
-                ElementSelector::Output(sel) => Ok(vec![msg_config_output(sel, output::TaskState::Run)]),
-                ElementSelector::Any(sel) => {
-                    let for_sources = msg_config_source(sel.clone().into(), source::ConfigureCommand::Resume);
-                    let for_transforms = msg_config_transform(sel.clone().into(), transform::TaskState::Enabled);
-                    let for_outputs = msg_config_output(sel.into(), output::TaskState::Run);
+            ["resume"] | ["enable"] => match &pat.kind {
+                Some(ElementKind::Source) => Ok(vec![msg_config_source(
+                    pat.try_into().unwrap(),
+                    source::control::ConfigureCommand::Resume,
+                )]),
+                Some(ElementKind::Transform) => Ok(vec![msg_config_transform(
+                    pat.try_into().unwrap(),
+                    transform::control::TaskState::Enabled,
+                )]),
+                Some(ElementKind::Output) => Ok(vec![msg_config_output(
+                    pat.try_into().unwrap(),
+                    output::control::TaskState::Run,
+                )]),
+                None => {
+                    let for_sources = msg_config_source(
+                        pat.clone().try_into().unwrap(),
+                        source::control::ConfigureCommand::Resume,
+                    );
+                    let for_transforms =
+                        msg_config_transform(pat.clone().try_into().unwrap(), transform::control::TaskState::Enabled);
+                    let for_outputs = msg_config_output(pat.try_into().unwrap(), output::control::TaskState::Run);
                     Ok(vec![for_sources, for_transforms, for_outputs])
                 }
             },
-            ["stop"] => match selector {
-                ElementSelector::Source(sel) => Ok(vec![msg_config_source(sel, source::ConfigureCommand::Stop)]),
-                ElementSelector::Output(sel) => Ok(vec![msg_config_output(sel, output::TaskState::StopNow)]),
+            ["stop"] => match &pat.kind {
+                Some(ElementKind::Source) => Ok(vec![msg_config_source(
+                    pat.try_into().unwrap(),
+                    source::control::ConfigureCommand::Stop,
+                )]),
+                Some(ElementKind::Output) => Ok(vec![msg_config_output(
+                    pat.try_into().unwrap(),
+                    output::control::TaskState::StopNow,
+                )]),
                 _ => Err(anyhow!(
                     "invalid control 'stop': it can only be applied to sources and outputs"
                 )),
             },
-            ["set-period", period] | ["set-poll-interval", period] => match selector {
-                ElementSelector::Source(sel) => {
+            ["set-period", period] | ["set-poll-interval", period] => match &pat.kind {
+                Some(ElementKind::Source) => {
                     let poll_interval = parse_duration(period)?;
                     let spec = trigger::TriggerSpec::at_interval(poll_interval);
-                    Ok(vec![msg_config_source(sel, source::ConfigureCommand::SetTrigger(spec))])
+                    Ok(vec![msg_config_source(
+                        pat.try_into().unwrap(),
+                        source::control::ConfigureCommand::SetTrigger(spec),
+                    )])
                 }
                 _ => Err(anyhow!(
                     "invalid control 'set-period': it can only be applied to sources"
                 )),
             },
-            ["trigger-now"] => match selector {
-                ElementSelector::Source(matcher) => {
-                    let msg = source::ControlMessage::TriggerManually(source::TriggerMessage { matcher });
+            ["trigger-now"] => match &pat.kind {
+                Some(ElementKind::Source) => {
+                    let msg = source::control::ControlMessage::TriggerManually(source::control::TriggerMessage {
+                        matcher: SourceMatcher::Name(pat.try_into().unwrap()),
+                    });
                     Ok(vec![ControlMessage::Source(msg)])
                 }
                 _ => Err(anyhow!(
@@ -137,13 +181,12 @@ pub fn parse(command: &str) -> anyhow::Result<Command> {
     match parts[0] {
         "shutdown" | "stop" => Ok(Command::Shutdown),
         "control" => {
-            let selector = ElementSelector::from_str(
-                parts
-                    .get(1)
-                    .context("invalid command 'control': missing argument 'selector'")?,
-            )?;
+            let pat = parts
+                .get(1)
+                .context("invalid command 'control': missing argument 'selector'")?;
+            let pattern = parse_pattern(pat)?;
             let messages =
-                parse_control_args(selector, &parts[2..]).with_context(|| format!("invalid command '{command}'"))?;
+                parse_control_args(pattern, &parts[2..]).with_context(|| format!("invalid command '{command}'"))?;
             Ok(Command::Control(messages))
         }
         _ => Err(anyhow!(
@@ -152,172 +195,168 @@ pub fn parse(command: &str) -> anyhow::Result<Command> {
     }
 }
 
+pub fn parse_pattern(pat: &str) -> anyhow::Result<ElementNamePattern> {
+    let parts: Vec<_> = pat.splitn(3, '/').collect();
+    match parts[..] {
+        [kind, plugin_pat, element_pat] => {
+            let kind = parse_kind(kind).with_context(|| format!("bad kind: '{kind}'"))?;
+            let plugin = StringPattern::from_str(plugin_pat).with_context(|| format!("bad pattern: '{plugin_pat}'"))?;
+            let element =
+                StringPattern::from_str(element_pat).with_context(|| format!("bad pattern: '{element_pat}'"))?;
+            Ok(ElementNamePattern { kind, plugin, element })
+        }
+        [kind] => {
+            let kind = parse_kind(kind).with_context(|| format!("bad kind: '{kind}'"))?;
+            Ok(ElementNamePattern {
+                kind,
+                plugin: StringPattern::Any,
+                element: StringPattern::Any,
+            })
+        }
+        _ => Err(anyhow!("bad pattern, expected kind/plugin/element but got '{pat}'")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
+    use super::{parse, Command};
+    use alumet::pipeline::control::message::matching::{OutputMatcher, SourceMatcher, TransformMatcher};
+    use alumet::pipeline::elements::source::control::TriggerMessage;
+    use alumet::pipeline::matching::{OutputNamePattern, TransformNamePattern};
     use alumet::pipeline::{
         control::ControlMessage,
         elements::{output, source, transform},
-        matching::{NamePatterns, OutputSelector, SourceSelector, StringPattern, TransformSelector},
+        matching::SourceNamePattern,
         trigger::TriggerSpec,
     };
-
-    use super::{parse, Command};
+    use output::control::ControlMessage as OutputControlMessage;
+    use regex::Regex;
+    use source::control::{ConfigureCommand, ConfigureMessage, ControlMessage as SourceControlMessage};
+    use transform::control::ControlMessage as TransformControlMessage;
 
     #[test]
-    fn control_source() -> anyhow::Result<()> {
+    fn control_source_exact() {
         assert_control_eq(
-            parse("control my-plugin/sources/my-source pause")?,
-            vec![ControlMessage::Source(source::ControlMessage::Configure(
-                source::ConfigureMessage {
-                    matcher: SourceSelector::from(NamePatterns {
-                        plugin: StringPattern::Exact(String::from("my-plugin")),
-                        name: StringPattern::Exact(String::from("my-source")),
-                    }),
-                    command: source::ConfigureCommand::Pause,
+            parse("control sources/my-plugin/my-source pause").unwrap(),
+            vec![ControlMessage::Source(SourceControlMessage::Configure(
+                ConfigureMessage {
+                    matcher: SourceMatcher::Name(SourceNamePattern::exact("my-plugin", "my-source")),
+                    command: ConfigureCommand::Pause,
                 },
             ))],
         );
+    }
+
+    #[test]
+    fn control_source_any() {
         assert_control_eq(
-            parse("control */sources/* resume")?,
-            vec![ControlMessage::Source(source::ControlMessage::Configure(
-                source::ConfigureMessage {
-                    matcher: SourceSelector::all(),
-                    command: source::ConfigureCommand::Resume,
+            parse("control sources/*/* resume").unwrap(),
+            vec![ControlMessage::Source(SourceControlMessage::Configure(
+                ConfigureMessage {
+                    matcher: SourceMatcher::Name(SourceNamePattern::wildcard()),
+                    command: ConfigureCommand::Resume,
                 },
             ))],
         );
+    }
+
+    #[test]
+    fn control_source_any_shortened() {
         assert_control_eq(
-            parse("control */src/* stop")?,
-            vec![ControlMessage::Source(source::ControlMessage::Configure(
-                source::ConfigureMessage {
-                    matcher: SourceSelector::all(),
-                    command: source::ConfigureCommand::Stop,
+            parse("control src/*/* stop").unwrap(),
+            vec![ControlMessage::Source(SourceControlMessage::Configure(
+                ConfigureMessage {
+                    matcher: SourceMatcher::Name(SourceNamePattern::wildcard()),
+                    command: ConfigureCommand::Stop,
                 },
             ))],
         );
+    }
+
+    #[test]
+    fn control_source_trigger() {
         assert_control_eq(
-            parse("control sources trigger-now")?,
-            vec![ControlMessage::Source(source::ControlMessage::TriggerManually(
-                source::TriggerMessage {
-                    matcher: SourceSelector::all(),
+            parse("control sources trigger-now").unwrap(),
+            vec![ControlMessage::Source(SourceControlMessage::TriggerManually(
+                TriggerMessage {
+                    matcher: SourceMatcher::Name(SourceNamePattern::wildcard()),
                 },
             ))],
         );
+    }
+    #[test]
+    fn control_output_stop() {
         assert_control_eq(
-            parse("control */out/* stop")?,
-            vec![ControlMessage::Output(output::ControlMessage {
-                matcher: OutputSelector::all(),
-                new_state: output::TaskState::StopNow,
+            parse("control out/*/* stop").unwrap(),
+            vec![ControlMessage::Output(OutputControlMessage {
+                matcher: OutputMatcher::Name(OutputNamePattern::wildcard()),
+                new_state: output::control::TaskState::StopNow,
             })],
         );
+    }
+    #[test]
+    fn control_transform_enable() {
         assert_control_eq(
-            parse("control */tra/* enable")?,
-            vec![ControlMessage::Transform(transform::ControlMessage {
-                matcher: TransformSelector::all(),
-                new_state: transform::TaskState::Enabled,
+            parse("control tra/*/* enable").unwrap(),
+            vec![ControlMessage::Transform(TransformControlMessage {
+                matcher: TransformMatcher::Name(TransformNamePattern::wildcard()),
+                new_state: transform::control::TaskState::Enabled,
             })],
         );
+    }
+
+    #[test]
+    fn control_all_pause() {
         assert_control_eq(
-            parse("control * pause")?,
+            parse("control * pause").unwrap(),
             vec![
-                ControlMessage::Source(source::ControlMessage::Configure(source::ConfigureMessage {
-                    matcher: SourceSelector::all(),
-                    command: source::ConfigureCommand::Pause,
+                ControlMessage::Source(SourceControlMessage::Configure(ConfigureMessage {
+                    matcher: SourceMatcher::Name(SourceNamePattern::wildcard()),
+                    command: ConfigureCommand::Pause,
                 })),
-                ControlMessage::Transform(transform::ControlMessage {
-                    matcher: TransformSelector::all(),
-                    new_state: transform::TaskState::Disabled,
+                ControlMessage::Transform(TransformControlMessage {
+                    matcher: TransformMatcher::Name(TransformNamePattern::wildcard()),
+                    new_state: transform::control::TaskState::Disabled,
                 }),
-                ControlMessage::Output(output::ControlMessage {
-                    matcher: OutputSelector::all(),
-                    new_state: output::TaskState::Pause,
+                ControlMessage::Output(OutputControlMessage {
+                    matcher: OutputMatcher::Name(OutputNamePattern::wildcard()),
+                    new_state: output::control::TaskState::Pause,
                 }),
             ],
         );
+    }
+
+    #[test]
+    fn control_source_set_poll_interval() {
         assert_control_eq(
-            parse("control sources set-period 10ms")?,
-            vec![ControlMessage::Source(source::ControlMessage::Configure(
-                source::ConfigureMessage {
-                    matcher: SourceSelector::all(),
-                    command: source::ConfigureCommand::SetTrigger(TriggerSpec::at_interval(Duration::from_millis(10))),
+            parse("control sources set-period 10ms").unwrap(),
+            vec![ControlMessage::Source(SourceControlMessage::Configure(
+                ConfigureMessage {
+                    matcher: SourceMatcher::Name(SourceNamePattern::wildcard()),
+                    command: ConfigureCommand::SetTrigger(TriggerSpec::at_interval(Duration::from_millis(10))),
                 },
             ))],
         );
-        Ok(())
     }
 
     fn assert_control_eq(cmd: Command, msg: Vec<ControlMessage>) {
+        let regex_instant = Regex::new(r#"Instant \{ .+ \}"#).expect("regex should be valid");
+
         match &cmd {
             Command::Control(messages) => {
                 for (a, b) in messages.iter().zip(&msg) {
-                    if !control_message_eq(&a, &b) {
-                        panic!("wrong command {cmd:?}, expected Control({msg:?})")
-                    }
+                    // It's too cumbersome to manually implement partial equality between control messages,
+                    // use Debug and ignore the parts that we don't want.
+                    let a = format!("{a:?}");
+                    let b = format!("{b:?}");
+                    let a = regex_instant.replace(&a, "Instant { opaque }");
+                    let b = regex_instant.replace(&b, "Instant { opaque }");
+                    pretty_assertions::assert_str_eq!(a, b);
                 }
             }
-            _ => panic!("wrong command {cmd:?}, expected Control({msg:?})"),
-        }
-    }
-
-    fn control_message_eq(a: &ControlMessage, b: &ControlMessage) -> bool {
-        use source::builder::SendSourceBuilder;
-        use std::any::Any;
-
-        fn source_builder_eq(a: &SendSourceBuilder, b: &SendSourceBuilder) -> bool {
-            match (a, b) {
-                (SendSourceBuilder::Managed(b1), SendSourceBuilder::Managed(b2)) => b1.type_id() == b2.type_id(),
-                (SendSourceBuilder::Autonomous(b1), SendSourceBuilder::Autonomous(b2)) => b1.type_id() == b2.type_id(),
-                _ => false,
-            }
-        }
-
-        fn source_msg_eq(a: &source::ControlMessage, b: &source::ControlMessage) -> bool {
-            use source::ConfigureCommand;
-
-            match (a, b) {
-                (source::ControlMessage::Configure(c1), source::ControlMessage::Configure(c2)) => {
-                    c1.matcher == c2.matcher
-                        && match (&c1.command, &c2.command) {
-                            (ConfigureCommand::Pause, ConfigureCommand::Pause) => true,
-                            (ConfigureCommand::Resume, ConfigureCommand::Resume) => true,
-                            (ConfigureCommand::Stop, ConfigureCommand::Stop) => true,
-                            (ConfigureCommand::SetTrigger(t1), ConfigureCommand::SetTrigger(t2)) => t1 == t2,
-                            _ => false,
-                        }
-                }
-                (source::ControlMessage::CreateOne(c1), source::ControlMessage::CreateOne(c2)) => {
-                    c1.plugin == c2.plugin && source_builder_eq(&c1.builder, &c2.builder)
-                }
-                (source::ControlMessage::CreateMany(c1), source::ControlMessage::CreateMany(c2)) => {
-                    c1.plugin == c2.plugin
-                        && c1
-                            .builders
-                            .iter()
-                            .zip(&c2.builders)
-                            .all(|(a, b)| source_builder_eq(a, b))
-                }
-                (source::ControlMessage::TriggerManually(t1), source::ControlMessage::TriggerManually(t2)) => {
-                    t1.matcher == t2.matcher
-                }
-                _ => false,
-            }
-        }
-
-        fn transform_msg_eq(a: &transform::ControlMessage, b: &transform::ControlMessage) -> bool {
-            a.matcher == b.matcher && a.new_state == b.new_state
-        }
-
-        fn output_msg_eq(a: &output::ControlMessage, b: &output::ControlMessage) -> bool {
-            a.matcher == b.matcher && a.new_state == b.new_state
-        }
-
-        match (a, b) {
-            (ControlMessage::Source(s1), ControlMessage::Source(s2)) => source_msg_eq(s1, s2),
-            (ControlMessage::Transform(t1), ControlMessage::Transform(t2)) => transform_msg_eq(t1, t2),
-            (ControlMessage::Output(o1), ControlMessage::Output(o2)) => output_msg_eq(o1, o2),
-            _ => false,
+            _ => panic!("wrong command {cmd:?},\nexpected Control({msg:?})"),
         }
     }
 }
