@@ -15,7 +15,7 @@ use super::interface::{AutonomousSource, Source};
 
 // Trait aliases are unstable, and the following is not enough to help deduplicating code in plugin::phases.
 //
-//     pub type ManagedSourceBuilder = dyn FnOnce(&mut dyn SourceBuildContext) -> ManagedSourceRegistration;
+//     pub type ManagedSourceBuilder = dyn FnOnce(params) -> result;
 //
 // Therefore, we define a subtrait that is automatically implemented for closures.
 
@@ -23,9 +23,9 @@ use super::interface::{AutonomousSource, Source};
 ///
 /// # Example
 /// ```
-/// use alumet::pipeline::elements::source::builder::{ManagedSourceBuilder, ManagedSourceRegistration, ManagedSourceBuildContext};
-/// use alumet::pipeline::{trigger, Source};
 /// use std::time::Duration;
+/// use alumet::pipeline::elements::source::builder::{ManagedSource, ManagedSourceBuilder, ManagedSourceBuildContext};
+/// use alumet::pipeline::{trigger, Source};
 ///
 /// fn build_my_source() -> anyhow::Result<Box<dyn Source>> {
 ///     todo!("build a new source")
@@ -33,8 +33,7 @@ use super::interface::{AutonomousSource, Source};
 ///
 /// let builder: &dyn ManagedSourceBuilder = &|ctx: &mut dyn ManagedSourceBuildContext| {
 ///     let source = build_my_source()?;
-///     Ok(ManagedSourceRegistration {
-///         name: ctx.source_name("my-source"),
+///     Ok(ManagedSource {
 ///         trigger_spec: trigger::TriggerSpec::at_interval(Duration::from_secs(1)),
 ///         source,
 ///     })
@@ -47,7 +46,7 @@ impl<F> ManagedSourceBuilder for F where F: FnOnce(&mut dyn ManagedSourceBuildCo
 ///
 /// # Example
 /// ```
-/// use alumet::pipeline::elements::source::builder::{AutonomousSourceBuilder, AutonomousSourceRegistration, AutonomousSourceBuildContext};
+/// use alumet::pipeline::elements::source::builder::{AutonomousSourceBuilder, AutonomousSourceBuildContext};
 /// use alumet::pipeline::{trigger, Source};
 /// use alumet::measurement::MeasurementBuffer;
 ///
@@ -73,11 +72,8 @@ impl<F> ManagedSourceBuilder for F where F: FnOnce(&mut dyn ManagedSourceBuildCo
 ///
 /// let builder: &dyn AutonomousSourceBuilder = &|ctx: &mut dyn AutonomousSourceBuildContext, shutdown: CancellationToken, tx: Sender<MeasurementBuffer>| {
 ///     let source = Box::pin(my_autonomous_source(shutdown, tx));
-///     Ok(AutonomousSourceRegistration {
-///         name: ctx.source_name("my-autonomous-source"),
-///         source,
-///         // No trigger here, the source is autonomous and triggers itself.
-///     })
+///     Ok(source)
+///     // No trigger here, the source is autonomous and triggers itself.
 /// };
 /// ```
 pub trait AutonomousSourceBuilder:

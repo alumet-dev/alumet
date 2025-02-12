@@ -76,24 +76,27 @@ impl ElementNamePattern {
     ///
     /// # Example
     /// ```
+    /// use alumet::pipeline::naming::{ElementKind, ElementName};
+    /// use alumet::pipeline::naming::matching::{ElementNamePattern, StringPattern};
+    ///
     /// let name1 = ElementName {
     ///     kind: ElementKind::Source,
-    ///     plugin: "test",
-    ///     element: "example-source",
+    ///     plugin: String::from("test"),
+    ///     element: String::from("example-source"),
     /// };
     /// let name2 = ElementName {
     ///     kind: ElementKind::Source,
-    ///     plugin: "test",
-    ///     element: "other-source",
+    ///     plugin: String::from("test"),
+    ///     element: String::from("other-source"),
     /// };
     ///
-    /// let pattern = ElementPattern {
+    /// let pattern = ElementNamePattern {
     ///     kind: Some(ElementKind::Source),
-    ///     plugin: NamePattern::Exact(String::from("test")),
-    ///     element: NamePattern::StartWith(String::from("example-")),
+    ///     plugin: StringPattern::Exact(String::from("test")),
+    ///     element: StringPattern::StartWith(String::from("example-")),
     /// };
-    /// assert!(pattern.matches(&name));
-    /// assert!(!pattern.matches(&name));
+    /// assert!(pattern.matches(&name1));
+    /// assert!(!pattern.matches(&name2));
     /// ```
     pub fn matches<'a, N: Into<&'a ElementName>>(&'a self, name: N) -> bool {
         let name = name.into();

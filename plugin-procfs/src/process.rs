@@ -13,7 +13,7 @@ use alumet::{
     pipeline::{
         control::{error::ControlError, ScopedControlHandle, SourceCreationBuffer},
         elements::{error::PollError, source},
-        matching::{StringPattern, NamePatterns, SourceSelector},
+        matching::{NamePatterns, SourceSelector, StringPattern},
         trigger::TriggerSpec,
         Source,
     },

@@ -139,14 +139,14 @@ impl<'a> AlumetPluginStart<'a> {
     /// # Example
     /// ```no_run
     /// use std::time::SystemTime;
+    ///
     /// use alumet::measurement::{MeasurementBuffer, MeasurementPoint, Timestamp};
     /// use alumet::units::Unit;
-    /// use alumet::pipeline::elements::source::builder::AutonomousSourceRegistration;
     /// # use alumet::plugin::AlumetPluginStart;
     ///
     /// # let alumet: &AlumetPluginStart = todo!();
     /// let metric = alumet.create_metric::<u64>("my_metric", Unit::Second, "...").unwrap();
-    /// alumet.add_autonomous_source_builder(move |ctx, cancel_token, tx| {
+    /// alumet.add_autonomous_source_builder("source_name", move |ctx, cancel_token, tx| {
     ///     let out_tx = tx.clone();
     ///     let source = Box::pin(async move {
     ///         let mut buf = MeasurementBuffer::new();
@@ -168,11 +168,8 @@ impl<'a> AlumetPluginStart<'a> {
     ///         }
     ///         Ok(())
     ///     });
-    ///     Ok(AutonomousSourceRegistration {
-    ///         name: ctx.source_name("my-source"),
-    ///         source,
-    ///     })
-    /// })
+    ///     Ok(source)
+    /// }).expect("source names should be unique (in the same plugin)");
     /// ```
     pub fn add_autonomous_source_builder<F: source::builder::AutonomousSourceBuilder + 'static>(
         &mut self,
@@ -208,7 +205,7 @@ impl<'a> AlumetPluginStart<'a> {
     /// // In start(&mut self, alumet: &mut AlumetPluginStart),
     /// // add the transform to the pipeline.
     /// let transform = ExampleTransform;
-    /// alumet.add_transform(Box::new(transform));
+    /// alumet.add_transform("name", Box::new(transform));
     /// ```
     pub fn add_transform(
         &mut self,
@@ -223,18 +220,15 @@ impl<'a> AlumetPluginStart<'a> {
     /// # Example
     ///
     /// ```no_run
-    /// use alumet::pipeline::elements::transform::{
-    ///     Transform,
-    ///     builder::TransformRegistration
-    /// };
     ///
     /// # use alumet::plugin::AlumetPluginStart;
-    ///
     /// # let alumet: &AlumetPluginStart = todo!();
-    /// alumet.add_transform_builder(move |ctx| {
-    ///     let name = ctx.transform_name("example");
+    ///
+    /// use alumet::pipeline::elements::transform::Transform;
+    ///
+    /// alumet.add_transform_builder("name", move |ctx| {
     ///     let transform: Box<dyn Transform> = todo!();
-    ///     Ok(TransformRegistration { name, transform })
+    ///     Ok(transform)
     /// });
     /// ```
     pub fn add_transform_builder<F: transform::builder::TransformBuilder + 'static>(
@@ -275,7 +269,7 @@ impl<'a> AlumetPluginStart<'a> {
     /// // In start(&mut self, alumet: &mut AlumetPluginStart),
     /// // add the output to the pipeline.
     /// let output = ExampleOutput;
-    /// alumet.add_blocking_output(Box::new(output));
+    /// alumet.add_blocking_output("name", Box::new(output));
     /// ```
     pub fn add_blocking_output(
         &mut self,

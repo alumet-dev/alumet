@@ -9,7 +9,7 @@ use super::Transform;
 ///
 ///  # Example
 /// ```
-/// use alumet::pipeline::elements::transform::builder::{TransformBuilder, TransformRegistration, TransformBuildContext};
+/// use alumet::pipeline::elements::transform::builder::{TransformBuilder, TransformBuildContext};
 /// use alumet::pipeline::{trigger, Transform};
 ///
 /// fn build_my_transform() -> anyhow::Result<Box<dyn Transform>> {
@@ -18,10 +18,7 @@ use super::Transform;
 ///
 /// let builder: &dyn TransformBuilder = &|ctx: &mut dyn TransformBuildContext| {
 ///     let transform = build_my_transform()?;
-///     Ok(TransformRegistration {
-///         name: ctx.transform_name("my-transform"),
-///         transform,
-///     })
+///     Ok(transform)
 /// };
 /// ```
 pub trait TransformBuilder: FnOnce(&mut dyn TransformBuildContext) -> anyhow::Result<Box<dyn Transform>> {}

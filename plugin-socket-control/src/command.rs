@@ -159,7 +159,7 @@ mod tests {
     use alumet::pipeline::{
         control::ControlMessage,
         elements::{output, source, transform},
-        matching::{StringPattern, NamePatterns, OutputSelector, SourceSelector, TransformSelector},
+        matching::{NamePatterns, OutputSelector, SourceSelector, StringPattern, TransformSelector},
         trigger::TriggerSpec,
     };
 
