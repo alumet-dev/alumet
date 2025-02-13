@@ -43,7 +43,7 @@ use super::resources::Resource;
 ///
 /// Measurement points may also have attributes.
 /// Only certain types of values and attributes are allowed, see [`MeasurementType`] and [`AttributeValue`].
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MeasurementPoint {
     /// The metric that has been measured.
     pub metric: RawMetricId,
