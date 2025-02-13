@@ -72,16 +72,113 @@ pub(crate) fn mean(sub_vec: Vec<MeasurementPoint>) -> WrappedMeasurementValue {
 mod tests {
     use crate::aggregations::Function;
 
-
     #[test]
     fn test_function_get_string() {
         assert_eq!(Function::Mean.get_string(), "mean");
         assert_eq!(Function::Sum.get_string(), "sum");
     }
 
-//     #[test]
-//     fn test_function_get_function() {
-//         assert_eq!(Function::Mean.get_function(), mean);
-//         assert_eq!(Function::Sum.get_string(), "sum");
-//     }
+    mod sum {
+        use alumet::measurement::WrappedMeasurementValue;
+
+        use crate::{
+            aggregations::{sum, Function},
+            transform::tests::new_point,
+        };
+
+        #[test]
+        fn u64_sub_vec() {
+            let sub_vec = vec![
+                new_point("2025-02-10T13:19:00Z", WrappedMeasurementValue::U64(0), 0),
+                new_point("2025-02-10T13:19:00Z", WrappedMeasurementValue::U64(1), 0),
+                new_point("2025-02-10T13:19:00Z", WrappedMeasurementValue::U64(3), 0),
+                new_point("2025-02-10T13:19:00Z", WrappedMeasurementValue::U64(56), 0),
+            ];
+
+            let WrappedMeasurementValue::U64(result) = sum(sub_vec) else {
+                panic!("not an u64")
+            };
+
+            assert_eq!(result, 60);
+        }
+
+        #[test]
+        fn f64_sub_vec() {
+            let sub_vec = vec![
+                new_point("2025-02-10T13:19:00Z", WrappedMeasurementValue::F64(0.0), 0),
+                new_point("2025-02-10T13:19:00Z", WrappedMeasurementValue::F64(1.5), 0),
+                new_point("2025-02-10T13:19:00Z", WrappedMeasurementValue::F64(3.6), 0),
+                new_point("2025-02-10T13:19:00Z", WrappedMeasurementValue::F64(56.9), 0),
+            ];
+
+            let WrappedMeasurementValue::F64(result) = sum(sub_vec) else {
+                panic!("not an u64")
+            };
+
+            assert_eq!(result, 62 as f64);
+        }
+
+        #[test]
+        #[should_panic]
+        fn mixed_f64_and_u64() {
+            let sub_vec = vec![
+                new_point("2025-02-10T13:19:00Z", WrappedMeasurementValue::U64(0), 0),
+                new_point("2025-02-10T13:19:00Z", WrappedMeasurementValue::F64(1.5), 0),
+            ];
+
+            Function::Sum.get_function()(sub_vec);
+        }
+    }
+
+    mod mean {
+        use alumet::measurement::WrappedMeasurementValue;
+
+        use crate::{
+            aggregations::{mean, Function},
+            transform::tests::new_point,
+        };
+
+        #[test]
+        fn u64_sub_vec() {
+            let sub_vec = vec![
+                new_point("2025-02-10T13:19:00Z", WrappedMeasurementValue::U64(0), 0),
+                new_point("2025-02-10T13:19:00Z", WrappedMeasurementValue::U64(1), 0),
+                new_point("2025-02-10T13:19:00Z", WrappedMeasurementValue::U64(3), 0),
+                new_point("2025-02-10T13:19:00Z", WrappedMeasurementValue::U64(56), 0),
+            ];
+
+            let WrappedMeasurementValue::U64(result) = mean(sub_vec) else {
+                panic!("not an u64")
+            };
+
+            assert_eq!(result, 15);
+        }
+
+        #[test]
+        fn f64_sub_vec() {
+            let sub_vec = vec![
+                new_point("2025-02-10T13:19:00Z", WrappedMeasurementValue::F64(0.5), 0),
+                new_point("2025-02-10T13:19:00Z", WrappedMeasurementValue::F64(1.6), 0),
+                new_point("2025-02-10T13:19:00Z", WrappedMeasurementValue::F64(3.0), 0),
+                new_point("2025-02-10T13:19:00Z", WrappedMeasurementValue::F64(56.85), 0),
+            ];
+
+            let WrappedMeasurementValue::F64(result) = mean(sub_vec) else {
+                panic!("not an u64")
+            };
+
+            assert_eq!(result, 15.4875);
+        }
+
+        #[test]
+        #[should_panic]
+        fn mixed_f64_and_u64() {
+            let sub_vec = vec![
+                new_point("2025-02-10T13:19:00Z", WrappedMeasurementValue::U64(0), 0),
+                new_point("2025-02-10T13:19:00Z", WrappedMeasurementValue::F64(1.5), 0),
+            ];
+
+            Function::Mean.get_function()(sub_vec);
+        }
+    }
 }
