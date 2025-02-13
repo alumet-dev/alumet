@@ -26,7 +26,7 @@ use super::elements::output::builder::OutputBuilder;
 use super::elements::source::builder::SourceBuilder;
 use super::elements::transform::builder::TransformBuilder;
 use super::naming::{
-    namespace::{DuplicateNameError, Namespaces},
+    namespace::{DuplicateNameError, Namespace2},
     OutputName, PluginName, SourceName, TransformName,
 };
 use super::{
@@ -52,9 +52,9 @@ pub struct MeasurementPipeline {
 /// It is usually more practical not to call [`build`](Self::build) but to use the [`agent::Builder`](crate::agent::Builder) instead.
 pub struct Builder {
     // Pipeline elements, by plugin and name. The tuple (plugin, element name) is enforced to be unique.
-    sources: Namespaces<SourceBuilder>,
-    transforms: Namespaces<Box<dyn TransformBuilder>>,
-    outputs: Namespaces<OutputBuilder>,
+    sources: Namespace2<SourceBuilder>,
+    transforms: Namespace2<Box<dyn TransformBuilder>>,
+    outputs: Namespace2<OutputBuilder>,
 
     /// Order of the transforms, manually specified.
     transforms_order: Option<Vec<TransformName>>,
@@ -69,7 +69,7 @@ pub struct Builder {
 
     /// Metrics
     pub(crate) metrics: MetricRegistry,
-    metric_listeners: Namespaces<Box<dyn MetricListenerBuilder>>,
+    metric_listeners: Namespace2<Box<dyn MetricListenerBuilder>>,
 
     // tokio::Runtime settings.
     threads_normal: Option<usize>,
@@ -86,15 +86,15 @@ const DEFAULT_CHAN_BUF_SIZE: usize = 2048;
 impl Builder {
     pub fn new() -> Self {
         Self {
-            sources: Namespaces::new(),
-            transforms: Namespaces::new(),
-            outputs: Namespaces::new(),
+            sources: Namespace2::new(),
+            transforms: Namespace2::new(),
+            outputs: Namespace2::new(),
             transforms_order: None,
             default_transforms_order: Vec::new(),
             trigger_constraints: TriggerConstraints::default(),
             source_channel_size: DEFAULT_CHAN_BUF_SIZE,
             metrics: MetricRegistry::new(),
-            metric_listeners: Namespaces::new(),
+            metric_listeners: Namespace2::new(),
             threads_normal: None, // default to the number of cores
             threads_high_priority: None,
         }
@@ -200,7 +200,7 @@ impl Builder {
         /// Adds a dummy output builder to `outputs`.
         ///
         /// The dummy output does nothing with the measurements.
-        fn add_dummy_output(outputs: &mut Namespaces<OutputBuilder>) {
+        fn add_dummy_output(outputs: &mut Namespace2<OutputBuilder>) {
             use crate::pipeline::elements::output::error::WriteError;
 
             struct DummyOutput;
@@ -217,7 +217,7 @@ impl Builder {
 
         /// Take the builders out of `transforms` by following the given `order`.
         fn take_transforms_in_order(
-            mut transforms: Namespaces<Box<dyn TransformBuilder>>,
+            mut transforms: Namespace2<Box<dyn TransformBuilder>>,
             order: Vec<TransformName>,
         ) -> anyhow::Result<Vec<(TransformName, Box<dyn TransformBuilder>)>> {
             let res = order

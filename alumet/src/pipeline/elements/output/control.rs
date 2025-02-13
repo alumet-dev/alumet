@@ -14,7 +14,7 @@ use crate::metrics::online::MetricReader;
 use crate::pipeline::control::message::matching::OutputMatcher;
 use crate::pipeline::elements::output::{run::run_async_output, AsyncOutputStream};
 use crate::pipeline::matching::OutputNamePattern;
-use crate::pipeline::naming::{namespace::Namespaces, OutputName};
+use crate::pipeline::naming::{namespace::Namespace2, OutputName};
 use crate::pipeline::util::{
     channel,
     stream::{ControlledStream, SharedStreamState, StreamState},
@@ -124,7 +124,7 @@ impl OutputControl {
         }
     }
 
-    pub fn blocking_create_outputs(&mut self, outputs: Namespaces<OutputBuilder>) -> anyhow::Result<()> {
+    pub fn blocking_create_outputs(&mut self, outputs: Namespace2<OutputBuilder>) -> anyhow::Result<()> {
         let metrics = self.metrics.blocking_read();
         for ((plugin, output_name), builder) in outputs {
             let mut ctx = builder::OutputBuildContext {

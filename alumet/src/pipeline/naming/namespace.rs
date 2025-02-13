@@ -1,5 +1,6 @@
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::hash_map::Entry;
 
+use fxhash::FxHashMap;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -9,15 +10,19 @@ pub struct DuplicateNameError {
     subkey: String,
 }
 
-/// Nested namespaces: stores values of type `V` by two levels of keys: the `key` and the `subkey`.
-pub struct Namespaces<V> {
-    map: HashMap<(String, String), V>,
+/// 2-level namespace: stores values of type `V` by two levels of keys: the `key` and the `subkey`.
+///
+/// Iteration order is not guaranteed.
+pub struct Namespace2<V> {
+    map: FxHashMap<(String, String), V>,
 }
 
-impl<V> Namespaces<V> {
+impl<V> Namespace2<V> {
     /// Creates an empty hierarchy of namespaces.
     pub fn new() -> Self {
-        Self { map: HashMap::new() }
+        Self {
+            map: FxHashMap::default(),
+        }
     }
 
     /// Adds a new value to the `key` namespace with the `subkey` name.
@@ -64,7 +69,7 @@ impl<V> Namespaces<V> {
     }
 }
 
-impl<V> IntoIterator for Namespaces<V> {
+impl<V> IntoIterator for Namespace2<V> {
     type Item = ((String, String), V);
 
     type IntoIter = std::collections::hash_map::IntoIter<(String, String), V>;
@@ -74,7 +79,7 @@ impl<V> IntoIterator for Namespaces<V> {
     }
 }
 
-impl<'a, V> IntoIterator for &'a Namespaces<V> {
+impl<'a, V> IntoIterator for &'a Namespace2<V> {
     type Item = (&'a (String, String), &'a V);
 
     type IntoIter = std::collections::hash_map::Iter<'a, (String, String), V>;

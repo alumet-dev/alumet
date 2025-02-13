@@ -12,7 +12,7 @@ use tokio::{
 use crate::measurement::MeasurementBuffer;
 use crate::metrics::online::MetricReader;
 use crate::pipeline::control::message::matching::TransformMatcher;
-use crate::pipeline::naming::{namespace::Namespaces, TransformName};
+use crate::pipeline::naming::TransformName;
 
 use super::builder::{BuildContext, TransformBuilder};
 use super::run::run_all_in_order;
@@ -37,20 +37,19 @@ impl TransformControl {
     }
 
     pub fn with_transforms(
-        transforms: Namespaces<Box<dyn TransformBuilder>>,
+        transforms: Vec<(TransformName, Box<dyn TransformBuilder>)>,
         metrics: MetricReader,
         rx: mpsc::Receiver<MeasurementBuffer>,
         tx: broadcast::Sender<MeasurementBuffer>,
         rt_normal: &runtime::Handle,
     ) -> anyhow::Result<Self> {
         let metrics_r = metrics.blocking_read();
-        let mut built = Vec::with_capacity(transforms.total_count());
-        for ((plugin_name, transform_name), builder) in transforms {
-            let full_name = TransformName::new(plugin_name.clone(), transform_name);
+        let mut built = Vec::with_capacity(transforms.len());
+        for (full_name, builder) in transforms {
             let mut ctx = BuildContext { metrics: &metrics_r };
             let transform = builder(&mut ctx)
                 .context("transform creation failed")
-                .inspect_err(|e| log::error!("Error in transform creation requested by plugin {plugin_name}: {e:#}"))?;
+                .inspect_err(|e| log::error!("Failed to build transform {full_name}: {e:#}"))?;
             built.push((full_name, transform));
         }
         let tasks = TaskManager::spawn(built, metrics.clone(), rx, tx, rt_normal);

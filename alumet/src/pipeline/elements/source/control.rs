@@ -12,7 +12,7 @@ use crate::metrics::online::{MetricReader, MetricSender};
 use crate::pipeline::control::message::matching::SourceMatcher;
 use crate::pipeline::elements::source::run::{run_autonomous, run_managed};
 use crate::pipeline::matching::SourceNamePattern;
-use crate::pipeline::naming::{namespace::Namespaces, SourceName};
+use crate::pipeline::naming::{namespace::Namespace2, SourceName};
 use crate::pipeline::trigger::{Trigger, TriggerConstraints, TriggerSpec};
 
 /// A control message for sources.
@@ -154,7 +154,7 @@ impl SourceControl {
         }
     }
 
-    pub fn blocking_create_sources(&mut self, sources: Namespaces<builder::SourceBuilder>) -> anyhow::Result<()> {
+    pub fn blocking_create_sources(&mut self, sources: Namespace2<builder::SourceBuilder>) -> anyhow::Result<()> {
         let metrics = self.metrics.0.blocking_read();
         for ((plugin, name), builder) in sources {
             let mut ctx = builder::BuildContext {

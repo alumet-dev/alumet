@@ -18,7 +18,7 @@ use super::{
     error::MetricCreationError,
     registry::MetricRegistry,
 };
-use crate::pipeline::naming::namespace::Namespaces;
+use crate::pipeline::naming::namespace::Namespace2;
 use listener::{ListenerName, MetricListener, MetricListenerBuilder};
 
 /// A message that can be sent to the task that controls the [`MetricRegistry`],
@@ -107,7 +107,7 @@ impl MetricRegistryControl {
 
     pub fn create_listeners(
         &mut self,
-        builders: Namespaces<Box<dyn MetricListenerBuilder>>,
+        builders: Namespace2<Box<dyn MetricListenerBuilder>>,
         rt: &tokio::runtime::Handle,
     ) -> anyhow::Result<()> {
         self.listeners.reserve_exact(builders.total_count());
@@ -201,7 +201,7 @@ impl MetricRegistryControl {
                 let rt = tokio::runtime::Handle::current();
                 // TODO avoid creating a full namespace hierarchy for this
                 let plugin_name = name.plugin.clone();
-                let mut ns = Namespaces::new();
+                let mut ns = Namespace2::new();
                 ns.add(name.plugin, name.name, listener as Box<dyn MetricListenerBuilder>);
                 if let Err(e) = self.create_listeners(ns, &rt) {
                     log::error!("Error while building a metric listener for plugin {plugin_name}: {e:?}");
