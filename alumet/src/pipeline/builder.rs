@@ -1,7 +1,7 @@
 //! Construction of measurement pipelines.
 use std::time::Duration;
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use fxhash::FxHashMap;
 use tokio::time::error::Elapsed;
 use tokio::{
@@ -56,6 +56,11 @@ pub struct Builder {
     transforms: Namespaces<Box<dyn TransformBuilder>>,
     outputs: Namespaces<OutputBuilder>,
 
+    /// Order of the transforms, manually specified.
+    transforms_order: Option<Vec<TransformName>>,
+    /// Order in which the transforms have been added, to use if `transforms_order` is `None`.
+    default_transforms_order: Vec<TransformName>,
+
     /// Constraints to apply to the TriggerSpec of managed sources.
     trigger_constraints: TriggerConstraints,
 
@@ -84,6 +89,8 @@ impl Builder {
             sources: Namespaces::new(),
             transforms: Namespaces::new(),
             outputs: Namespaces::new(),
+            transforms_order: None,
+            default_transforms_order: Vec::new(),
             trigger_constraints: TriggerConstraints::default(),
             source_channel_size: DEFAULT_CHAN_BUF_SIZE,
             metrics: MetricRegistry::new(),
@@ -140,7 +147,11 @@ impl Builder {
         builder: Box<dyn TransformBuilder>,
     ) -> Result<TransformKey, DuplicateNameError> {
         match self.transforms.add(plugin.0.clone(), name.to_owned(), builder) {
-            Ok(_) => Ok(TransformKey::new(TransformName::new(plugin.0, name.to_owned()))),
+            Ok(_) => {
+                let name = TransformName::new(plugin.0, name.to_owned());
+                self.default_transforms_order.push(name.clone());
+                Ok(TransformKey::new(name))
+            }
             Err(e) => Err(e),
         }
     }
@@ -174,17 +185,60 @@ impl Builder {
         self.threads_high_priority = Some(n);
     }
 
+    /// Sets the execution order of the transforms.
+    ///
+    /// If this method is not called, the default order is the one
+    /// in which the transform builders have been added to the builder.
+    pub fn transforms_order(&mut self, order: Vec<TransformName>) {
+        self.transforms_order = Some(order);
+    }
+
     /// Builds the measurement pipeline.
     ///
     /// The new pipeline is immediately started.
     pub fn build(mut self) -> anyhow::Result<MeasurementPipeline> {
-        use crate::pipeline::elements::output::error::WriteError;
+        /// Adds a dummy output builder to `outputs`.
+        ///
+        /// The dummy output does nothing with the measurements.
+        fn add_dummy_output(outputs: &mut Namespaces<OutputBuilder>) {
+            use crate::pipeline::elements::output::error::WriteError;
 
-        struct DummyOutput;
-        impl Output for DummyOutput {
-            fn write(&mut self, _m: &MeasurementBuffer, _ctx: &OutputContext) -> Result<(), WriteError> {
-                Ok(())
+            struct DummyOutput;
+            impl Output for DummyOutput {
+                fn write(&mut self, _m: &MeasurementBuffer, _ctx: &OutputContext) -> Result<(), WriteError> {
+                    Ok(())
+                }
             }
+            let builder = OutputBuilder::Blocking(Box::new(|_| Ok(Box::new(DummyOutput))));
+            outputs
+                .add(String::from("alumet"), String::from("dummy"), builder)
+                .unwrap();
+        }
+
+        /// Take the builders out of `transforms` by following the given `order`.
+        fn take_transforms_in_order(
+            mut transforms: Namespaces<Box<dyn TransformBuilder>>,
+            order: Vec<TransformName>,
+        ) -> anyhow::Result<Vec<(TransformName, Box<dyn TransformBuilder>)>> {
+            let res = order
+                .into_iter()
+                .map(|name| {
+                    transforms
+                        .remove(name.plugin(), name.transform())
+                        .ok_or_else(|| anyhow!("an order was specified for a transform that does not exist: {name}"))
+                        .map(|builder| (name, builder))
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
+
+            if !transforms.is_empty() {
+                let names = transforms
+                    .flat_keys()
+                    .map(|(plugin, trans)| format!("{plugin}/{trans}"))
+                    .collect::<Vec<String>>()
+                    .join(", ");
+                return Err(anyhow!("missing order for these transforms: {names}"));
+            }
+            Ok(res)
         }
 
         // Tokio runtime backed by "real-time" high priority threads.
@@ -238,10 +292,7 @@ impl Builder {
 
         if self.outputs.is_empty() {
             log::warn!("No output has been registered. A dummy output will be added to make the pipeline work, but you probably want to add a true output.");
-            let builder = OutputBuilder::Blocking(Box::new(|_| Ok(Box::new(DummyOutput))));
-            self.outputs
-                .add(String::from("alumet"), String::from("dummy"), builder)
-                .unwrap();
+            add_dummy_output(&mut self.outputs);
         }
 
         if self.outputs.total_count() == 1 && self.transforms.is_empty() {
@@ -270,8 +321,10 @@ impl Builder {
                 .context("output creation failed")?;
 
             // Transforms
+            let order = self.transforms_order.unwrap_or(self.default_transforms_order);
+            let transforms = take_transforms_in_order(self.transforms, order)?;
             transform_control =
-                TransformControl::with_transforms(self.transforms, metrics_r.clone(), in_rx, out_tx, rt_handle)?;
+                TransformControl::with_transforms(transforms, metrics_r.clone(), in_rx, out_tx, rt_handle)?;
         };
 
         // Sources, last in order not to loose any measurement if they start measuring right away.
