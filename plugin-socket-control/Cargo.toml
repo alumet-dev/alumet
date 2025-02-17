@@ -14,5 +14,9 @@ tokio = { version = "1.40.0", features = ["net", "io-util"] }
 tokio-util = "0.7.12"
 serde = { version = "1.0.210", features = ["derive"] }
 
+[dev-dependencies]
+pretty_assertions = "1.4.0"
+regex = "1.11.1"
+
 [lints]
 workspace = true

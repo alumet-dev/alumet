@@ -1,6 +1,6 @@
 use std::{future::Future, net::SocketAddr};
 
-use alumet::{measurement::MeasurementBuffer, metrics::Metric, pipeline::registry::MetricSender};
+use alumet::{measurement::MeasurementBuffer, metrics::online::MetricSender, metrics::Metric};
 use tokio::{
     net::{TcpListener, TcpStream},
     sync::mpsc,

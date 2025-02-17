@@ -1,9 +1,8 @@
-//! Registry of metrics common to the whole pipeline.
+//! Online interaction with the metric registry.
 
 use std::{fmt::Debug, sync::Arc};
 
 use anyhow::Context;
-use listener::{MetricListenerBuilder, MetricListenerRegistration};
 use tokio::{
     runtime,
     sync::{
@@ -14,9 +13,13 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::metrics::{Metric, MetricCreationError, MetricRegistry, RawMetricId};
-
-use super::{util::naming::NameGenerator, PluginName};
+use super::{
+    def::{Metric, RawMetricId},
+    error::MetricCreationError,
+    registry::MetricRegistry,
+};
+use crate::pipeline::naming::namespace::Namespace2;
+use listener::{ListenerName, MetricListener, MetricListenerBuilder};
 
 /// A message that can be sent to the task that controls the [`MetricRegistry`],
 /// for instance via [`MetricSender`].
@@ -28,7 +31,7 @@ pub enum ControlMessage {
         Option<oneshot::Sender<Vec<Result<RawMetricId, MetricCreationError>>>>,
     ),
     /// Adds a new listener that will be notified on new metric registration.
-    Subscribe(PluginName, Box<dyn listener::MetricListenerBuilder + Send>),
+    Subscribe(ListenerName, Box<dyn listener::MetricListenerBuilder + Send>),
 }
 
 /// A strategy to handle duplicate metrics.
@@ -45,15 +48,11 @@ pub enum DuplicateStrategy {
 /// Controls the central registry of metrics.
 pub(crate) struct MetricRegistryControl {
     registry: Arc<RwLock<MetricRegistry>>,
-    listeners: Vec<listener::MetricListenerRegistration>,
-    listener_names: NameGenerator,
+    listeners: Vec<(ListenerName, Box<dyn MetricListener>)>,
 }
 
 pub mod listener {
-    use crate::{
-        metrics::{Metric, RawMetricId},
-        pipeline::util::naming::{ListenerName, PluginElementNamespace},
-    };
+    use crate::metrics::def::{Metric, RawMetricId};
 
     /// A callback that gets notified of new metrics.
     pub trait MetricListener: FnMut(Vec<(RawMetricId, Metric)>) -> anyhow::Result<()> + Send {}
@@ -61,43 +60,35 @@ pub mod listener {
 
     pub(super) struct BuildContext<'a> {
         pub(super) rt: &'a tokio::runtime::Handle,
-        pub(super) namegen: &'a mut PluginElementNamespace,
     }
 
     /// Context accessible when building a metric listener.
     pub trait MetricListenerBuildContext {
-        /// Generates a name for the listener.
-        fn listener_name(&mut self, name: &str) -> ListenerName;
         /// Returns a handle to the async runtime on which the listener will be executed.
         fn async_runtime(&self) -> &tokio::runtime::Handle;
     }
 
     impl MetricListenerBuildContext for BuildContext<'_> {
-        fn listener_name(&mut self, name: &str) -> ListenerName {
-            ListenerName(self.namegen.insert_deduplicate(name))
-        }
-
         fn async_runtime(&self) -> &tokio::runtime::Handle {
             self.rt
         }
-    }
-
-    /// Information required to register a new metric listener.
-    pub struct MetricListenerRegistration {
-        pub name: ListenerName,
-        pub listener: Box<dyn MetricListener>,
     }
 
     /// Trait for builders of metric listeners.
     ///
     /// Similar to the other builders.
     pub trait MetricListenerBuilder:
-        FnOnce(&mut dyn MetricListenerBuildContext) -> anyhow::Result<MetricListenerRegistration>
+        FnOnce(&mut dyn MetricListenerBuildContext) -> anyhow::Result<Box<dyn MetricListener>>
     {
     }
     impl<F> MetricListenerBuilder for F where
-        F: FnOnce(&mut dyn MetricListenerBuildContext) -> anyhow::Result<MetricListenerRegistration>
+        F: FnOnce(&mut dyn MetricListenerBuildContext) -> anyhow::Result<Box<dyn MetricListener>>
     {
+    }
+
+    pub(super) struct ListenerName {
+        pub plugin: String,
+        pub name: String,
     }
 }
 
@@ -111,24 +102,24 @@ impl MetricRegistryControl {
         Self {
             registry: Arc::new(RwLock::new(registry)),
             listeners: Vec::new(),
-            listener_names: NameGenerator::new(),
         }
     }
 
     pub fn create_listeners(
         &mut self,
-        builders: Vec<(PluginName, Box<dyn MetricListenerBuilder>)>,
+        builders: Namespace2<Box<dyn MetricListenerBuilder>>,
         rt: &tokio::runtime::Handle,
     ) -> anyhow::Result<()> {
-        self.listeners.reserve_exact(builders.len());
-        for (plugin, builder) in builders {
-            let mut ctx = listener::BuildContext {
-                rt,
-                namegen: self.listener_names.plugin_namespace(&plugin),
+        self.listeners.reserve_exact(builders.total_count());
+        for ((plugin_name, listener_name), builder) in builders {
+            let mut ctx = listener::BuildContext { rt };
+            let listener = builder(&mut ctx)
+                .with_context(|| format!("failed to create listener {plugin_name}/{listener_name}"))?;
+            let full_name = ListenerName {
+                plugin: plugin_name,
+                name: listener_name,
             };
-            let reg = builder(&mut ctx)
-                .with_context(|| format!("error in listener creation requested by plugin {plugin}"))?;
-            self.listeners.push(reg);
+            self.listeners.push((full_name, listener));
         }
         Ok(())
     }
@@ -149,11 +140,12 @@ impl MetricRegistryControl {
     }
 
     async fn handle_message(&mut self, msg: ControlMessage) {
-        fn call_listener(reg: &mut MetricListenerRegistration, metrics: Vec<(RawMetricId, Metric)>) {
-            let MetricListenerRegistration { name, ref mut listener } = reg;
+        fn call_listener(name: &ListenerName, listener: &mut dyn MetricListener, metrics: Vec<(RawMetricId, Metric)>) {
             let n = metrics.len();
             if let Err(e) = listener(metrics) {
-                log::error!("Error in metric listener {name} (called on {n} metrics): {e}",);
+                let plugin = &name.plugin;
+                let listener = &name.name;
+                log::error!("Error in metric listener {plugin}/{listener} (called on {n} metrics): {e}",);
             }
         }
 
@@ -190,10 +182,10 @@ impl MetricRegistryControl {
                 }
                 match &mut self.listeners[..] {
                     [] => (),
-                    [listener] => call_listener(listener, registered_metrics),
+                    [(name, listener)] => call_listener(name, listener, registered_metrics),
                     listeners => {
-                        for listener in listeners {
-                            call_listener(listener, registered_metrics.clone());
+                        for (name, listener) in listeners {
+                            call_listener(name, listener, registered_metrics.clone());
                         }
                     }
                 }
@@ -205,10 +197,13 @@ impl MetricRegistryControl {
                     }
                 }
             }
-            ControlMessage::Subscribe(plugin, listener) => {
+            ControlMessage::Subscribe(name, listener) => {
                 let rt = tokio::runtime::Handle::current();
-                let plugin_name = plugin.clone();
-                if let Err(e) = self.create_listeners(vec![(plugin, listener)], &rt) {
+                // TODO avoid creating a full namespace hierarchy for this
+                let plugin_name = name.plugin.clone();
+                let mut ns = Namespace2::new();
+                ns.add(name.plugin, name.name, listener as Box<dyn MetricListenerBuilder>);
+                if let Err(e) = self.create_listeners(ns, &rt) {
                     log::error!("Error while building a metric listener for plugin {plugin_name}: {e:?}");
                 }
             }
@@ -370,19 +365,19 @@ impl MetricSender {
     /// Attempts to add a new metric listener immediately.
     pub fn try_subscribe<F: MetricListenerBuilder + Send + 'static>(
         &self,
-        plugin: PluginName,
+        name: ListenerName,
         listener_builder: F,
     ) -> Result<(), SendError> {
-        self.try_send(ControlMessage::Subscribe(plugin, Box::new(listener_builder)))
+        self.try_send(ControlMessage::Subscribe(name, Box::new(listener_builder)))
     }
 
     /// Adds a new metric listener. Waits until there is capacity to send the message.
     pub async fn subscribe<F: MetricListenerBuilder + Send + 'static>(
         &self,
-        plugin: PluginName,
+        name: ListenerName,
         listener_builder: F,
     ) -> Result<(), SendError> {
-        self.send(ControlMessage::Subscribe(plugin, Box::new(listener_builder)))
+        self.send(ControlMessage::Subscribe(name, Box::new(listener_builder)))
             .await
     }
 }

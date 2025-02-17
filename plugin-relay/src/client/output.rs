@@ -6,11 +6,8 @@ use std::{
 
 use alumet::{
     measurement::MeasurementBuffer,
-    metrics::{Metric, RawMetricId},
-    pipeline::{
-        elements::output::{AsyncOutputStream, StreamRecvError},
-        registry::MetricReader,
-    },
+    metrics::{online::MetricReader, Metric, RawMetricId},
+    pipeline::elements::output::{interface::StreamRecvError, AsyncOutputStream},
 };
 use futures::StreamExt;
 use tokio::{net::TcpStream, sync::mpsc};

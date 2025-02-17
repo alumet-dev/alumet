@@ -113,7 +113,7 @@ fn test_plugin_lifecycle() {
             assert_eq!(state2_start.get(), State::Started);
 
             // check builder statistics
-            let stats = builder.stats();
+            let stats = builder.inspect().stats();
             assert_eq!(4, stats.metrics);
             assert_eq!(2, stats.sources);
             assert_eq!(2, stats.transforms);
@@ -130,6 +130,7 @@ fn test_plugin_lifecycle() {
                 sorted(expected_metrics),
                 sorted(
                     builder
+                        .inspect()
                         .metrics()
                         .iter()
                         .map(|(_id, m)| m.name.clone())

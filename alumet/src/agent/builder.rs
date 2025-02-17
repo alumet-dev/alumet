@@ -8,7 +8,7 @@ use crate::agent::plugin::PluginInfo;
 use crate::plugin::phases::PreStartAction;
 use crate::plugin::{AlumetPluginStart, AlumetPostStart, ConfigTable, Plugin};
 use crate::{
-    pipeline::{self, PluginName},
+    pipeline::{self, naming::PluginName},
     plugin::{phases::PostStartAction, AlumetPreStart},
 };
 
@@ -132,15 +132,15 @@ impl Builder {
         fn start_plugin(
             p: &mut dyn Plugin,
             pipeline_builder: &mut pipeline::Builder,
-            pre_start_actions: &mut Vec<(pipeline::PluginName, Box<dyn PreStartAction>)>,
-            post_start_actions: &mut Vec<(pipeline::PluginName, Box<dyn PostStartAction>)>,
+            pre_start_actions: &mut Vec<(PluginName, Box<dyn PreStartAction>)>,
+            post_start_actions: &mut Vec<(PluginName, Box<dyn PostStartAction>)>,
         ) -> anyhow::Result<()> {
             let name = p.name().to_owned();
             let version = p.version().to_owned();
             log::debug!("Starting plugin {name} v{version}...");
 
             let mut ctx = AlumetPluginStart {
-                current_plugin: pipeline::PluginName(name.clone()),
+                current_plugin: PluginName(name.clone()),
                 pipeline_builder,
                 pre_start_actions,
                 post_start_actions,
@@ -160,7 +160,7 @@ impl Builder {
             log::debug!("Running pre-pipeline-start hook for plugin {name} v{version}...");
 
             // Prepare the context.
-            let pname = pipeline::PluginName(name.clone());
+            let pname = PluginName(name.clone());
             let mut ctx = AlumetPreStart {
                 current_plugin: pname.clone(),
                 pipeline_builder,
@@ -193,7 +193,7 @@ impl Builder {
             log::debug!("Running post-pipeline-start hook for plugin {name} v{version}...");
 
             // Prepare the context.
-            let pname = pipeline::PluginName(name.clone());
+            let pname = PluginName(name.clone());
             let mut ctx = AlumetPostStart {
                 current_plugin: pname.clone(),
                 pipeline,
@@ -421,7 +421,7 @@ fn print_stats(
     };
 
     // format pipeline statistics
-    let stats = pipeline_builder.stats();
+    let stats = pipeline_builder.inspect().stats();
 
     let n_sources = stats.sources;
     let n_transforms = stats.transforms;
