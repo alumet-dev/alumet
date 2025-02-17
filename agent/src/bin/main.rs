@@ -77,19 +77,19 @@ fn main() -> anyhow::Result<()> {
     // Special flags like --help will exit. In other cases, we continue.
     print_welcome();
 
+    // If the CLI args override the list of enabled plugins, we need to know it now,
+    // because that will change how some "no config" commands work (such as config regen).
+    if let Some(enabled_plugins) = &args.common.plugins {
+        plugins.enable_only(enabled_plugins);
+    }
+
     // Run CLI commands that run before the config is loaded.
     if run_command_no_config(&args, &plugins)? {
         return Ok(());
     }
 
-    // apply some settings that may change how the config file is parsed
-    // or how the default config file is generated
-    let config_override = parse_config_overrides(&args).context("invalid config overrides")?;
-    if let Some(enabled_plugins) = &args.common.plugins {
-        plugins.enable_only(enabled_plugins);
-    }
-
     // parse config file
+    let config_override = parse_config_overrides(&args).context("invalid config overrides")?;
     let default_config_provider: Box<dyn DefaultConfigProvider> = if args.common.no_default_config {
         Box::new(NoDefaultConfigProvider)
     } else {
@@ -499,6 +499,7 @@ mod config {
     /// General config options, which are not specific to a particular plugin.
     #[derive(Deserialize, Serialize, Default)]
     pub struct GeneralConfig {
+        // TODO move these to an "advanced" table
         pub max_update_interval: Option<humantime_serde::Serde<Duration>>,
         pub source_channel_size: Option<usize>,
     }

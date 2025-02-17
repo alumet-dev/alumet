@@ -8,27 +8,56 @@ use common::{
     run::{run_agent, run_agent_tee},
     tests,
 };
+use indoc::indoc;
+use pretty_assertions::assert_eq;
+
+const AGENT_BIN: &str = "alumet-agent";
 
 #[test]
 fn help() {
     let tmp_dir = empty_temp_dir("help").unwrap();
-    let status = run_agent("alumet-agent", &["--help"], &tmp_dir).unwrap();
+    let status = run_agent(AGENT_BIN, &["--help"], &tmp_dir).unwrap();
     assert!(status.success());
 }
 
 #[test]
 fn args_bad_config_no_folder() -> anyhow::Result<()> {
-    tests::args_bad_config_no_folder("alumet-agent")
+    tests::args_bad_config_no_folder(AGENT_BIN)
 }
 
 #[test]
 fn args_bad_config_missing_file_no_default() -> anyhow::Result<()> {
-    tests::args_bad_config_missing_file_no_default("alumet-agent")
+    tests::args_bad_config_missing_file_no_default(AGENT_BIN)
 }
 
 #[test]
 fn args_regen_config() -> anyhow::Result<()> {
-    tests::args_regen_config("alumet-agent")
+    tests::args_regen_config(AGENT_BIN)
+}
+
+#[test]
+fn regen_config_with_plugins() -> anyhow::Result<()> {
+    let tmp_dir = tempfile::tempdir()?;
+    let conf = tmp_dir.path().join("config.toml");
+    assert!(!conf.try_exists()?, "config file should not exist: {conf:?}");
+
+    let conf_path_str = conf.to_str().unwrap();
+    let output = run_agent_tee(
+        AGENT_BIN,
+        &["--plugins", "rapl", "--config", conf_path_str, "config", "regen"],
+        tmp_dir.path(),
+    )?;
+    assert!(output.status.success(), "command should succeed");
+
+    let config_content = std::fs::read_to_string(conf)?;
+    let expected = indoc! { r#"
+        [plugins.rapl]
+        poll_interval = "1s"
+        flush_interval = "5s"
+        no_perf_events = false
+    "# };
+    assert_eq!(config_content, expected);
+    Ok(())
 }
 
 #[test]
@@ -44,7 +73,7 @@ fn args_output_exec() -> anyhow::Result<()> {
     let tmp_file_out_str = tmp_file_out.to_str().unwrap();
     let tmp_file_conf_str = tmp_file_conf.to_str().unwrap();
     let command_out = run_agent_tee(
-        "alumet-agent",
+        AGENT_BIN,
         &[
             "--output-file",
             tmp_file_out_str,
