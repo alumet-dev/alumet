@@ -25,15 +25,15 @@ impl From<Timestamp> for SystemTime {
     }
 }
 
-impl From<Timestamp> for crate::measurement::Timestamp {
+impl From<Timestamp> for alumet::measurement::Timestamp {
     fn from(value: Timestamp) -> Self {
-        crate::measurement::Timestamp::from(SystemTime::from(value))
+        alumet::measurement::Timestamp::from(SystemTime::from(value))
     }
 }
 
-impl From<crate::measurement::Timestamp> for Timestamp {
-    fn from(value: crate::measurement::Timestamp) -> Self {
-        Timestamp::from(value.0)
+impl From<alumet::measurement::Timestamp> for Timestamp {
+    fn from(value: alumet::measurement::Timestamp) -> Self {
+        Timestamp::from(SystemTime::from(value))
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::resources::{Resource, ResourceConsumer};
+use alumet::resources::{Resource, ResourceConsumer};
 
 // pub(crate) const RESOURCE_ID_SIZE: usize = std::mem::size_of::<ResourceId>();
 

@@ -2,7 +2,7 @@ use std::{borrow::Cow, time::SystemTime};
 
 use libc::c_void;
 
-use crate::{
+use alumet::{
     measurement::{
         AttributeValue, MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue,
     },

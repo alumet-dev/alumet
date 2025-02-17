@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <string.h>
-#include "../../alumet/generated/alumet-api.h"
+#include "../../target/tmp/alumet_ffi_build/ffi_generated/alumet-api.h"
 #include "source.h"
 #include "output.h"
 
