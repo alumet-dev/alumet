@@ -6,21 +6,22 @@ use std::{
     path::Path,
 };
 
-use crate::plugin::version::Version;
 use libc::c_void;
 use libloading::{Library, Symbol};
 
-use super::{version, AlumetPluginStart, AlumetPostStart, ConfigTable, Plugin};
-use crate::ffi;
-use crate::plugin::PluginMetadata;
+use alumet::plugin::{
+    version::{self, Version},
+    AlumetPreStart,
+};
+use alumet::plugin::{AlumetPluginStart, AlumetPostStart, ConfigTable, Plugin, PluginMetadata};
 
 /// A plugin initialized from a dynamic library (aka. shared library).
 struct DylibPlugin {
     name: String,
     version: String,
-    start_fn: ffi::PluginStartFn,
-    stop_fn: ffi::PluginStopFn,
-    drop_fn: ffi::DropFn,
+    start_fn: super::PluginStartFn,
+    stop_fn: super::PluginStopFn,
+    drop_fn: super::DropFn,
     // the library must stay loaded for the symbols to be valid
     _library: Library,
     instance: *mut c_void,
@@ -45,7 +46,7 @@ impl Plugin for DylibPlugin {
         Ok(())
     }
 
-    fn pre_pipeline_start(&mut self, _alumet: &mut super::phases::AlumetPreStart) -> anyhow::Result<()> {
+    fn pre_pipeline_start(&mut self, _alumet: &mut AlumetPreStart) -> anyhow::Result<()> {
         // TODO
         Ok(())
     }
@@ -96,10 +97,10 @@ pub struct PluginRegistry {
 /// - `PLUGIN_NAME: *const c_char`: the name of the plugin, as a null-terminated string
 /// - `PLUGIN_VERSION: *const c_char`: the version of the plugin, of the form "x.y.z" where x,y,z are integers
 /// - `ALUMET_VERSION: *const c_char`: the version of alumet that this plugin requires, of the form "x.y.z"
-/// - `plugin_init: PluginInitFn`: see [`ffi::PluginInitFn`]
-/// - `plugin_start: PluginStartFn`: see [`ffi::PluginStartFn`]
-/// - `plugin_stop: PluginStopFn`: see [`ffi::PluginStopFn`]
-/// - `plugin_drop: DropFn`: see [`ffi::DropFn`]
+/// - `plugin_init: PluginInitFn`: see [`super::PluginInitFn`]
+/// - `plugin_start: PluginStartFn`: see [`super::PluginStartFn`]
+/// - `plugin_stop: PluginStopFn`: see [`super::PluginStopFn`]
+/// - `plugin_drop: DropFn`: see [`super::DropFn`]
 ///
 /// # Declaration in Rust
 /// Declaring such variables and symbols in the Rust language would look like the following:
@@ -165,14 +166,14 @@ pub fn load_cdylib(file: &Path) -> Result<PluginMetadata, LoadError> {
     let sym_name: Symbol<*const *const c_char> = unsafe { lib.get(b"PLUGIN_NAME\0")? };
     let sym_plugin_version: Symbol<*const *const c_char> = unsafe { lib.get(b"PLUGIN_VERSION\0")? };
     let sym_alumet_version: Symbol<*const *const c_char> = unsafe { lib.get(b"ALUMET_VERSION\0")? };
-    let sym_init: Symbol<ffi::PluginInitFn> = unsafe { lib.get(b"plugin_init\0")? };
-    let sym_start: Symbol<ffi::PluginStartFn> = unsafe { lib.get(b"plugin_start\0")? };
-    let sym_stop: Symbol<ffi::PluginStopFn> = unsafe { lib.get(b"plugin_stop\0")? };
-    let sym_drop: Symbol<ffi::DropFn> = unsafe { lib.get(b"plugin_drop\0")? };
+    let sym_init: Symbol<super::PluginInitFn> = unsafe { lib.get(b"plugin_init\0")? };
+    let sym_start: Symbol<super::PluginStartFn> = unsafe { lib.get(b"plugin_start\0")? };
+    let sym_stop: Symbol<super::PluginStopFn> = unsafe { lib.get(b"plugin_stop\0")? };
+    let sym_drop: Symbol<super::DropFn> = unsafe { lib.get(b"plugin_drop\0")? };
 
     // if this symbol is none, there is no default config
     // (this means that it is optional to define `plugin_default_config`)
-    let sym_default_config: Option<Symbol<ffi::PluginDefaultConfigFn>> =
+    let sym_default_config: Option<Symbol<super::PluginDefaultConfigFn>> =
         unsafe { lib.get(b"plugin_default_config\0") }.ok();
 
     log::debug!("symbols loaded");

@@ -2,10 +2,10 @@ use std::ffi::{c_char, CStr};
 
 use libc::c_void;
 
-use crate::measurement::WrappedMeasurementType;
-use crate::metrics::def::RawMetricId;
-use crate::pipeline::trigger;
-use crate::{plugin::AlumetPluginStart, units::Unit};
+use alumet::measurement::WrappedMeasurementType;
+use alumet::metrics::def::RawMetricId;
+use alumet::pipeline::trigger;
+use alumet::{plugin::AlumetPluginStart, units::Unit};
 
 use super::pipeline::{FfiOutput, FfiTransform};
 use super::time::TimeDuration;

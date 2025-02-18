@@ -9,15 +9,6 @@ type ConfigTable = toml::Table;
 
 type ConfigArray = toml::value::Array;
 
-/// Workaround because cbindgen doesn't handle the use of types from external crates properly:
-/// it should generate an opaque type for ConfigTable and ConfigArray, but it does not.
-mod cbindgen_workaround {
-    pub struct ConfigArray;
-
-    #[no_mangle]
-    fn __workaround(_x: ConfigArray) {}
-}
-
 #[no_mangle]
 pub extern "C" fn config_string_in<'a>(table: &'a ConfigTable, key: AStr<'a>) -> NullableAStr<'a> {
     match &table.get(key.as_str()) {

@@ -95,14 +95,11 @@ use std::fmt::Debug;
 
 use self::rust::AlumetPlugin;
 
-#[cfg(feature = "dynamic")]
-pub mod dynload;
-
 pub mod event;
 pub(crate) mod phases;
 pub mod rust;
 pub mod util;
-pub(crate) mod version;
+pub mod version;
 
 pub use phases::{AlumetPluginStart, AlumetPostStart, AlumetPreStart};
 

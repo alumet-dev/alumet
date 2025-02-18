@@ -7,8 +7,9 @@ use alumet::{
         self,
         plugin::{PluginInfo, PluginSet},
     },
-    plugin::{dynload::load_cdylib, PluginMetadata},
+    plugin::PluginMetadata,
 };
+use alumet_ffi::dynload::load_cdylib;
 
 fn main() {
     // init logger

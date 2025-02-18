@@ -3,8 +3,7 @@ resolver = "2"
 members = [
     "agent",
     "alumet",
-    "alumet-api-dynamic",
-    "alumet-api-macros",
+    "alumet-ffi",
     "plugin-csv",
     "plugin-cgroupv2",
     "plugin-energy-attribution",
@@ -18,8 +17,7 @@ members = [
     "plugin-relay",
     "plugin-socket-control",
     "plugin-mongodb",
-    "test-dynamic-plugin-rust",
-    "test-dynamic-plugins", 
+    "test-dynamic-plugins",
 ]
 
 # To apply the following lint settings to a workspace member,
