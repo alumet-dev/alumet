@@ -30,9 +30,9 @@ use fxhash::FxBuildHasher;
 use ordered_float::OrderedFloat;
 use smallvec::SmallVec;
 use std::borrow::Cow;
-use std::time::{Duration, SystemTimeError, UNIX_EPOCH};
-use std::{collections::HashMap, fmt::Display, time::SystemTime};
 use std::hash::{Hash, Hasher};
+use std::time::{Duration, SystemTime, SystemTimeError, UNIX_EPOCH};
+use std::{collections::HashMap, fmt::Display};
 
 use crate::metrics::def::{RawMetricId, TypedMetricId};
 use crate::resources::ResourceConsumer;
@@ -180,8 +180,16 @@ impl Timestamp {
         (t.as_secs(), t.subsec_nanos())
     }
 
+    /// Returns the amount of time elapsed from an earlier point in time.
     pub fn duration_since(&self, earlier: Timestamp) -> Result<Duration, SystemTimeError> {
         self.0.duration_since(earlier.0)
+    }
+
+    /// Parses an RFC 3339 date-and-time string into a Timestamp value.
+    pub fn parse_from_rfc3339(s: &str) -> Result<Self, ParseError> {
+        Ok(Self::from(<DateTime<FixedOffset> as Into<SystemTime>>::into(
+            DateTime::parse_from_rfc3339(s)?,
+        )))
     }
 }
 

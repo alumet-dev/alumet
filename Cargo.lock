@@ -75,7 +75,6 @@ dependencies = [
  "indoc",
  "libc",
  "log",
- "plugin-aggregation",
  "plugin-cgroupv2",
  "plugin-csv",
  "plugin-influxdb",
@@ -2217,7 +2216,6 @@ version = "0.1.0"
 dependencies = [
  "alumet",
  "anyhow",
- "chrono",
  "futures",
  "humantime-serde",
  "log",
@@ -3811,6 +3809,7 @@ checksum = "2f0a0651a5c2bc21487bde11ee802ccaf4c51935d0d3d42a6101f98161700bc6"
 dependencies = [
  "bumpalo",
  "log",
+ "once_cell",
  "proc-macro2",
  "quote",
  "syn 2.0.99",
