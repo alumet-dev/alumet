@@ -1,5 +1,6 @@
 alpes
 alumet
+amdsmi
 ASCIINEMA
 astring
 Atos
@@ -19,6 +20,7 @@ DTLB
 Eviden
 FSCREDS
 giga
+hipcc
 humantime
 hwinfo
 hwmon
@@ -26,12 +28,13 @@ indice
 ITLB
 jres
 kwollect
+libdrm
 miri
 Mispredicted
 monitorable
 mpoint
-niced
 neowise
+niced
 NVML
 libgflags
 libpowercap
@@ -75,12 +78,12 @@ superchip
 superchips
 SYSFS
 thiserror
-timerfd
 Thour
+timerfd
 Trystram
 UCUM
 uncore
 VERGEN
-wattmetre
 wattmeters
+wattmetre
 zcat
