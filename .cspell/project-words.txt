@@ -1,4 +1,5 @@
 alumet
+amdsmi
 ASCIINEMA
 astring
 Atos
@@ -19,6 +20,7 @@ humantime
 hwinfo
 hwmon
 ITLB
+libdrm
 Mispredicted
 miri
 monitorable
@@ -31,6 +33,7 @@ psys
 Raffin
 RAPL
 regen
+rocm
 rustfmt
 statm
 subconfig
