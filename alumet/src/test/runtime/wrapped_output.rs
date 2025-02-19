@@ -1,4 +1,4 @@
-use std::sync::mpsc::{self, TryRecvError};
+use tokio::sync::mpsc::{self, error::TryRecvError};
 
 use crate::{measurement::MeasurementBuffer, pipeline::Output};
 
@@ -24,7 +24,7 @@ impl Output for WrappedOutput {
         match self.set_rx.try_recv() {
             Ok(check) => {
                 (check.0)();
-                self.done_tx.send(OutputDone).unwrap();
+                self.done_tx.try_send(OutputDone).unwrap();
                 Ok(())
             }
             Err(TryRecvError::Empty) => Ok(()),

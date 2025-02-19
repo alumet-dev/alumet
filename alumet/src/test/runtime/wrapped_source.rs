@@ -1,4 +1,4 @@
-use std::sync::mpsc;
+use tokio::sync::mpsc;
 
 use crate::pipeline::Source;
 
@@ -21,11 +21,11 @@ impl Source for WrappedManagedSource {
         measurements: &mut crate::measurement::MeasurementAccumulator,
         timestamp: crate::measurement::Timestamp,
     ) -> Result<(), crate::pipeline::elements::error::PollError> {
-        let check = self.in_rx.recv().unwrap().0;
+        let check = self.in_rx.try_recv().unwrap().0;
         (check.make_input)();
         let res = self.source.poll(measurements, timestamp);
         (check.check_output)(measurements.as_inner());
-        self.out_tx.send(SourceDone).unwrap();
+        self.out_tx.try_send(SourceDone).unwrap();
         res
     }
 }

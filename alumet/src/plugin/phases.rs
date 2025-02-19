@@ -9,9 +9,10 @@ use crate::metrics::online::{MetricReader, MetricSender};
 use crate::metrics::registry::MetricRegistry;
 use crate::pipeline::control::key::{OutputKey, SourceKey, TransformKey};
 use crate::pipeline::elements::source::builder::{ManagedSource, SourceBuilder};
+use crate::pipeline::elements::source::trigger::TriggerSpec;
 use crate::pipeline::elements::{output, source, transform};
 use crate::pipeline::naming::{namespace::DuplicateNameError, PluginName};
-use crate::pipeline::{self, trigger, Output, Source, Transform};
+use crate::pipeline::{self, Output, Source, Transform};
 use crate::units::PrefixedUnit;
 
 /// Structure passed to plugins for the start-up phase.
@@ -102,7 +103,7 @@ impl<'a> AlumetPluginStart<'a> {
         &mut self,
         name: &str,
         source: Box<dyn Source>,
-        trigger_spec: trigger::TriggerSpec,
+        trigger_spec: TriggerSpec,
     ) -> Result<SourceKey, DuplicateNameError> {
         self.add_source_builder(name, |_| Ok(ManagedSource { trigger_spec, source }))
     }

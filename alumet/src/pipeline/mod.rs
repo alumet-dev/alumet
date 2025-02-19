@@ -14,7 +14,6 @@ pub mod builder;
 pub mod control;
 pub mod elements;
 pub mod naming;
-pub mod trigger;
 pub(crate) mod util;
 
 pub use elements::output::Output;

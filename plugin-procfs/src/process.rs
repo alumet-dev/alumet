@@ -14,10 +14,9 @@ use alumet::{
         control::{error::ControlError, message::matching::SourceMatcher, ScopedControlHandle, SourceCreationBuffer},
         elements::{
             error::PollError,
-            source::{self, control::TriggerMessage},
+            source::{self, control::TriggerMessage, trigger::TriggerSpec},
         },
         matching::{SourceNamePattern, StringPattern},
-        trigger::TriggerSpec,
         Source,
     },
     resources::{Resource, ResourceConsumer},

@@ -6,14 +6,15 @@ use tokio::sync::mpsc;
 use tokio::task::{JoinError, JoinSet};
 use tokio_util::sync::CancellationToken;
 
-use super::builder;
 use crate::measurement::MeasurementBuffer;
 use crate::metrics::online::{MetricReader, MetricSender};
 use crate::pipeline::control::message::matching::SourceMatcher;
 use crate::pipeline::elements::source::run::{run_autonomous, run_managed};
 use crate::pipeline::matching::SourceNamePattern;
 use crate::pipeline::naming::{namespace::Namespace2, SourceName};
-use crate::pipeline::trigger::{Trigger, TriggerConstraints, TriggerSpec};
+
+use super::builder;
+use super::trigger::{Trigger, TriggerConstraints, TriggerSpec};
 
 /// A control message for sources.
 #[derive(Debug)]

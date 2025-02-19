@@ -1,7 +1,7 @@
 use std::{path::PathBuf, time::Duration};
 
 use alumet::{
-    pipeline::{trigger, Source},
+    pipeline::elements::source::{trigger, Source},
     plugin::{
         rust::{deserialize_config, serialize_config, AlumetPlugin},
         ConfigTable,

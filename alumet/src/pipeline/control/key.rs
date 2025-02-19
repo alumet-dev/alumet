@@ -1,6 +1,6 @@
 //! Keys associated to individual elements.
 
-use crate::pipeline::naming::{ElementKind, ElementName, OutputName, SourceName, TransformName};
+use crate::pipeline::naming::{OutputName, SourceName, TransformName};
 
 // The inner field is private because it could be replaced by an integer in the future
 // in order to reduce the size of the key and improve performance.

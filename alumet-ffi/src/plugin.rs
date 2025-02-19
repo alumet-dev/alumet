@@ -4,7 +4,7 @@ use libc::c_void;
 
 use alumet::measurement::WrappedMeasurementType;
 use alumet::metrics::def::RawMetricId;
-use alumet::pipeline::trigger;
+use alumet::pipeline::elements::source::trigger;
 use alumet::{plugin::AlumetPluginStart, units::Unit};
 
 use super::pipeline::{FfiOutput, FfiTransform};

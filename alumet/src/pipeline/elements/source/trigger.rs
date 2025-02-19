@@ -22,23 +22,29 @@ pub struct TriggerSpec {
     interruptible: bool,
     allow_manual_trigger: bool,
     use_realtime_priority: bool,
-    config: TriggerConfig,
+    loop_params: TriggerLoopParams,
 }
 
 /// Controls when the [`Source`](super::Source) is polled for measurements.
 pub(crate) struct Trigger {
-    pub config: TriggerConfig,
+    pub config: TriggerLoopParams,
     inner: TriggerImpl,
 }
 
 enum TriggerImpl {
-    Simple(TriggerMechanism),
-    Interruptible(TriggerMechanism),
-    WithManualTrigger(TriggerMechanism, bool, Arc<Notify>),
+    /// Single-mechanism trigger, potentially interruptible.
+    Single(TriggerMechanism, Interruptible),
+    /// Dual-mechanism trigger: triggers on the first mechanism that awakes.
+    Double(TriggerMechanism, TriggerMechanism, Interruptible),
+}
+
+enum Interruptible {
+    Yes,
+    No,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct TriggerConfig {
+pub(crate) struct TriggerLoopParams {
     /// Numbers of polling operations to do before flushing the measurements.
     ///
     /// Flushing more often increases the pressure on the memory allocator.
@@ -68,164 +74,7 @@ pub struct TriggerConstraints {
 /// Builder for source triggers.
 ///
 /// See [`builder::time_interval`].
-pub mod builder {
-    use core::fmt;
-    use std::time::{Duration, Instant};
-
-    use super::{TriggerConfig, TriggerMechanismSpec, TriggerSpec};
-
-    /// Returns a builder for a source trigger that polls the source at regular intervals.
-    ///
-    /// # Timing
-    ///
-    /// The accuracy of the timing depends on the operating system and on the scheduling
-    /// policy of the thread that executes the trigger.
-    /// For small intervals of 1ms or less, it is recommended to run Alumet on Linux
-    /// and to use the high "realtime" scheduling priority by calling [`TimeTriggerBuilder::realtime_priority`].
-    ///
-    /// # Example
-    /// ```
-    /// use alumet::pipeline::trigger;
-    /// use std::time::{Instant, Duration};
-    ///
-    /// let trigger_config = trigger::builder::time_interval(Duration::from_secs(1))
-    ///     .starting_at(Instant::now() + Duration::from_secs(30))
-    ///     .flush_interval(Duration::from_secs(2))
-    ///     .update_interval(Duration::from_secs(5))
-    ///     .build()
-    ///     .unwrap();
-    /// ```
-    pub fn time_interval(poll_interval: Duration) -> TimeTriggerBuilder {
-        TimeTriggerBuilder::new(poll_interval)
-    }
-
-    /// Builder for a source trigger that polls the source at regular intervals.
-    pub struct TimeTriggerBuilder {
-        start: Instant,
-        poll_interval: Duration,
-        config: TriggerConfig,
-        interruptible: bool,
-        manual_trigger: bool,
-        realtime_priority: bool,
-    }
-
-    #[derive(Debug)]
-    pub enum Error {
-        Io(std::io::Error),
-        InvalidConfig(String),
-    }
-
-    impl fmt::Display for Error {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            match self {
-                Error::Io(err) => write!(f, "io error: {err}"),
-                Error::InvalidConfig(msg) => write!(f, "invalid trigger config: {msg}"),
-            }
-        }
-    }
-
-    impl std::error::Error for Error {}
-
-    impl TimeTriggerBuilder {
-        pub fn new(poll_interval: Duration) -> Self {
-            Self {
-                start: Instant::now(),
-                poll_interval,
-                config: TriggerConfig {
-                    flush_rounds: 1,
-                    update_rounds: 1,
-                },
-                interruptible: false,
-                manual_trigger: false,
-                realtime_priority: false,
-            }
-        }
-
-        /// Start polling at the given time.
-        pub fn starting_at(mut self, start: Instant) -> Self {
-            self.start = start;
-            self
-        }
-
-        /// Flush the measurements every `flush_rounds` polls.
-        pub fn flush_rounds(mut self, flush_rounds: usize) -> Self {
-            self.config.flush_rounds = flush_rounds;
-            self
-        }
-
-        /// Update the source command every `update_rounds` polls.
-        pub fn update_rounds(mut self, update_rounds: usize) -> Self {
-            self.config.update_rounds = update_rounds;
-            self
-        }
-
-        /// Flush the measurement after, at most, the given duration.
-        pub fn flush_interval(mut self, flush_interval: Duration) -> Self {
-            if self.poll_interval.is_zero() {
-                return self; // don't modify anything, build() will fail
-            }
-
-            // flush_rounds must be non-zero, or the remainder operation will panic (`i % flush_rounds` in the polling loop)
-            self.config.flush_rounds = ((flush_interval.as_nanos() / self.poll_interval.as_nanos()) as usize).max(1);
-            self
-        }
-
-        /// Update the source command after, at most, the given duration.
-        pub fn update_interval(mut self, update_interval: Duration) -> Self {
-            if self.poll_interval.is_zero() {
-                return self; // don't modify anything, build() will fail
-            }
-
-            if self.poll_interval > update_interval {
-                // The trigger mechanism needs to be interruptible, otherwise `trigger.next().await`
-                // would block the task for longer than the requested update interval, and
-                // the source commands would be applied too late.
-                self.config.update_rounds = 1;
-                self.interruptible = true;
-            } else {
-                self.config.update_rounds =
-                    ((update_interval.as_nanos() / self.poll_interval.as_nanos()) as usize).max(1);
-                self.interruptible = false;
-            }
-            self
-        }
-
-        /// Signals that the pipeline should run the source on a thread with a high scheduling priority.
-        ///
-        /// The actual implementation of this "high priority" is OS-dependent and comes with no strong guarantee.
-        /// On Linux, it typically means calling `sched_setscheduler` to change the scheduler priority.
-        ///
-        /// Note that Alumet may decide to apply this setting automatically for high polling frequencies (low `poll_interval`).
-        pub fn realtime_priority(mut self) -> Self {
-            self.realtime_priority = true;
-            self
-        }
-
-        pub fn allow_manual_trigger(mut self) -> Self {
-            self.manual_trigger = true;
-            self
-        }
-
-        /// Builds the trigger.
-        pub fn build(mut self) -> Result<TriggerSpec, Error> {
-            if self.poll_interval.is_zero() {
-                return Err(Error::InvalidConfig(String::from("poll_interval must be non-zero")));
-            }
-            // automatically enable `realtime_priority` in some cases
-            if self.poll_interval <= Duration::from_millis(3) {
-                self.realtime_priority = true;
-            }
-
-            Ok(TriggerSpec {
-                mechanism: TriggerMechanismSpec::TimeInterval(self.start, self.poll_interval),
-                interruptible: self.interruptible,
-                allow_manual_trigger: self.manual_trigger,
-                use_realtime_priority: self.realtime_priority,
-                config: self.config,
-            })
-        }
-    }
-}
+pub mod builder;
 
 pub(crate) mod private_impl {
     use super::TriggerSpec;
@@ -275,19 +124,19 @@ impl TriggerSpec {
 
             match self.mechanism {
                 TriggerMechanismSpec::TimeInterval(_, poll_interval) => {
-                    let update_interval = match self.config.update_rounds.try_into() {
+                    let update_interval = match self.loop_params.update_rounds.try_into() {
                         Ok(update_rounds) => poll_interval * update_rounds,
                         Err(_too_big) => time::Duration::MAX,
                     };
                     if poll_interval > max_update_interval {
                         // The trigger mechanism needs to be interruptible to respect the max update time.
                         // See TimeTriggerBuilder::update_interval.
-                        self.config.update_rounds = 1;
+                        self.loop_params.update_rounds = 1;
                         self.interruptible = true;
                     }
                     if update_interval > max_update_interval {
                         // Lower `update_rounds` to respect the max update time.
-                        self.config.update_rounds =
+                        self.loop_params.update_rounds =
                             ((max_update_interval.as_nanos() / poll_interval.as_nanos()) as usize).max(1);
                     }
                 }
@@ -325,25 +174,37 @@ impl ManualTrigger {
     }
 }
 
+impl From<bool> for Interruptible {
+    fn from(value: bool) -> Self {
+        match value {
+            true => Interruptible::Yes,
+            false => Interruptible::No,
+        }
+    }
+}
+
 impl Trigger {
     pub fn new(spec: TriggerSpec) -> Result<Self, std::io::Error> {
+        let interruptible = Interruptible::from(spec.interruptible);
+        let manual_only = matches!(spec.mechanism, TriggerMechanismSpec::ManualOnly);
         let mechanism = TriggerMechanism::try_from(spec.mechanism)?;
-        let inner = if spec.allow_manual_trigger {
-            TriggerImpl::WithManualTrigger(mechanism, spec.interruptible, Arc::new(Notify::new()))
-        } else if spec.interruptible {
-            TriggerImpl::Interruptible(mechanism)
+        let inner = if spec.allow_manual_trigger && !manual_only {
+            let manual = TriggerMechanism::Manual(Arc::new(Notify::new()));
+            TriggerImpl::Double(mechanism, manual, interruptible)
         } else {
-            TriggerImpl::Simple(mechanism)
+            TriggerImpl::Single(mechanism, interruptible)
         };
         Ok(Self {
-            config: spec.config,
+            config: spec.loop_params,
             inner,
         })
     }
 
     pub fn manual_trigger(&self) -> Option<ManualTrigger> {
         match &self.inner {
-            TriggerImpl::WithManualTrigger(_, _, notify) => Some(ManualTrigger(notify.clone())),
+            TriggerImpl::Single(TriggerMechanism::Manual(notify), _)
+            | TriggerImpl::Double(TriggerMechanism::Manual(notify), _, _)
+            | TriggerImpl::Double(_, TriggerMechanism::Manual(notify), _) => Some(ManualTrigger(notify.clone())),
             _ => None,
         }
     }
@@ -351,12 +212,12 @@ impl Trigger {
     /// Waits for the next tick of the trigger, or for an interruption (if enabled).
     pub async fn next(&mut self, interrupt: &Notify) -> anyhow::Result<TriggerReason> {
         match &mut self.inner {
-            TriggerImpl::Simple(mechanism) => {
+            TriggerImpl::Single(mechanism, Interruptible::No) => {
                 // Simple case: wait for the trigger to wake up
                 mechanism.next().await?;
                 Ok(TriggerReason::Triggered)
             }
-            TriggerImpl::Interruptible(mechanism) => {
+            TriggerImpl::Single(mechanism, Interruptible::Yes) => {
                 // wait for the first of two futures: normal trigger or "interruption"
                 tokio::select! {
                     biased; // don't choose the branch randomly (for performance)
@@ -370,19 +231,20 @@ impl Trigger {
                     }
                 }
             }
-            TriggerImpl::WithManualTrigger(mechanism, interruptible, manual_trigger) => {
+            TriggerImpl::Double(m1, m2, interruptible) => {
                 tokio::select! {
                     biased;
 
-                    res = mechanism.next() => {
+                    res = m1.next() => {
                         res?;
                         Ok(TriggerReason::Triggered)
                     },
-                    _ = interrupt.notified(), if *interruptible => {
-                        Ok(TriggerReason::Interrupted)
-                    }
-                    _ = manual_trigger.notified() => {
+                    res = m2.next() => {
+                        res?;
                         Ok(TriggerReason::Triggered)
+                    }
+                    _ = interrupt.notified(), if matches!(interruptible, Interruptible::Yes) => {
+                        Ok(TriggerReason::Interrupted)
                     }
                 }
             }
@@ -398,11 +260,11 @@ impl Trigger {
 #[derive(Debug, Clone)]
 enum TriggerMechanismSpec {
     TimeInterval(time::Instant, time::Duration),
-    #[allow(dead_code)]
     Future(fn() -> BoxFuture<'static, SourceTriggerOutput>),
+    ManualOnly,
 }
 
-/// The possible trigger mechanisms.
+/// A mechanism that can trigger things.
 enum TriggerMechanism {
     /// A trigger based on a precise time interval. This is much more
     /// accurate than [`std::thread::sleep`] and [`tokio::time::sleep`],
@@ -414,7 +276,10 @@ enum TriggerMechanism {
 
     /// A trigger based on [`tokio::time::sleep`].
     #[allow(dead_code)]
-    TokioSleep(tokio::time::Instant, tokio::time::Duration),
+    Sleep(tokio::time::Instant, tokio::time::Duration),
+
+    /// A "manual" trigger based on [`tokio::sync::Notify`].
+    Manual(Arc<Notify>),
 
     /// A trigger based on an arbitrary [`Future`] that is returned on demand
     /// by a function `f`.
@@ -437,10 +302,11 @@ impl TryFrom<TriggerMechanismSpec> for TriggerMechanism {
 
                 #[cfg(not(target_os = "linux"))]
                 {
-                    TriggerMechanism::TokioSleep(at.into(), duration.into())
+                    TriggerMechanism::Sleep(at.into(), duration.into())
                 }
             }
             TriggerMechanismSpec::Future(f) => TriggerMechanism::Future(f),
+            TriggerMechanismSpec::ManualOnly => TriggerMechanism::Manual(Arc::new(Notify::new())),
         })
     }
 }
@@ -455,7 +321,7 @@ impl TriggerMechanism {
                 interval.next().await.unwrap()?;
                 Ok(())
             }
-            TriggerMechanism::TokioSleep(start, period) => {
+            TriggerMechanism::Sleep(start, period) => {
                 let start = *start;
                 let now = tokio::time::Instant::now();
                 let deadline = if start > now { start } else { now + *period };
@@ -463,6 +329,7 @@ impl TriggerMechanism {
                 Ok(())
             }
             TriggerMechanism::Future(f) => f().await,
+            TriggerMechanism::Manual(notify) => Ok(notify.notified().await),
         }
     }
 }
@@ -471,9 +338,10 @@ impl fmt::Debug for TriggerMechanism {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             #[cfg(target_os = "linux")]
-            Self::Timerfd(_) => f.write_str("Timerfd trigger"),
-            Self::TokioSleep(_, _) => f.write_str("TokioSleep trigger"),
-            Self::Future(_) => f.write_str("Future trigger"),
+            Self::Timerfd(_) => f.write_str("TriggerMechanism::Timerfd"),
+            Self::Sleep(_, _) => f.write_str("TriggerMechanism::Sleep"),
+            Self::Future(ptr) => write!(f, "TriggerMechanism::Future({ptr:?})"),
+            Self::Manual(_) => f.write_str("TriggerMechanism::Manual"),
         }
     }
 }
@@ -514,7 +382,7 @@ mod tests {
                         poll_int,
                         flush_int
                     );
-                    assert_eq!(expected_flush_rounds.unwrap(), trigger_spec.config.flush_rounds);
+                    assert_eq!(expected_flush_rounds.unwrap(), trigger_spec.loop_params.flush_rounds);
                 }
                 Err(_) => {
                     assert!(
@@ -542,8 +410,8 @@ mod tests {
             .unwrap();
         trigger.constrain(&constraints);
         assert!(matches!(trigger.mechanism, TriggerMechanismSpec::TimeInterval(_, d) if d == Duration::from_secs(1)));
-        assert_eq!(trigger.config.flush_rounds, 5); // 5*1sec => 5 rounds
-        assert_eq!(trigger.config.update_rounds, 2); // 2*1sec => 2rounds
+        assert_eq!(trigger.loop_params.flush_rounds, 5); // 5*1sec => 5 rounds
+        assert_eq!(trigger.loop_params.update_rounds, 2); // 2*1sec => 2rounds
 
         let mut trigger = builder::time_interval(Duration::from_secs(2))
             .flush_interval(Duration::from_secs(10))
@@ -552,8 +420,8 @@ mod tests {
             .unwrap();
         trigger.constrain(&constraints);
         assert!(matches!(trigger.mechanism, TriggerMechanismSpec::TimeInterval(_, d) if d == Duration::from_secs(2)));
-        assert_eq!(trigger.config.flush_rounds, 5);
-        assert_eq!(trigger.config.update_rounds, 1);
+        assert_eq!(trigger.loop_params.flush_rounds, 5);
+        assert_eq!(trigger.loop_params.update_rounds, 1);
 
         let mut trigger = builder::time_interval(Duration::from_secs(2))
             .flush_interval(Duration::from_secs(10))
@@ -562,8 +430,8 @@ mod tests {
             .unwrap();
         trigger.constrain(&constraints);
         assert!(matches!(trigger.mechanism, TriggerMechanismSpec::TimeInterval(_, d) if d == Duration::from_secs(2)));
-        assert_eq!(trigger.config.flush_rounds, 5);
-        assert_eq!(trigger.config.update_rounds, 1);
+        assert_eq!(trigger.loop_params.flush_rounds, 5);
+        assert_eq!(trigger.loop_params.update_rounds, 1);
 
         let mut trigger = builder::time_interval(Duration::from_secs(2))
             .flush_interval(Duration::from_secs(10))
@@ -572,8 +440,8 @@ mod tests {
             .unwrap();
         trigger.constrain(&constraints);
         assert!(matches!(trigger.mechanism, TriggerMechanismSpec::TimeInterval(_, d) if d == Duration::from_secs(2)));
-        assert_eq!(trigger.config.flush_rounds, 5);
-        assert_eq!(trigger.config.update_rounds, 1);
+        assert_eq!(trigger.loop_params.flush_rounds, 5);
+        assert_eq!(trigger.loop_params.update_rounds, 1);
 
         let mut trigger = builder::time_interval(Duration::from_secs(3)) // bigger than max_update_interval!
             .flush_interval(Duration::from_secs(15))
@@ -583,7 +451,7 @@ mod tests {
         trigger.constrain(&constraints);
         assert!(matches!(trigger.mechanism, TriggerMechanismSpec::TimeInterval(_, d) if d == Duration::from_secs(3)));
         assert!(trigger.interruptible);
-        assert_eq!(trigger.config.flush_rounds, 5);
-        assert_eq!(trigger.config.update_rounds, 1);
+        assert_eq!(trigger.loop_params.flush_rounds, 5);
+        assert_eq!(trigger.loop_params.update_rounds, 1);
     }
 }

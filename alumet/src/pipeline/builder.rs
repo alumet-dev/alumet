@@ -24,6 +24,7 @@ use crate::pipeline::Output;
 
 use super::elements::output::builder::OutputBuilder;
 use super::elements::source::builder::SourceBuilder;
+use super::elements::source::trigger::TriggerConstraints;
 use super::elements::transform::builder::TransformBuilder;
 use super::naming::{
     namespace::{DuplicateNameError, Namespace2},
@@ -32,7 +33,6 @@ use super::naming::{
 use super::{
     control::key::{OutputKey, SourceKey, TransformKey},
     control::{AnonymousControlHandle, PipelineControl},
-    trigger::TriggerConstraints,
     util,
 };
 

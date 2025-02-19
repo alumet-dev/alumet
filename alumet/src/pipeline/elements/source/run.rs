@@ -7,11 +7,11 @@ use tokio::sync::mpsc::error::TrySendError;
 
 use crate::measurement::{MeasurementBuffer, Timestamp};
 use crate::pipeline::naming::SourceName;
-use crate::pipeline::trigger::TriggerReason;
 
 use super::control::TaskState;
 use super::error::PollError;
 use super::interface::{AutonomousSource, Source};
+use super::trigger::TriggerReason;
 
 pub(crate) async fn run_managed(
     source_name: SourceName,

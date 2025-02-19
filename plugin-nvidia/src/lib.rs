@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use alumet::{
-    pipeline::trigger::TriggerSpec,
+    pipeline::elements::source::trigger::TriggerSpec,
     plugin::{
         rust::{deserialize_config, serialize_config, AlumetPlugin},
         ConfigTable,

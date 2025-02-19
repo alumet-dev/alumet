@@ -6,7 +6,7 @@ use std::{
 
 use alumet::{
     metrics::TypedMetricId,
-    pipeline::trigger::TriggerSpec,
+    pipeline::elements::source::trigger::TriggerSpec,
     plugin::{
         event,
         rust::{deserialize_config, serialize_config, AlumetPlugin},

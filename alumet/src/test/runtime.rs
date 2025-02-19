@@ -1,4 +1,4 @@
-use std::{cell::RefCell, ops::Deref, rc::Rc, sync::mpsc, time::Duration};
+use std::{cell::RefCell, ops::Deref, rc::Rc};
 
 use fxhash::FxHashMap;
 use tokio::sync::RwLockReadGuard;
@@ -18,12 +18,12 @@ use crate::{
                 self,
                 builder::{ManagedSourceBuilder, SourceBuilder},
                 control::TriggerMessage,
+                trigger,
             },
             transform::builder::TransformBuilder,
         },
         matching::SourceNamePattern,
         naming::{OutputName, PluginName, SourceName, TransformName},
-        trigger::TriggerConstraints,
     },
 };
 
@@ -47,22 +47,25 @@ pub struct RuntimeExpectations {
     outputs: FxHashMap<OutputName, Vec<OutputCheck>>,
 }
 
+pub(super) const TESTER_SOURCE_NAME: &str = "_tester";
+pub(super) const TESTER_PLUGIN_NAME: &str = "_test_runtime_expectations";
+
 type TestControllerMap<N, C> = Rc<RefCell<FxHashMap<N, C>>>;
 
 struct SourceTestController {
     checks: Vec<SourceCheck>,
-    set_tx: mpsc::Sender<SetSourceCheck>,
-    done_rx: mpsc::Receiver<SourceDone>,
+    set_tx: tokio::sync::mpsc::Sender<SetSourceCheck>,
+    done_rx: tokio::sync::mpsc::Receiver<SourceDone>,
 }
 struct TransformTestController {
     checks: Vec<TransformCheck>,
-    set_tx: mpsc::Sender<SetTransformOutputCheck>,
-    done_rx: mpsc::Receiver<TransformDone>,
+    set_tx: tokio::sync::mpsc::Sender<SetTransformOutputCheck>,
+    done_rx: tokio::sync::mpsc::Receiver<TransformDone>,
 }
 struct OutputTestController {
     checks: Vec<OutputCheck>,
-    set_tx: mpsc::Sender<SetOutputOutputCheck>,
-    done_rx: mpsc::Receiver<OutputDone>,
+    set_tx: tokio::sync::mpsc::Sender<SetOutputOutputCheck>,
+    done_rx: tokio::sync::mpsc::Receiver<OutputDone>,
 }
 
 impl TestBuilderVisitor for RuntimeExpectations {
@@ -87,16 +90,14 @@ impl TestBuilderVisitor for RuntimeExpectations {
             Box::new(move |ctx| {
                 let mut source = builder(ctx)?;
 
-                // force `allow_manual_trigger` to true
-                let constraints = TriggerConstraints {
-                    max_update_interval: Duration::MAX,
-                    allow_manual_trigger: true,
-                };
-                source.trigger_spec.constrain(&constraints);
+                source.trigger_spec = trigger::builder::manual() // don't trigger with a timer, only manually
+                    .flush_rounds(1) // flush immediately
+                    .update_rounds(1) // update asap
+                    .build()?;
 
                 // create the channels that we use to prevent multiple source tests from running at the same time
-                let (set_tx, set_rx) = mpsc::channel();
-                let (done_tx, done_rx) = mpsc::channel();
+                let (set_tx, set_rx) = tokio::sync::mpsc::channel(1);
+                let (done_tx, done_rx) = tokio::sync::mpsc::channel(1);
                 controllers.borrow_mut().insert(
                     name,
                     SourceTestController {
@@ -126,8 +127,8 @@ impl TestBuilderVisitor for RuntimeExpectations {
                 let transform = builder(ctx)?;
 
                 // create the channels that we use to prevent multiple source tests from running at the same time
-                let (set_tx, set_rx) = mpsc::channel();
-                let (done_tx, done_rx) = mpsc::channel();
+                let (set_tx, set_rx) = tokio::sync::mpsc::channel(1);
+                let (done_tx, done_rx) = tokio::sync::mpsc::channel(1);
                 controllers.borrow_mut().insert(
                     name,
                     TransformTestController {
@@ -157,8 +158,8 @@ impl TestBuilderVisitor for RuntimeExpectations {
                 let output = builder(ctx)?;
 
                 // create the channels that we use to prevent multiple source tests from running at the same time
-                let (set_tx, set_rx) = mpsc::channel();
-                let (done_tx, done_rx) = mpsc::channel();
+                let (set_tx, set_rx) = tokio::sync::mpsc::channel(1);
+                let (done_tx, done_rx) = tokio::sync::mpsc::channel(1);
                 controllers.borrow_mut().insert(
                     name,
                     OutputTestController {
@@ -178,59 +179,80 @@ impl TestBuilderVisitor for RuntimeExpectations {
             })
         }
 
-        // Wrap the sources
-        builder
-            .pipeline()
-            .inspect()
-            .replace_sources(|name, builder| match self.sources.remove(&name) {
-                Some(checks) => match builder {
-                    SourceBuilder::Managed(b) => {
-                        SourceBuilder::Managed(wrap_managed_source_builder(name, checks, b, source_tests.clone()))
-                    }
-                    a @ SourceBuilder::Autonomous(_) => a,
-                },
-                None => builder,
+        let source_tests_before = source_tests.clone();
+        let transform_tests_before = transform_tests.clone();
+        let output_tests_before = output_tests.clone();
+        builder = builder.before_operation_begin(move |pipeline| {
+            // Wrap the sources
+            pipeline.inspect().replace_sources(|name, builder| {
+                log::debug!("handling replacement for {name}");
+                match self.sources.remove(&name) {
+                    Some(checks) => match builder {
+                        SourceBuilder::Managed(b) => SourceBuilder::Managed(wrap_managed_source_builder(
+                            name,
+                            checks,
+                            b,
+                            source_tests_before.clone(),
+                        )),
+                        a @ SourceBuilder::Autonomous(_) => a,
+                    },
+                    None => builder,
+                }
             });
 
-        // Add a special source that we will manually trigger in order to trigger transforms and outputs.
-        let tester_source_name = SourceName::new(String::from("test_runtime_expectations"), String::from("tester"));
-        builder
-            .pipeline()
-            .add_source_builder(
-                PluginName(tester_source_name.plugin().to_owned()),
-                tester_source_name.source(),
-                SourceBuilder::Autonomous(Box::new(|ctx, cancel, tx| {
-                    Ok(Box::pin(async move {
-                        let measurements: MeasurementBuffer = tester_rx.recv().await.unwrap();
-                        tx.send(measurements).await.unwrap();
-                        Ok(())
-                    }))
-                })),
-            )
-            .unwrap();
+            // Add a special source that we will manually trigger in order to trigger transforms and outputs.
+            pipeline
+                .add_source_builder(
+                    PluginName(TESTER_PLUGIN_NAME.to_owned()),
+                    TESTER_SOURCE_NAME,
+                    SourceBuilder::Autonomous(Box::new(|_ctx, cancel, tx| {
+                        Ok(Box::pin(async move {
+                            tokio::select! {
+                                biased;
+                                _ = cancel.cancelled() => {
+                                    log::debug!("{TESTER_SOURCE_NAME} has been cancelled");
+                                },
+                                m = tester_rx.recv() => {
+                                    if let Some(measurements) = m {
+                                        log::debug!("sending one measurement from {TESTER_SOURCE_NAME}");
+                                        tx.send(measurements).await.unwrap();
+                                    } else {
+                                        log::debug!("{TESTER_SOURCE_NAME} channel sender has been closed");
+                                    }
+                                }
+                            }
+                            Ok(())
+                        }))
+                    })),
+                )
+                .unwrap();
 
-        // Wrap the transforms
-        builder
-            .pipeline()
-            .inspect()
-            .replace_transforms(|name, builder| match self.transforms.remove(&name) {
-                Some(checks) => wrap_transform_builder(name, checks, builder, transform_tests.clone()),
-                None => builder,
+            // Wrap the transforms
+            pipeline.inspect().replace_transforms(|name, builder| {
+                log::debug!("handling replacement for {name}");
+                match self.transforms.remove(&name) {
+                    Some(checks) => wrap_transform_builder(name, checks, builder, transform_tests_before.clone()),
+                    None => builder,
+                }
             });
 
-        // Wrap the outputs
-        builder
-            .pipeline()
-            .inspect()
-            .replace_outputs(|name, builder| match self.outputs.remove(&name) {
-                Some(checks) => match builder {
-                    OutputBuilder::Blocking(b) => {
-                        OutputBuilder::Blocking(wrap_blocking_output_builder(name, checks, b, output_tests.clone()))
-                    }
-                    a @ OutputBuilder::Async(_) => a,
-                },
-                None => builder,
+            // Wrap the outputs
+            pipeline.inspect().replace_outputs(|name, builder| {
+                log::debug!("handling replacement for {name}");
+                match self.outputs.remove(&name) {
+                    Some(checks) => match builder {
+                        OutputBuilder::Blocking(b) => OutputBuilder::Blocking(wrap_blocking_output_builder(
+                            name,
+                            checks,
+                            b,
+                            output_tests_before.clone(),
+                        )),
+                        a @ OutputBuilder::Async(_) => a,
+                    },
+                    None => builder,
+                }
             });
+        });
 
         // Setup a background task that will trigger the elements one by one for testing purposes.
         builder.after_operation_begin(move |pipeline| {
@@ -241,18 +263,44 @@ impl TestBuilderVisitor for RuntimeExpectations {
             let transform_tests = transform_tests.take();
             let output_tests = output_tests.take();
 
+            log::debug!(
+                "source_tests: {}",
+                source_tests
+                    .keys()
+                    .map(|n| n.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            log::debug!(
+                "transform_tests: {}",
+                transform_tests
+                    .keys()
+                    .map(|n| n.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            log::debug!(
+                "output_tests: {}",
+                output_tests
+                    .keys()
+                    .map(|n| n.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+
             let task = async move {
                 // Test sources
                 for (name, controller) in source_tests.into_iter() {
+                    log::debug!("Checking {name}...");
                     let SourceTestController {
                         checks,
                         set_tx,
-                        done_rx,
+                        mut done_rx,
                     } = controller;
 
                     for check in checks {
                         // first, tell the source which test to execute
-                        set_tx.send(SetSourceCheck(check)).unwrap();
+                        set_tx.send(SetSourceCheck(check)).await.unwrap();
 
                         // tell Alumet to trigger the source now
                         // message to send to Alumet to trigger the source
@@ -263,21 +311,26 @@ impl TestBuilderVisitor for RuntimeExpectations {
                         control.send(trigger_msg).await.unwrap();
 
                         // wait for the test to finish
-                        done_rx.recv().unwrap();
+                        if done_rx.recv().await.is_none() {
+                            // the sender has been dropped: either a bug,
+                            // or the wrapped source panicked (because the test failed)
+                            break;
+                        }
                     }
                 }
 
                 // Test transforms
                 for (name, controller) in transform_tests.into_iter() {
+                    log::debug!("Checking {name}...");
                     let TransformTestController {
                         checks,
                         set_tx,
-                        done_rx,
+                        mut done_rx,
                     } = controller;
 
                     for check in checks {
                         // tell the transform which check to execute
-                        set_tx.send(SetTransformOutputCheck(check.check_output)).unwrap();
+                        set_tx.send(SetTransformOutputCheck(check.check_output)).await.unwrap();
 
                         // build the test input with user-provided code
                         let lock = mr.read().await;
@@ -288,21 +341,26 @@ impl TestBuilderVisitor for RuntimeExpectations {
                         tester_tx.send(test_data).await.unwrap();
 
                         // wait for the test to finish
-                        done_rx.recv().unwrap();
+                        if done_rx.recv().await.is_none() {
+                            // the sender has been dropped: either a bug,
+                            // or the wrapped transform panicked (because the test failed)
+                            break;
+                        }
                     }
                 }
 
                 // Test outputs
                 for (name, controller) in output_tests.into_iter() {
+                    log::debug!("Checking {name}...");
                     let OutputTestController {
                         checks,
                         set_tx,
-                        done_rx,
+                        mut done_rx,
                     } = controller;
 
                     for check in checks {
                         // tell the transform which check to execute
-                        set_tx.send(SetOutputOutputCheck(check.check_output)).unwrap();
+                        set_tx.send(SetOutputOutputCheck(check.check_output)).await.unwrap();
 
                         // build the test input with user-provided code
                         let lock = mr.read().await;
@@ -313,13 +371,16 @@ impl TestBuilderVisitor for RuntimeExpectations {
                         tester_tx.send(test_data).await.unwrap();
 
                         // wait for the test to finish
-                        done_rx.recv().unwrap();
+                        if done_rx.recv().await.is_none() {
+                            // the sender has been dropped: either a bug,
+                            // or the wrapped output panicked (because the test failed)
+                            break;
+                        }
                     }
                 }
             };
             pipeline.async_runtime().spawn(task);
-        });
-        todo!()
+        })
     }
 }
 

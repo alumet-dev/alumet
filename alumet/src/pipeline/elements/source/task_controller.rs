@@ -7,7 +7,7 @@ use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
 use super::control::{Reconfiguration, TaskState};
-use crate::pipeline::trigger::{ManualTrigger, Trigger};
+use super::trigger::{ManualTrigger, Trigger};
 
 /// A controller for a single source.
 pub enum SingleSourceController {

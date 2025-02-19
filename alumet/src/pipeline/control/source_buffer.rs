@@ -2,9 +2,10 @@ use crate::pipeline::{
     elements::source::{
         self,
         builder::{AutonomousSourceBuilder, ManagedSourceBuilder, SendSourceBuilder},
+        trigger,
     },
     naming::SourceName,
-    trigger, Source,
+    Source,
 };
 
 use super::{error::ControlError, ControlMessage, ScopedControlHandle};

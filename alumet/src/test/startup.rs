@@ -2,6 +2,7 @@ use crate::{
     agent::{self, builder::TestBuilderVisitor},
     metrics::Metric,
     pipeline::naming::{OutputName, SourceName, TransformName},
+    test::runtime::{TESTER_PLUGIN_NAME, TESTER_SOURCE_NAME},
 };
 
 /// Structure representing startup expectations.
@@ -76,6 +77,10 @@ impl TestBuilderVisitor for StartupExpectations {
         builder = builder.before_operation_begin(|pipeline| {
             // Check that the sources, transforms and outputs that we want exist.
             let mut actual_sources = pipeline.inspect().sources();
+
+            // ignore the "tester" source added by RuntimeExpectations
+            actual_sources.retain(|s| (s.plugin(), s.source()) != (TESTER_PLUGIN_NAME, TESTER_SOURCE_NAME));
+
             let mut expected_sources = self.sources;
             actual_sources.sort_by_key(|n| (n.plugin().to_owned(), n.source().to_owned()));
             expected_sources.sort_by_key(|n| (n.plugin().to_owned(), n.source().to_owned()));
@@ -108,13 +113,15 @@ impl TestBuilderVisitor for StartupExpectations {
 }
 impl StartupExpectations {
     /// Requires the given metric to be registered before the measurement pipeline starts.
-    pub fn start_metric(mut self, metric: Metric) -> Self {
+    ///
+    /// The description of the `metric` is not checked.
+    pub fn expect_metric(mut self, metric: Metric) -> Self {
         self.metrics.push(metric);
         self
     }
 
     /// Requires a source to exist before the measurement pipeline starts.
-    pub fn element_source(mut self, plugin_name: &str, source_name: &str) -> Self {
+    pub fn expect_source(mut self, plugin_name: &str, source_name: &str) -> Self {
         // TODO (maybe) take the source type into account (autonomous/managed)?
         self.sources
             .push(SourceName::new(plugin_name.to_owned(), source_name.to_owned()));
@@ -122,14 +129,14 @@ impl StartupExpectations {
     }
 
     /// Requires a transform to exist before the measurement pipeline starts.
-    pub fn element_transform(mut self, plugin_name: &str, transform_name: &str) -> Self {
+    pub fn expect_transform(mut self, plugin_name: &str, transform_name: &str) -> Self {
         self.transforms
             .push(TransformName::new(plugin_name.to_owned(), transform_name.to_owned()));
         self
     }
 
     /// Requires an output to exist before the measurement pipeline starts.
-    pub fn element_output(mut self, plugin_name: &str, output_name: &str) -> Self {
+    pub fn expect_output(mut self, plugin_name: &str, output_name: &str) -> Self {
         self.outputs
             .push(OutputName::new(plugin_name.to_owned(), output_name.to_owned()));
         self

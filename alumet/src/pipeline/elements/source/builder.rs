@@ -8,10 +8,10 @@ use crate::{
         online::{MetricReader, MetricSender},
         registry::MetricRegistry,
     },
-    pipeline::trigger::TriggerSpec,
 };
 
 use super::interface::{AutonomousSource, Source};
+use super::trigger::TriggerSpec;
 
 // Trait aliases are unstable, and the following is not enough to help deduplicating code in plugin::phases.
 //

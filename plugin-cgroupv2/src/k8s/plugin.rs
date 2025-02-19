@@ -1,5 +1,6 @@
 use alumet::{
-    pipeline::{control::ScopedControlHandle, trigger::TriggerSpec},
+    pipeline::control::ScopedControlHandle,
+    pipeline::elements::source::trigger::TriggerSpec,
     plugin::{
         rust::{deserialize_config, serialize_config, AlumetPlugin},
         util::CounterDiff,

@@ -241,7 +241,7 @@ impl fmt::Display for WrappedMeasurementType {
 }
 
 /// A measurement value of any supported measurement type.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum WrappedMeasurementValue {
     F64(f64),
     U64(u64),
