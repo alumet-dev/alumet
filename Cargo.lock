@@ -75,6 +75,7 @@ dependencies = [
  "indoc",
  "libc",
  "log",
+ "plugin-aggregation",
  "plugin-cgroupv2",
  "plugin-csv",
  "plugin-influxdb",

@@ -1,12 +1,19 @@
-mod transform;
 mod aggregations;
+mod transform;
 
-use std::{collections::HashMap, rc::Rc, sync::{Arc, RwLock}, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+    time::Duration,
+};
 
-use alumet::{metrics::{Metric, RawMetricId}, pipeline::registry::MetricSender, plugin::{
-    rust::{deserialize_config, serialize_config, AlumetPlugin},
-    ConfigTable,
-}};
+use alumet::{
+    metrics::{online::MetricSender, Metric, RawMetricId},
+    plugin::{
+        rust::{deserialize_config, serialize_config, AlumetPlugin},
+        ConfigTable,
+    },
+};
 
 use anyhow::{anyhow, Context};
 use serde::{Deserialize, Serialize};
@@ -94,9 +101,7 @@ impl AlumetPlugin for AggregationPlugin {
             self.metrics_list.clone(),
             self.old_ids.clone(),
             self.metric_correspondence_table.clone(),
-        ));
-
-        Ok(())
+        ))
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
@@ -109,18 +114,21 @@ async fn register_new_metrics(
     new_metrics: Vec<Metric>,
     old_ids: Vec<RawMetricId>,
     metric_correspondence_table: Arc<RwLock<HashMap<RawMetricId, RawMetricId>>>,
-) {
+) -> anyhow::Result<()> {
     let result = metric_sender
         .create_metrics(new_metrics, alumet::metrics::online::DuplicateStrategy::Error)
         .await
-        .unwrap();
+        .map_err(|a| anyhow!("{a}"))?;
     for (before, after) in std::iter::zip(old_ids, result) {
-        let new_id = after.unwrap();
+        let new_id = after?;
         let metric_correspondence_table_clone = Arc::clone(&metric_correspondence_table.clone());
-        let mut metric_correspondence_table_write = (*metric_correspondence_table_clone).write().unwrap();
+        let mut metric_correspondence_table_write = (*metric_correspondence_table_clone)
+            .write()
+            .map_err(|_| anyhow!("could not write to the metric correspondence table"))?;
 
         metric_correspondence_table_write.insert(before, new_id);
     }
+    Ok(())
 }
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -149,5 +157,27 @@ impl Default for Config {
             function: aggregations::Function::Sum,
             metrics: Vec::<String>::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use alumet::plugin::rust::AlumetPlugin;
+
+    use crate::AggregationPlugin;
+
+    #[test]
+    fn test_name() {
+        assert_eq!(AggregationPlugin::name(), "aggregation");
+    }
+
+    #[test]
+    fn test_version() {
+        assert_eq!(AggregationPlugin::version(), env!("CARGO_PKG_VERSION"));
+    }
+
+    #[test]
+    fn test_init() {
+        let _ = AggregationPlugin::init(AggregationPlugin::default_config().unwrap().unwrap()).unwrap();
     }
 }
