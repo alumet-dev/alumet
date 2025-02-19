@@ -1,0 +1,17 @@
+[package]
+name = "plugin-amdgpu"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alumet = { path = "../alumet" }
+anyhow = "1.0.88"
+log = "0.4.22"
+serde = { version = "1.0.210", features = ["derive"] }
+serde_json = "1.0"
+humantime-serde = "1.1.1"
+amdsmi = { git = "https://github.com/mcharles-brcm/amdsmi", rev = "8e454950ef9713b4316ccea5dcf06983ad5ea822" }
+#amdsmi = { git = "https://github.com/ROCm/amdsmi.git" }
+
+[lints]
+workspace = true
