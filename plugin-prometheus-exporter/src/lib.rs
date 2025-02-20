@@ -10,7 +10,7 @@ pub struct PrometheusPlugin {
 
 impl AlumetPlugin for PrometheusPlugin {
     fn name() -> &'static str {
-        "plugin-prometheus"
+        "prometheus-exporter"
     }
 
     fn version() -> &'static str {
