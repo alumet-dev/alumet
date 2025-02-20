@@ -20,7 +20,7 @@ impl AlumetPlugin for OpentelemetryPlugin {
     fn default_config() -> anyhow::Result<Option<alumet::plugin::ConfigTable>> {
         Ok(Some(serialize_config(Config::default())?))
     }
-    
+
     fn init(config: alumet::plugin::ConfigTable) -> anyhow::Result<Box<Self>> {
         let config: Config = deserialize_config(config)?;
         // Create a new OpentelemetryOutput instance
