@@ -25,12 +25,15 @@
 //! ));
 //! ```
 
+use chrono::{DateTime, FixedOffset, ParseError};
 use core::fmt;
 use fxhash::FxBuildHasher;
+use ordered_float::OrderedFloat;
 use smallvec::SmallVec;
 use std::borrow::Cow;
-use std::time::UNIX_EPOCH;
-use std::{collections::HashMap, fmt::Display, time::SystemTime};
+use std::hash::{Hash, Hasher};
+use std::time::{Duration, SystemTime, SystemTimeError, UNIX_EPOCH};
+use std::{collections::HashMap, fmt::Display};
 
 use crate::metrics::def::{RawMetricId, TypedMetricId};
 use crate::resources::ResourceConsumer;
@@ -41,7 +44,7 @@ use super::resources::Resource;
 ///
 /// Measurement points may also have attributes.
 /// Only certain types of values and attributes are allowed, see [`MeasurementType`] and [`AttributeValue`].
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MeasurementPoint {
     /// The metric that has been measured.
     pub metric: RawMetricId,
@@ -177,6 +180,18 @@ impl Timestamp {
         let t = self.0.duration_since(UNIX_EPOCH).unwrap();
         (t.as_secs(), t.subsec_nanos())
     }
+
+    /// Returns the amount of time elapsed from an earlier point in time.
+    pub fn duration_since(&self, earlier: Timestamp) -> Result<Duration, SystemTimeError> {
+        self.0.duration_since(earlier.0)
+    }
+
+    /// Parses an RFC 3339 date-and-time string into a Timestamp value.
+    pub fn parse_from_rfc3339(s: &str) -> Result<Self, ParseError> {
+        Ok(Self::from(<DateTime<FixedOffset> as Into<SystemTime>>::into(
+            DateTime::parse_from_rfc3339(s)?,
+        )))
+    }
 }
 
 impl From<SystemTime> for Timestamp {
@@ -241,7 +256,7 @@ impl fmt::Display for WrappedMeasurementType {
 }
 
 /// A measurement value of any supported measurement type.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum WrappedMeasurementValue {
     F64(f64),
     U64(u64),
@@ -257,7 +272,7 @@ impl WrappedMeasurementValue {
 }
 
 /// An attribute value of any supported attribute type.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AttributeValue {
     F64(f64),
     U64(u64),
@@ -269,6 +284,20 @@ pub enum AttributeValue {
     Str(&'static str),
     String(String),
 }
+
+impl Hash for AttributeValue {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            AttributeValue::F64(f64_value) => OrderedFloat(*f64_value).hash(state),
+            AttributeValue::Bool(bool_value) => bool_value.hash(state),
+            AttributeValue::U64(u64_value) => u64_value.hash(state),
+            AttributeValue::Str(str_value) => str_value.hash(state),
+            AttributeValue::String(string_value) => string_value.hash(state),
+        }
+    }
+}
+
+impl Eq for AttributeValue {}
 
 impl Display for AttributeValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

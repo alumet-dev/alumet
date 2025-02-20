@@ -14,7 +14,8 @@
         ".git/*",
         ".gitignore",
         ".github/",
-        ".circleci/"
+        ".circleci/",
+        "Cargo.lock"
     ],
     "import": [
         "@cspell/dict-rust/cspell-ext.json"
