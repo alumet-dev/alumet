@@ -27,6 +27,7 @@ NVML
 pagetables
 PERFMON
 POWERCAP
+promstack
 psys
 Raffin
 RAPL

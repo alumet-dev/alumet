@@ -10,7 +10,7 @@ The plugin has been tested on a NUC with the default configuration.
 
 ### Prometheus demo
 
-The connection to the prometheus server was done via the [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/blob/main/charts/kube-prometheus-stack/README.md) and the [ScrapeConfig here](./docs/alumet-scrape-config.yaml) (replace the targets IP and ensure that the port 9091 is accesible).
+The connection to the prometheus server was done via the [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/blob/main/charts/kube-prometheus-stack/README.md) and the [ScrapeConfig here](./docs/alumet-scrape-config.yaml) (replace the targets IP and ensure that the port 9091 is accessible).
 
 For the demo, the "stress --cpu 8 --io 4 --vm 2 --vm-bytes 128M" command was used to ensure that data was pulled correctly.
 
