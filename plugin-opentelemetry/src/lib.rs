@@ -24,7 +24,7 @@ impl AlumetPlugin for OpentelemetryPlugin {
     fn init(config: alumet::plugin::ConfigTable) -> anyhow::Result<Box<Self>> {
         let config: Config = deserialize_config(config)?;
         // Create a new OpentelemetryOutput instance
-        let output = Box::new(OpentelemetryOutput::new(
+        let otel_output = Box::new(OpentelemetryOutput::new(
             config.append_unit_to_metric_name,
             config.use_unit_display_name,
             config.add_attributes_to_labels,
@@ -32,7 +32,7 @@ impl AlumetPlugin for OpentelemetryPlugin {
             config.prefix.clone(),
             config.suffix.clone(),
         )?);
-        Ok(Box::new(OpentelemetryPlugin { output: output }))
+        Ok(Box::new(OpentelemetryPlugin { output: otel_output }))
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
