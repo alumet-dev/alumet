@@ -3,13 +3,10 @@ use alumet::{
     pipeline::elements::{error::WriteError, output::OutputContext},
 };
 use anyhow::Context;
-use opentelemetry::{
-    global,
-    InstrumentationScope, KeyValue,
-};
+use opentelemetry::{global, InstrumentationScope, KeyValue};
 use opentelemetry_otlp::MetricExporter;
-use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
+use opentelemetry_sdk::Resource;
 use std::{env, sync::OnceLock};
 
 #[derive(Clone)]
@@ -23,11 +20,7 @@ pub struct OpentelemetryOutput {
 fn get_resource() -> Resource {
     static RESOURCE: OnceLock<Resource> = OnceLock::new();
     RESOURCE
-        .get_or_init(|| {
-            Resource::builder()
-                .with_service_name("alumet-otlp-grpc")
-                .build()
-        })
+        .get_or_init(|| Resource::builder().with_service_name("alumet-otlp-grpc").build())
         .clone()
 }
 
@@ -52,7 +45,10 @@ impl OpentelemetryOutput {
         prefix: String,
         suffix: String,
     ) -> anyhow::Result<OpentelemetryOutput> {
-        env::set_var("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",  format!("{}{}", collectot_host, "/v1/metrics"));
+        env::set_var(
+            "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+            format!("{}{}", collectot_host, "/v1/metrics"),
+        );
         Ok(Self {
             append_unit_to_metric_name,
             use_unit_display_name,
@@ -64,7 +60,6 @@ impl OpentelemetryOutput {
 }
 
 impl alumet::pipeline::Output for OpentelemetryOutput {
-
     fn write(&mut self, measurements: &MeasurementBuffer, ctx: &OutputContext) -> Result<(), WriteError> {
         if measurements.is_empty() {
             return Ok(());
@@ -124,7 +119,7 @@ impl alumet::pipeline::Output for OpentelemetryOutput {
             }
             labels.sort_by(|a, b| a.key.cmp(&b.key));
 
-            // Prepare the meter provider 
+            // Prepare the meter provider
             let meter = global::meter_with_scope(scope.clone());
             let gauge = meter
                 .f64_gauge(metric_name)
@@ -135,7 +130,6 @@ impl alumet::pipeline::Output for OpentelemetryOutput {
                 WrappedMeasurementValue::F64(v) => gauge.record(v as f64, &labels),
                 WrappedMeasurementValue::U64(v) => gauge.record(v as f64, &labels),
             };
-
         }
 
         Ok(())
