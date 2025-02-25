@@ -57,6 +57,17 @@ impl PipelineControl {
         }
     }
 
+    /// Main control loop of the measurement pipeline.
+    /// 
+    /// The role of this function is to "oversee" the operation of the pipeline by:
+    /// - checking if the pipeline should be shut down
+    /// - receiving control messages and forwarding them to the appropriate handling code
+    /// - polling the async tasks to cleanup the tasks that have finished
+    /// 
+    /// When the pipeline is requested to shut down, `run` exits from the control loop and
+    /// waits for the elements to finish. This can take an arbitrarily long time to complete
+    /// (e.g. because of a bug in an element), therefore `run` should be wrapped in
+    /// [`tokio::time::timeout`];
     async fn run(
         mut self,
         init_shutdown: CancellationToken,

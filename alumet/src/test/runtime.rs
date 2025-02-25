@@ -184,7 +184,7 @@ impl TestBuilderVisitor for RuntimeExpectations {
         let output_tests_before = output_tests.clone();
         builder = builder.before_operation_begin(move |pipeline| {
             // Wrap the sources
-            pipeline.inspect().replace_sources(|name, builder| {
+            pipeline.replace_sources(|name, builder| {
                 log::debug!("handling replacement for {name}");
                 match self.sources.remove(&name) {
                     Some(checks) => match builder {
@@ -228,7 +228,7 @@ impl TestBuilderVisitor for RuntimeExpectations {
                 .unwrap();
 
             // Wrap the transforms
-            pipeline.inspect().replace_transforms(|name, builder| {
+            pipeline.replace_transforms(|name, builder| {
                 log::debug!("handling replacement for {name}");
                 match self.transforms.remove(&name) {
                     Some(checks) => wrap_transform_builder(name, checks, builder, transform_tests_before.clone()),
@@ -237,7 +237,7 @@ impl TestBuilderVisitor for RuntimeExpectations {
             });
 
             // Wrap the outputs
-            pipeline.inspect().replace_outputs(|name, builder| {
+            pipeline.replace_outputs(|name, builder| {
                 log::debug!("handling replacement for {name}");
                 match self.outputs.remove(&name) {
                     Some(checks) => match builder {

@@ -78,7 +78,7 @@ pub struct Builder {
 
 /// Allows to inspect the content of a pipeline builder.
 pub struct BuilderInspector<'a> {
-    inner: &'a mut Builder,
+    inner: &'a Builder,
 }
 
 const DEFAULT_CHAN_BUF_SIZE: usize = 2048;
@@ -191,6 +191,33 @@ impl Builder {
     /// in which the transform builders have been added to the builder.
     pub fn transforms_order(&mut self, order: Vec<TransformName>) {
         self.transforms_order = Some(order);
+    }
+
+    /// Replaces each source builder with the result of the closure `f`.
+    pub fn replace_sources(&mut self, mut f: impl FnMut(SourceName, SourceBuilder) -> SourceBuilder) {
+        self.sources.replace_each(|(plugin, source), builder| {
+            let name = SourceName::new(plugin.to_owned(), source.to_owned());
+            f(name, builder)
+        });
+    }
+
+    /// Replaces each transform builder with the result of the closure `f`.
+    pub fn replace_transforms(
+        &mut self,
+        mut f: impl FnMut(TransformName, Box<dyn TransformBuilder>) -> Box<dyn TransformBuilder>,
+    ) {
+        self.transforms.replace_each(|(plugin, transform), builder| {
+            let name = TransformName::new(plugin.to_owned(), transform.to_owned());
+            f(name, builder)
+        });
+    }
+
+    /// Replaces each output builder with the result of the closure `f`.
+    pub fn replace_outputs(&mut self, mut f: impl FnMut(OutputName, OutputBuilder) -> OutputBuilder) {
+        self.outputs.replace_each(|(plugin, output), builder| {
+            let name = OutputName::new(plugin.to_owned(), output.to_owned());
+            f(name, builder)
+        });
     }
 
     /// Builds the measurement pipeline.
@@ -383,7 +410,7 @@ impl Builder {
     ///
     /// # }
     /// ```
-    pub fn inspect(&mut self) -> BuilderInspector {
+    pub fn inspect(&self) -> BuilderInspector {
         BuilderInspector { inner: self }
     }
 }
@@ -440,14 +467,6 @@ impl<'a> BuilderInspector<'a> {
         map.into_iter()
     }
 
-    /// Replaces each source builder with the result of the closure `f`.
-    pub fn replace_sources(&mut self, mut f: impl FnMut(SourceName, SourceBuilder) -> SourceBuilder) {
-        self.inner.sources.replace_each(|(plugin, source), builder| {
-            let name = SourceName::new(plugin.to_owned(), source.to_owned());
-            f(name, builder)
-        });
-    }
-
     /// Lists the names of the registered transforms.
     pub fn transforms(&self) -> Vec<TransformName> {
         self.inner
@@ -468,17 +487,6 @@ impl<'a> BuilderInspector<'a> {
         map.into_iter()
     }
 
-    /// Replaces each transform builder with the result of the closure `f`.
-    pub fn replace_transforms(
-        &mut self,
-        mut f: impl FnMut(TransformName, Box<dyn TransformBuilder>) -> Box<dyn TransformBuilder>,
-    ) {
-        self.inner.transforms.replace_each(|(plugin, transform), builder| {
-            let name = TransformName::new(plugin.to_owned(), transform.to_owned());
-            f(name, builder)
-        });
-    }
-
     /// Lists the names of the registered outputs.
     pub fn outputs(&self) -> Vec<OutputName> {
         self.inner
@@ -497,14 +505,6 @@ impl<'a> BuilderInspector<'a> {
             map.entry(key).or_insert(Default::default()).push(name);
         }
         map.into_iter()
-    }
-
-    /// Replaces each output builder with the result of the closure `f`.
-    pub fn replace_outputs(&mut self, mut f: impl FnMut(OutputName, OutputBuilder) -> OutputBuilder) {
-        self.inner.outputs.replace_each(|(plugin, output), builder| {
-            let name = OutputName::new(plugin.to_owned(), output.to_owned());
-            f(name, builder)
-        });
     }
 }
 
