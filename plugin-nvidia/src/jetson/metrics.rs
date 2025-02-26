@@ -270,11 +270,13 @@ pub fn detect_ina_sensors() -> anyhow::Result<Vec<InaSensor>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
     use std::{
+        fs::{create_dir_all, remove_dir_all, write},
+        os::unix::fs::symlink,
         panic::catch_unwind,
-        fs::{create_dir_all, remove_dir_all, write}, os::unix::fs::symlink, path::PathBuf
+        path::PathBuf,
     };
+    use tempfile::tempdir;
 
     // Test `detect_hierarchy_modern` function
     #[test]
@@ -439,16 +441,10 @@ mod tests {
         symlink("invalid", root.join("broken_link"))?;
 
         let metric_filename_pattern = Regex::new(r"(?<prefix>[a-zA-Z]+)(?<id>\d+)_(?<suffix>[a-zA-Z]+)")?;
-        let sensor_channels_dir = |_sensor_path: &Path| -> anyhow::Result<PathBuf> {
-            Ok(_sensor_path.to_path_buf())
-        };
+        let sensor_channels_dir = |_sensor_path: &Path| -> anyhow::Result<PathBuf> { Ok(_sensor_path.to_path_buf()) };
         let guess_channel_unit = |_prefix: &Option<Match>| -> Option<PrefixedUnit> { None };
-        let is_label_file = |_prefix: &Option<Match>, _suffix: &Option<Match>| -> anyhow::Result<bool> {
-            Ok(false)
-        };
-        let format_metric_name = |_prefix: &Option<Match>, _suffix: &Option<Match>| -> String {
-            "mock".to_string()
-        };
+        let is_label_file = |_prefix: &Option<Match>, _suffix: &Option<Match>| -> anyhow::Result<bool> { Ok(false) };
+        let format_metric_name = |_prefix: &Option<Match>, _suffix: &Option<Match>| -> String { "mock".to_string() };
 
         let result = catch_unwind(|| {
             let _ = detect_hierarchy(
@@ -473,18 +469,13 @@ mod tests {
         let sensor_path = sys_ina_path.join("1-0040");
         create_dir_all(&sensor_path)?;
 
-        let sensor_channels_dir = |_sensor_path: &Path| -> anyhow::Result<PathBuf> {
-            Err(anyhow!("Error occurs during directory reading"))
-        };
+        let sensor_channels_dir =
+            |_sensor_path: &Path| -> anyhow::Result<PathBuf> { Err(anyhow!("Error occurs during directory reading")) };
 
         let metric_filename_pattern = Regex::new(r"(?<prefix>[a-zA-Z]+)(?<id>\d+)_(?<suffix>[a-zA-Z]+)")?;
         let guess_channel_unit = |_prefix: &Option<Match>| -> Option<PrefixedUnit> { None };
-        let is_label_file = |_prefix: &Option<Match>, _suffix: &Option<Match>| -> anyhow::Result<bool> {
-            Ok(false)
-        };
-        let format_metric_name = |_prefix: &Option<Match>, _suffix: &Option<Match>| -> String {
-            "mock".to_string()
-        };
+        let is_label_file = |_prefix: &Option<Match>, _suffix: &Option<Match>| -> anyhow::Result<bool> { Ok(false) };
+        let format_metric_name = |_prefix: &Option<Match>, _suffix: &Option<Match>| -> String { "mock".to_string() };
 
         let result = catch_unwind(|| {
             let _ = detect_hierarchy(
