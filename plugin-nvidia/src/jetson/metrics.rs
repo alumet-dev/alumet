@@ -75,20 +75,17 @@ fn detect_hierarchy<P: AsRef<Path>>(
                     channel_labels.insert(channel_id, label);
                 } else {
                     // This file contains the (automatically updated) value of a metric.
-                    let unit = guess_channel_unit(prefix).with_context(|| {
-                        format!(
-                            "Could not guess the unit of this unknown INA3221 metric: {}",
-                            path.display()
-                        )
-                    })?;
-                    channel_metrics
-                        .entry(channel_id)
-                        .or_insert_with(|| Vec::with_capacity(5))
-                        .push(InaRailMetric {
-                            path,
-                            unit,
-                            name: format_metric_name(prefix, suffix),
-                        })
+                    match guess_channel_unit(prefix) {
+                        Some(unit) => channel_metrics
+                            .entry(channel_id)
+                            .or_insert_with(|| Vec::with_capacity(5))
+                            .push(InaRailMetric {
+                                path,
+                                unit,
+                                name: format_metric_name(prefix, suffix),
+                            }),
+                        None => log::warn!("Skipeskbfg"),
+                    };
                 }
             }
         }
@@ -133,17 +130,17 @@ fn detect_hierarchy<P: AsRef<Path>>(
                                         sensors.push(InaSensor { path, channels, i2c_id });
                                     }
                                     Err(e) => {
-                                        eprintln!("Failed to discover sensor channels: {}", e);
+                                        log::warn!("Failed to discover sensor channels: {}", e);
                                     }
                                 },
                                 Err(e) => {
-                                    eprintln!("Failed to get sensor channels directory: {}", e);
+                                    log::warn!("Failed to get sensor channels directory: {}", e);
                                 }
                             }
                         }
                     }
                     Err(e) => {
-                        eprintln!("Failed to canonicalize path: {}", e);
+                        log::error!("Failed to canonicalize path: {}", e);
                     }
                 }
             }
@@ -181,7 +178,7 @@ fn detect_hierarchy_modern<P: AsRef<Path>>(sys_ina: P) -> anyhow::Result<Vec<Ina
                             }
                         }
                         Err(e) => {
-                            eprintln!("Failed to reading child directory: {}", e);
+                            log::warn!("Failed to reading child directory: {}", e);
                             continue;
                         }
                     }

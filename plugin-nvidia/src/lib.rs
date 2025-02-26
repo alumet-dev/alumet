@@ -97,7 +97,7 @@ impl NvidiaPlugin {
                 let trigger = TriggerSpec::builder(self.config.poll_interval)
                     .flush_interval(self.config.flush_interval)
                     .build()?;
-                alumet.add_source(&source_name, Box::new(source), trigger)?;
+                alumet.add_source(Box::new(source), trigger);
             }
         }
         Ok(())
@@ -124,7 +124,7 @@ impl NvidiaPlugin {
         let trigger = TriggerSpec::builder(self.config.poll_interval)
             .flush_interval(self.config.flush_interval)
             .build()?;
-        alumet.add_source("builtin_ina", Box::new(source), trigger)?;
+        alumet.add_source(Box::new(source), trigger);
         Ok(())
     }
 }
@@ -156,7 +156,7 @@ mod tests {
     use anyhow::Result;
 
     // Create a fake plugin structure for nvidia plugin
-    fn fake_nvidia() -> NvidiaPlugin {
+    fn fake_config() -> NvidiaPlugin {
         NvidiaPlugin {
             config: Config {
                 poll_interval: Duration::from_secs(1),
@@ -169,7 +169,7 @@ mod tests {
     #[test]
     fn test_default_config() {
         let result = NvidiaPlugin::default_config().unwrap();
-        assert!(result.is_some(), "result = None");
+        assert!(result.is_some());
 
         let config_table = result.unwrap();
         let config: Config = deserialize_config(config_table).expect("Failed to deserialize config");
@@ -188,8 +188,8 @@ mod tests {
     // Test `stop` function to stop nvidia plugin
     #[test]
     fn test_stop() {
-        let mut plugin = fake_nvidia();
+        let mut plugin = fake_config();
         let result = plugin.stop();
-        assert!(result.is_ok(), "Stop should complete without errors.");
+        assert!(result.is_ok());
     }
 }
