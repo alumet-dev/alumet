@@ -9,7 +9,7 @@ use tokio::{
     task::{JoinError, JoinSet},
 };
 
-use crate::measurement::MeasurementBuffer;
+use crate::{measurement::MeasurementBuffer, pipeline::error::PipelineError};
 use crate::metrics::online::MetricReader;
 use crate::pipeline::control::message::matching::OutputMatcher;
 use crate::pipeline::elements::output::{run::run_async_output, AsyncOutputStream};
@@ -99,7 +99,7 @@ pub(crate) struct OutputControl {
 }
 
 struct TaskManager {
-    spawned_tasks: JoinSet<anyhow::Result<()>>,
+    spawned_tasks: JoinSet<Result<(), PipelineError>>,
     controllers: Vec<(OutputName, SingleOutputController)>,
 
     rx_provider: channel::ReceiverProvider,
@@ -160,7 +160,7 @@ impl OutputControl {
         !self.tasks.spawned_tasks.is_empty()
     }
 
-    pub async fn join_next_task(&mut self) -> Result<anyhow::Result<()>, JoinError> {
+    pub async fn join_next_task(&mut self) -> Result<Result<(), PipelineError>, JoinError> {
         self.tasks
             .spawned_tasks
             .join_next()
@@ -170,7 +170,7 @@ impl OutputControl {
 
     pub async fn shutdown<F>(mut self, handle_task_result: F)
     where
-        F: Fn(Result<anyhow::Result<()>, tokio::task::JoinError>),
+        F: FnMut(Result<Result<(), PipelineError>, tokio::task::JoinError>),
     {
         // Outputs naturally close when the input channel is closed,
         // but that only works when the output is running.
@@ -284,9 +284,9 @@ impl TaskManager {
         }
     }
 
-    async fn shutdown<F>(self, handle_task_result: F)
+    async fn shutdown<F>(self, mut handle_task_result: F)
     where
-        F: Fn(Result<anyhow::Result<()>, tokio::task::JoinError>),
+        F: FnMut(Result<Result<(), PipelineError>, tokio::task::JoinError>),
     {
         // Drop the rx_provider first in order to close the channel.
         drop(self.rx_provider);

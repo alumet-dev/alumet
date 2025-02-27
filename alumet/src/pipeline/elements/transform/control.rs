@@ -12,6 +12,7 @@ use tokio::{
 use crate::measurement::MeasurementBuffer;
 use crate::metrics::online::MetricReader;
 use crate::pipeline::control::message::matching::TransformMatcher;
+use crate::pipeline::error::PipelineError;
 use crate::pipeline::naming::TransformName;
 
 use super::builder::{BuildContext, TransformBuilder};
@@ -26,7 +27,7 @@ pub(crate) struct TransformControl {
 }
 
 struct TaskManager {
-    task_handle: JoinHandle<anyhow::Result<()>>,
+    task_handle: JoinHandle<Result<(), PipelineError>>,
     active_bitset: Arc<AtomicU64>,
     names_by_bitset_position: Vec<TransformName>,
 }
@@ -67,7 +68,7 @@ impl TransformControl {
         self.tasks.is_some()
     }
 
-    pub async fn join_next_task(&mut self) -> Result<anyhow::Result<()>, JoinError> {
+    pub async fn join_next_task(&mut self) -> Result<Result<(), PipelineError>, JoinError> {
         // Take the handle to avoid "JoinError: task polled after completion"
         match &mut self.tasks.take() {
             Some(tasks) => (&mut tasks.task_handle).await,
@@ -75,9 +76,9 @@ impl TransformControl {
         }
     }
 
-    pub async fn shutdown<F>(self, handle_task_result: F)
+    pub async fn shutdown<F>(self, mut handle_task_result: F)
     where
-        F: Fn(Result<anyhow::Result<()>, tokio::task::JoinError>),
+        F: FnMut(Result<Result<(), PipelineError>, tokio::task::JoinError>),
     {
         // Nothing to do to stop the tasks: the transform task will naturally
         // stop when the input channel is closed.

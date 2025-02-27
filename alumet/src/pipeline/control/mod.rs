@@ -1,4 +1,6 @@
 //! On-the-fly modification of the pipeline.
+use crate::pipeline::error::PipelineError;
+
 use super::elements::{output, source, transform};
 
 use tokio::runtime;
@@ -41,7 +43,7 @@ impl PipelineControl {
         shutdown: CancellationToken,
         finalize_shutdown: CancellationToken,
         on: &runtime::Handle,
-    ) -> (AnonymousControlHandle, JoinHandle<()>) {
+    ) -> (AnonymousControlHandle, JoinHandle<Result<(), PipelineError>>) {
         let (tx, rx) = mpsc::channel(256);
         let task = self.run(shutdown.clone(), finalize_shutdown, rx);
         let control_handle = AnonymousControlHandle::new(tx, shutdown);
@@ -58,12 +60,12 @@ impl PipelineControl {
     }
 
     /// Main control loop of the measurement pipeline.
-    /// 
+    ///
     /// The role of this function is to "oversee" the operation of the pipeline by:
     /// - checking if the pipeline should be shut down
     /// - receiving control messages and forwarding them to the appropriate handling code
     /// - polling the async tasks to cleanup the tasks that have finished
-    /// 
+    ///
     /// When the pipeline is requested to shut down, `run` exits from the control loop and
     /// waits for the elements to finish. This can take an arbitrarily long time to complete
     /// (e.g. because of a bug in an element), therefore `run` should be wrapped in
@@ -73,14 +75,32 @@ impl PipelineControl {
         init_shutdown: CancellationToken,
         finalize_shutdown: CancellationToken,
         mut rx: mpsc::Receiver<ControlMessage>,
-    ) {
-        fn task_finished(res: Result<anyhow::Result<()>, tokio::task::JoinError>, kind: &str) {
+    ) -> Result<(), PipelineError> {
+        fn task_finished(
+            res: Result<Result<(), PipelineError>, tokio::task::JoinError>,
+            kind: &'static str,
+            result: &mut Result<(), PipelineError>,
+        ) {
             match res {
                 Ok(Ok(())) => log::debug!("One {kind} task finished without error."),
-                Ok(Err(e_normal)) => log::warn!("One {kind} task finished with error: {e_normal}"),
-                Err(e_panic) => log::error!("One {kind} task panicked with error: {e_panic:?}"),
+                Ok(Err(e_normal)) => {
+                    log::error!("One {kind} task finished with error: {e_normal}");
+                    *result = Err(e_normal);
+                }
+                Err(e) if e.is_cancelled() => {
+                    log::error!("{kind} cancelled: {e:?}");
+                    *result = Err(PipelineError::internal(e.into()));
+                }
+                Err(e_panic) => {
+                    log::error!("One {kind} task panicked with error: {e_panic:?}");
+                    *result = Err(PipelineError::internal(e_panic.into()));
+                }
             }
         }
+
+        // Keep track of the most recent error, so we can propagate it to the agent.
+        // It is particularily useful in tests, to assert that no error occured.
+        let mut last_error: Result<(), PipelineError> = Result::Ok(());
 
         loop {
             tokio::select! {
@@ -103,6 +123,7 @@ impl PipelineControl {
                         Some(msg) => {
                             if let Err(e) = self.handle_message(msg).await {
                                 log::error!("error in message handling: {e:?}");
+                                last_error = Err(PipelineError::internal(e));
                             }
                         },
                         None => todo!("pipeline_control_loop#rx channel closed"),
@@ -114,13 +135,13 @@ impl PipelineControl {
                 //
                 // NOTE: it is important to call `join_next_task()` only if `has_task()`.
                 source_res = self.sources.join_next_task(), if self.sources.has_task() => {
-                    task_finished(source_res, "source");
+                    task_finished(source_res, "source", &mut last_error);
                 },
                 transf_res = self.transforms.join_next_task(), if self.transforms.has_task() => {
-                    task_finished(transf_res, "transform");
+                    task_finished(transf_res, "transform", &mut last_error);
                 }
                 output_res = self.outputs.join_next_task(), if self.outputs.has_task() => {
-                    task_finished(output_res, "output");
+                    task_finished(output_res, "output", &mut last_error);
                 }
             }
         }
@@ -128,15 +149,16 @@ impl PipelineControl {
 
         // Stop the elements, waiting for each step of the pipeline to finish before stopping the next one.
         log::trace!("waiting for sources to finish");
-        self.sources.shutdown(|res| task_finished(res, "source")).await;
+        self.sources.shutdown(|res| task_finished(res, "source", &mut last_error)).await;
 
         log::trace!("waiting for transforms to finish");
-        self.transforms.shutdown(|res| task_finished(res, "transform")).await;
+        self.transforms.shutdown(|res| task_finished(res, "transform", &mut last_error)).await;
 
         log::trace!("waiting for outputs to finish");
-        self.outputs.shutdown(|res| task_finished(res, "output")).await;
+        self.outputs.shutdown(|res| task_finished(res, "output", &mut last_error)).await;
 
         // Finalize the shutdown sequence by cancelling the remaining things.
         finalize_shutdown.cancel();
+        last_error.map_err(|e| PipelineError::from(e))
     }
 }

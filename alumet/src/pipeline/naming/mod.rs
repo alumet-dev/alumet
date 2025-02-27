@@ -202,7 +202,7 @@ impl Display for ElementKind {
 
 impl Display for ElementName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}/{}/{}", self.kind, self.plugin, self.element)
+        write!(f, "{}s/{}/{}", self.kind, self.plugin, self.element)
     }
 }
 

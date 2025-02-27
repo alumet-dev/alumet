@@ -10,6 +10,7 @@ use crate::measurement::MeasurementBuffer;
 use crate::metrics::online::{MetricReader, MetricSender};
 use crate::pipeline::control::message::matching::SourceMatcher;
 use crate::pipeline::elements::source::run::{run_autonomous, run_managed};
+use crate::pipeline::error::PipelineError;
 use crate::pipeline::matching::SourceNamePattern;
 use crate::pipeline::naming::{namespace::Namespace2, SourceName};
 
@@ -106,7 +107,7 @@ pub(crate) struct SourceControl {
 
 struct TaskManager {
     /// Collection of managed and autonomous source tasks.
-    spawned_tasks: JoinSet<anyhow::Result<()>>,
+    spawned_tasks: JoinSet<Result<(), PipelineError>>,
 
     /// Controllers for each source, by name.
     controllers: Vec<(SourceName, super::task_controller::SingleSourceController)>,
@@ -224,7 +225,7 @@ impl SourceControl {
         !self.tasks.spawned_tasks.is_empty()
     }
 
-    pub async fn join_next_task(&mut self) -> Result<anyhow::Result<()>, JoinError> {
+    pub async fn join_next_task(&mut self) -> Result<Result<(), PipelineError>, JoinError> {
         self.tasks
             .spawned_tasks
             .join_next()
@@ -232,9 +233,9 @@ impl SourceControl {
             .expect("should not be called when !has_task()")
     }
 
-    pub async fn shutdown<F>(mut self, handle_task_result: F)
+    pub async fn shutdown<F>(mut self, mut handle_task_result: F)
     where
-        F: Fn(Result<anyhow::Result<()>, tokio::task::JoinError>),
+        F: FnMut(Result<Result<(), PipelineError>, tokio::task::JoinError>),
     {
         // NOTE: self.autonomous_shutdown has already been cancelled by the parent
         // CancellationToken, therefore we don't cancel it here.

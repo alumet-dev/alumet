@@ -14,9 +14,6 @@ use crate::{
 
 use super::plugin::PluginSet;
 
-#[cfg(any(test, feature = "test"))]
-use crate::test::StartupExpectations;
-
 /// An Agent that has been started.
 pub struct RunningAgent {
     pub pipeline: pipeline::MeasurementPipeline,
@@ -312,10 +309,12 @@ impl Builder {
 impl RunningAgent {
     /// Waits until the measurement pipeline stops, then stops the plugins.
     ///
-    /// See the [module documentation](super::agent).
+    /// See the [module documentation](super).
     pub fn wait_for_shutdown(self, timeout: Duration) -> anyhow::Result<()> {
         use std::panic::{catch_unwind, AssertUnwindSafe};
+
         let mut n_errors = 0;
+        let mut last_res: anyhow::Result<()> = Ok(());
 
         // Tokio's timeout has a maximum timeout that is much smaller than Duration::MAX,
         // and will replace the latter by its maximum timeout.
@@ -330,13 +329,15 @@ impl RunningAgent {
             Ok(Ok(_)) => (),
             Ok(Err(err)) => {
                 log::error!("Error in the measurement pipeline: {err:?}");
+                last_res = Err(err.into());
                 n_errors += 1;
             }
-            Err(_elapsed) => {
+            Err(elapsed) => {
                 log::error!(
                     "Timeout of {:?} expired while waiting for the pipeline to shut down",
                     timeout.unwrap()
                 );
+                last_res = Err(elapsed.into());
                 n_errors += 1;
             }
         }
@@ -356,6 +357,7 @@ impl RunningAgent {
                 Ok(Ok(())) => (),
                 Ok(Err(e)) => {
                     log::error!("Error while stopping plugin {name} v{version}. {e:#}");
+                    last_res = Err(e);
                     n_errors += 1;
                 }
                 Err(panic_payload) => {
@@ -363,6 +365,7 @@ impl RunningAgent {
                         "PANIC while stopping plugin {name} v{version}. There is probably a bug in the plugin!
                         Please check the implementation of stop (and drop if Drop is implemented for the plugin type)."
                     );
+                    last_res = Err(anyhow!("plugin {name} v{version} panicked"));
                     n_errors += 1;
                     // dropping the panic payload may, in turn, panic!
                     let _ = catch_unwind(AssertUnwindSafe(move || {
@@ -381,11 +384,12 @@ impl RunningAgent {
         }
         log::info!("All plugins have stopped.");
 
-        if n_errors == 0 {
-            Ok(())
-        } else {
-            let error_str = if n_errors == 1 { "error" } else { "errors" };
-            Err(anyhow!("{n_errors} {error_str} occurred during the shutdown phase"))
+        match last_res {
+            Ok(_) => Ok(()),
+            Err(err) => {
+                let error_str = if n_errors == 1 { "error" } else { "errors" };
+                Err(err.context(format!("{n_errors} {error_str} occurred.")))
+            },
         }
     }
 }

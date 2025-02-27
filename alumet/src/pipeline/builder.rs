@@ -22,6 +22,7 @@ use crate::pipeline::elements::transform::control::TransformControl;
 use crate::pipeline::util::channel;
 use crate::pipeline::Output;
 
+use super::error::PipelineError;
 use super::elements::output::builder::OutputBuilder;
 use super::elements::source::builder::SourceBuilder;
 use super::elements::source::trigger::TriggerConstraints;
@@ -42,7 +43,7 @@ pub struct MeasurementPipeline {
     _rt_priority: Option<Runtime>,
     control_handle: AnonymousControlHandle,
     metrics: (MetricSender, MetricReader),
-    pipeline_control_task: JoinHandle<()>,
+    pipeline_control_task: JoinHandle<Result<(), PipelineError>>,
     metrics_control_task: JoinHandle<()>,
 }
 
@@ -537,11 +538,11 @@ impl MeasurementPipeline {
     ///
     /// # Blocking
     /// This is a blocking function, it should not be called from within an async runtime.
-    pub fn wait_for_shutdown(self, timeout: Option<Duration>) -> Result<anyhow::Result<()>, Elapsed> {
+    pub fn wait_for_shutdown(self, timeout: Option<Duration>) -> Result<Result<(), PipelineError>, Elapsed> {
         log::debug!("pipeline::wait_for_shutdown");
         let rt = self.rt_normal;
         let shutdown_task = async {
-            self.pipeline_control_task
+            let pipeline_result = self.pipeline_control_task
                 .await
                 .context("pipeline_control_task failed to execute to completion")?;
 
@@ -551,7 +552,7 @@ impl MeasurementPipeline {
                 .context("metrics_control_task failed to execute to completion")?;
 
             log::trace!("metrics_control_task has ended, dropping the pipeline");
-            Ok::<(), anyhow::Error>(())
+            pipeline_result
         };
         if let Some(duration) = timeout {
             // It is necessary to wrap the timeout in a new async block, because it needs
