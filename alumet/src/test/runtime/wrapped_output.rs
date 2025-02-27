@@ -1,6 +1,17 @@
+use std::panic::{self, AssertUnwindSafe};
+
+use anyhow::anyhow;
 use tokio::sync::mpsc::{self, error::TryRecvError};
 
-use crate::{measurement::MeasurementBuffer, pipeline::Output};
+use crate::{
+    measurement::MeasurementBuffer,
+    pipeline::{
+        elements::{error::WriteError, output::OutputContext},
+        Output,
+    },
+};
+
+use super::pretty::PrettyAny;
 
 pub(super) struct WrappedOutput {
     pub output: Box<dyn Output>,
@@ -12,11 +23,18 @@ pub struct SetOutputOutputCheck(pub Box<dyn Fn() + Send>);
 pub struct OutputDone;
 
 impl Output for WrappedOutput {
-    fn write(
-        &mut self,
-        measurements: &MeasurementBuffer,
-        ctx: &crate::pipeline::elements::output::OutputContext,
-    ) -> Result<(), crate::pipeline::elements::error::WriteError> {
+    fn write(&mut self, measurements: &MeasurementBuffer, ctx: &OutputContext) -> Result<(), WriteError> {
+        let res = panic::catch_unwind(AssertUnwindSafe(|| self.test_write(measurements, ctx)));
+        match res {
+            Ok(Ok(ok)) => Ok(ok),
+            Ok(Err(e)) => Err(e),
+            Err(panic) => Err(WriteError::Fatal(anyhow!("output panicked: {:?}", PrettyAny(panic)))),
+        }
+    }
+}
+
+impl WrappedOutput {
+    fn test_write(&mut self, measurements: &MeasurementBuffer, ctx: &OutputContext) -> Result<(), WriteError> {
         // run the output
         self.output.write(measurements, ctx)?;
 

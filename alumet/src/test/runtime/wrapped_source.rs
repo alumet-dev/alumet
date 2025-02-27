@@ -1,8 +1,14 @@
+use std::panic::{self, AssertUnwindSafe};
+
+use anyhow::anyhow;
 use tokio::sync::mpsc;
 
-use crate::pipeline::Source;
+use crate::{
+    measurement::{MeasurementAccumulator, Timestamp},
+    pipeline::{elements::error::PollError, Source},
+};
 
-use super::SourceCheck;
+use super::{pretty::PrettyAny, SourceCheck};
 
 /// Wraps a source and applies checks to it on trigger.
 pub struct WrappedManagedSource {
@@ -16,16 +22,28 @@ pub struct SetSourceCheck(pub SourceCheck);
 pub struct SourceDone;
 
 impl Source for WrappedManagedSource {
-    fn poll(
-        &mut self,
-        measurements: &mut crate::measurement::MeasurementAccumulator,
-        timestamp: crate::measurement::Timestamp,
-    ) -> Result<(), crate::pipeline::elements::error::PollError> {
+    fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
+        let res = panic::catch_unwind(AssertUnwindSafe(|| self.test_poll(measurements, timestamp)));
+        match res {
+            Ok(Ok(ok)) => Ok(ok),
+            Ok(Err(e)) => Err(e),
+            Err(panic) => Err(PollError::Fatal(anyhow!("source panicked: {:?}", PrettyAny(panic)))),
+        }
+    }
+}
+
+impl WrappedManagedSource {
+    fn test_poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
+        // prepare input
         let check = self.in_rx.try_recv().unwrap().0;
         (check.make_input)();
-        let res = self.source.poll(measurements, timestamp);
+
+        // poll the source, catch any panic
+        self.source.poll(measurements, timestamp)?;
+
+        // check output
         (check.check_output)(measurements.as_inner());
         self.out_tx.try_send(SourceDone).unwrap();
-        res
+        Ok(())
     }
 }

@@ -1,5 +1,5 @@
 use crate::{
-    agent::{self, builder::TestBuilderVisitor},
+    agent::{self, builder::TestExpectations},
     metrics::Metric,
     pipeline::naming::{OutputName, SourceName, TransformName},
     test::runtime::{TESTER_PLUGIN_NAME, TESTER_SOURCE_NAME},
@@ -27,10 +27,10 @@ pub struct StartupExpectations {
     outputs: Vec<OutputName>,
 }
 
-impl TestBuilderVisitor for StartupExpectations {
+impl TestExpectations for StartupExpectations {
     /// Sets up closures to test if all previous metrics, element source and element transform are correctly
     /// added to the agent.
-    fn visit(self, mut builder: agent::Builder) -> agent::Builder {
+    fn setup(self, mut builder: agent::Builder) -> agent::Builder {
         builder = builder.after_plugins_start(|p| {
             // Check that the metrics are the ones we expect.
             let state = p.inspect();

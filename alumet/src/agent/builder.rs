@@ -42,8 +42,8 @@ struct Callbacks {
 }
 
 #[cfg(any(feature = "test", test))]
-pub trait TestBuilderVisitor {
-    fn visit(self, builder: Builder) -> Builder;
+pub trait TestExpectations {
+    fn setup(self, builder: Builder) -> Builder;
 }
 
 impl Default for Callbacks {
@@ -296,8 +296,8 @@ impl Builder {
 
     /// Applies test expectations to this builder.
     #[cfg(any(feature = "test", test))]
-    pub fn with_expectations<V: TestBuilderVisitor>(self, expectations: V) -> Self {
-        expectations.visit(self)
+    pub fn with_expectations<E: TestExpectations>(self, expectations: E) -> Self {
+        expectations.setup(self)
     }
 
     #[cfg(any(feature = "test", test))]

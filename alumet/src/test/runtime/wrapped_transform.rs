@@ -1,3 +1,6 @@
+use std::panic::{self, AssertUnwindSafe};
+
+use anyhow::anyhow;
 use tokio::sync::mpsc::{self, error::TryRecvError};
 
 use crate::{
@@ -7,6 +10,8 @@ use crate::{
         Transform,
     },
 };
+
+use super::pretty::PrettyAny;
 
 pub(super) struct WrappedTransform {
     pub transform: Box<dyn Transform>,
@@ -19,6 +24,24 @@ pub struct TransformDone;
 
 impl Transform for WrappedTransform {
     fn apply(&mut self, measurements: &mut MeasurementBuffer, ctx: &TransformContext) -> Result<(), TransformError> {
+        let res = panic::catch_unwind(AssertUnwindSafe(|| self.test_apply(measurements, ctx)));
+        match res {
+            Ok(Ok(ok)) => Ok(ok),
+            Ok(Err(e)) => Err(e),
+            Err(panic) => Err(TransformError::Fatal(anyhow!(
+                "transform panicked: {:?}",
+                PrettyAny(panic)
+            ))),
+        }
+    }
+}
+
+impl WrappedTransform {
+    fn test_apply(
+        &mut self,
+        measurements: &mut MeasurementBuffer,
+        ctx: &TransformContext,
+    ) -> Result<(), TransformError> {
         // run the transform
         self.transform.apply(measurements, ctx)?;
 

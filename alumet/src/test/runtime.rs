@@ -7,7 +7,7 @@ use wrapped_source::{SetSourceCheck, SourceDone, WrappedManagedSource};
 use wrapped_transform::{SetTransformOutputCheck, TransformDone, WrappedTransform};
 
 use crate::{
-    agent::builder::TestBuilderVisitor,
+    agent::builder::TestExpectations,
     measurement::MeasurementBuffer,
     metrics::registry::MetricRegistry,
     pipeline::{
@@ -30,6 +30,7 @@ use crate::{
 mod wrapped_output;
 mod wrapped_source;
 mod wrapped_transform;
+mod pretty;
 
 /// Structure representing runtimes expectations.
 ///
@@ -68,8 +69,8 @@ struct OutputTestController {
     done_rx: tokio::sync::mpsc::Receiver<OutputDone>,
 }
 
-impl TestBuilderVisitor for RuntimeExpectations {
-    fn visit(mut self, mut builder: crate::agent::Builder) -> crate::agent::Builder {
+impl TestExpectations for RuntimeExpectations {
+    fn setup(mut self, mut builder: crate::agent::Builder) -> crate::agent::Builder {
         let source_tests: TestControllerMap<SourceName, SourceTestController> =
             Rc::new(RefCell::new(FxHashMap::default()));
 
