@@ -27,10 +27,10 @@ use crate::{
     },
 };
 
+mod pretty;
 mod wrapped_output;
 mod wrapped_source;
 mod wrapped_transform;
-mod pretty;
 
 /// Structure representing runtimes expectations.
 ///
@@ -43,6 +43,7 @@ mod pretty;
 ///
 #[derive(Default)]
 pub struct RuntimeExpectations {
+    auto_shutdown: bool,
     sources: FxHashMap<SourceName, Vec<SourceCheck>>,
     transforms: FxHashMap<TransformName, Vec<TransformCheck>>,
     outputs: FxHashMap<OutputName, Vec<OutputCheck>>,
@@ -186,7 +187,7 @@ impl TestExpectations for RuntimeExpectations {
         builder = builder.before_operation_begin(move |pipeline| {
             // Wrap the sources
             pipeline.replace_sources(|name, builder| {
-                log::debug!("handling replacement for {name}");
+                log::debug!("preparing {name} for testing");
                 match self.sources.remove(&name) {
                     Some(checks) => match builder {
                         SourceBuilder::Managed(b) => SourceBuilder::Managed(wrap_managed_source_builder(
@@ -202,23 +203,28 @@ impl TestExpectations for RuntimeExpectations {
             });
 
             // Add a special source that we will manually trigger in order to trigger transforms and outputs.
+            log::debug!("adding test-controlled source {TESTER_SOURCE_NAME}");
             pipeline
                 .add_source_builder(
                     PluginName(TESTER_PLUGIN_NAME.to_owned()),
                     TESTER_SOURCE_NAME,
                     SourceBuilder::Autonomous(Box::new(|_ctx, cancel, tx| {
                         Ok(Box::pin(async move {
-                            tokio::select! {
-                                biased;
-                                _ = cancel.cancelled() => {
-                                    log::debug!("{TESTER_SOURCE_NAME} has been cancelled");
-                                },
-                                m = tester_rx.recv() => {
-                                    if let Some(measurements) = m {
-                                        log::debug!("sending one measurement from {TESTER_SOURCE_NAME}");
-                                        tx.send(measurements).await.unwrap();
-                                    } else {
-                                        log::debug!("{TESTER_SOURCE_NAME} channel sender has been closed");
+                            loop {
+                                tokio::select! {
+                                    biased;
+                                    _ = cancel.cancelled() => {
+                                        log::debug!("{TESTER_SOURCE_NAME} has been cancelled");
+                                        break;
+                                    },
+                                    m = tester_rx.recv() => {
+                                        if let Some(measurements) = m {
+                                            log::debug!("{TESTER_SOURCE_NAME} sends new measurements: {measurements:?}");
+                                            tx.send(measurements).await.unwrap();
+                                        } else {
+                                            log::debug!("{TESTER_SOURCE_NAME} channel sender has been closed");
+                                            break;
+                                        }
                                     }
                                 }
                             }
@@ -230,7 +236,7 @@ impl TestExpectations for RuntimeExpectations {
 
             // Wrap the transforms
             pipeline.replace_transforms(|name, builder| {
-                log::debug!("handling replacement for {name}");
+                log::debug!("preparing {name} for testing");
                 match self.transforms.remove(&name) {
                     Some(checks) => wrap_transform_builder(name, checks, builder, transform_tests_before.clone()),
                     None => builder,
@@ -239,7 +245,7 @@ impl TestExpectations for RuntimeExpectations {
 
             // Wrap the outputs
             pipeline.replace_outputs(|name, builder| {
-                log::debug!("handling replacement for {name}");
+                log::debug!("preparing {name} for testing");
                 match self.outputs.remove(&name) {
                     Some(checks) => match builder {
                         OutputBuilder::Blocking(b) => OutputBuilder::Blocking(wrap_blocking_output_builder(
@@ -360,7 +366,7 @@ impl TestExpectations for RuntimeExpectations {
                     } = controller;
 
                     for check in checks {
-                        // tell the transform which check to execute
+                        // tell the output which check to execute
                         set_tx.send(SetOutputOutputCheck(check.check_output)).await.unwrap();
 
                         // build the test input with user-provided code
@@ -379,6 +385,14 @@ impl TestExpectations for RuntimeExpectations {
                         }
                     }
                 }
+
+                // Shutdown the pipeline (can be disabled)
+                if self.auto_shutdown {
+                    log::debug!("Requesting shutdown...");
+                    control.shutdown();
+                } else {
+                    log::debug!("Not requesting shutdown. Do you shutdown the pipeline yourself?");
+                }
             };
             pipeline.async_runtime().spawn(task);
         })
@@ -387,9 +401,29 @@ impl TestExpectations for RuntimeExpectations {
 
 impl RuntimeExpectations {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            auto_shutdown: true,
+            ..Default::default()
+        }
     }
 
+    /// Toggles automatic shutdown.
+    ///
+    /// If `auto_shutdown` is true, `RuntimeExpectations` will shutdown the Alumet pipeline
+    /// after all the test cases have been executed.
+    pub fn auto_shutdown(mut self, auto_shutdown: bool) -> Self {
+        self.auto_shutdown = auto_shutdown;
+        self
+    }
+
+    /// Registers a new test case for a source.
+    ///
+    /// # Execution of a source test
+    /// 1. `make_input` is called to prepare the environment of the source.
+    /// Here, you can write to files, modify global variables, etc.
+    /// 2. The source is triggered, its [`poll`](crate::pipeline::Source::poll) method is called.
+    /// 3. `check_output` is called with the measurements produced by the source.
+    /// Here, you can check that the result is correct using usual assertions such as [`assert_eq`].
     pub fn source_result<Fi, Fo>(mut self, source: SourceName, make_input: Fi, check_output: Fo) -> Self
     where
         Fi: Fn() + Send + 'static,
@@ -397,13 +431,20 @@ impl RuntimeExpectations {
     {
         let name = source.clone();
         self.sources.entry(name).or_default().push(SourceCheck {
-            source,
             make_input: Box::new(make_input),
             check_output: Box::new(check_output),
         });
         self
     }
 
+    /// Registers a new test case for a transform.
+    /// 
+    /// # Execution of a transform test
+    /// 1. `make_input` is called to prepare the input of the transform.
+    /// It adds measurements to a buffer, that will be given to the transform.
+    /// 2. The transform is triggered, its [`apply`](crate::pipeline::Transform::apply) method is called.
+    /// 3. `check_output` is called with the buffer modified by the transform.
+    /// Here, you can check that the result is correct using usual assertions such as `assert_eq!`.
     pub fn transform_result<Fi, Fo>(mut self, transform: TransformName, make_input: Fi, check_output: Fo) -> Self
     where
         Fi: Fn(&mut TransformCheckInputContext) -> MeasurementBuffer + Send + 'static,
@@ -411,13 +452,20 @@ impl RuntimeExpectations {
     {
         let name = transform.clone();
         self.transforms.entry(name).or_default().push(TransformCheck {
-            transform,
             make_input: Box::new(make_input),
             check_output: Box::new(check_output),
         });
         self
     }
 
+    /// Registers a new test case for an output.
+    /// 
+    /// # Execution of an output test
+    /// 1. `make_input` is called to prepare the input of the output.
+    /// It adds measurements to a buffer, that will be given to the output.
+    /// 2. The output is triggered, its [`apply`](crate::pipeline::Output::write) method is called.
+    /// 3. `check_output` is called.
+    /// Here, you can check that the output is correct by reading files, etc.
     pub fn output_result<Fi, Fo>(mut self, output: OutputName, make_input: Fi, check_output: Fo) -> Self
     where
         Fi: Fn(&mut OutputCheckInputContext) -> MeasurementBuffer + Send + 'static,
@@ -425,7 +473,6 @@ impl RuntimeExpectations {
     {
         let name = output.clone();
         self.outputs.entry(name).or_default().push(OutputCheck {
-            output,
             make_input: Box::new(make_input),
             check_output: Box::new(check_output),
         });
@@ -434,19 +481,16 @@ impl RuntimeExpectations {
 }
 
 pub struct SourceCheck {
-    source: SourceName,
     make_input: Box<dyn Fn() + Send>,
     check_output: Box<dyn Fn(&MeasurementBuffer) + Send>,
 }
 
 pub struct TransformCheck {
-    transform: TransformName,
     make_input: Box<dyn Fn(&mut TransformCheckInputContext) -> MeasurementBuffer + Send>,
     check_output: Box<dyn Fn(&MeasurementBuffer) + Send>,
 }
 
 pub struct OutputCheck {
-    output: OutputName,
     make_input: Box<dyn Fn(&mut OutputCheckInputContext) -> MeasurementBuffer + Send>,
     check_output: Box<dyn Fn() + Send>,
 }

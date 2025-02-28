@@ -41,7 +41,7 @@ use super::resources::Resource;
 ///
 /// Measurement points may also have attributes.
 /// Only certain types of values and attributes are allowed, see [`MeasurementType`] and [`AttributeValue`].
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MeasurementPoint {
     /// The metric that has been measured.
     pub metric: RawMetricId,
@@ -314,7 +314,7 @@ impl From<&'static str> for AttributeValue {
 
 /// A `MeasurementBuffer` stores measured data points.
 /// Unlike a [`MeasurementAccumulator`], the buffer allows to modify the measurements.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MeasurementBuffer {
     points: Vec<MeasurementPoint>,
 }
@@ -412,14 +412,6 @@ impl FromIterator<MeasurementPoint> for MeasurementBuffer {
         Self {
             points: Vec::from_iter(iter),
         }
-    }
-}
-
-impl std::fmt::Debug for MeasurementBuffer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MeasurementBuffer")
-            .field("len", &self.points.len())
-            .finish()
     }
 }
 

@@ -216,7 +216,16 @@ impl TimeTriggerBuilder {
 
 impl ManualTriggerBuilder {
     pub fn new() -> Self {
-        Self(TriggerSpecBuilder::new(TriggerMechanismSpec::ManualOnly))
+        let mut inner = TriggerSpecBuilder::new(TriggerMechanismSpec::ManualOnly);
+        // Make it interruptible by default, otherwise config updates will only be applied when
+        // manually triggered.
+        inner.interruptible = true;
+        Self(inner)
+    }
+    
+    pub fn interruptible(&mut self, interruptible: bool) -> &mut Self {
+        self.0.interruptible = interruptible;
+        self
     }
 
     /// Flush the measurements every `flush_rounds` polls.
