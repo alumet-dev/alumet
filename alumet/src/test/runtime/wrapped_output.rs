@@ -36,16 +36,22 @@ impl Output for WrappedOutput {
 impl WrappedOutput {
     fn test_write(&mut self, measurements: &MeasurementBuffer, ctx: &OutputContext) -> Result<(), WriteError> {
         // run the output
+        log::trace!("calling underlying output");
         self.output.write(measurements, ctx)?;
 
         // if set, check the output (TODO check that try_recv always see the message if send is called "just before")
         match self.set_rx.try_recv() {
             Ok(check) => {
+                log::trace!("applying check");
                 (check.0)();
+                log::trace!("wrapped output done");
                 self.done_tx.try_send(OutputDone).unwrap();
                 Ok(())
             }
-            Err(TryRecvError::Empty) => Ok(()),
+            Err(TryRecvError::Empty) => {
+                log::trace!("no check to perform on this operation");
+                Ok(())
+            }
             Err(e) => Err(e.into()),
         }
     }

@@ -1,4 +1,4 @@
-use std::{cell::RefCell, ops::Deref, rc::Rc};
+use std::{cell::RefCell, ops::Deref, rc::Rc, time::Duration};
 
 use fxhash::FxHashMap;
 use tokio::sync::RwLockReadGuard;
@@ -11,7 +11,10 @@ use crate::{
     measurement::MeasurementBuffer,
     metrics::registry::MetricRegistry,
     pipeline::{
-        control::{message::matching::SourceMatcher, ControlMessage},
+        control::{
+            message::matching::{SourceMatcher, TransformMatcher},
+            AnonymousControlHandle, ControlMessage,
+        },
         elements::{
             output::builder::{BlockingOutputBuilder, OutputBuilder},
             source::{
@@ -20,10 +23,11 @@ use crate::{
                 control::TriggerMessage,
                 trigger,
             },
-            transform::builder::TransformBuilder,
+            transform::{self, builder::TransformBuilder},
         },
-        matching::SourceNamePattern,
+        matching::{SourceNamePattern, TransformNamePattern},
         naming::{OutputName, PluginName, SourceName, TransformName},
+        Output,
     },
 };
 
@@ -50,6 +54,7 @@ pub struct RuntimeExpectations {
 }
 
 pub(super) const TESTER_SOURCE_NAME: &str = "_tester";
+pub(super) const TESTER_OUTPUT_NAME: &str = "_keep_alive";
 pub(super) const TESTER_PLUGIN_NAME: &str = "_test_runtime_expectations";
 
 type TestControllerMap<N, C> = Rc<RefCell<FxHashMap<N, C>>>;
@@ -96,6 +101,7 @@ impl TestExpectations for RuntimeExpectations {
                     .flush_rounds(1) // flush immediately
                     .update_rounds(1) // update asap
                     .build()?;
+                log::trace!("trigger of {name} replaced by: {:?}", source.trigger_spec);
 
                 // create the channels that we use to prevent multiple source tests from running at the same time
                 let (set_tx, set_rx) = tokio::sync::mpsc::channel(1);
@@ -181,6 +187,32 @@ impl TestExpectations for RuntimeExpectations {
             })
         }
 
+        async fn disable_all_transforms(control: &AnonymousControlHandle) {
+            log::debug!("Disabling transforms...");
+            control
+                .send(ControlMessage::Transform(transform::control::ControlMessage {
+                    matcher: TransformMatcher::Name(TransformNamePattern::wildcard()),
+                    new_state: transform::control::TaskState::Disabled,
+                }))
+                .await
+                .unwrap();
+            // TODO remove this hack: wait for the control command to be processed
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+
+        async fn enable_transform(control: &AnonymousControlHandle, name: TransformName) {
+            log::debug!("Enabling transforms...");
+            control
+                .send(ControlMessage::Transform(transform::control::ControlMessage {
+                    matcher: TransformMatcher::Name(TransformNamePattern::exact(name.plugin(), name.transform())),
+                    new_state: transform::control::TaskState::Enabled,
+                }))
+                .await
+                .unwrap();
+            // TODO remove this hack: wait for the control command to be processed
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+
         let source_tests_before = source_tests.clone();
         let transform_tests_before = transform_tests.clone();
         let output_tests_before = output_tests.clone();
@@ -188,17 +220,24 @@ impl TestExpectations for RuntimeExpectations {
             // Wrap the sources
             pipeline.replace_sources(|name, builder| {
                 log::debug!("preparing {name} for testing");
-                match self.sources.remove(&name) {
-                    Some(checks) => match builder {
-                        SourceBuilder::Managed(b) => SourceBuilder::Managed(wrap_managed_source_builder(
+                let checks = self.sources.remove(&name).unwrap_or_default();
+                // Even if the source has no associated check, we must replace it to prevent it
+                // from running in an uncontrolled way. All the sources must be triggered only
+                // when we determine it's okay to do so, otherwise it will interfere with
+                // transform and output testing.
+                // TODO this may be revisited when/if MeasurementBuffer is augmented with the
+                // origin of the measurements.
+                match builder {
+                    SourceBuilder::Managed(builder) => {
+                        let wrapped = wrap_managed_source_builder(
                             name,
                             checks,
-                            b,
+                            builder,
                             source_tests_before.clone(),
-                        )),
-                        a @ SourceBuilder::Autonomous(_) => a,
+                        );
+                        SourceBuilder::Managed(wrapped)
                     },
-                    None => builder,
+                    a @ SourceBuilder::Autonomous(_) => a,
                 }
             });
 
@@ -237,10 +276,9 @@ impl TestExpectations for RuntimeExpectations {
             // Wrap the transforms
             pipeline.replace_transforms(|name, builder| {
                 log::debug!("preparing {name} for testing");
-                match self.transforms.remove(&name) {
-                    Some(checks) => wrap_transform_builder(name, checks, builder, transform_tests_before.clone()),
-                    None => builder,
-                }
+                // Similar to sources, every transform must be wrapped to prevent any interference with output checks.
+                let checks = self.transforms.remove(&name).unwrap_or_default();
+                wrap_transform_builder(name, checks, builder, transform_tests_before.clone())
             });
 
             // Wrap the outputs
@@ -259,6 +297,22 @@ impl TestExpectations for RuntimeExpectations {
                     None => builder,
                 }
             });
+
+            // Add a special output to keep the pipeline alive when all the outputs added by the plugin fail.
+            // This is because we want to report only the output error, not errors caused by the lack of outputs (sources and transforms will panic).
+            log::debug!("adding test-controlled output {TESTER_OUTPUT_NAME}");
+            pipeline.add_output_builder(PluginName(TESTER_PLUGIN_NAME.to_owned()), TESTER_OUTPUT_NAME, OutputBuilder::Blocking(Box::new(|_ctx| {
+                use crate::pipeline::elements::output::OutputContext;
+                use crate::pipeline::elements::error::WriteError;
+                struct DummyOutput;
+                impl Output for DummyOutput {
+                    fn write(&mut self, _measurements: &MeasurementBuffer, _ctx: &OutputContext) -> Result<(), WriteError> {
+                        // do nothing
+                        Ok(())
+                    }
+                }
+                Ok(Box::new(DummyOutput))
+            }))).unwrap();
         });
 
         // Setup a background task that will trigger the elements one by one for testing purposes.
@@ -296,14 +350,21 @@ impl TestExpectations for RuntimeExpectations {
             );
 
             let task = async move {
+                // Before testing sourcse, disable all transforms, so that they don't
+                // process data that could interfere with the transform checks.
+                disable_all_transforms(&control).await;
+
                 // Test sources
                 for (name, controller) in source_tests.into_iter() {
-                    log::debug!("Checking {name}...");
                     let SourceTestController {
                         checks,
                         set_tx,
                         mut done_rx,
                     } = controller;
+
+                    if !checks.is_empty() {
+                        log::debug!("Checking {name}...");
+                    }
 
                     for check in checks {
                         // first, tell the source which test to execute
@@ -328,14 +389,20 @@ impl TestExpectations for RuntimeExpectations {
 
                 // Test transforms
                 for (name, controller) in transform_tests.into_iter() {
-                    log::debug!("Checking {name}...");
                     let TransformTestController {
                         checks,
                         set_tx,
                         mut done_rx,
                     } = controller;
 
+                    if !checks.is_empty() {
+                        log::debug!("Checking {name}...");
+                    }
+
                     for check in checks {
+                        // enable only the transform we want
+                        enable_transform(&control, check.name).await;
+
                         // tell the transform which check to execute
                         set_tx.send(SetTransformOutputCheck(check.check_output)).await.unwrap();
 
@@ -353,17 +420,26 @@ impl TestExpectations for RuntimeExpectations {
                             // or the wrapped transform panicked (because the test failed)
                             break;
                         }
+
+                        disable_all_transforms(&control).await;
                     }
                 }
 
+                // Before testing outputs, disable all transforms, so that we can pass data from
+                // the tester source to the outputs without any modification.
+                disable_all_transforms(&control).await;
+
                 // Test outputs
                 for (name, controller) in output_tests.into_iter() {
-                    log::debug!("Checking {name}...");
                     let OutputTestController {
                         checks,
                         set_tx,
                         mut done_rx,
                     } = controller;
+
+                    if !checks.is_empty() {
+                        log::debug!("Checking {name}...");
+                    }
 
                     for check in checks {
                         // tell the output which check to execute
@@ -451,7 +527,8 @@ impl RuntimeExpectations {
         Fo: Fn(&MeasurementBuffer) + Send + 'static,
     {
         let name = transform.clone();
-        self.transforms.entry(name).or_default().push(TransformCheck {
+        self.transforms.entry(name.clone()).or_default().push(TransformCheck {
+            name,
             make_input: Box::new(make_input),
             check_output: Box::new(check_output),
         });
@@ -486,6 +563,7 @@ pub struct SourceCheck {
 }
 
 pub struct TransformCheck {
+    name: TransformName,
     make_input: Box<dyn Fn(&mut TransformCheckInputContext) -> MeasurementBuffer + Send>,
     check_output: Box<dyn Fn(&MeasurementBuffer) + Send>,
 }

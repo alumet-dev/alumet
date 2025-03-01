@@ -43,17 +43,27 @@ impl WrappedTransform {
         ctx: &TransformContext,
     ) -> Result<(), TransformError> {
         // run the transform
+        log::trace!("applying underlying transform");
         self.transform.apply(measurements, ctx)?;
 
         // if set, check the output (TODO check that try_recv always see the message if send is called "just before")
         match self.set_rx.try_recv() {
             Ok(check) => {
+                log::trace!("applying check");
                 (check.0)(&measurements);
+
+                log::trace!("wrapped transform done");
                 self.done_tx.try_send(TransformDone).unwrap();
                 Ok(())
             }
-            Err(TryRecvError::Empty) => Ok(()),
-            Err(e) => Err(e.into()),
+            Err(TryRecvError::Empty) => {
+                log::trace!("no check to perform on this operation");
+                Ok(())
+            }
+            Err(TryRecvError::Disconnected) => {
+                log::trace!("there will be no more transform checks");
+                Ok(())
+            }
         }
     }
 }

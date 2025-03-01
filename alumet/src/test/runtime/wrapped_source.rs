@@ -35,15 +35,20 @@ impl Source for WrappedManagedSource {
 impl WrappedManagedSource {
     fn test_poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         // prepare input
+        log::trace!("receiving next check...");
         let check = self.in_rx.try_recv().unwrap().0;
         (check.make_input)();
 
         // poll the source, catch any panic
+        log::trace!("polling underlying source");
         self.source.poll(measurements, timestamp)?;
 
         // check output
+        log::trace!("applying check");
         (check.check_output)(measurements.as_inner());
         self.out_tx.try_send(SourceDone).unwrap();
+
+        log::trace!("wrapped source done");
         Ok(())
     }
 }
