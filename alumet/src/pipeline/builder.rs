@@ -22,11 +22,11 @@ use crate::pipeline::elements::transform::control::TransformControl;
 use crate::pipeline::util::channel;
 use crate::pipeline::Output;
 
-use super::error::PipelineError;
 use super::elements::output::builder::OutputBuilder;
 use super::elements::source::builder::SourceBuilder;
 use super::elements::source::trigger::TriggerConstraints;
 use super::elements::transform::builder::TransformBuilder;
+use super::error::PipelineError;
 use super::naming::{
     namespace::{DuplicateNameError, Namespace2},
     OutputName, PluginName, SourceName, TransformName,
@@ -542,7 +542,8 @@ impl MeasurementPipeline {
         log::debug!("pipeline::wait_for_shutdown");
         let rt = self.rt_normal;
         let shutdown_task = async {
-            let pipeline_result = self.pipeline_control_task
+            let pipeline_result = self
+                .pipeline_control_task
                 .await
                 .context("pipeline_control_task failed to execute to completion")?;
 

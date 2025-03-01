@@ -211,7 +211,6 @@ impl SourceControl {
     }
 
     pub async fn handle_message(&mut self, msg: ControlMessage) -> anyhow::Result<()> {
-        log::trace!("handling {msg:?}");
         match msg {
             ControlMessage::Configure(msg) => self.tasks.reconfigure(msg),
             ControlMessage::CreateOne(msg) => self.create_sources(vec![(msg.name, msg.builder)]).await?,
@@ -221,16 +220,15 @@ impl SourceControl {
         Ok(())
     }
 
-    pub fn has_task(&self) -> bool {
-        !self.tasks.spawned_tasks.is_empty()
+    pub async fn join_next_task(&mut self) -> Result<Result<(), PipelineError>, JoinError> {
+        match self.tasks.spawned_tasks.join_next().await {
+            Some(res) => res,
+            None => unreachable!("join_next_task must be guarded by has_task to prevent an infinite loop"),
+        }
     }
 
-    pub async fn join_next_task(&mut self) -> Result<Result<(), PipelineError>, JoinError> {
-        self.tasks
-            .spawned_tasks
-            .join_next()
-            .await
-            .expect("should not be called when !has_task()")
+    pub fn has_task(&self) -> bool {
+        !self.tasks.spawned_tasks.is_empty()
     }
 
     pub async fn shutdown<F>(mut self, mut handle_task_result: F)

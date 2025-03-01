@@ -27,7 +27,7 @@ impl PipelineError {
     pub(crate) fn for_element(element: impl Into<ElementName>, error: anyhow::Error) -> Self {
         Self(error.context(ElementErrorContext(element.into())))
     }
-    
+
     pub(crate) fn internal(error: anyhow::Error) -> Self {
         Self(error)
     }

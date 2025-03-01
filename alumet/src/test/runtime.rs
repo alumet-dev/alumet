@@ -438,7 +438,7 @@ impl RuntimeExpectations {
     }
 
     /// Registers a new test case for a transform.
-    /// 
+    ///
     /// # Execution of a transform test
     /// 1. `make_input` is called to prepare the input of the transform.
     /// It adds measurements to a buffer, that will be given to the transform.
@@ -459,7 +459,7 @@ impl RuntimeExpectations {
     }
 
     /// Registers a new test case for an output.
-    /// 
+    ///
     /// # Execution of an output test
     /// 1. `make_input` is called to prepare the input of the output.
     /// It adds measurements to a buffer, that will be given to the output.

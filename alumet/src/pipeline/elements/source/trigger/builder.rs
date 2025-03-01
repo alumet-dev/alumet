@@ -222,7 +222,7 @@ impl ManualTriggerBuilder {
         inner.interruptible = true;
         Self(inner)
     }
-    
+
     pub fn interruptible(&mut self, interruptible: bool) -> &mut Self {
         self.0.interruptible = interruptible;
         self

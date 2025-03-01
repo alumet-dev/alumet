@@ -1,7 +1,6 @@
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use anyhow::Context;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 
@@ -151,12 +150,20 @@ pub(crate) async fn run_managed(
         flush(buffer, &tx, &source_name);
     }
 
+    // log the name of the source, so we know which source terminates
+    log::debug!("{source_name} stops.");
     Ok(())
 }
 
 pub async fn run_autonomous(source_name: SourceName, source: AutonomousSource) -> Result<(), PipelineError> {
-    source.await.map_err(|e| {
-        log::error!("Error in autonomous source {source_name} (will stop running): {e:?}");
-        PipelineError::for_element(source_name, e)
-    })
+    match source.await {
+        Ok(_) => {
+            log::debug!("{source_name} stops.");
+            Ok(())
+        }
+        Err(e) => {
+            log::error!("Error in autonomous source {source_name} (will stop running): {e:?}");
+            Err(PipelineError::for_element(source_name, e))
+        }
+    }
 }

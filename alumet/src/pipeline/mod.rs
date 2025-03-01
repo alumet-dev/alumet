@@ -13,9 +13,9 @@
 pub mod builder;
 pub mod control;
 pub mod elements;
+pub mod error;
 pub mod naming;
 pub(crate) mod util;
-pub mod error;
 
 pub use elements::output::Output;
 pub use elements::source::Source;

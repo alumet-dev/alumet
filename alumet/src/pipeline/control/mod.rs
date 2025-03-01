@@ -121,6 +121,7 @@ impl PipelineControl {
                     // A control message has been received, or the channel has been closed (should not happen).
                     match message {
                         Some(msg) => {
+                            log::trace!("handling {msg:?}");
                             if let Err(e) = self.handle_message(msg).await {
                                 log::error!("error in message handling: {e:?}");
                                 last_error = Err(PipelineError::internal(e));
@@ -133,15 +134,29 @@ impl PipelineControl {
                 // Below we asynchronously poll the source, transform and output tasks, in order to detect
                 // when one of them finishes before the entire pipeline is shut down.
                 //
-                // NOTE: it is important to call `join_next_task()` only if `has_task()`.
-                source_res = self.sources.join_next_task(), if self.sources.has_task() => {
-                    task_finished(source_res, "source", &mut last_error);
+                // IMPORTANT: if a JoinSet is empty, `join_next_task` will immediately return
+                // `Poll::Ready(None)` when polled, which will cause an infinite loop.
+                //
+                // The solution is to NOT poll `join_next_task` if there is no task in the set.
+                // The condition `has_task` reads a single boolean variable, hence it's very cheap.
+                //
+                // Since the only way to add new tasks to the JoinSet is to send a control message,
+                // and this is handled by a separate branch, we are good.
+                // NOTE: if the above paragraph becomes untrue, another solution needs to be found.
+                //
+                // Example scenario:
+                // - loop, sources JoinSet empty => branch disabled, we only poll cancelled(), ctrl_c() and rx.recv()
+                // - we receive a message, add a source to the JoinSet
+                // - loop, sources JoinSet not empty => branch enabled
+
+                res = self.sources.join_next_task(), if self.sources.has_task() => {
+                    task_finished(res, "source", &mut last_error);
                 },
-                transf_res = self.transforms.join_next_task(), if self.transforms.has_task() => {
-                    task_finished(transf_res, "transform", &mut last_error);
+                res = self.transforms.join_next_task(), if self.transforms.has_task() => {
+                    task_finished(res, "transform", &mut last_error);
                 }
-                output_res = self.outputs.join_next_task(), if self.outputs.has_task() => {
-                    task_finished(output_res, "output", &mut last_error);
+                res = self.outputs.join_next_task(), if self.outputs.has_task() => {
+                    task_finished(res, "output", &mut last_error);
                 }
             }
         }
@@ -149,13 +164,19 @@ impl PipelineControl {
 
         // Stop the elements, waiting for each step of the pipeline to finish before stopping the next one.
         log::trace!("waiting for sources to finish");
-        self.sources.shutdown(|res| task_finished(res, "source", &mut last_error)).await;
+        self.sources
+            .shutdown(|res| task_finished(res, "source", &mut last_error))
+            .await;
 
         log::trace!("waiting for transforms to finish");
-        self.transforms.shutdown(|res| task_finished(res, "transform", &mut last_error)).await;
+        self.transforms
+            .shutdown(|res| task_finished(res, "transform", &mut last_error))
+            .await;
 
         log::trace!("waiting for outputs to finish");
-        self.outputs.shutdown(|res| task_finished(res, "output", &mut last_error)).await;
+        self.outputs
+            .shutdown(|res| task_finished(res, "output", &mut last_error))
+            .await;
 
         // Finalize the shutdown sequence by cancelling the remaining things.
         finalize_shutdown.cancel();

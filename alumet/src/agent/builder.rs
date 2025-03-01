@@ -389,7 +389,7 @@ impl RunningAgent {
             Err(err) => {
                 let error_str = if n_errors == 1 { "error" } else { "errors" };
                 Err(err.context(format!("{n_errors} {error_str} occurred.")))
-            },
+            }
         }
     }
 }

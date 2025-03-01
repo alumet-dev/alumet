@@ -9,7 +9,6 @@ use tokio::{
     task::{JoinError, JoinSet},
 };
 
-use crate::{measurement::MeasurementBuffer, pipeline::error::PipelineError};
 use crate::metrics::online::MetricReader;
 use crate::pipeline::control::message::matching::OutputMatcher;
 use crate::pipeline::elements::output::{run::run_async_output, AsyncOutputStream};
@@ -19,6 +18,7 @@ use crate::pipeline::util::{
     channel,
     stream::{ControlledStream, SharedStreamState, StreamState},
 };
+use crate::{measurement::MeasurementBuffer, pipeline::error::PipelineError};
 
 use super::{
     builder::{self, OutputBuilder},
@@ -156,16 +156,15 @@ impl OutputControl {
         Ok(())
     }
 
-    pub fn has_task(&self) -> bool {
-        !self.tasks.spawned_tasks.is_empty()
+    pub async fn join_next_task(&mut self) -> Result<Result<(), PipelineError>, JoinError> {
+        match self.tasks.spawned_tasks.join_next().await {
+            Some(res) => res,
+            None => unreachable!("join_next_task must be guarded by has_task to prevent an infinite loop"),
+        }
     }
 
-    pub async fn join_next_task(&mut self) -> Result<Result<(), PipelineError>, JoinError> {
-        self.tasks
-            .spawned_tasks
-            .join_next()
-            .await
-            .expect("should not be called when !has_task()")
+    pub fn has_task(&self) -> bool {
+        !self.tasks.spawned_tasks.is_empty()
     }
 
     pub async fn shutdown<F>(mut self, handle_task_result: F)
