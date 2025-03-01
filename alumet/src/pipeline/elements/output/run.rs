@@ -7,7 +7,9 @@ use crate::{
     measurement::MeasurementBuffer,
     metrics::online::MetricReader,
     pipeline::{
-        error::PipelineError, naming::OutputName, util::channel::{self, RecvError}
+        error::PipelineError,
+        naming::OutputName,
+        util::channel::{self, RecvError},
     },
 };
 
@@ -92,7 +94,9 @@ pub async fn run_blocking_output<Rx: channel::MeasurementReceiver>(
                 }
             },
             measurements = rx.recv(), if receive => {
-                let res = write_measurements(&name, guarded_output.clone(), metrics_reader.clone(), measurements).await?;
+                let res = write_measurements(&name, guarded_output.clone(), metrics_reader.clone(), measurements)
+                    .await
+                    .map_err(|e| PipelineError::for_element(name.clone(), e))?;
                 if res.is_break() {
                     finish = false; // just in case
                     break
@@ -115,7 +119,9 @@ pub async fn run_blocking_output<Rx: channel::MeasurementReceiver>(
                     Err(RecvError::Lagged(n)) => format!("Err(Lagged({n}))"),
                 }
             );
-            let res = write_measurements(&name, guarded_output.clone(), metrics_reader.clone(), received).await?;
+            let res = write_measurements(&name, guarded_output.clone(), metrics_reader.clone(), received)
+                .await
+                .map_err(|e| PipelineError::for_element(name.clone(), e))?;
             if res.is_break() {
                 break;
             }
