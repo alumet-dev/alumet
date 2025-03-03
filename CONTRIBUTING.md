@@ -12,8 +12,8 @@ This repository is divided in several parts:
 - The `alumet` crate contains the core of the measurement tool, as a Rust library.
 - Binaries can be created from this library, in order to provide a runnable measurement software. The official binaries that we provide are defined in `app-agent`. Agents always depend on `alumet`.
 - Plugins are defined in separate folders: `plugin-nvidia`, `plugin-rapl`, etc. Plugins always depend on `alumet`.
-- Two more crates, `alumet-api-dynamic` and `alumet-api-macros`, ease the creation of dynamic plugins written in Rust. This is WIP (work in progress) = not finished yet.
-- `test-dynamic-plugins` only exists for testing purposes.
+- As an experimental feature, `alumet-ffi` contains a C API for building Alumet plugins.
+    - `test-dynamic-plugins` and `test-dynamic-plugin-c` only exist to test this API
 
 ### Other repositories
 
