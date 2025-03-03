@@ -84,7 +84,7 @@ pub extern "C" fn mpoint_new_f64(
 /// Free a MeasurementPoint.
 /// Do **not** call this function after pushing a point with [`mbuffer_push`] or [`maccumulator_push`].
 #[no_mangle]
-pub extern "C" fn mpoint_free(point: *mut MeasurementPoint) {
+pub unsafe extern "C" fn mpoint_free(point: *mut MeasurementPoint) {
     let boxed = unsafe { Box::from_raw(point) }; // get the box back
     drop(boxed); // free memory (and call destructor)
 }
@@ -187,7 +187,7 @@ pub type ForeachPointFn = unsafe extern "C" fn(*mut c_void, *const MeasurementPo
 
 /// Iterates on a [`MeasurementBuffer`] by calling `f(data, point)` for each point of the buffer.
 #[no_mangle]
-pub extern "C" fn mbuffer_foreach(buf: &MeasurementBuffer, data: *mut c_void, f: ForeachPointFn) {
+pub unsafe extern "C" fn mbuffer_foreach(buf: &MeasurementBuffer, data: *mut c_void, f: ForeachPointFn) {
     for point in buf.iter() {
         unsafe { f(data, point) };
     }
@@ -196,14 +196,14 @@ pub extern "C" fn mbuffer_foreach(buf: &MeasurementBuffer, data: *mut c_void, f:
 /// Adds a measurement to the buffer.
 /// The point is consumed in the operation, you must **not** use it afterwards.
 #[no_mangle]
-pub extern "C" fn mbuffer_push(buf: &mut MeasurementBuffer, point: *mut MeasurementPoint) {
+pub unsafe extern "C" fn mbuffer_push(buf: &mut MeasurementBuffer, point: *mut MeasurementPoint) {
     let boxed = unsafe { Box::from_raw(point) };
     buf.push(*boxed);
 }
 /// Adds a measurement to the accumulator.
 /// The point is consumed in the operation, you must **not** use it afterwards.
 #[no_mangle]
-pub extern "C" fn maccumulator_push(buf: &mut MeasurementAccumulator, point: *mut MeasurementPoint) {
+pub unsafe extern "C" fn maccumulator_push(buf: &mut MeasurementAccumulator, point: *mut MeasurementPoint) {
     let boxed = unsafe { Box::from_raw(point) };
     buf.push(*boxed);
 }
