@@ -66,7 +66,7 @@ fn main() {
 
     // Copy to additional dir
     if let Some(out_dir) = additional_out_dir {
-        let out_file_path = out_dir.join("alumet-api.h");
+        let out_file_path = out_dir.join("alumet.h");
         let sym_file_path = out_dir.join("alumet-symbols.txt");
         bindings.generate_symfile(sym_file_path);
         bindings.write_to_file(out_file_path);
