@@ -6,7 +6,7 @@ use std::{
 fn main() {
     println!("cargo::rerun-if-env-changed=SKIP_BINDGEN");
     println!("cargo::rerun-if-env-changed=BINDGEN_OUT_DIR");
-    println!("cargo::rerun-if-env-changed=NO_ADDITIONAL_TARGET_DIR");
+    println!("cargo::rerun-if-env-changed=ADDITIONAL_TARGET_DIR");
 
     if env::var_os("SKIP_BINDGEN").is_some() {
         return;
@@ -14,9 +14,9 @@ fn main() {
 
     let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let target_dir = env::var("BINDGEN_OUT_DIR").unwrap_or_else(|_| env::var("OUT_DIR").unwrap());
-    let additional_out_dir = match env::var("NO_ADDITIONAL_TARGET_DIR") {
-        Ok(_) => None,
-        Err(_) => Some(
+    let additional_out_dir = match env::var("ADDITIONAL_TARGET_DIR") {
+        Err(_) => None,
+        Ok(_) => Some(
             PathBuf::from(crate_dir.clone())
                 .parent()
                 .unwrap()
@@ -24,9 +24,12 @@ fn main() {
         ),
     };
     let out_dir = Path::new(&target_dir).join("ffi_generated");
-    let out_file_path = out_dir.join("alumet-api.h");
+    let out_file_path = out_dir.join("alumet.h");
     let sym_file_path = out_dir.join("alumet-symbols.txt");
     fs::create_dir_all(&out_dir).unwrap();
+
+    // Export metadata for dependents crates: give them the path to the header and symbols.
+    println!("cargo::metadata=BINDINGS_DIR={}", out_dir.display());
 
     // Configure cbindgen for C
     let mut cbindgen_config = cbindgen::Config {

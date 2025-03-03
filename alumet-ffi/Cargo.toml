@@ -3,6 +3,7 @@ name = "alumet_ffi"
 version = "0.2.0"
 edition = "2021"
 description = "bindings for writing plugins in foreign languages"
+links = "alumet_h"
 
 [features]
 default = ["dynamic"]

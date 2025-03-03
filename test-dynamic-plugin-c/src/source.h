@@ -2,7 +2,7 @@
 #define __SOURCE_H
 
 #include <stdio.h>
-#include "../../target/tmp/alumet_ffi_build/ffi_generated/alumet-api.h"
+#include "alumet.h"
 
 typedef struct {
     AString custom_attribute;

@@ -1,5 +1,6 @@
 use pretty_assertions::assert_str_eq;
-use std::{io, path::Path, process::Command};
+use std::path::{Path, PathBuf};
+use std::{io, process::Command};
 
 #[test]
 fn test_plugin_c() {
@@ -8,31 +9,19 @@ fn test_plugin_c() {
     }
 
     let crate_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let repo_dir = crate_dir.parent().unwrap();
     let plugin_dir = crate_dir.join("../test-dynamic-plugin-c");
     let plugin_lib = plugin_dir.join("target/plugin.so");
-    let bindgen_out_dir = repo_dir.join("target/tmp/alumet_ffi_build");
+    let bindgen_out_dir = PathBuf::from(env!("ALUMET_H_BINDINGS_DIR"));
 
-    std::fs::create_dir_all(&bindgen_out_dir).unwrap();
-
-    // println!("cargo build -p alumet_ffi...");
-    // let build_result = Command::new("cargo")
-    //     .args(&["build", "-p", "alumet_ffi"])
-    //     .env("BINDGEN_OUT_DIR", bindgen_out_dir.canonicalize().unwrap())
-    //     .current_dir(repo_dir)
-    //     .spawn()
-    //     .expect("Running `cargo build -p alumet_ffi` failed")
-    //     .wait()
-    //     .unwrap();
-    // assert!(build_result.success(), "Building Alumet FFI failed");
     assert!(
         !is_dir_empty(&bindgen_out_dir).unwrap(),
-        "{bindgen_out_dir:?} should not be empty; repo_dir={repo_dir:?}"
+        "{bindgen_out_dir:?} should not be empty"
     );
 
     println!("make...");
     let build_result = Command::new("make")
         .current_dir(plugin_dir)
+        .env("ALUMET_H_BINDINGS_DIR", bindgen_out_dir)
         .spawn()
         .expect("Running `make` failed")
         .wait()

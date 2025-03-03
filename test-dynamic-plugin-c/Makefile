@@ -2,7 +2,7 @@ CC=gcc
 CFLAGS=-Wall -g -O0
 
 SOURCE_FILES=./src/plugin.c ./src/source.c ./src/output.c
-INCLUDE_DIRS=../target/tmp/alumet_ffi_build
+INCLUDE_DIRS=${ALUMET_H_BINDINGS_DIR}
 INC_PARAMS=$(addprefix -I, $(INCLUDE_DIRS))
 
 # flags that must be there to compile as a shared library, you should NOT change them
