@@ -179,7 +179,7 @@ pub fn process_catch_point<R>(name: &str, expected: &Expect, actual: CatchResult
             PointCheckResult::UnexpectedErrorOrPanic(anyhow!("unexpected panic at {name}: {e:?}"))
         }
         (Expect::None, CatchResult::Err(e)) => {
-            PointCheckResult::UnexpectedErrorOrPanic(anyhow!("unexpected error at {name}: {e}"))
+            PointCheckResult::UnexpectedErrorOrPanic(anyhow!("unexpected error at {name}: {e:?}"))
         }
         (Expect::Error, CatchResult::Ok(_)) => {
             PointCheckResult::UnexpectedErrorOrPanic(anyhow!("expected error at {name}, got Ok(...)"))

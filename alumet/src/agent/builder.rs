@@ -368,17 +368,17 @@ impl RunningAgent {
                     last_res = Err(anyhow!("plugin {name} v{version} panicked"));
                     n_errors += 1;
                     // dropping the panic payload may, in turn, panic!
-                    let _ = catch_unwind(AssertUnwindSafe(move || {
+                    let dropped = catch_unwind(AssertUnwindSafe(move || {
                         drop(panic_payload);
-                    }))
-                    .map_err(|panic2| {
+                    }));
+                    if let Err(panic2) = dropped {
                         log::error!(
                             "PANIC while dropping panic payload generated while stopping plugin {name} v{version}."
                         );
                         // We cannot drop it, forget it.
                         // Alumet will stop after this anyway, but the plugin should be fixed.
                         std::mem::forget(panic2);
-                    });
+                    }
                 }
             }
         }

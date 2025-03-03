@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display};
 
-use super::naming::ElementName;
+use super::naming::{ElementName, PluginName};
 
 /// Add this context to errors that originate from a pipeline element.
 ///
@@ -10,9 +10,11 @@ use super::naming::ElementName;
 #[derive(Debug)]
 pub(crate) struct ElementErrorContext(ElementName);
 
-/// At least one error occured in the pipeline.
-///
-/// If multiple pipeline elements fail, only the most recent error is stored in this struct.
+/// Add this context to errors that originate from an action started by a plugin.
+#[derive(Debug)]
+pub(crate) struct PluginErrorContext(PluginName);
+
+/// At least one error occurred in the pipeline.
 #[derive(thiserror::Error)]
 pub struct PipelineError(#[source] anyhow::Error);
 
@@ -23,9 +25,20 @@ impl Display for ElementErrorContext {
     }
 }
 
+impl Display for PluginErrorContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("error in action requested by plugin ")?;
+        Display::fmt(&self.0 .0, f)
+    }
+}
+
 impl PipelineError {
     pub(crate) fn for_element(element: impl Into<ElementName>, error: anyhow::Error) -> Self {
         Self(error.context(ElementErrorContext(element.into())))
+    }
+
+    pub(crate) fn for_plugin(plugin: PluginName, error: anyhow::Error) -> Self {
+        Self(error.context(PluginErrorContext(plugin)))
     }
 
     pub(crate) fn internal(error: anyhow::Error) -> Self {

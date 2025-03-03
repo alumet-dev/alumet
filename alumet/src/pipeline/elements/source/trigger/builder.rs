@@ -14,7 +14,7 @@ use super::{TriggerLoopParams, TriggerMechanismSpec, TriggerSpec};
 ///
 /// # Example
 /// ```
-/// use alumet::pipeline::trigger;
+/// use alumet::pipeline::elements::source::trigger;
 /// use std::time::{Instant, Duration};
 ///
 /// let trigger_config = trigger::builder::time_interval(Duration::from_secs(1))

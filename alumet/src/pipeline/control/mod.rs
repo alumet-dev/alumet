@@ -99,7 +99,7 @@ impl PipelineControl {
         }
 
         // Keep track of the most recent error, so we can propagate it to the agent.
-        // It is particularily useful in tests, to assert that no error occured.
+        // It is particularily useful in tests, to assert that no error occurred.
         let mut last_error: Result<(), PipelineError> = Result::Ok(());
 
         loop {

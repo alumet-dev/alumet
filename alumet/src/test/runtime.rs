@@ -350,7 +350,7 @@ impl TestExpectations for RuntimeExpectations {
             );
 
             let task = async move {
-                // Before testing sourcse, disable all transforms, so that they don't
+                // Before testing sources, disable all transforms, so that they don't
                 // process data that could interfere with the transform checks.
                 disable_all_transforms(&control).await;
 
