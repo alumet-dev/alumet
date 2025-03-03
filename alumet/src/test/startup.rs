@@ -1,8 +1,9 @@
 use crate::{
     agent::{self, builder::TestExpectations},
-    metrics::Metric,
+    measurement::{MeasurementType, WrappedMeasurementType},
     pipeline::naming::{OutputName, SourceName, TransformName},
     test::runtime::{TESTER_PLUGIN_NAME, TESTER_SOURCE_NAME},
+    units::PrefixedUnit,
 };
 
 /// Structure representing startup expectations.
@@ -25,6 +26,12 @@ pub struct StartupExpectations {
     transforms: Vec<TransformName>,
     /// List of expected outputs.
     outputs: Vec<OutputName>,
+}
+
+pub struct Metric {
+    pub name: String,
+    pub value_type: WrappedMeasurementType,
+    pub unit: PrefixedUnit,
 }
 
 impl TestExpectations for StartupExpectations {
@@ -111,12 +118,25 @@ impl TestExpectations for StartupExpectations {
         builder
     }
 }
+
 impl StartupExpectations {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     /// Requires the given metric to be registered before the measurement pipeline starts.
-    ///
-    /// The description of the `metric` is not checked.
-    pub fn expect_metric(mut self, metric: Metric) -> Self {
+    pub fn expect_metric_untyped(mut self, metric: Metric) -> Self {
         self.metrics.push(metric);
+        self
+    }
+
+    /// Requires the given metric to be registered before the measurement pipeline starts.
+    pub fn expect_metric<T: MeasurementType>(mut self, name: &str, unit: impl Into<PrefixedUnit>) -> Self {
+        self.metrics.push(Metric {
+            name: name.into(),
+            value_type: T::wrapped_type(),
+            unit: unit.into(),
+        });
         self
     }
 

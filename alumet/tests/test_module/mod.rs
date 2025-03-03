@@ -11,7 +11,7 @@ use alumet::{
         MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementType,
         WrappedMeasurementValue,
     },
-    metrics::{Metric, TypedMetricId},
+    metrics::TypedMetricId,
     pipeline::{
         elements::{
             error::{PollError, TransformError, WriteError},
@@ -26,6 +26,7 @@ use alumet::{
     plugin::rust::AlumetPlugin,
     resources::{Resource, ResourceConsumer},
     static_plugins,
+    test::{startup::Metric, RuntimeExpectations},
     units::Unit,
 };
 
@@ -133,13 +134,8 @@ fn init_logger() {
 fn startup_ok() {
     let plugins = PluginSet::from(static_plugins![TestedPlugin]);
 
-    let startup = alumet::test::StartupExpectations::default()
-        .expect_metric(Metric {
-            name: String::from("coffee_counter"),
-            description: String::new(),
-            value_type: WrappedMeasurementType::U64,
-            unit: Unit::Unity.into(),
-        })
+    let startup = alumet::test::StartupExpectations::new()
+        .expect_metric::<u64>("coffee_counter", Unit::Unity)
         .expect_source("plugin", "coffee_source")
         .expect_output("plugin", "coffee_output")
         .expect_transform("plugin", "coffee_transform");
@@ -159,9 +155,8 @@ fn startup_bad_metric() {
     init_logger();
     let plugins = PluginSet::from(static_plugins![TestedPlugin]);
 
-    let startup = alumet::test::StartupExpectations::default().expect_metric(Metric {
+    let startup = alumet::test::StartupExpectations::new().expect_metric_untyped(Metric {
         name: String::from("bad_metric"),
-        description: String::new(),
         value_type: WrappedMeasurementType::U64,
         unit: Unit::Unity.into(),
     });
@@ -176,7 +171,7 @@ fn runtime_source_err() {
     init_logger();
     let plugins = PluginSet::from(static_plugins![TestedPlugin]);
 
-    let runtime = alumet::test::RuntimeExpectations::new().source_result(
+    let runtime = RuntimeExpectations::new().source_result(
         SourceName::from_str("plugin", "coffee_source"),
         || {
             // Prepare the environment (here simulated by a static variable) for the test.
@@ -215,7 +210,7 @@ fn runtime_source_ok() {
     init_logger();
     let plugins = PluginSet::from(static_plugins![TestedPlugin]);
 
-    let runtime = alumet::test::RuntimeExpectations::new().source_result(
+    let runtime = RuntimeExpectations::new().source_result(
         SourceName::from_str("plugin", "coffee_source"),
         || {
             // Prepare the environment (here simulated by a static variable) for the test.
@@ -244,7 +239,7 @@ fn runtime_transform_err() {
     init_logger();
     let plugins = PluginSet::from(static_plugins![TestedPlugin]);
 
-    let runtime = alumet::test::RuntimeExpectations::new().transform_result(
+    let runtime = RuntimeExpectations::new().transform_result(
         TransformName::from_str("plugin", "coffee_transform"),
         |ctx| {
             let metric = ctx.metrics().by_name("coffee_counter").expect("metric should exist").0;
@@ -289,7 +284,7 @@ fn runtime_transform_ok() {
     init_logger();
     let plugins = PluginSet::from(static_plugins![TestedPlugin]);
 
-    let runtime = alumet::test::RuntimeExpectations::new().transform_result(
+    let runtime = RuntimeExpectations::new().transform_result(
         TransformName::from_str("plugin", "coffee_transform"),
         |ctx| {
             let metric = ctx.metrics().by_name("coffee_counter").expect("metric should exist").0;
@@ -323,7 +318,7 @@ fn runtime_output_err() {
     init_logger();
     let plugins = PluginSet::from(static_plugins![TestedPlugin]);
 
-    let runtime = alumet::test::RuntimeExpectations::new().output_result(
+    let runtime = RuntimeExpectations::new().output_result(
         OutputName::from_str("plugin", "coffee_output"),
         |ctx| {
             let metric = ctx.metrics().by_name("coffee_counter").expect("metric should exist").0;
@@ -368,7 +363,7 @@ fn runtime_output_ok() {
     init_logger();
     let plugins = PluginSet::from(static_plugins![TestedPlugin]);
 
-    let runtime = alumet::test::RuntimeExpectations::new().output_result(
+    let runtime = RuntimeExpectations::new().output_result(
         OutputName::from_str("plugin", "coffee_output"),
         |ctx| {
             let metric = ctx.metrics().by_name("coffee_counter").expect("metric should exist").0;
@@ -403,7 +398,7 @@ fn all_together() {
     init_logger();
     let plugins = PluginSet::from(static_plugins![TestedPlugin]);
 
-    let runtime = alumet::test::RuntimeExpectations::new()
+    let runtime = RuntimeExpectations::new()
         .source_result(
             SourceName::from_str("plugin", "coffee_source"),
             || {
@@ -459,10 +454,9 @@ fn all_together() {
             },
         );
 
-    let expectations = alumet::test::StartupExpectations::default()
-        .expect_metric(Metric {
+    let expectations = alumet::test::StartupExpectations::new()
+        .expect_metric_untyped(Metric {
             name: String::from("coffee_counter"),
-            description: String::new(),
             value_type: WrappedMeasurementType::U64,
             unit: Unit::Unity.into(),
         })
