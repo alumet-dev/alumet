@@ -1,0 +1,26 @@
+---
+package:
+  alumet-agent:
+    installed: true
+
+service:
+  alumet-agent:
+    enabled: false
+    running: false
+
+file:
+  /etc/alumet/alumet-config.toml:
+    exists: true
+  /usr/lib/alumet-agent:
+    exists: true
+  /usr/bin/alumet-agent:
+    exists: true
+  /usr/lib/systemd/system/alumet.service:
+    exists: true
+
+command:
+  'run alumet-agent':
+    exec: "alumet-agent --plugins csv,procfs exec -- sleep 1 && cat alumet-output.csv"
+    exit-status: 0
+  
+
