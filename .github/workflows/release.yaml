@@ -26,76 +26,103 @@ jobs:
       build-version: ${{ needs.gather-informations.outputs.tag }}
       release-version: 1
 
-
-  publish:
-    needs: create-rpm
+  test-rpm:
+    needs: ["gather-informations", "create-rpm"]
     runs-on: ubuntu-latest
+    container:
+      image: "registry.access.redhat.com/ubi8/ubi:8.3"
+      options: --cap-add=SYS_NICE --cap-add=PERFMON
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Install createrepo
-        run: sudo apt-get update && sudo apt-get install -y createrepo-c
-        
-      - name: Setup gh-pages branch
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout gh-pages || git checkout --orphan gh-pages
-          git pull origin gh-pages
-            
-      - name: Set up folder
-        run: |
-          rm -rf docs
-          mkdir -p docs/rpm          
-      
       - name: Download RPM artifact
+        id: download_rpm
         uses: actions/download-artifact@v4
         with:
-          path: ./docs/rpm
-          pattern: '**/*.rpm' 
+          pattern: '**/*8.3*.rpm'
+          path: ./rpm
+          merge-multiple: true
 
-      - name: Move RPM files to docs directory
+      - name: Install RPMs
         run: |
-          find ./docs/rpm -mindepth 2 -type f -exec mv -t ./docs/rpm {} +
-          find ./docs/rpm -type d -empty -delete
+          rpm -i ${{ steps.download_rpm.outputs.download-path }}/*.rpm
 
-      - name: Create repository metadata
+      - name: Install Goss
         run: |
-          cd docs/rpm
-          createrepo_c .
-          cd ../..
-
-      - name: Commit and push changes
+          curl -fsSL https://goss.rocks/install | sh
+          
+      - name: Run Goss tests
+        continue-on-error: true
         run: |
-          git add docs
-          git commit -m "Update RPM repository"
-          git push origin gh-pages
-      
-      - name: Upload static files as artifact
-        id: deployment
-        uses: actions/upload-pages-artifact@v3 
+          goss -g .github/goss_validate.yaml validate --format documentation > goss-results.txt
+          cat goss-results.txt >> $GITHUB_STEP_SUMMARY
+          
+      - name: Upload artifact local agent
+        uses: actions/upload-artifact@v4
         with:
-          path: docs/
+          name: report_goss.txt
+          path: |
+            ./goss-results.txt
       
   attach-artifacts:
-    needs: create-rpm
+    needs:
+      - gather-informations
+      - test-rpm
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Download RPM artifact
-      uses: actions/download-artifact@v4
-      with:
-        pattern: '**/*.rpm'
-        path: ./rpm
+      - name: Download RPM artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: '**/*.rpm'
+          path: ./rpm
 
-    - name: Release
-      uses: softprops/action-gh-release@v2
-      with:
-        files: |
-          rpm/**/*.rpm
+      - name: Release
+        if: ${{ github.event_name != 'workflow_dispatch' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            rpm/**/*.rpm
+
+      - name: Get Latest Release and Delete Old Artifacts
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        id: get_latest_release_and_delete_old_artifacts
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const latestRelease = await github.rest.repos.getLatestRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+
+            let id = latestRelease.data.id;
+            let tag = latestRelease.data.tag_name;
+
+            const assets = await github.rest.repos.listReleaseAssets({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: id
+            });
+
+            for (const asset of assets.data) {
+              await github.rest.repos.deleteReleaseAsset({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                asset_id: asset.id
+              });
+            }
+            console.log(`Release id: ${id}`);
+            console.log(`Release tag: ${tag}`);
+            core.setOutput("release_id", id);
+            core.setOutput("release_tag", tag);
+
+      - name: Upload New Artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          find rpm -type f -exec gh release upload ${{ steps.get_latest_release_and_delete_old_artifacts.outputs.release_tag }} {} \;
