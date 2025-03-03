@@ -16,15 +16,16 @@
 //! }
 //! ```
 
+use alumet::measurement::{MeasurementAccumulator, MeasurementBuffer};
+use alumet::pipeline::elements::output::OutputContext;
+use alumet::pipeline::elements::transform::TransformContext;
+use alumet::plugin::AlumetPluginStart;
 use libc::c_void;
-
-use crate::measurement::{MeasurementAccumulator, MeasurementBuffer};
-use crate::pipeline::elements::output::OutputContext;
-use crate::pipeline::elements::transform::TransformContext;
-use crate::plugin::AlumetPluginStart;
 use time::Timestamp;
 
-// Submodules
+#[cfg(feature = "dynamic")]
+pub mod dynload;
+
 pub mod config;
 pub mod metrics;
 pub mod pipeline;
@@ -59,4 +60,39 @@ pub struct FfiOutputContext<'a> {
 #[repr(C)]
 pub struct FfiTransformContext<'a> {
     inner: *const TransformContext<'a>,
+}
+
+/// Workaround because cbindgen doesn't handle the use of types from external crates properly:
+/// it should generate an opaque type for ConfigTable and ConfigArray, but it does not.
+#[allow(dead_code)]
+mod cbindgen_workaround {
+
+    macro_rules! opaque_type {
+        ($t:ident, $f:ident) => {
+            pub struct $t;
+            #[no_mangle]
+            fn $f(_x: $t) {}
+        };
+    }
+
+    opaque_type!(ConfigArray, __workaround_0);
+    opaque_type!(MeasurementBuffer, __workaround_1);
+    opaque_type!(MeasurementAccumulator, __workaround_2);
+    opaque_type!(MeasurementPoint, __workaround_3);
+    opaque_type!(Table, __workaround_4);
+    opaque_type!(OutputContext, __workaround_5);
+    opaque_type!(TransformContext, __workaround_6);
+    opaque_type!(AlumetPluginStart, __workaround_7);
+    opaque_type!(WrappedMeasurementValue, __workaround_8);
+
+    #[repr(C)]
+    pub enum WrappedMeasurementType {
+        F64,
+        U64,
+    }
+
+    #[repr(C)]
+    pub struct RawMetricId(usize);
+    #[no_mangle]
+    pub fn __workaround_raw_metric_id(_id: RawMetricId) {}
 }

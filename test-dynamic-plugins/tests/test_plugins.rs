@@ -1,15 +1,27 @@
 use pretty_assertions::assert_str_eq;
-use std::{path::Path, process::Command};
+use std::path::{Path, PathBuf};
+use std::{io, process::Command};
 
 #[test]
 fn test_plugin_c() {
+    fn is_dir_empty(p: &Path) -> io::Result<bool> {
+        Ok(std::fs::read_dir(p)?.count() == 0)
+    }
+
     let crate_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let plugin_dir = crate_dir.join("../test-dynamic-plugin-c");
     let plugin_lib = plugin_dir.join("target/plugin.so");
+    let bindgen_out_dir = PathBuf::from(env!("ALUMET_H_BINDINGS_DIR"));
+
+    assert!(
+        !is_dir_empty(&bindgen_out_dir).unwrap(),
+        "{bindgen_out_dir:?} should not be empty"
+    );
 
     println!("make...");
     let build_result = Command::new("make")
         .current_dir(plugin_dir)
+        .env("ALUMET_H_BINDINGS_DIR", bindgen_out_dir)
         .spawn()
         .expect("Running `make` failed")
         .wait()

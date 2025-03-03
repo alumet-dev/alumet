@@ -1,7 +1,7 @@
 use libc::c_void;
 
 use super::{DropFn, FfiOutputContext, FfiTransformContext, OutputWriteFn, SourcePollFn, TransformApplyFn};
-use crate::{
+use alumet::{
     measurement::{MeasurementAccumulator, MeasurementBuffer},
     pipeline::{
         self,
@@ -39,7 +39,7 @@ impl pipeline::Source for FfiSource {
     fn poll(
         &mut self,
         into: &mut MeasurementAccumulator,
-        time: crate::measurement::Timestamp,
+        time: alumet::measurement::Timestamp,
     ) -> Result<(), error::PollError> {
         (self.poll_fn)(self.data, into, time.into());
         Ok(())

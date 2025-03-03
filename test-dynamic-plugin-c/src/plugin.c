@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <string.h>
-#include "../../alumet/generated/alumet-api.h"
+#include "alumet.h"
 #include "source.h"
 #include "output.h"
 

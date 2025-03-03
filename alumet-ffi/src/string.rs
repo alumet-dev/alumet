@@ -100,7 +100,7 @@ impl<'a> NullableAStr<'a> {
 /// The returned `AString` is a copy of the C string.
 /// To free the `AString`, use [`astring_free`].
 #[no_mangle]
-pub extern "C" fn astring(chars: *const c_char) -> AString {
+pub unsafe extern "C" fn astring(chars: *const c_char) -> AString {
     let string = unsafe { CStr::from_ptr(chars) }
         .to_str()
         .expect("chars should be a valid UTF-8 string for astring(chars)")
@@ -126,7 +126,7 @@ pub extern "C" fn astr_copy_nonnull(astr: NullableAStr) -> AString {
 }
 
 #[no_mangle]
-pub extern "C" fn astr<'a>(chars: *const c_char) -> AStr<'a> {
+pub unsafe extern "C" fn astr<'a>(chars: *const c_char) -> AStr<'a> {
     let cstring = unsafe { CStr::from_ptr(chars) };
     let str = cstring
         .to_str()

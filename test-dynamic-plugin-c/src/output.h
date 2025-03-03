@@ -2,7 +2,7 @@
 #define __OUTPUT_H
 
 #include <stdio.h>
-#include "../../alumet/generated/alumet-api.h"
+#include "alumet.h"
 
 typedef struct {} StdOutput;
 

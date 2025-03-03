@@ -2,10 +2,10 @@ use std::ffi::{c_char, CStr};
 
 use libc::c_void;
 
-use crate::measurement::WrappedMeasurementType;
-use crate::metrics::def::RawMetricId;
-use crate::pipeline::trigger;
-use crate::{plugin::AlumetPluginStart, units::Unit};
+use alumet::measurement::WrappedMeasurementType;
+use alumet::metrics::def::RawMetricId;
+use alumet::pipeline::trigger;
+use alumet::{plugin::AlumetPluginStart, units::Unit};
 
 use super::pipeline::{FfiOutput, FfiTransform};
 use super::time::TimeDuration;
@@ -31,7 +31,7 @@ pub extern "C" fn alumet_create_metric(
 }
 
 #[no_mangle]
-pub extern "C" fn alumet_create_metric_c(
+pub unsafe extern "C" fn alumet_create_metric_c(
     alumet: &mut AlumetPluginStart,
     name: *const c_char,
     value_type: WrappedMeasurementType,
@@ -61,14 +61,16 @@ pub extern "C" fn alumet_add_source(
         poll_fn: source_poll_fn,
         drop_fn: source_drop_fn,
     });
-    alumet.add_source(
-        "fixme", // TODO update the API to ask for a name or generate one
-        source,
-        trigger::builder::time_interval(poll_interval.into())
-            .flush_interval(flush_interval.into())
-            .build()
-            .unwrap(),
-    );
+    alumet
+        .add_source(
+            "fixme", // TODO update the API to ask for a name or generate one
+            source,
+            trigger::builder::time_interval(poll_interval.into())
+                .flush_interval(flush_interval.into())
+                .build()
+                .unwrap(),
+        )
+        .unwrap();
 }
 #[no_mangle]
 pub extern "C" fn alumet_add_transform(
