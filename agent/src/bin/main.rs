@@ -26,9 +26,9 @@ fn load_plugins_metadata() -> Vec<PluginMetadata> {
         plugin_csv::CsvPlugin,
         plugin_influxdb::InfluxDbPlugin,
         plugin_mongodb::MongoDbPlugin,
-        plugin_opentelemetry::OpentelemetryPlugin,
         plugin_relay::client::RelayClientPlugin,
         plugin_relay::server::RelayServerPlugin,
+        plugin_opentelemetry::OpenTelemetryPlugin,
     ];
 
     // plugins that only work on Linux

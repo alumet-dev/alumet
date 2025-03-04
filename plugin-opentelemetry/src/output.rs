@@ -10,7 +10,7 @@ use opentelemetry_sdk::Resource;
 use std::{env, sync::OnceLock};
 
 #[derive(Clone)]
-pub struct OpentelemetryOutput {
+pub struct OpenTelemetryOutput {
     append_unit_to_metric_name: bool,
     use_unit_display_name: bool,
     add_attributes_to_labels: bool,
@@ -36,7 +36,7 @@ fn init_metrics() -> SdkMeterProvider {
         .build()
 }
 
-impl OpentelemetryOutput {
+impl OpenTelemetryOutput {
     pub fn new(
         append_unit_to_metric_name: bool,
         use_unit_display_name: bool,
@@ -44,7 +44,7 @@ impl OpentelemetryOutput {
         collectot_host: String,
         prefix: String,
         suffix: String,
-    ) -> anyhow::Result<OpentelemetryOutput> {
+    ) -> anyhow::Result<OpenTelemetryOutput> {
         env::set_var(
             "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
             format!("{}{}", collectot_host, "/v1/metrics"),
@@ -59,7 +59,7 @@ impl OpentelemetryOutput {
     }
 }
 
-impl alumet::pipeline::Output for OpentelemetryOutput {
+impl alumet::pipeline::Output for OpenTelemetryOutput {
     fn write(&mut self, measurements: &MeasurementBuffer, ctx: &OutputContext) -> Result<(), WriteError> {
         if measurements.is_empty() {
             return Ok(());
@@ -69,7 +69,7 @@ impl alumet::pipeline::Output for OpentelemetryOutput {
         global::set_meter_provider(meter_provider.clone());
         let common_scope_attributes = vec![KeyValue::new("tool", "alumet")];
         let scope = InstrumentationScope::builder("alumet")
-            .with_version("1.0")
+            .with_version(env!("CARGO_PKG_VERSION"))
             .with_attributes(common_scope_attributes)
             .build();
 
@@ -115,6 +115,12 @@ impl alumet::pipeline::Output for OpentelemetryOutput {
                 for (key, value) in m.attributes() {
                     let key = sanitize_name(key.to_owned());
                     labels.push(KeyValue::new(key, value.to_string()));
+                }
+            }
+            // OpenTelemetry does not accept empty label
+            for label in &mut labels {
+                if label.value == "".into() {
+                    label.value = "empty".to_string().into();
                 }
             }
             labels.sort_by(|a, b| a.key.cmp(&b.key));
