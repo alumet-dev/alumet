@@ -1,14 +1,14 @@
 mod output;
 
 use alumet::plugin::rust::{deserialize_config, serialize_config, AlumetPlugin};
-use output::OpentelemetryOutput;
+use output::OpenTelemetryOutput;
 use serde::{Deserialize, Serialize};
 
-pub struct OpentelemetryPlugin {
-    output: Box<OpentelemetryOutput>,
+pub struct OpenTelemetryPlugin {
+    output: Box<OpenTelemetryOutput>,
 }
 
-impl AlumetPlugin for OpentelemetryPlugin {
+impl AlumetPlugin for OpenTelemetryPlugin {
     fn name() -> &'static str {
         "plugin-opentelemetry"
     }
@@ -23,8 +23,8 @@ impl AlumetPlugin for OpentelemetryPlugin {
 
     fn init(config: alumet::plugin::ConfigTable) -> anyhow::Result<Box<Self>> {
         let config: Config = deserialize_config(config)?;
-        // Create a new OpentelemetryOutput instance
-        let otel_output = Box::new(OpentelemetryOutput::new(
+        // Create a new OpenTelemetryOutput instance
+        let otel_output = Box::new(OpenTelemetryOutput::new(
             config.append_unit_to_metric_name,
             config.use_unit_display_name,
             config.add_attributes_to_labels,
@@ -32,7 +32,7 @@ impl AlumetPlugin for OpentelemetryPlugin {
             config.prefix.clone(),
             config.suffix.clone(),
         )?);
-        Ok(Box::new(OpentelemetryPlugin { output: otel_output }))
+        Ok(Box::new(OpenTelemetryPlugin { output: otel_output }))
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
