@@ -17,6 +17,7 @@ pub struct OpenTelemetryOutput {
     prefix: String,
     suffix: String,
 }
+
 fn get_resource() -> Resource {
     static RESOURCE: OnceLock<Resource> = OnceLock::new();
     RESOURCE
@@ -41,14 +42,9 @@ impl OpenTelemetryOutput {
         append_unit_to_metric_name: bool,
         use_unit_display_name: bool,
         add_attributes_to_labels: bool,
-        collectot_host: String,
         prefix: String,
         suffix: String,
     ) -> anyhow::Result<OpenTelemetryOutput> {
-        env::set_var(
-            "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
-            format!("{}{}", collectot_host, "/v1/metrics"),
-        );
         Ok(Self {
             append_unit_to_metric_name,
             use_unit_display_name,
