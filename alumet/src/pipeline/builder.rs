@@ -509,6 +509,22 @@ impl<'a> BuilderInspector<'a> {
     }
 }
 
+/// An error was detected while shutting the pipeline down.
+///
+/// This does NOT mean that the shutdown failed.
+/// The error could have happened while the pipeline was running.
+/// Most errors do not terminate the pipeline, they just stop the failed element.
+pub enum ShutdownError {
+    /// An error occurred in the pipeline.
+    ///
+    /// Use methods like [`PipelineError::is_internal`] to differentiate between internal
+    /// pipeline errors (which should not happen) and errors that originated from a pipeline
+    /// element (such as a source).
+    Pipeline(PipelineError),
+    /// Shutdown timeout expired.
+    TimeoutExpired,
+}
+
 impl MeasurementPipeline {
     /// Returns a _control handle_, which allows to send control commands to the pipeline
     /// (in order to modify its configuration) and to shut it down.
@@ -538,7 +554,7 @@ impl MeasurementPipeline {
     ///
     /// # Blocking
     /// This is a blocking function, it should not be called from within an async runtime.
-    pub fn wait_for_shutdown(self, timeout: Option<Duration>) -> Result<Result<(), PipelineError>, Elapsed> {
+    pub fn wait_for_shutdown(self, timeout: Option<Duration>) -> Result<(), ShutdownError> {
         log::debug!(
             "pipeline::wait_for_shutdown, shutdown={}",
             self.control_handle.is_shutdown()
@@ -568,12 +584,12 @@ impl MeasurementPipeline {
 
             match res {
                 Ok(res) => {
-                    let t1 = Instant::now();
-                    let remaining_time = (t1 - t0).saturating_sub(timeout);
-
                     // Try to shutdown the runtime with a timeout.
                     // In any case, the runtime will be dropped at the end of this method,
-                    // which will call `shutdown` without any timeout, possibly hanging indefinitely.
+                    // which will call `shutdown` without any timeout, but it will not hang indefinitely:
+                    // the second shutdown will do nothing, because we already have initiated a shutdown.
+                    let t1 = Instant::now();
+                    let remaining_time = (t1 - t0).saturating_sub(timeout);
                     self.rt_normal.shutdown_timeout(remaining_time);
                     if let Some(rt_priority) = self._rt_priority {
                         let t2 = Instant::now();
@@ -582,15 +598,15 @@ impl MeasurementPipeline {
                     }
                     let t_end = Instant::now();
                     if t_end - t0 <= timeout {
-                        Ok(res)
+                        res.map_err(ShutdownError::Pipeline)
                     } else {
-                        Err(todo!("timeout elapsed"))
+                        Err(ShutdownError::TimeoutExpired)
                     }
                 }
-                Err(_) => todo!(),
+                Err(_) => Err(ShutdownError::TimeoutExpired),
             }
         } else {
-            Ok(self.rt_normal.block_on(shutdown_task))
+            self.rt_normal.block_on(shutdown_task).map_err(ShutdownError::Pipeline)
         }
     }
 }

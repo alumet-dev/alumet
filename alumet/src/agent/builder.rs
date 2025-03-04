@@ -3,8 +3,10 @@
 use std::{collections::HashMap, ops::DerefMut, time::Duration};
 
 use anyhow::{anyhow, Context};
+use thiserror::Error;
 
 use crate::agent::plugin::PluginInfo;
+use crate::pipeline::error::PipelineError;
 use crate::plugin::phases::PreStartAction;
 use crate::plugin::{AlumetPluginStart, AlumetPostStart, ConfigTable, Plugin};
 use crate::{
@@ -39,6 +41,28 @@ struct Callbacks {
     after_plugins_start: Box<dyn FnOnce(&mut pipeline::Builder)>,
     before_operation_begin: Box<dyn FnOnce(&mut pipeline::Builder)>,
     after_operation_begin: Box<dyn FnOnce(&mut pipeline::MeasurementPipeline)>,
+}
+
+/// An error was detected while shutting the agent down.
+///
+/// See also [`PipelineError`].
+#[derive(Debug, Error)]
+pub enum AgentShutdownError {
+    /// An error occurred in the pipeline.
+    #[error("error detected while shutting down the pipeline")]
+    Pipeline(#[source] PipelineError),
+    /// An error occurred in a plugin.
+    #[error("error while shutting down plugin {0}")]
+    Plugin(String),
+    /// Shutdown timeout expired.
+    #[error("agent shutdown timeout expired")]
+    TimeoutExpired,
+}
+
+#[derive(Debug, Error)]
+#[error("{} errors while shutting the agent down", errors.len())]
+pub struct ShutdownError {
+    pub errors: Vec<AgentShutdownError>,
 }
 
 #[cfg(any(feature = "test", test))]
@@ -310,11 +334,10 @@ impl RunningAgent {
     /// Waits until the measurement pipeline stops, then stops the plugins.
     ///
     /// See the [module documentation](super).
-    pub fn wait_for_shutdown(self, timeout: Duration) -> anyhow::Result<()> {
+    pub fn wait_for_shutdown(self, timeout: Duration) -> Result<(), ShutdownError> {
         use std::panic::{catch_unwind, AssertUnwindSafe};
 
-        let mut n_errors = 0;
-        let mut last_res: anyhow::Result<()> = Ok(());
+        let mut errors = Vec::new();
 
         // Tokio's timeout has a maximum timeout that is much smaller than Duration::MAX,
         // and will replace the latter by its maximum timeout.
@@ -325,20 +348,10 @@ impl RunningAgent {
         // Also, **drop** the pipeline before stopping the plugin, because Plugin::stop expects
         // the sources, transforms and outputs to be stopped and dropped before it is called.
         // All tokio tasks that have not finished yet will abort.
-        match self.pipeline.wait_for_shutdown(timeout) {
-            Ok(Ok(_)) => (),
-            Ok(Err(err)) => {
-                log::error!("Error in the measurement pipeline: {err:?}");
-                last_res = Err(err.into());
-                n_errors += 1;
-            }
-            Err(elapsed) => {
-                log::error!(
-                    "Timeout of {:?} expired while waiting for the pipeline to shut down",
-                    timeout.unwrap()
-                );
-                last_res = Err(elapsed.into());
-                n_errors += 1;
+        if let Err(e) = self.pipeline.wait_for_shutdown(timeout) {
+            match e {
+                pipeline::builder::ShutdownError::Pipeline(e) => errors.push(AgentShutdownError::Pipeline(e)),
+                pipeline::builder::ShutdownError::TimeoutExpired => errors.push(AgentShutdownError::TimeoutExpired),
             }
         }
 
@@ -356,17 +369,16 @@ impl RunningAgent {
             })) {
                 Ok(Ok(())) => (),
                 Ok(Err(e)) => {
-                    log::error!("Error while stopping plugin {name} v{version}. {e:#}");
-                    last_res = Err(e);
-                    n_errors += 1;
+                    log::error!("Error while stopping plugin {name} v{version}. {e:?}");
+                    errors.push(AgentShutdownError::Plugin(name));
                 }
                 Err(panic_payload) => {
                     log::error!(
                         "PANIC while stopping plugin {name} v{version}. There is probably a bug in the plugin!
                         Please check the implementation of stop (and drop if Drop is implemented for the plugin type)."
                     );
-                    last_res = Err(anyhow!("plugin {name} v{version} panicked"));
-                    n_errors += 1;
+                    errors.push(AgentShutdownError::Plugin(name.clone()));
+
                     // dropping the panic payload may, in turn, panic!
                     let dropped = catch_unwind(AssertUnwindSafe(move || {
                         drop(panic_payload);
@@ -384,12 +396,10 @@ impl RunningAgent {
         }
         log::info!("All plugins have stopped.");
 
-        match last_res {
-            Ok(_) => Ok(()),
-            Err(err) => {
-                let error_str = if n_errors == 1 { "error" } else { "errors" };
-                Err(err.context(format!("{n_errors} {error_str} occurred.")))
-            }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(ShutdownError { errors })
         }
     }
 }

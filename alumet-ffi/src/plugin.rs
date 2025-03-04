@@ -70,8 +70,9 @@ pub extern "C" fn alumet_add_source(
                 .build()
                 .unwrap(),
         )
-        .unwrap();
+        .expect("FIXME: the C API only supports one source per plugin for the moment");
 }
+
 #[no_mangle]
 pub extern "C" fn alumet_add_transform(
     alumet: &mut AlumetPluginStart,
@@ -84,8 +85,11 @@ pub extern "C" fn alumet_add_transform(
         apply_fn: transform_apply_fn,
         drop_fn: transform_drop_fn,
     });
-    alumet.add_transform("fixme", transform);
+    alumet
+        .add_transform("fixme", transform)
+        .expect("FIXME: the C API only supports one transform per plugin for the moment");
 }
+
 #[no_mangle]
 pub extern "C" fn alumet_add_output(
     alumet: &mut AlumetPluginStart,
@@ -98,5 +102,7 @@ pub extern "C" fn alumet_add_output(
         write_fn: output_write_fn,
         drop_fn: output_drop_fn,
     });
-    alumet.add_blocking_output("fixme", output);
+    alumet
+        .add_blocking_output("fixme", output)
+        .expect("FIXME: the C API only supports one output per plugin for the moment");
 }

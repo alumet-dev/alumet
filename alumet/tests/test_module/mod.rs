@@ -6,7 +6,7 @@ use std::{
 };
 
 use alumet::{
-    agent::{self, plugin::PluginSet},
+    agent::{self, builder::AgentShutdownError, plugin::PluginSet},
     measurement::{
         MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementType,
         WrappedMeasurementValue,
@@ -194,15 +194,20 @@ fn runtime_source_err() {
 
     let res = agent.wait_for_shutdown(TIMEOUT);
     let err = res.expect_err("the source test should fail and the error should be propagated");
-    let element_name = err
-        .downcast_ref::<PipelineError>()
-        .expect("the last and only error should be a PipelineError")
-        .element()
-        .expect("the PipelineError should originate from a source");
-    assert_eq!(
-        element_name,
-        &ElementName::from(SourceName::new("plugin".into(), "coffee_source".into()))
-    );
+    match &err.errors[..] {
+        [AgentShutdownError::Pipeline(err)] => {
+            let element_name = err
+                .element()
+                .expect("the PipelineError should originate from an element");
+            assert_eq!(
+                element_name,
+                &ElementName::from(SourceName::new("plugin".into(), "coffee_source".into()))
+            );
+        }
+        bad => {
+            panic!("unexpected errors: {bad:?}");
+        }
+    }
 }
 
 #[test]
@@ -268,15 +273,20 @@ fn runtime_transform_err() {
 
     let res = agent.wait_for_shutdown(TIMEOUT);
     let err = res.expect_err("the transform test should fail and the error should be propagated");
-    let element_name = err
-        .downcast_ref::<PipelineError>()
-        .expect("the last and only error should be a PipelineError")
-        .element()
-        .expect("the PipelineError should originate from a transform");
-    assert_eq!(
-        element_name,
-        &ElementName::from(TransformName::new("plugin".into(), "coffee_transform".into()))
-    );
+    match &err.errors[..] {
+        [AgentShutdownError::Pipeline(err)] => {
+            let element_name = err
+                .element()
+                .expect("the PipelineError should originate from an element");
+            assert_eq!(
+                element_name,
+                &ElementName::from(TransformName::new("plugin".into(), "coffee_transform".into()))
+            );
+        }
+        bad => {
+            panic!("unexpected errors: {bad:?}");
+        }
+    }
 }
 
 #[test]
@@ -347,15 +357,20 @@ fn runtime_output_err() {
 
     let res = agent.wait_for_shutdown(TIMEOUT);
     let err = res.expect_err("the output test should fail and the error should be propagated");
-    let element_name = err
-        .downcast_ref::<PipelineError>()
-        .expect("the last and only error should be a PipelineError")
-        .element()
-        .expect("the PipelineError should originate from an output");
-    assert_eq!(
-        element_name,
-        &ElementName::from(OutputName::new("plugin".into(), "coffee_output".into()))
-    );
+    match &err.errors[..] {
+        [AgentShutdownError::Pipeline(err)] => {
+            let element_name = err
+                .element()
+                .expect("the PipelineError should originate from an element");
+            assert_eq!(
+                element_name,
+                &ElementName::from(OutputName::new("plugin".into(), "coffee_output".into()))
+            );
+        }
+        bad => {
+            panic!("unexpected errors: {bad:?}");
+        }
+    }
 }
 
 #[test]

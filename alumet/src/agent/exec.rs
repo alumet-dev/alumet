@@ -13,7 +13,7 @@ use crate::{
     resources::ResourceConsumer,
 };
 
-use super::RunningAgent;
+use super::{builder::ShutdownError, RunningAgent};
 use thiserror::Error;
 
 /// Error that can occur in [`watch_process`].
@@ -25,12 +25,9 @@ pub enum WatchError {
     /// The process has spawned but waiting for it has failed.
     #[error("failed to wait for pid {0}")]
     ProcessWait(u32, #[source] std::io::Error),
-    /// An error occurred while waiting for the measurement pipeline to shut down.
-    ///
-    /// The error probably originated from inside a pipeline element (source, transform, output)
-    /// and not from the shutdown operation.
-    #[error("error in pipeline")]
-    PipelineShutdown(#[source] anyhow::Error),
+    /// An error occurred while waiting for the agent to shut down.
+    #[error("error in shutdown")]
+    Shutdown(#[source] ShutdownError),
 }
 
 /// Spawns a process that runs `program args` and stops the measurement agent when it exits.
@@ -60,9 +57,7 @@ pub fn watch_process(
 
     // Stop the pipeline
     agent.pipeline.control_handle().shutdown();
-    agent
-        .wait_for_shutdown(shutdown_timeout)
-        .map_err(WatchError::PipelineShutdown)
+    agent.wait_for_shutdown(shutdown_timeout).map_err(WatchError::Shutdown)
 }
 
 /// Spawns a child process and waits for it to exit.
