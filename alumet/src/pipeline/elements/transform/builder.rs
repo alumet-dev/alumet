@@ -10,7 +10,7 @@ use super::Transform;
 ///  # Example
 /// ```
 /// use alumet::pipeline::elements::transform::builder::{TransformBuilder, TransformBuildContext};
-/// use alumet::pipeline::{trigger, Transform};
+/// use alumet::pipeline::Transform;
 ///
 /// fn build_my_transform() -> anyhow::Result<Box<dyn Transform>> {
 ///     todo!("build a new transform")

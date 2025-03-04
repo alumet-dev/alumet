@@ -50,6 +50,10 @@ impl AnonymousControlHandle {
         Self { tx, shutdown }
     }
 
+    pub(crate) fn is_shutdown(&self) -> bool {
+        self.shutdown.is_cancelled()
+    }
+
     /// Sends a control message to the pipeline, waiting until there is capacity.
     ///
     /// # Errors

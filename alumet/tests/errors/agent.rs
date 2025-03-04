@@ -27,6 +27,8 @@ pub(super) fn build_and_run(plugins: Vec<PluginMetadata>) -> anyhow::Result<()> 
         // Apply some setting to the pipeline to shorten the test duration.
         let mut pipeline_builder = pipeline::Builder::new();
         pipeline_builder.trigger_constraints_mut().max_update_interval = Duration::from_millis(100);
+        pipeline_builder.high_priority_threads(0);
+        pipeline_builder.normal_threads(1);
 
         // Extract the plugins configs and enable/disable the plugins according to their config.
         plugins

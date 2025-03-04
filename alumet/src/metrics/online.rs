@@ -86,7 +86,7 @@ pub mod listener {
     {
     }
 
-    pub(super) struct ListenerName {
+    pub struct ListenerName {
         pub plugin: String,
         pub name: String,
     }

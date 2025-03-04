@@ -6,7 +6,6 @@ use tokio::task::{JoinError, JoinSet};
 use tokio::{
     runtime,
     sync::{broadcast, mpsc},
-    task::JoinHandle,
 };
 
 use crate::measurement::MeasurementBuffer;

@@ -1,5 +1,5 @@
 //! Construction of measurement pipelines.
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{anyhow, Context};
 use fxhash::FxHashMap;
@@ -539,8 +539,10 @@ impl MeasurementPipeline {
     /// # Blocking
     /// This is a blocking function, it should not be called from within an async runtime.
     pub fn wait_for_shutdown(self, timeout: Option<Duration>) -> Result<Result<(), PipelineError>, Elapsed> {
-        log::debug!("pipeline::wait_for_shutdown");
-        let rt = self.rt_normal;
+        log::debug!(
+            "pipeline::wait_for_shutdown, shutdown={}",
+            self.control_handle.is_shutdown()
+        );
         let shutdown_task = async {
             let pipeline_result = self
                 .pipeline_control_task
@@ -555,13 +557,40 @@ impl MeasurementPipeline {
             log::trace!("metrics_control_task has ended, dropping the pipeline");
             pipeline_result
         };
-        if let Some(duration) = timeout {
+
+        if let Some(timeout) = timeout {
             // It is necessary to wrap the timeout in a new async block, because it needs
             // to be constructed in the context of a Runtime.
-            rt.block_on(async { tokio::time::timeout(duration, shutdown_task).await })
+            let t0 = Instant::now();
+            let res = self
+                .rt_normal
+                .block_on(async { tokio::time::timeout(timeout, shutdown_task).await });
+
+            match res {
+                Ok(res) => {
+                    let t1 = Instant::now();
+                    let remaining_time = (t1 - t0).saturating_sub(timeout);
+
+                    // Try to shutdown the runtime with a timeout.
+                    // In any case, the runtime will be dropped at the end of this method,
+                    // which will call `shutdown` without any timeout, possibly hanging indefinitely.
+                    self.rt_normal.shutdown_timeout(remaining_time);
+                    if let Some(rt_priority) = self._rt_priority {
+                        let t2 = Instant::now();
+                        let remaining_time = (t2 - t0).saturating_sub(timeout);
+                        rt_priority.shutdown_timeout(remaining_time);
+                    }
+                    let t_end = Instant::now();
+                    if t_end - t0 <= timeout {
+                        Ok(res)
+                    } else {
+                        Err(todo!("timeout elapsed"))
+                    }
+                }
+                Err(_) => todo!(),
+            }
         } else {
-            Ok(rt.block_on(shutdown_task))
+            Ok(self.rt_normal.block_on(shutdown_task))
         }
-        // the Runtime is dropped
     }
 }

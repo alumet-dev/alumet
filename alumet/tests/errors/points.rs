@@ -42,7 +42,7 @@ pub struct PluginErrorPoints {
     pub output_write: Behavior,
 }
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum Expect {
     None,
     Error,
@@ -138,12 +138,14 @@ macro_rules! catch_panic_point {
         use crate::errors::points as p;
         use std::panic::AssertUnwindSafe;
 
-        let lock = p::CATCHES.lock().unwrap();
-        let expected = &lock.as_ref().unwrap().$point;
+        let expected = {
+            let lock = p::CATCHES.lock().unwrap();
+            lock.as_ref().unwrap().$point.clone()
+        };
         let actual = p::catch_unwind_silent(AssertUnwindSafe($faillible));
         let actual = actual.map(|r| Ok(r));
 
-        let res = p::process_catch_point(stringify!($point), expected, actual.into());
+        let res = p::process_catch_point(stringify!($point), &expected, actual.into());
         p::handle_check_res!(res)
     }};
 }
@@ -153,11 +155,13 @@ macro_rules! catch_error_point {
         use crate::errors::points as p;
         use std::panic::AssertUnwindSafe;
 
-        let lock = p::CATCHES.lock().unwrap();
-        let expected = &lock.as_ref().unwrap().$point;
+        let expected = {
+            let lock = p::CATCHES.lock().unwrap();
+            lock.as_ref().unwrap().$point.clone()
+        };
         let actual = p::catch_unwind_silent(AssertUnwindSafe($faillible));
 
-        let res = p::process_catch_point(stringify!($point), expected, actual.into());
+        let res = p::process_catch_point(stringify!($point), &expected, actual.into());
         p::handle_check_res!(res)
     }};
 }
