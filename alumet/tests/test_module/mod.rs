@@ -19,7 +19,6 @@ use alumet::{
             source::trigger::TriggerSpec,
             transform::TransformContext,
         },
-        error::PipelineError,
         naming::{ElementName, OutputName, SourceName, TransformName},
         Output, Source, Transform,
     },
@@ -171,7 +170,7 @@ fn runtime_source_err() {
     init_logger();
     let plugins = PluginSet::from(static_plugins![TestedPlugin]);
 
-    let runtime = RuntimeExpectations::new().source_result(
+    let runtime = RuntimeExpectations::new().test_source(
         SourceName::from_str("plugin", "coffee_source"),
         || {
             // Prepare the environment (here simulated by a static variable) for the test.
@@ -215,7 +214,7 @@ fn runtime_source_ok() {
     init_logger();
     let plugins = PluginSet::from(static_plugins![TestedPlugin]);
 
-    let runtime = RuntimeExpectations::new().source_result(
+    let runtime = RuntimeExpectations::new().test_source(
         SourceName::from_str("plugin", "coffee_source"),
         || {
             // Prepare the environment (here simulated by a static variable) for the test.
@@ -244,7 +243,7 @@ fn runtime_transform_err() {
     init_logger();
     let plugins = PluginSet::from(static_plugins![TestedPlugin]);
 
-    let runtime = RuntimeExpectations::new().transform_result(
+    let runtime = RuntimeExpectations::new().test_transform(
         TransformName::from_str("plugin", "coffee_transform"),
         |ctx| {
             let metric = ctx.metrics().by_name("coffee_counter").expect("metric should exist").0;
@@ -294,7 +293,7 @@ fn runtime_transform_ok() {
     init_logger();
     let plugins = PluginSet::from(static_plugins![TestedPlugin]);
 
-    let runtime = RuntimeExpectations::new().transform_result(
+    let runtime = RuntimeExpectations::new().test_transform(
         TransformName::from_str("plugin", "coffee_transform"),
         |ctx| {
             let metric = ctx.metrics().by_name("coffee_counter").expect("metric should exist").0;
@@ -328,7 +327,7 @@ fn runtime_output_err() {
     init_logger();
     let plugins = PluginSet::from(static_plugins![TestedPlugin]);
 
-    let runtime = RuntimeExpectations::new().output_result(
+    let runtime = RuntimeExpectations::new().test_output(
         OutputName::from_str("plugin", "coffee_output"),
         |ctx| {
             let metric = ctx.metrics().by_name("coffee_counter").expect("metric should exist").0;
@@ -378,7 +377,7 @@ fn runtime_output_ok() {
     init_logger();
     let plugins = PluginSet::from(static_plugins![TestedPlugin]);
 
-    let runtime = RuntimeExpectations::new().output_result(
+    let runtime = RuntimeExpectations::new().test_output(
         OutputName::from_str("plugin", "coffee_output"),
         |ctx| {
             let metric = ctx.metrics().by_name("coffee_counter").expect("metric should exist").0;
@@ -414,7 +413,7 @@ fn all_together() {
     let plugins = PluginSet::from(static_plugins![TestedPlugin]);
 
     let runtime = RuntimeExpectations::new()
-        .source_result(
+        .test_source(
             SourceName::from_str("plugin", "coffee_source"),
             || {
                 // Prepare the environment (here simulated by a static variable) for the test.
@@ -429,7 +428,7 @@ fn all_together() {
                 assert_eq!(measurement.value, WrappedMeasurementValue::U64(27));
             },
         )
-        .transform_result(
+        .test_transform(
             TransformName::from_str("plugin", "coffee_transform"),
             |ctx| {
                 let metric = ctx.metrics().by_name("coffee_counter").expect("metric should exist").0;
@@ -449,7 +448,7 @@ fn all_together() {
                 assert_eq!(point.value, WrappedMeasurementValue::U64(10), "value should be doubled");
             },
         )
-        .output_result(
+        .test_output(
             OutputName::from_str("plugin", "coffee_output"),
             |ctx| {
                 let metric = ctx.metrics().by_name("coffee_counter").expect("metric should exist").0;

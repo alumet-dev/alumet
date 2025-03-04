@@ -65,7 +65,7 @@ pub struct ShutdownError {
     pub errors: Vec<AgentShutdownError>,
 }
 
-#[cfg(any(feature = "test", test))]
+#[cfg(feature = "test")]
 pub trait TestExpectations {
     fn setup(self, builder: Builder) -> Builder;
 }
@@ -319,12 +319,12 @@ impl Builder {
     }
 
     /// Applies test expectations to this builder.
-    #[cfg(any(feature = "test", test))]
+    #[cfg(feature = "test")]
     pub fn with_expectations<E: TestExpectations>(self, expectations: E) -> Self {
         expectations.setup(self)
     }
 
-    #[cfg(any(feature = "test", test))]
+    #[cfg(feature = "test")]
     pub fn pipeline(&mut self) -> &mut pipeline::Builder {
         &mut self.pipeline_builder
     }

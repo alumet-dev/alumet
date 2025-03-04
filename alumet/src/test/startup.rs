@@ -8,12 +8,44 @@ use crate::{
 
 /// Structure representing startup expectations.
 ///
-/// TODO doc + example
-/// This structure contains the various components needed to test an agent.
+/// `StartupExpectations` allows to define assertions that must be verified when the agent starts.
+/// More precisely, the checks are applied after every plugin has started and before the
+/// measurement pipeline starts.
 ///
-/// While [`RuntimeExpectations`] mainly focus on the test about correct correct computation or gathering of values
-/// This structure is used to test correct agent initialization and its metrics, transforms...
+/// `StartupExpectations` is declarative: you don't perform any `assert!` yourself,
+/// you declare the state that you expect and the assertions are called at the right place
+/// automatically.
 ///
+/// # Example
+///
+/// ```no_run
+/// use std::time::Duration;
+///
+/// use alumet::agent;
+/// use alumet::test::StartupExpectations;
+/// use alumet::units::Unit;
+///
+/// const TIMEOUT: Duration = Duration::from_secs(2);
+///
+/// // define the checks that you want to apply
+/// let startup = StartupExpectations::new()
+///     .expect_metric::<u64>("coffee_counter", Unit::Unity)
+///     .expect_source("plugin", "coffee_source")
+///     .expect_output("plugin", "coffee_output")
+///     .expect_transform("plugin", "coffee_transform");
+///
+/// // start an Alumet agent
+/// let plugins = todo!();
+/// let agent = agent::Builder::new(plugins)
+///     .with_expectations(startup) // load the checks
+///     .build_and_start()
+///     .unwrap();
+///
+/// // stop the agent
+/// agent.pipeline.control_handle().shutdown();
+/// // wait for the agent to stop
+/// agent.wait_for_shutdown(TIMEOUT).unwrap();
+/// ```
 #[derive(Default)]
 pub struct StartupExpectations {
     /// List of expected metrics.

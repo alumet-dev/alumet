@@ -36,15 +36,57 @@ mod wrapped_output;
 mod wrapped_source;
 mod wrapped_transform;
 
-/// Structure representing runtimes expectations.
+/// Structure representing runtime expectations.
 ///
-/// This structure contains the various components needed to
-/// test an agent on runtime. It means test sources, do they retrieve correct data ?
-/// It also means for transform plugins, are their output values correct depending on their input.
-/// While [`StartupExpectations`] mainly focus on the test about correct agent initialization and
-/// its metrics, transforms... This structure is used to test correct computation or gathering of values
+/// `RuntimeExpectations` allows to define a set of tests to run while the measurement pipeline runs.
+/// You can declare tests for sources, transforms and outputs.
 ///
+/// # Test isolation
 ///
+/// When a test is run, other pipeline elements may be disabled to ensure that the input that you provide
+/// is passed to the tested element. Therefore, each test should only assess the behavior of one specific
+/// element.
+///
+/// # Example
+/// ```no_run
+/// use std::time::Duration;
+///
+/// use alumet::agent;
+/// use alumet::pipeline::naming::SourceName;
+/// use alumet::test::RuntimeExpectations;
+/// use alumet::units::Unit;
+///
+/// const TIMEOUT: Duration = Duration::from_secs(2);
+///
+/// // define the checks that you want to apply
+/// let runtime = RuntimeExpectations::new()
+///     // test a source
+///     .test_source(
+///         SourceName::from_str("plugin_to_test", "source_to_test"),
+///         || {
+///             // Prepare the environment for the test
+///             todo!();
+///         },
+///         |m| {
+///             // The source has been triggered by the test module, check its output.
+///             // As an example, we check that the source has produced only one point.
+///             assert_eq!(m.len(), 1);
+///             todo!();
+///         },
+///     );
+///
+/// // start an Alumet agent
+/// let plugins = todo!();
+/// let agent = agent::Builder::new(plugins)
+///     .with_expectations(runtime) // load the checks
+///     .build_and_start()
+///     .unwrap();
+///
+/// // stop the agent
+/// agent.pipeline.control_handle().shutdown();
+/// // wait for the agent to stop
+/// agent.wait_for_shutdown(TIMEOUT).unwrap();
+/// ```
 #[derive(Default)]
 pub struct RuntimeExpectations {
     auto_shutdown: bool,
@@ -483,7 +525,7 @@ impl RuntimeExpectations {
         }
     }
 
-    /// Toggles automatic shutdown.
+    /// Toggles automatic shutdown (it is enabled by default).
     ///
     /// If `auto_shutdown` is true, `RuntimeExpectations` will shutdown the Alumet pipeline
     /// after all the test cases have been executed.
@@ -500,7 +542,7 @@ impl RuntimeExpectations {
     /// 2. The source is triggered, its [`poll`](crate::pipeline::Source::poll) method is called.
     /// 3. `check_output` is called with the measurements produced by the source.
     /// Here, you can check that the result is correct using usual assertions such as [`assert_eq`].
-    pub fn source_result<Fi, Fo>(mut self, source: SourceName, make_input: Fi, check_output: Fo) -> Self
+    pub fn test_source<Fi, Fo>(mut self, source: SourceName, make_input: Fi, check_output: Fo) -> Self
     where
         Fi: Fn() + Send + 'static,
         Fo: Fn(&MeasurementBuffer) + Send + 'static,
@@ -521,7 +563,7 @@ impl RuntimeExpectations {
     /// 2. The transform is triggered, its [`apply`](crate::pipeline::Transform::apply) method is called.
     /// 3. `check_output` is called with the buffer modified by the transform.
     /// Here, you can check that the result is correct using usual assertions such as `assert_eq!`.
-    pub fn transform_result<Fi, Fo>(mut self, transform: TransformName, make_input: Fi, check_output: Fo) -> Self
+    pub fn test_transform<Fi, Fo>(mut self, transform: TransformName, make_input: Fi, check_output: Fo) -> Self
     where
         Fi: Fn(&mut TransformCheckInputContext) -> MeasurementBuffer + Send + 'static,
         Fo: Fn(&MeasurementBuffer) + Send + 'static,
@@ -543,7 +585,7 @@ impl RuntimeExpectations {
     /// 2. The output is triggered, its [`apply`](crate::pipeline::Output::write) method is called.
     /// 3. `check_output` is called.
     /// Here, you can check that the output is correct by reading files, etc.
-    pub fn output_result<Fi, Fo>(mut self, output: OutputName, make_input: Fi, check_output: Fo) -> Self
+    pub fn test_output<Fi, Fo>(mut self, output: OutputName, make_input: Fi, check_output: Fo) -> Self
     where
         Fi: Fn(&mut OutputCheckInputContext) -> MeasurementBuffer + Send + 'static,
         Fo: Fn() + Send + 'static,

@@ -1,9 +1,8 @@
 //! Construction of measurement pipelines.
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context};
 use fxhash::FxHashMap;
-use tokio::time::error::Elapsed;
 use tokio::{
     runtime::Runtime,
     sync::{broadcast, mpsc},
