@@ -21,6 +21,7 @@ thiserror = "2.0.11"
 
 # Plugins that are available for every target
 plugin-csv = { path = "../plugin-csv" }
+plugin-prometheus-exporter = { path = "../plugin-prometheus-exporter" }
 plugin-influxdb = { path = "../plugin-influxdb" }
 plugin-relay = { path = "../plugin-relay" }
 plugin-mongodb = { path = "../plugin-mongodb" }

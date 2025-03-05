@@ -14,6 +14,7 @@
         ".git/*",
         ".gitignore",
         ".github/",
+        "**/**.yaml",
         ".circleci/"
     ],
     "import": [
