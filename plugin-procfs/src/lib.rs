@@ -9,6 +9,7 @@ use alumet::{
 };
 use anyhow::Context;
 use procfs::{Current, CurrentSI};
+use rlimit::{getrlimit, setrlimit, Resource};
 
 mod kernel;
 mod memory;
@@ -68,6 +69,8 @@ impl AlumetPlugin for ProcfsPlugin {
                 }
             }
         }
+        increase_file_descriptors_soft_limit().context("Error while increasing file descriptors soft limit")?;
+
         Ok(())
     }
 
@@ -180,6 +183,15 @@ fn setup_process_event_listener(
         });
         Ok(())
     });
+}
+
+// prevent 'Too many open files' error
+fn increase_file_descriptors_soft_limit() -> Result<(), anyhow::Error> {
+    let (fd_soft, fd_hard) = getrlimit(Resource::NOFILE).context("Error while getting file descriptors limits")?;
+    setrlimit(Resource::NOFILE, fd_hard, fd_hard)
+        .context("Error while setting file descriptors soft limit from {fd_soft} to {fd_hard}")?;
+    log::debug!("Increased file descriptors soft limit ({fd_soft}) to reach hard limit value ({fd_hard}) to prevent 'Too many open files' error");
+    Ok(())
 }
 
 mod config {
