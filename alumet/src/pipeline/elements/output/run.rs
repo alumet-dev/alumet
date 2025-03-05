@@ -7,6 +7,7 @@ use crate::{
     measurement::MeasurementBuffer,
     metrics::online::MetricReader,
     pipeline::{
+        error::PipelineError,
         naming::OutputName,
         util::channel::{self, RecvError},
     },
@@ -14,10 +15,10 @@ use crate::{
 
 use super::{control, error::WriteError, BoxedAsyncOutput, Output, OutputContext};
 
-pub async fn run_async_output(name: OutputName, output: BoxedAsyncOutput) -> anyhow::Result<()> {
+pub async fn run_async_output(name: OutputName, output: BoxedAsyncOutput) -> Result<(), PipelineError> {
     output.await.map_err(|e| {
         log::error!("Error when asynchronously writing to {name} (will stop running): {e:?}");
-        e.context(format!("error in async output {name}"))
+        PipelineError::for_element(name, e)
     })
 }
 
@@ -27,7 +28,7 @@ pub async fn run_blocking_output<Rx: channel::MeasurementReceiver>(
     mut rx: Rx,
     metrics_reader: MetricReader,
     config: Arc<control::SharedOutputConfig>,
-) -> anyhow::Result<()> {
+) -> Result<(), PipelineError> {
     /// If `measurements` is an `Ok`, build an [`OutputContext`] and call `output.write(&measurements, &ctx)`.
     /// Otherwise, handle the error.
     async fn write_measurements(
@@ -93,7 +94,9 @@ pub async fn run_blocking_output<Rx: channel::MeasurementReceiver>(
                 }
             },
             measurements = rx.recv(), if receive => {
-                let res = write_measurements(&name, guarded_output.clone(), metrics_reader.clone(), measurements).await?;
+                let res = write_measurements(&name, guarded_output.clone(), metrics_reader.clone(), measurements)
+                    .await
+                    .map_err(|e| PipelineError::for_element(name.clone(), e))?;
                 if res.is_break() {
                     finish = false; // just in case
                     break
@@ -116,7 +119,9 @@ pub async fn run_blocking_output<Rx: channel::MeasurementReceiver>(
                     Err(RecvError::Lagged(n)) => format!("Err(Lagged({n}))"),
                 }
             );
-            let res = write_measurements(&name, guarded_output.clone(), metrics_reader.clone(), received).await?;
+            let res = write_measurements(&name, guarded_output.clone(), metrics_reader.clone(), received)
+                .await
+                .map_err(|e| PipelineError::for_element(name.clone(), e))?;
             if res.is_break() {
                 break;
             }

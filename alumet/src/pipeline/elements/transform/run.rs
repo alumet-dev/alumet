@@ -8,7 +8,11 @@ use std::sync::{
 use anyhow::Context;
 use tokio::sync::{broadcast, mpsc};
 
-use crate::{measurement::MeasurementBuffer, metrics::online::MetricReader, pipeline::naming::TransformName};
+use crate::{
+    measurement::MeasurementBuffer,
+    metrics::online::MetricReader,
+    pipeline::{error::PipelineError, naming::TransformName},
+};
 
 use super::{error::TransformError, Transform, TransformContext};
 
@@ -18,7 +22,7 @@ pub async fn run_all_in_order(
     tx: broadcast::Sender<MeasurementBuffer>,
     active_flags: Arc<AtomicU64>,
     metrics_reader: MetricReader,
-) -> anyhow::Result<()> {
+) -> Result<(), PipelineError> {
     log::trace!(
         "Running transforms: {}",
         transforms
@@ -31,6 +35,7 @@ pub async fn run_all_in_order(
         if let Some(mut measurements) = rx.recv().await {
             // Update the list of active transforms.
             let current_flags = active_flags.load(Ordering::Relaxed);
+            log::trace!("current 'enabled' bitset: {current_flags}");
 
             // Build the transform context.
             // This will block the publication of any modification to the MetricRegistry until the context is dropped.
@@ -52,7 +57,7 @@ pub async fn run_all_in_order(
                         }
                         Err(TransformError::Fatal(e)) => {
                             log::error!("Fatal error in transform {name} (this breaks the transform task!): {e:?}");
-                            return Err(e.context(format!("fatal error in transform {name}")));
+                            return Err(PipelineError::for_element(name.to_owned(), e));
                         }
                     }
                 }

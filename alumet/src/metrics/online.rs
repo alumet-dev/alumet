@@ -86,7 +86,7 @@ pub mod listener {
     {
     }
 
-    pub(super) struct ListenerName {
+    pub struct ListenerName {
         pub plugin: String,
         pub name: String,
     }
@@ -202,7 +202,8 @@ impl MetricRegistryControl {
                 // TODO avoid creating a full namespace hierarchy for this
                 let plugin_name = name.plugin.clone();
                 let mut ns = Namespace2::new();
-                ns.add(name.plugin, name.name, listener as Box<dyn MetricListenerBuilder>);
+                ns.add(name.plugin, name.name, listener as Box<dyn MetricListenerBuilder>)
+                    .expect("the namespace is empty, there cannot be any duplicate");
                 if let Err(e) = self.create_listeners(ns, &rt) {
                     log::error!("Error while building a metric listener for plugin {plugin_name}: {e:?}");
                 }

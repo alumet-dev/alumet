@@ -1,9 +1,8 @@
 //! Construction of measurement pipelines.
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context};
 use fxhash::FxHashMap;
-use tokio::time::error::Elapsed;
 use tokio::{
     runtime::Runtime,
     sync::{broadcast, mpsc},
@@ -24,7 +23,9 @@ use crate::pipeline::Output;
 
 use super::elements::output::builder::OutputBuilder;
 use super::elements::source::builder::SourceBuilder;
+use super::elements::source::trigger::TriggerConstraints;
 use super::elements::transform::builder::TransformBuilder;
+use super::error::PipelineError;
 use super::naming::{
     namespace::{DuplicateNameError, Namespace2},
     OutputName, PluginName, SourceName, TransformName,
@@ -32,7 +33,6 @@ use super::naming::{
 use super::{
     control::key::{OutputKey, SourceKey, TransformKey},
     control::{AnonymousControlHandle, PipelineControl},
-    trigger::TriggerConstraints,
     util,
 };
 
@@ -42,7 +42,7 @@ pub struct MeasurementPipeline {
     _rt_priority: Option<Runtime>,
     control_handle: AnonymousControlHandle,
     metrics: (MetricSender, MetricReader),
-    pipeline_control_task: JoinHandle<()>,
+    pipeline_control_task: JoinHandle<Result<(), PipelineError>>,
     metrics_control_task: JoinHandle<()>,
 }
 
@@ -191,6 +191,33 @@ impl Builder {
     /// in which the transform builders have been added to the builder.
     pub fn transforms_order(&mut self, order: Vec<TransformName>) {
         self.transforms_order = Some(order);
+    }
+
+    /// Replaces each source builder with the result of the closure `f`.
+    pub fn replace_sources(&mut self, mut f: impl FnMut(SourceName, SourceBuilder) -> SourceBuilder) {
+        self.sources.replace_each(|(plugin, source), builder| {
+            let name = SourceName::new(plugin.to_owned(), source.to_owned());
+            f(name, builder)
+        });
+    }
+
+    /// Replaces each transform builder with the result of the closure `f`.
+    pub fn replace_transforms(
+        &mut self,
+        mut f: impl FnMut(TransformName, Box<dyn TransformBuilder>) -> Box<dyn TransformBuilder>,
+    ) {
+        self.transforms.replace_each(|(plugin, transform), builder| {
+            let name = TransformName::new(plugin.to_owned(), transform.to_owned());
+            f(name, builder)
+        });
+    }
+
+    /// Replaces each output builder with the result of the closure `f`.
+    pub fn replace_outputs(&mut self, mut f: impl FnMut(OutputName, OutputBuilder) -> OutputBuilder) {
+        self.outputs.replace_each(|(plugin, output), builder| {
+            let name = OutputName::new(plugin.to_owned(), output.to_owned());
+            f(name, builder)
+        });
     }
 
     /// Builds the measurement pipeline.
@@ -481,6 +508,22 @@ impl<'a> BuilderInspector<'a> {
     }
 }
 
+/// An error was detected while shutting the pipeline down.
+///
+/// This does NOT mean that the shutdown failed.
+/// The error could have happened while the pipeline was running.
+/// Most errors do not terminate the pipeline, they just stop the failed element.
+pub enum ShutdownError {
+    /// An error occurred in the pipeline.
+    ///
+    /// Use methods like [`PipelineError::is_internal`] to differentiate between internal
+    /// pipeline errors (which should not happen) and errors that originated from a pipeline
+    /// element (such as a source).
+    Pipeline(PipelineError),
+    /// Shutdown timeout expired.
+    TimeoutExpired,
+}
+
 impl MeasurementPipeline {
     /// Returns a _control handle_, which allows to send control commands to the pipeline
     /// (in order to modify its configuration) and to shut it down.
@@ -510,11 +553,14 @@ impl MeasurementPipeline {
     ///
     /// # Blocking
     /// This is a blocking function, it should not be called from within an async runtime.
-    pub fn wait_for_shutdown(self, timeout: Option<Duration>) -> Result<anyhow::Result<()>, Elapsed> {
-        log::debug!("pipeline::wait_for_shutdown");
-        let rt = self.rt_normal;
+    pub fn wait_for_shutdown(self, timeout: Option<Duration>) -> Result<(), ShutdownError> {
+        log::debug!(
+            "pipeline::wait_for_shutdown, shutdown={}",
+            self.control_handle.is_shutdown()
+        );
         let shutdown_task = async {
-            self.pipeline_control_task
+            let pipeline_result = self
+                .pipeline_control_task
                 .await
                 .context("pipeline_control_task failed to execute to completion")?;
 
@@ -524,15 +570,42 @@ impl MeasurementPipeline {
                 .context("metrics_control_task failed to execute to completion")?;
 
             log::trace!("metrics_control_task has ended, dropping the pipeline");
-            Ok::<(), anyhow::Error>(())
+            pipeline_result
         };
-        if let Some(duration) = timeout {
+
+        if let Some(timeout) = timeout {
             // It is necessary to wrap the timeout in a new async block, because it needs
             // to be constructed in the context of a Runtime.
-            rt.block_on(async { tokio::time::timeout(duration, shutdown_task).await })
+            let t0 = Instant::now();
+            let res = self
+                .rt_normal
+                .block_on(async { tokio::time::timeout(timeout, shutdown_task).await });
+
+            match res {
+                Ok(res) => {
+                    // Try to shutdown the runtime with a timeout.
+                    // In any case, the runtime will be dropped at the end of this method,
+                    // which will call `shutdown` without any timeout, but it will not hang indefinitely:
+                    // the second shutdown will do nothing, because we already have initiated a shutdown.
+                    let t1 = Instant::now();
+                    let remaining_time = (t1 - t0).saturating_sub(timeout);
+                    self.rt_normal.shutdown_timeout(remaining_time);
+                    if let Some(rt_priority) = self._rt_priority {
+                        let t2 = Instant::now();
+                        let remaining_time = (t2 - t0).saturating_sub(timeout);
+                        rt_priority.shutdown_timeout(remaining_time);
+                    }
+                    let t_end = Instant::now();
+                    if t_end - t0 <= timeout {
+                        res.map_err(ShutdownError::Pipeline)
+                    } else {
+                        Err(ShutdownError::TimeoutExpired)
+                    }
+                }
+                Err(_) => Err(ShutdownError::TimeoutExpired),
+            }
         } else {
-            Ok(rt.block_on(shutdown_task))
+            self.rt_normal.block_on(shutdown_task).map_err(ShutdownError::Pipeline)
         }
-        // the Runtime is dropped
     }
 }

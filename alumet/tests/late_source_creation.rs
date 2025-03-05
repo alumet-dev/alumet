@@ -6,7 +6,7 @@ use std::{
 use alumet::{
     agent::{self, plugin::PluginSet},
     measurement::{MeasurementAccumulator, Timestamp},
-    pipeline::{self, elements::error::PollError, trigger::TriggerSpec},
+    pipeline::{self, elements::error::PollError, elements::source::trigger::TriggerSpec},
     plugin::{
         rust::{serialize_config, AlumetPlugin},
         AlumetPluginStart, AlumetPostStart, ConfigTable,

@@ -4,15 +4,13 @@ use std::str::FromStr;
 
 use alumet::pipeline::control::message::matching::{OutputMatcher, SourceMatcher, TransformMatcher};
 use alumet::pipeline::control::{error::ControlError, AnonymousControlHandle, ControlMessage};
+use alumet::pipeline::elements::source::trigger::TriggerSpec;
+use alumet::pipeline::elements::{output, source, transform};
 use alumet::pipeline::matching::{
     ElementNamePattern, OutputNamePattern, SourceNamePattern, StringPattern, TransformNamePattern,
 };
 use alumet::pipeline::naming::parsing::parse_kind;
 use alumet::pipeline::naming::ElementKind;
-use alumet::pipeline::{
-    elements::{output, source, transform},
-    trigger,
-};
 use anyhow::{anyhow, Context};
 use humantime::parse_duration;
 
@@ -152,7 +150,7 @@ pub fn parse(command: &str) -> anyhow::Result<Command> {
             ["set-period", period] | ["set-poll-interval", period] => match &pat.kind {
                 Some(ElementKind::Source) => {
                     let poll_interval = parse_duration(period)?;
-                    let spec = trigger::TriggerSpec::at_interval(poll_interval);
+                    let spec = TriggerSpec::at_interval(poll_interval);
                     Ok(vec![msg_config_source(
                         pat.try_into().unwrap(),
                         source::control::ConfigureCommand::SetTrigger(spec),
@@ -224,12 +222,12 @@ mod tests {
     use super::{parse, Command};
     use alumet::pipeline::control::message::matching::{OutputMatcher, SourceMatcher, TransformMatcher};
     use alumet::pipeline::elements::source::control::TriggerMessage;
+    use alumet::pipeline::elements::source::trigger::TriggerSpec;
     use alumet::pipeline::matching::{OutputNamePattern, TransformNamePattern};
     use alumet::pipeline::{
         control::ControlMessage,
         elements::{output, source, transform},
         matching::SourceNamePattern,
-        trigger::TriggerSpec,
     };
     use output::control::ControlMessage as OutputControlMessage;
     use regex::Regex;

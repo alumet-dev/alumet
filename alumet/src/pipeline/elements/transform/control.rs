@@ -2,16 +2,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use anyhow::Context;
-use tokio::task::JoinError;
+use tokio::task::{JoinError, JoinSet};
 use tokio::{
     runtime,
     sync::{broadcast, mpsc},
-    task::JoinHandle,
 };
 
 use crate::measurement::MeasurementBuffer;
 use crate::metrics::online::MetricReader;
 use crate::pipeline::control::message::matching::TransformMatcher;
+use crate::pipeline::error::PipelineError;
 use crate::pipeline::naming::TransformName;
 
 use super::builder::{BuildContext, TransformBuilder};
@@ -22,18 +22,26 @@ use super::Transform;
 ///
 /// There can be a maximum of 64 transforms for the moment.
 pub(crate) struct TransformControl {
-    tasks: Option<TaskManager>,
+    tasks: TaskManager,
 }
 
 struct TaskManager {
-    task_handle: JoinHandle<anyhow::Result<()>>,
+    // Even though there is only one task, we don't use its JoinHandle directly,
+    // because awaiting it consumes the task.
+    spawned_tasks: JoinSet<Result<(), PipelineError>>,
     active_bitset: Arc<AtomicU64>,
     names_by_bitset_position: Vec<TransformName>,
 }
 
 impl TransformControl {
     pub fn empty() -> Self {
-        Self { tasks: None }
+        Self {
+            tasks: TaskManager {
+                spawned_tasks: JoinSet::new(),
+                active_bitset: Arc::new(AtomicU64::new(0)),
+                names_by_bitset_position: Vec::new(),
+            },
+        }
     }
 
     pub fn with_transforms(
@@ -53,39 +61,35 @@ impl TransformControl {
             built.push((full_name, transform));
         }
         let tasks = TaskManager::spawn(built, metrics.clone(), rx, tx, rt_normal);
-        Ok(Self { tasks: Some(tasks) })
+        Ok(Self { tasks })
     }
 
     pub fn handle_message(&mut self, msg: ControlMessage) -> anyhow::Result<()> {
-        if let Some(tasks) = &mut self.tasks {
-            tasks.reconfigure(msg);
-        }
+        self.tasks.reconfigure(msg);
         Ok(())
     }
 
-    pub fn has_task(&self) -> bool {
-        self.tasks.is_some()
-    }
-
-    pub async fn join_next_task(&mut self) -> Result<anyhow::Result<()>, JoinError> {
-        // Take the handle to avoid "JoinError: task polled after completion"
-        match &mut self.tasks.take() {
-            Some(tasks) => (&mut tasks.task_handle).await,
-            None => panic!("join_next_task() should only be called if has_task()"),
+    pub async fn join_next_task(&mut self) -> Result<Result<(), PipelineError>, JoinError> {
+        match self.tasks.spawned_tasks.join_next().await {
+            Some(res) => res,
+            None => unreachable!("join_next_task must be guarded by has_task to prevent an infinite loop"),
         }
     }
 
-    pub async fn shutdown<F>(self, handle_task_result: F)
+    pub fn has_task(&self) -> bool {
+        !self.tasks.spawned_tasks.is_empty()
+    }
+
+    pub async fn shutdown<F>(mut self, mut handle_task_result: F)
     where
-        F: Fn(Result<anyhow::Result<()>, tokio::task::JoinError>),
+        F: FnMut(Result<Result<(), PipelineError>, tokio::task::JoinError>),
     {
         // Nothing to do to stop the tasks: the transform task will naturally
         // stop when the input channel is closed.
 
         // We simply wait for the task to finish.
-        match self.tasks {
-            Some(tasks) => handle_task_result(tasks.task_handle.await),
-            None => (),
+        while let Some(res) = self.tasks.spawned_tasks.join_next().await {
+            handle_task_result(res);
         }
     }
 }
@@ -107,11 +111,12 @@ impl TaskManager {
         }
 
         // Start the transforms task.
+        let mut set = JoinSet::new();
         let active_bitset = Arc::new(AtomicU64::new(active_bitset));
         let task = run_all_in_order(transforms, rx, tx, active_bitset.clone(), metrics_r);
-        let task_handle = rt_normal.spawn(task);
+        set.spawn_on(task, rt_normal);
         Self {
-            task_handle,
+            spawned_tasks: set,
             active_bitset,
             names_by_bitset_position,
         }
@@ -132,6 +137,7 @@ impl TaskManager {
             }
         }
         self.active_bitset.store(bitset, Ordering::Relaxed);
+        log::trace!("new 'enabled' bitset: {bitset}");
     }
 }
 

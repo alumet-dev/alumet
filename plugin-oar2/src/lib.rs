@@ -1,7 +1,8 @@
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
-    pipeline::{control::ScopedControlHandle, elements::error::PollError, trigger::TriggerSpec, Source},
+    pipeline::elements::source::trigger::TriggerSpec,
+    pipeline::{control::ScopedControlHandle, elements::error::PollError, Source},
     plugin::{
         rust::{deserialize_config, serialize_config, AlumetPlugin},
         AlumetPluginStart, AlumetPostStart, ConfigTable,

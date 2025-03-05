@@ -2,9 +2,9 @@ use tokio::sync::mpsc::{self, Sender};
 use tokio_util::sync::CancellationToken;
 
 use crate::pipeline::{
-    elements::source::{self, builder::ManagedSourceBuilder},
+    elements::source::{self, builder::ManagedSourceBuilder, trigger},
     naming::{PluginName, SourceName},
-    trigger, Source,
+    Source,
 };
 
 use super::{
@@ -48,6 +48,10 @@ mod tests {
 impl AnonymousControlHandle {
     pub(super) fn new(tx: Sender<ControlMessage>, shutdown: CancellationToken) -> Self {
         Self { tx, shutdown }
+    }
+
+    pub(crate) fn is_shutdown(&self) -> bool {
+        self.shutdown.is_cancelled()
     }
 
     /// Sends a control message to the pipeline, waiting until there is capacity.

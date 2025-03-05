@@ -1,24 +1,24 @@
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use anyhow::Context;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 
 use crate::measurement::{MeasurementBuffer, Timestamp};
+use crate::pipeline::error::PipelineError;
 use crate::pipeline::naming::SourceName;
-use crate::pipeline::trigger::TriggerReason;
 
 use super::control::TaskState;
 use super::error::PollError;
 use super::interface::{AutonomousSource, Source};
+use super::trigger::TriggerReason;
 
 pub(crate) async fn run_managed(
     source_name: SourceName,
     mut source: Box<dyn Source>,
     tx: mpsc::Sender<MeasurementBuffer>,
     config: Arc<super::task_controller::SharedSourceConfig>,
-) -> anyhow::Result<()> {
+) -> Result<(), PipelineError> {
     /// Flushes the measurement and returns a new buffer.
     fn flush(buffer: MeasurementBuffer, tx: &mpsc::Sender<MeasurementBuffer>, name: &SourceName) -> MeasurementBuffer {
         // Hint for the new buffer capacity, great if the number of measurements per flush doesn't change much,
@@ -83,7 +83,7 @@ pub(crate) async fn run_managed(
         let reason = trigger
             .next(config_change)
             .await
-            .with_context(|| source_name.to_string())?;
+            .map_err(|err| PipelineError::for_element(source_name.clone(), err))?;
 
         let mut update;
         match reason {
@@ -101,7 +101,7 @@ pub(crate) async fn run_managed(
                     }
                     Err(PollError::Fatal(e)) => {
                         log::error!("Fatal error when polling {source_name} (will stop running): {e:?}");
-                        return Err(e.context(format!("fatal error when polling {source_name}")));
+                        return Err(PipelineError::for_element(source_name, e));
                     }
                 };
 
@@ -150,12 +150,20 @@ pub(crate) async fn run_managed(
         flush(buffer, &tx, &source_name);
     }
 
+    // log the name of the source, so we know which source terminates
+    log::debug!("{source_name} stops.");
     Ok(())
 }
 
-pub async fn run_autonomous(source_name: SourceName, source: AutonomousSource) -> anyhow::Result<()> {
-    source.await.map_err(|e| {
-        log::error!("Error in autonomous source {source_name} (will stop running): {e:?}");
-        e.context(format!("error in autonomous source {source_name}"))
-    })
+pub async fn run_autonomous(source_name: SourceName, source: AutonomousSource) -> Result<(), PipelineError> {
+    match source.await {
+        Ok(_) => {
+            log::debug!("{source_name} stops.");
+            Ok(())
+        }
+        Err(e) => {
+            log::error!("Error in autonomous source {source_name} (will stop running): {e:?}");
+            Err(PipelineError::for_element(source_name, e))
+        }
+    }
 }

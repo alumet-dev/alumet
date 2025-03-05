@@ -8,10 +8,10 @@ use crate::{
         online::{MetricReader, MetricSender},
         registry::MetricRegistry,
     },
-    pipeline::trigger::TriggerSpec,
 };
 
 use super::interface::{AutonomousSource, Source};
+use super::trigger::TriggerSpec;
 
 // Trait aliases are unstable, and the following is not enough to help deduplicating code in plugin::phases.
 //
@@ -25,7 +25,8 @@ use super::interface::{AutonomousSource, Source};
 /// ```
 /// use std::time::Duration;
 /// use alumet::pipeline::elements::source::builder::{ManagedSource, ManagedSourceBuilder, ManagedSourceBuildContext};
-/// use alumet::pipeline::{trigger, Source};
+/// use alumet::pipeline::elements::source::trigger;
+/// use alumet::pipeline::Source;
 ///
 /// fn build_my_source() -> anyhow::Result<Box<dyn Source>> {
 ///     todo!("build a new source")
@@ -46,8 +47,8 @@ impl<F> ManagedSourceBuilder for F where F: FnOnce(&mut dyn ManagedSourceBuildCo
 ///
 /// # Example
 /// ```
-/// use alumet::pipeline::elements::source::builder::{AutonomousSourceBuilder, AutonomousSourceBuildContext};
-/// use alumet::pipeline::{trigger, Source};
+/// use alumet::pipeline::elements::source::{trigger, builder::{AutonomousSourceBuilder, AutonomousSourceBuildContext}};
+/// use alumet::pipeline::Source;
 /// use alumet::measurement::MeasurementBuffer;
 ///
 /// use std::time::Duration;

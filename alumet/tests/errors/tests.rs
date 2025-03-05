@@ -261,7 +261,12 @@ fn error_source2_build() -> anyhow::Result<()> {
             ..Default::default()
         },
         // The pipeline should continue to run, without the erroneous source.
-        ExpectedCatchPoints::default(),
+        // TODO add a method to check that the pipeline is still running before wait_for_shutdown,
+        // which now returns any runtime errors even if it doesn't close the pipeline.
+        ExpectedCatchPoints {
+            wait_for_shutdown: Expect::Error,
+            ..Default::default()
+        },
     );
     let plugins = static_plugins![super::plugin::BadPlugin];
     super::agent::build_and_run(plugins)

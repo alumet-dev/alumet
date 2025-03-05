@@ -64,8 +64,22 @@ impl<V> Namespace2<V> {
         self.map.iter()
     }
 
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&(String, String), &mut V)> {
+        self.map.iter_mut()
+    }
+
     pub fn flat_keys(&self) -> impl Iterator<Item = &(String, String)> {
         self.map.keys()
+    }
+
+    pub fn replace_each(&mut self, mut f: impl FnMut(&(String, String), V) -> V) {
+        self.map = std::mem::take(&mut self.map)
+            .into_iter()
+            .map(|(keys, v)| {
+                let replaced = f(&keys, v);
+                (keys, replaced)
+            })
+            .collect();
     }
 }
 

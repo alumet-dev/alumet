@@ -7,9 +7,8 @@ use super::points::{error_point, panic_point};
 use alumet::measurement::{MeasurementAccumulator, MeasurementBuffer, Timestamp};
 use alumet::pipeline::elements::error::PollError;
 use alumet::pipeline::elements::output::{OutputContext, WriteError};
-use alumet::pipeline::elements::source::builder::ManagedSource;
+use alumet::pipeline::elements::source::{builder::ManagedSource, trigger::TriggerSpec};
 use alumet::pipeline::elements::transform::{TransformContext, TransformError};
-use alumet::pipeline::trigger::TriggerSpec;
 use alumet::pipeline::{Output, Source, Transform};
 use alumet::plugin::{
     rust::{serialize_config, AlumetPlugin},

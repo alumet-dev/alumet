@@ -13,10 +13,7 @@ fn main() {
     println!("cargo:rustc-env=ALUMET_H_BINDINGS_DIR={}", bindgen_out_dir);
 
     let bindgen_out_dir = PathBuf::from(bindgen_out_dir);
-    let alumet_ffi_header = bindgen_out_dir.join("alumet.h");
     let alumet_ffi_symbols = bindgen_out_dir.join("alumet-symbols.txt");
-
-    let header_path = alumet_ffi_header.canonicalize().unwrap();
     let symfile_path = alumet_ffi_symbols.canonicalize().unwrap();
 
     // Add link flags

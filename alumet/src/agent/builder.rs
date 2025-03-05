@@ -3,8 +3,10 @@
 use std::{collections::HashMap, ops::DerefMut, time::Duration};
 
 use anyhow::{anyhow, Context};
+use thiserror::Error;
 
 use crate::agent::plugin::PluginInfo;
+use crate::pipeline::error::PipelineError;
 use crate::plugin::phases::PreStartAction;
 use crate::plugin::{AlumetPluginStart, AlumetPostStart, ConfigTable, Plugin};
 use crate::{
@@ -36,9 +38,36 @@ pub struct Builder {
 
 struct Callbacks {
     after_plugins_init: Box<dyn FnOnce(&mut Vec<Box<dyn Plugin>>)>,
-    after_plugins_start: Box<dyn FnOnce(&pipeline::Builder)>,
-    before_operation_begin: Box<dyn FnOnce(&pipeline::Builder)>,
+    after_plugins_start: Box<dyn FnOnce(&mut pipeline::Builder)>,
+    before_operation_begin: Box<dyn FnOnce(&mut pipeline::Builder)>,
     after_operation_begin: Box<dyn FnOnce(&mut pipeline::MeasurementPipeline)>,
+}
+
+/// An error was detected while shutting the agent down.
+///
+/// See also [`PipelineError`].
+#[derive(Debug, Error)]
+pub enum AgentShutdownError {
+    /// An error occurred in the pipeline.
+    #[error("error detected while shutting down the pipeline")]
+    Pipeline(#[source] PipelineError),
+    /// An error occurred in a plugin.
+    #[error("error while shutting down plugin {0}")]
+    Plugin(String),
+    /// Shutdown timeout expired.
+    #[error("agent shutdown timeout expired")]
+    TimeoutExpired,
+}
+
+#[derive(Debug, Error)]
+#[error("{} errors while shutting the agent down", errors.len())]
+pub struct ShutdownError {
+    pub errors: Vec<AgentShutdownError>,
+}
+
+#[cfg(feature = "test")]
+pub trait TestExpectations {
+    fn setup(self, builder: Builder) -> Builder;
 }
 
 impl Default for Callbacks {
@@ -83,7 +112,7 @@ impl Builder {
     ///
     /// There can be only one callback. If this function is called more than once,
     /// only the last callback will be called.
-    pub fn after_plugins_start<F: FnOnce(&pipeline::Builder) + 'static>(mut self, f: F) -> Self {
+    pub fn after_plugins_start<F: FnOnce(&mut pipeline::Builder) + 'static>(mut self, f: F) -> Self {
         self.callbacks.after_plugins_start = Box::new(f);
         self
     }
@@ -92,7 +121,7 @@ impl Builder {
     ///
     /// There can be only one callback. If this function is called more than once,
     /// only the last callback will be called.
-    pub fn before_operation_begin<F: FnOnce(&pipeline::Builder) + 'static>(mut self, f: F) -> Self {
+    pub fn before_operation_begin<F: FnOnce(&mut pipeline::Builder) + 'static>(mut self, f: F) -> Self {
         self.callbacks.before_operation_begin = Box::new(f);
         self
     }
@@ -256,8 +285,8 @@ impl Builder {
                 &mut post_start_actions,
             )?;
         }
-        print_stats(&pipeline_builder, &initialized_plugins, &disabled_plugins);
-        (self.callbacks.after_plugins_start)(&pipeline_builder);
+        print_stats(&mut pipeline_builder, &initialized_plugins, &disabled_plugins);
+        (self.callbacks.after_plugins_start)(&mut pipeline_builder);
 
         // pre-pipeline-start actions
         log::info!("Running pre-pipeline-start hooks...");
@@ -265,7 +294,7 @@ impl Builder {
         for plugin in initialized_plugins.iter_mut() {
             pre_pipeline_start(plugin.deref_mut(), &mut pipeline_builder, &mut pre_actions_per_plugin)?;
         }
-        (self.callbacks.before_operation_begin)(&pipeline_builder);
+        (self.callbacks.before_operation_begin)(&mut pipeline_builder);
 
         // Build and start the pipeline.
         log::info!("Starting the measurement pipeline...");
@@ -288,15 +317,27 @@ impl Builder {
         };
         Ok(agent)
     }
+
+    /// Applies test expectations to this builder.
+    #[cfg(feature = "test")]
+    pub fn with_expectations<E: TestExpectations>(self, expectations: E) -> Self {
+        expectations.setup(self)
+    }
+
+    #[cfg(feature = "test")]
+    pub fn pipeline(&mut self) -> &mut pipeline::Builder {
+        &mut self.pipeline_builder
+    }
 }
 
 impl RunningAgent {
     /// Waits until the measurement pipeline stops, then stops the plugins.
     ///
-    /// See the [module documentation](super::agent).
-    pub fn wait_for_shutdown(self, timeout: Duration) -> anyhow::Result<()> {
+    /// See the [module documentation](super).
+    pub fn wait_for_shutdown(self, timeout: Duration) -> Result<(), ShutdownError> {
         use std::panic::{catch_unwind, AssertUnwindSafe};
-        let mut n_errors = 0;
+
+        let mut errors = Vec::new();
 
         // Tokio's timeout has a maximum timeout that is much smaller than Duration::MAX,
         // and will replace the latter by its maximum timeout.
@@ -307,18 +348,10 @@ impl RunningAgent {
         // Also, **drop** the pipeline before stopping the plugin, because Plugin::stop expects
         // the sources, transforms and outputs to be stopped and dropped before it is called.
         // All tokio tasks that have not finished yet will abort.
-        match self.pipeline.wait_for_shutdown(timeout) {
-            Ok(Ok(_)) => (),
-            Ok(Err(err)) => {
-                log::error!("Error in the measurement pipeline: {err:?}");
-                n_errors += 1;
-            }
-            Err(_elapsed) => {
-                log::error!(
-                    "Timeout of {:?} expired while waiting for the pipeline to shut down",
-                    timeout.unwrap()
-                );
-                n_errors += 1;
+        if let Err(e) = self.pipeline.wait_for_shutdown(timeout) {
+            match e {
+                pipeline::builder::ShutdownError::Pipeline(e) => errors.push(AgentShutdownError::Pipeline(e)),
+                pipeline::builder::ShutdownError::TimeoutExpired => errors.push(AgentShutdownError::TimeoutExpired),
             }
         }
 
@@ -336,44 +369,44 @@ impl RunningAgent {
             })) {
                 Ok(Ok(())) => (),
                 Ok(Err(e)) => {
-                    log::error!("Error while stopping plugin {name} v{version}. {e:#}");
-                    n_errors += 1;
+                    log::error!("Error while stopping plugin {name} v{version}. {e:?}");
+                    errors.push(AgentShutdownError::Plugin(name));
                 }
                 Err(panic_payload) => {
                     log::error!(
                         "PANIC while stopping plugin {name} v{version}. There is probably a bug in the plugin!
                         Please check the implementation of stop (and drop if Drop is implemented for the plugin type)."
                     );
-                    n_errors += 1;
+                    errors.push(AgentShutdownError::Plugin(name.clone()));
+
                     // dropping the panic payload may, in turn, panic!
-                    let _ = catch_unwind(AssertUnwindSafe(move || {
+                    let dropped = catch_unwind(AssertUnwindSafe(move || {
                         drop(panic_payload);
-                    }))
-                    .map_err(|panic2| {
+                    }));
+                    if let Err(panic2) = dropped {
                         log::error!(
                             "PANIC while dropping panic payload generated while stopping plugin {name} v{version}."
                         );
                         // We cannot drop it, forget it.
                         // Alumet will stop after this anyway, but the plugin should be fixed.
                         std::mem::forget(panic2);
-                    });
+                    }
                 }
             }
         }
         log::info!("All plugins have stopped.");
 
-        if n_errors == 0 {
+        if errors.is_empty() {
             Ok(())
         } else {
-            let error_str = if n_errors == 1 { "error" } else { "errors" };
-            Err(anyhow!("{n_errors} {error_str} occurred during the shutdown phase"))
+            Err(ShutdownError { errors })
         }
     }
 }
 
 /// Prints some statistics after the plugin start-up phase.
 fn print_stats(
-    pipeline_builder: &pipeline::Builder,
+    pipeline_builder: &mut pipeline::Builder,
     enabled_plugins: &[Box<dyn Plugin>],
     disabled_plugins: &[PluginInfo],
 ) {

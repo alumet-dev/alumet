@@ -38,7 +38,7 @@ impl From<SendOutputBuilder> for OutputBuilder {
 ///  # Example
 /// ```
 /// use alumet::pipeline::elements::output::builder::{BlockingOutputBuilder, BlockingOutputBuildContext};
-/// use alumet::pipeline::{trigger, Output};
+/// use alumet::pipeline::Output;
 ///
 /// fn build_my_output() -> anyhow::Result<Box<dyn Output>> {
 ///     todo!("build a new output")
