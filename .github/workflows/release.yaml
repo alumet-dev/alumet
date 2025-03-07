@@ -89,7 +89,7 @@ jobs:
           files: |
             rpm/**/*.rpm
 
-      - name: Get Latest Release and Delete Old Artifacts
+      - name: Get latest release and delete old artifacts
         if: ${{ github.event_name == 'workflow_dispatch' }}
         id: get_latest_release_and_delete_old_artifacts
         uses: actions/github-script@v6
@@ -121,7 +121,7 @@ jobs:
             core.setOutput("release_id", id);
             core.setOutput("release_tag", tag);
 
-      - name: Upload New Artifacts
+      - name: Upload new artifacts to github release 
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
