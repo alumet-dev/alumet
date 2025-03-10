@@ -1,3 +1,4 @@
+---
 name: Check documentation
 on: [pull_request, push]
 
