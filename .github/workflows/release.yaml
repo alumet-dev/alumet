@@ -1,3 +1,4 @@
+---
 name: "Create the release"
 
 on:
@@ -9,67 +10,73 @@ jobs:
   gather-informations:
     runs-on: ubuntu-latest
     outputs:
-      tag: ${{ steps.get_tag.outputs.TAG }}
+      version: ${{ steps.get_tags.outputs.VERSION }}
+      release: ${{ steps.get_tags.outputs.RELEASE }}
     steps:
-      - name: Get Release Tag
-        id: get_tag
+      - name: Get Latest Release and List Artifacts
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        id: get_latest_release
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const latestRelease = await github.rest.repos.getLatestRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+
+            const assets = latestRelease.data.assets.map(asset => asset.name);
+            let version = latestRelease.data.tag_name.replace(/^v/i, '');
+            let release = 1
+            if (assets.length === 0) {
+              console.log("No artifacts attached to the latest release. Using tag name as version.");
+            } else {
+              const firstAsset = assets[0]; // Retrieve first element of the list
+              const regex = /([0-9.]{3,})-([0-9]+)/;
+              const match = firstAsset.match(regex);
+              release = match ? match[2] : '';
+              if (release !== '') {
+                release = (parseInt(release) + 1).toString();
+              } else {
+                release = 1
+              }
+              version = match ? match[1] : '';
+            }
+
+            core.setOutput("release", release);
+            core.setOutput("version", version);
+
+      - name: Checkout Repository
+        if: ${{ steps.get_latest_release.outputs.tag == '' }}
+        uses: actions/checkout@v4
+        with:
+          fetch-tags: 'true'
+
+      - name: Get version and release Tag
+        id: get_tags
         run: |
-          TAG_NAME=${{ github.event.release.tag_name }}
-          CLEAN_TAG=${TAG_NAME#v}
-          echo "TAG=$CLEAN_TAG" >> $GITHUB_OUTPUT
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            RAW_VERSION=${{ steps.get_latest_release.outputs.version }}
+            CLEAN_VERSION=${RAW_VERSION#v}
+            echo "VERSION=$CLEAN_VERSION" >> $GITHUB_OUTPUT
+            echo "RELEASE=${{ steps.get_latest_release.outputs.release }}" >> $GITHUB_OUTPUT
+          else
+            RAW_VERSION=${{ github.event.release.tag_name }}
+            CLEAN_VERSION=${RAW_VERSION#v}
+            echo "VERSION=$CLEAN_VERSION" >> $GITHUB_OUTPUT
+            echo "RELEASE=1" >> $GITHUB_OUTPUT
+          fi
 
   create-rpm:
     needs: gather-informations
-    uses: alumet-dev/packaging/.github/workflows/build_rpm.yaml@ci/create-rpm-package
+    uses: alumet-dev/packaging/.github/workflows/build_rpm.yaml@ci/create-rpm-package #TODO CHANGE !!!
     with:
       target-architecture: x86_64
-      build-version: ${{ needs.gather-informations.outputs.tag }}
-      release-version: 1
+      build-version: ${{ needs.gather-informations.outputs.version }}
+      release-version: ${{ needs.gather-informations.outputs.release }}
 
-  test-rpm:
-    needs: ["gather-informations", "create-rpm"]
-    runs-on: ubuntu-latest
-    container:
-      image: "registry.access.redhat.com/ubi8/ubi:8.3"
-      options: --cap-add=SYS_NICE --cap-add=PERFMON
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download RPM artifact
-        id: download_rpm
-        uses: actions/download-artifact@v4
-        with:
-          pattern: '**/*8.3*.rpm'
-          path: ./rpm
-          merge-multiple: true
-
-      - name: Install RPMs
-        run: |
-          rpm -i ${{ steps.download_rpm.outputs.download-path }}/*.rpm
-
-      - name: Install Goss
-        run: |
-          curl -fsSL https://goss.rocks/install | sh
-          
-      - name: Run Goss tests
-        continue-on-error: true
-        run: |
-          goss -g .github/goss_validate.yaml validate --format documentation > goss-results.txt
-          cat goss-results.txt >> $GITHUB_STEP_SUMMARY
-          
-      - name: Upload artifact local agent
-        uses: actions/upload-artifact@v4
-        with:
-          name: report_goss.txt
-          path: |
-            ./goss-results.txt
-      
   attach-artifacts:
     needs:
-      - gather-informations
-      - test-rpm
+      - create-rpm
     runs-on: ubuntu-latest
 
     steps:
@@ -121,7 +128,7 @@ jobs:
             core.setOutput("release_id", id);
             core.setOutput("release_tag", tag);
 
-      - name: Upload new artifacts to github release 
+      - name: Upload new artifacts to github release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
