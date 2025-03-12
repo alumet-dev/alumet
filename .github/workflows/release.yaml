@@ -1,135 +1,141 @@
 ---
-name: "Create the release"
-
-on:
-  release:
-    types: ["created", "published", "prereleased"]
-  workflow_dispatch:
-
-jobs:
-  gather-informations:
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.get_tags.outputs.VERSION }}
-      release: ${{ steps.get_tags.outputs.RELEASE }}
-    steps:
-      - name: Get Latest Release and List Artifacts
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        id: get_latest_release
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const latestRelease = await github.rest.repos.getLatestRelease({
-              owner: context.repo.owner,
-              repo: context.repo.repo
-            });
-
-            const assets = latestRelease.data.assets.map(asset => asset.name);
-            let version = latestRelease.data.tag_name.replace(/^v/i, '');
-            let release = 1
-            if (assets.length === 0) {
-              console.log("No artifacts attached to the latest release. Using tag name as version.");
-            } else {
-              const firstAsset = assets[0]; // Retrieve first element of the list
-              const regex = /([0-9.]{3,})-([0-9]+)/;
-              const match = firstAsset.match(regex);
-              release = match ? match[2] : '';
-              if (release !== '') {
-                release = (parseInt(release) + 1).toString();
+  name: "Create the release"
+  
+  on:
+    release:
+      types: ["created", "published", "prereleased"]
+    workflow_dispatch:
+  
+  jobs:
+    gather-informations:
+      runs-on: ubuntu-latest
+      outputs:
+        version: ${{ steps.get_tags.outputs.VERSION }}
+        release: ${{ steps.get_tags.outputs.RELEASE }}
+        tag: ${{ steps.get_tags.outputs.TAG }}
+      steps:
+        - name: Get Latest Release and List Artifacts
+          if: ${{ github.event_name == 'workflow_dispatch' }}
+          id: get_latest_release
+          uses: actions/github-script@v6
+          with:
+            script: |
+              const latestRelease = await github.rest.repos.getLatestRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo
+              });
+  
+              const assets = latestRelease.data.assets.map(asset => asset.name);
+              let version = latestRelease.data.tag_name.replace(/^v/i, '');
+              let release = 1
+              if (assets.length === 0) {
+                console.log("No artifacts attached to the latest release. Using tag name as version.");
               } else {
-                release = 1
+                const firstAsset = assets[0]; // Retrieve first element of the list
+                const regex = /([0-9.]{3,})-([0-9]+)/;
+                const match = firstAsset.match(regex);
+                release = match ? match[2] : '';
+                if (release !== '') {
+                  release = (parseInt(release) + 1).toString();
+                } else {
+                  release = 1
+                }
+                version = match ? match[1] : '';
               }
-              version = match ? match[1] : '';
-            }
-
-            core.setOutput("release", release);
-            core.setOutput("version", version);
-
-      - name: Checkout Repository
-        if: ${{ steps.get_latest_release.outputs.tag == '' }}
-        uses: actions/checkout@v4
-        with:
-          fetch-tags: 'true'
-
-      - name: Get version and release Tag
-        id: get_tags
-        run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            RAW_VERSION=${{ steps.get_latest_release.outputs.version }}
-            CLEAN_VERSION=${RAW_VERSION#v}
-            echo "VERSION=$CLEAN_VERSION" >> $GITHUB_OUTPUT
-            echo "RELEASE=${{ steps.get_latest_release.outputs.release }}" >> $GITHUB_OUTPUT
-          else
-            RAW_VERSION=${{ github.event.release.tag_name }}
-            CLEAN_VERSION=${RAW_VERSION#v}
-            echo "VERSION=$CLEAN_VERSION" >> $GITHUB_OUTPUT
-            echo "RELEASE=1" >> $GITHUB_OUTPUT
-          fi
-
-  create-rpm:
-    needs: gather-informations
-    uses: alumet-dev/packaging/.github/workflows/build_rpm.yaml@ci/create-rpm-package #TODO CHANGE !!!
-    with:
-      target-architecture: x86_64
-      build-version: ${{ needs.gather-informations.outputs.version }}
-      release-version: ${{ needs.gather-informations.outputs.release }}
-
-  attach-artifacts:
-    needs:
-      - create-rpm
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download RPM artifact
-        uses: actions/download-artifact@v4
-        with:
-          pattern: '**/*.rpm'
-          path: ./rpm
-
-      - name: Release
-        if: ${{ github.event_name != 'workflow_dispatch' }}
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            rpm/**/*.rpm
-
-      - name: Get latest release and delete old artifacts
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        id: get_latest_release_and_delete_old_artifacts
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const latestRelease = await github.rest.repos.getLatestRelease({
-              owner: context.repo.owner,
-              repo: context.repo.repo
-            });
-
-            let id = latestRelease.data.id;
-            let tag = latestRelease.data.tag_name;
-
-            const assets = await github.rest.repos.listReleaseAssets({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              release_id: id
-            });
-
-            for (const asset of assets.data) {
-              await github.rest.repos.deleteReleaseAsset({
+  
+              core.setOutput("release", release);
+              core.setOutput("version", version);
+              core.setOutput("tag", latestRelease.data.tag_name);
+  
+        - name: Checkout Repository
+          if: ${{ steps.get_latest_release.outputs.tag == '' }}
+          uses: actions/checkout@v4
+          with:
+            fetch-tags: 'true'
+  
+        - name: Get version and release Tag
+          id: get_tags
+          run: |
+            if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+              RAW_VERSION=${{ steps.get_latest_release.outputs.version }}
+              CLEAN_VERSION=${RAW_VERSION#v}
+              echo "VERSION=$CLEAN_VERSION" >> $GITHUB_OUTPUT
+              echo "RELEASE=${{ steps.get_latest_release.outputs.release }}" >> $GITHUB_OUTPUT
+              echo "TAG=${{ steps.get_latest_release.outputs.tag }}" >> $GITHUB_OUTPUT
+            else
+              RAW_VERSION=${{ github.event.release.tag_name }}
+              CLEAN_VERSION=${RAW_VERSION#v}
+              echo "VERSION=$CLEAN_VERSION" >> $GITHUB_OUTPUT
+              echo "RELEASE=1" >> $GITHUB_OUTPUT
+              echo "TAG=$RAW_VERSION" >> $GITHUB_OUTPUT
+            fi
+  
+    create-rpm:
+      needs: gather-informations
+      uses: alumet-dev/packaging/.github/workflows/build_rpm.yaml@ci/create-rpm-package  # TODO CHANGE !!!
+      with:
+        target-architecture: x86_64
+        build-version: ${{ needs.gather-informations.outputs.version }}
+        release-version: ${{ needs.gather-informations.outputs.release }}
+        tag: ${{ needs.gather-informations.outputs.tag }}
+  
+    attach-artifacts:
+      needs:
+        - create-rpm
+      runs-on: ubuntu-latest
+  
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v4
+  
+        - name: Download RPM artifact
+          uses: actions/download-artifact@v4
+          with:
+            pattern: '**/*.rpm'
+            path: ./rpm
+  
+        - name: Release
+          if: ${{ github.event_name != 'workflow_dispatch' }}
+          uses: softprops/action-gh-release@v2
+          with:
+            files: |
+              rpm/**/*.rpm
+  
+        - name: Get latest release and delete old artifacts
+          if: ${{ github.event_name == 'workflow_dispatch' }}
+          id: get_latest_release_and_delete_old_artifacts
+          uses: actions/github-script@v6
+          with:
+            script: |
+              const latestRelease = await github.rest.repos.getLatestRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo
+              });
+  
+              let id = latestRelease.data.id;
+              let tag = latestRelease.data.tag_name;
+  
+              const assets = await github.rest.repos.listReleaseAssets({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                asset_id: asset.id
+                release_id: id
               });
-            }
-            console.log(`Release id: ${id}`);
-            console.log(`Release tag: ${tag}`);
-            core.setOutput("release_id", id);
-            core.setOutput("release_tag", tag);
-
-      - name: Upload new artifacts to github release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          find rpm -type f -exec gh release upload ${{ steps.get_latest_release_and_delete_old_artifacts.outputs.release_tag }} {} \;
+  
+              for (const asset of assets.data) {
+                await github.rest.repos.deleteReleaseAsset({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  asset_id: asset.id
+                });
+              }
+              console.log(`Release id: ${id}`);
+              console.log(`Release tag: ${tag}`);
+              core.setOutput("release_id", id);
+              core.setOutput("release_tag", tag);
+  
+        - name: Upload new artifacts to github release
+          env:
+            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          run: |
+            find rpm -type f -exec gh release upload ${{ steps.get_latest_release_and_delete_old_artifacts.outputs.release_tag }} {} \;
+  
