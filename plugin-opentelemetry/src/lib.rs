@@ -42,7 +42,7 @@ impl AlumetPlugin for OpenTelemetryPlugin {
     }    
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
-        alumet.add_blocking_output(self.output.clone());
+        alumet.add_blocking_output(OpenTelemetryPlugin::name(), self.output.clone());
         Ok(())
     }
 
