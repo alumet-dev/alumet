@@ -52,10 +52,10 @@ impl OpenTelemetryOutput {
             add_attributes_to_labels,
             prefix,
             suffix,
-            initialized:false,
+            initialized: false,
         })
     }
-    pub fn initialize(){
+    pub fn initialize() {
         // Needs to be created inside the tokio thread
         let meter_provider = init_metrics();
         global::set_meter_provider(meter_provider.clone());
@@ -63,7 +63,6 @@ impl OpenTelemetryOutput {
 }
 
 impl alumet::pipeline::Output for OpenTelemetryOutput {
-    
     fn write(&mut self, measurements: &MeasurementBuffer, ctx: &OutputContext) -> Result<(), WriteError> {
         if measurements.is_empty() {
             return Ok(());

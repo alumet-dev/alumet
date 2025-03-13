@@ -39,7 +39,7 @@ impl AlumetPlugin for OpenTelemetryPlugin {
             config.suffix.clone(),
         )?);
         Ok(Box::new(OpenTelemetryPlugin { output: otel_output }))
-    }    
+    }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
         alumet.add_blocking_output(OpenTelemetryPlugin::name(), self.output.clone());
