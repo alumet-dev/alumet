@@ -25,6 +25,7 @@ impl AlumetPlugin for OpenTelemetryPlugin {
 
     fn init(config: alumet::plugin::ConfigTable) -> anyhow::Result<Box<Self>> {
         let config: Config = deserialize_config(config)?;
+        // Threads only read this value
         env::set_var(
             "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
             format!("{}{}", config.collector_host, "/v1/metrics"),
@@ -38,10 +39,9 @@ impl AlumetPlugin for OpenTelemetryPlugin {
             config.suffix.clone(),
         )?);
         Ok(Box::new(OpenTelemetryPlugin { output: otel_output }))
-    }
+    }    
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
-        // Add output for processing measurements
         alumet.add_blocking_output(self.output.clone());
         Ok(())
     }

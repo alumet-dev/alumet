@@ -8,12 +8,7 @@ edition = "2021"
 [dependencies]
 alumet = { path = "../alumet" }
 anyhow = "1.0.88"
-log = "0.4.22"
 serde = { version = "1.0.210", features = ["derive"] }
-time = { version = "0.3.36", features = ["formatting"] }
-hyper = { version = "0.14", features = ["full"] }
-hyper-tls = "0.5"
-tokio = { version = "1.0", features = ["full"] }
 opentelemetry = { version = "*" }
 opentelemetry_sdk = { version = "*" }
 opentelemetry-otlp = { version = "*", features = ["grpc-tonic"]}

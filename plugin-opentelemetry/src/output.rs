@@ -16,6 +16,7 @@ pub struct OpenTelemetryOutput {
     add_attributes_to_labels: bool,
     prefix: String,
     suffix: String,
+    initialized: bool,
 }
 
 fn get_resource() -> Resource {
@@ -51,24 +52,31 @@ impl OpenTelemetryOutput {
             add_attributes_to_labels,
             prefix,
             suffix,
+            initialized:false,
         })
+    }
+    pub fn initialize(){
+        // Needs to be created inside the tokio thread
+        let meter_provider = init_metrics();
+        global::set_meter_provider(meter_provider.clone());
     }
 }
 
 impl alumet::pipeline::Output for OpenTelemetryOutput {
+    
     fn write(&mut self, measurements: &MeasurementBuffer, ctx: &OutputContext) -> Result<(), WriteError> {
         if measurements.is_empty() {
             return Ok(());
         }
-        // Needs to be created inside the tokio thread
-        let meter_provider = init_metrics();
-        global::set_meter_provider(meter_provider.clone());
+        if !self.initialized {
+            OpenTelemetryOutput::initialize();
+            self.initialized = true;
+        }
         let common_scope_attributes = vec![KeyValue::new("tool", "alumet")];
         let scope = InstrumentationScope::builder("alumet")
             .with_version(env!("CARGO_PKG_VERSION"))
             .with_attributes(common_scope_attributes)
             .build();
-
         for m in measurements {
             let metric = ctx.metrics.by_id(&m.metric).unwrap().clone();
             // Configure the name of the metric
