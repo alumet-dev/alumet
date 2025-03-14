@@ -3,13 +3,7 @@ use alumet::{
     pipeline::elements::{error::WriteError, output::OutputContext},
 };
 use anyhow::Context;
-use hyper::http::StatusCode;
-use hyper::{
-    service::{make_service_fn, service_fn},
-    Body, Request, Response, Server,
-};
 use prometheus_client::{
-    encoding::text::encode,
     metrics::{family::Family, gauge::Gauge},
     registry::Registry,
 };
@@ -18,22 +12,23 @@ use std::{
     net::SocketAddr,
     sync::{atomic::AtomicU64, Arc},
 };
-use tokio::runtime::Runtime;
 use tokio::sync::RwLock;
 
 #[derive(Clone)]
 pub struct MetricState {
-    registry: Arc<RwLock<Registry>>,
+    pub registry: Arc<RwLock<Registry>>,
     metrics: Arc<RwLock<HashMap<String, Family<Vec<(String, String)>, Gauge<f64, AtomicU64>>>>>,
 }
 
+#[derive(Clone)]
 pub struct PrometheusOutput {
-    state: MetricState,
+    pub state: MetricState,
     append_unit_to_metric_name: bool,
     use_unit_display_name: bool,
     add_attributes_to_labels: bool,
     prefix: String,
     suffix: String,
+    pub addr: SocketAddr,
 }
 
 impl PrometheusOutput {
@@ -56,64 +51,6 @@ impl PrometheusOutput {
             .parse()
             .context("Invalid host:port configuration")?;
 
-        let rt = Runtime::new().context("Failed to create Tokio runtime")?;
-        // Clone the state to pass it down the coroutine
-        let state_clone = state.clone();
-        // Spawn the server on the runtime
-        rt.spawn(async move {
-            let make_svc = make_service_fn(move |_conn| {
-                let state = state_clone.clone();
-                async move {
-                    Ok::<_, hyper::Error>(service_fn(move |req: Request<Body>| {
-                        let state = state.clone();
-                        async move {
-                            if req.uri().path() != "/metrics" {
-                                return Ok::<Response<Body>, hyper::Error>(
-                                    Response::builder()
-                                        .status(StatusCode::NOT_FOUND)
-                                        .body(Body::from("Not Found"))
-                                        .unwrap(),
-                                );
-                            }
-
-                            let mut buf = String::new();
-                            if let Err(e) = encode(&mut buf, &*state.registry.read().await) {
-                                log::error!("Failed to encode metrics: {}", e);
-                                return Ok(Response::builder()
-                                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                                    .body(Body::from("Internal Server Error"))
-                                    .unwrap());
-                            }
-
-                            Ok(Response::builder()
-                                .header(
-                                    "Content-Type",
-                                    "application/openmetrics-text; version=1.0.0; charset=utf-8",
-                                )
-                                .body(Body::from(buf))
-                                .unwrap())
-                        }
-                    }))
-                }
-            });
-
-            let server = Server::bind(&addr).serve(make_svc);
-            log::info!("Prometheus metrics exporter available on http://{}/metrics", addr);
-
-            if let Err(e) = server.await {
-                log::error!("Prometheus server error: {}", e);
-            }
-        });
-
-        // Keep the thread alive
-        std::thread::spawn(move || {
-            rt.block_on(async {
-                loop {
-                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                }
-            });
-        });
-
         Ok(Self {
             state,
             append_unit_to_metric_name,
@@ -121,6 +58,7 @@ impl PrometheusOutput {
             add_attributes_to_labels,
             prefix,
             suffix,
+            addr,
         })
     }
 }
