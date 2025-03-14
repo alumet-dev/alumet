@@ -1,11 +1,19 @@
 mod output;
 
 use alumet::plugin::rust::{deserialize_config, serialize_config, AlumetPlugin};
+use hyper::http::StatusCode;
+use hyper::{
+    service::{make_service_fn, service_fn},
+    Body, Request, Response, Server,
+};
 use output::PrometheusOutput;
+use prometheus_client::encoding::text::encode;
 use serde::{Deserialize, Serialize};
+use tokio::sync::oneshot;
 
 pub struct PrometheusPlugin {
     config: Config,
+    shutdown_tx_server: Option<oneshot::Sender<()>>,
 }
 
 impl AlumetPlugin for PrometheusPlugin {
@@ -23,7 +31,10 @@ impl AlumetPlugin for PrometheusPlugin {
 
     fn init(config: alumet::plugin::ConfigTable) -> anyhow::Result<Box<Self>> {
         let config = deserialize_config(config)?;
-        Ok(Box::new(PrometheusPlugin { config: config }))
+        Ok(Box::new(PrometheusPlugin {
+            config: config,
+            shutdown_tx_server: None,
+        }))
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
@@ -37,6 +48,69 @@ impl AlumetPlugin for PrometheusPlugin {
             self.config.prefix.clone(),
             self.config.suffix.clone(),
         )?);
+
+        // Create shutdown channel for server thread
+        let (shutdown_tx_server, shutdown_rx_server) = oneshot::channel::<()>();
+        // Clone the state to pass it down the coroutine
+        let output_clone = output.clone();
+        // Start the server in a separate thread (tokio runtime)
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.spawn(async move {
+            let state_clone = output_clone.state.clone();
+            let addr_clone = output_clone.addr.clone();
+            let make_svc = make_service_fn(move |_conn| {
+                let state = state_clone.clone();
+                async move {
+                    Ok::<_, hyper::Error>(service_fn(move |req: Request<Body>| {
+                        let state = state.clone();
+                        async move {
+                            if req.uri().path() != "/metrics" {
+                                return Ok::<Response<Body>, hyper::Error>(
+                                    Response::builder()
+                                        .status(StatusCode::NOT_FOUND)
+                                        .body(Body::from("Not Found"))
+                                        .unwrap(),
+                                );
+                            }
+                            let mut buf = String::new();
+                            if let Err(e) = encode(&mut buf, &*state.registry.read().await) {
+                                log::error!("Failed to encode metrics: {}", e);
+                                return Ok(Response::builder()
+                                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                                    .body(Body::from("Internal Server Error"))
+                                    .unwrap());
+                            }
+                            Ok(Response::builder()
+                                .header(
+                                    "Content-Type",
+                                    "application/openmetrics-text; version=1.0.0; charset=utf-8",
+                                )
+                                .body(Body::from(buf))
+                                .unwrap())
+                        }
+                    }))
+                }
+            });
+
+            let server = Server::bind(&addr_clone).serve(make_svc);
+            log::info!("Prometheus metrics exporter available on http://{}/metrics", addr_clone);
+
+            // Wait for the shutdown signal before stopping the server
+            match shutdown_rx_server.await {
+                Ok(_) => log::info!("Received shutdown signal. Stopping server..."),
+                Err(e) => log::warn!("Shutdown signal channel was closed before receiving a signal. {}", e),
+            }
+
+            // Shutdown server gracefully
+            if let Err(e) = server.await {
+                log::error!("Prometheus server error: {}", e);
+            }
+            log::info!("Prometheus server stopped gracefully.");
+        });
+
+        // Store the shutdown tx handle for later shutdown
+        self.shutdown_tx_server = Some(shutdown_tx_server);
+
         // Add output for processing measurements
         alumet.add_blocking_output(PrometheusPlugin::name(), output);
 
@@ -44,6 +118,27 @@ impl AlumetPlugin for PrometheusPlugin {
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
+        // Log starting the shutdown process
+        log::info!("Shutting down the Prometheus plugin...");
+
+        // Stop the server thread if it's running
+        if let Some(tx) = self.shutdown_tx_server.take() {
+            // Send the shutdown signal to the server thread
+            match tx.send(()) {
+                Ok(_) => {
+                    log::info!("Shutdown signal sent to server thread.");
+                }
+                Err(e) => {
+                    log::error!(
+                        "Failed to send shutdown signal to server thread. Receiver may have already been dropped. {:?}",
+                        e
+                    );
+                }
+            }
+        }
+
+        log::info!("Prometheus plugin shutdown complete.");
+
         Ok(())
     }
 }
