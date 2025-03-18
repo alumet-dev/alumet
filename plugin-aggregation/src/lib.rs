@@ -70,10 +70,12 @@ impl AlumetPlugin for AggregationPlugin {
         let metrics = alumet.metrics();
 
         for metric_name in self.config.metrics.iter() {
-            let (raw_metric_id, metric) = metrics.by_name(&metric_name).with_context(|| "metric not found")?;
+            let (raw_metric_id, metric) = metrics
+                .by_name(&metric_name)
+                .with_context(|| format!("metric \"{}\" not found", &metric_name))?;
             self.old_ids.push(raw_metric_id);
             let new_metric = Metric {
-                name: format!("{metric_name}_{}", self.config.function.get_string()),
+                name: format!("{metric_name}_{}", self.config.function.name()),
                 unit: metric.unit.clone(),
                 description: metric.description.clone(),
                 value_type: metric.value_type.clone(),
@@ -119,12 +121,14 @@ async fn register_new_metrics(
         .create_metrics(new_metrics, alumet::metrics::online::DuplicateStrategy::Error)
         .await
         .map_err(|a| anyhow!("{a}"))?;
+
     for (before, after) in std::iter::zip(old_ids, result) {
         let new_id = after?;
-        let metric_correspondence_table_clone = Arc::clone(&metric_correspondence_table.clone());
-        let mut metric_correspondence_table_write = (*metric_correspondence_table_clone)
+
+        let metric_correspondence_table_clone = &metric_correspondence_table.clone();
+        let mut metric_correspondence_table_write = metric_correspondence_table_clone
             .write()
-            .map_err(|_| anyhow!("could not write to the metric correspondence table"))?;
+            .expect("metric_correspondence_table lock poisoned");
 
         metric_correspondence_table_write.insert(before, new_id);
     }

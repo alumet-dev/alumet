@@ -8,14 +8,14 @@ pub(crate) enum Function {
 }
 
 impl Function {
-    pub(crate) fn get_string(self) -> String {
+    pub(crate) fn name(self) -> String {
         match self {
             Function::Sum => "sum".to_string(),
             Function::Mean => "mean".to_string(),
         }
     }
 
-    pub(crate) fn get_function(self) -> fn(Vec<MeasurementPoint>) -> Option<WrappedMeasurementValue> {
+    pub(crate) fn function(self) -> fn(Vec<MeasurementPoint>) -> Option<WrappedMeasurementValue> {
         match self {
             Function::Sum => sum,
             Function::Mean => mean,
@@ -54,8 +54,8 @@ mod tests {
 
     #[test]
     fn test_function_get_string() {
-        assert_eq!(Function::Mean.get_string(), "mean");
-        assert_eq!(Function::Sum.get_string(), "sum");
+        assert_eq!(Function::Mean.name(), "mean");
+        assert_eq!(Function::Sum.name(), "sum");
     }
 
     mod sum {
@@ -111,7 +111,7 @@ mod tests {
                 new_point("2025-02-10T13:19:00Z", WrappedMeasurementValue::F64(1.5), 0),
             ];
 
-            Function::Sum.get_function()(sub_vec);
+            Function::Sum.function()(sub_vec);
         }
     }
 
@@ -168,7 +168,7 @@ mod tests {
                 new_point("2025-02-10T13:19:00Z", WrappedMeasurementValue::F64(1.5), 0),
             ];
 
-            Function::Mean.get_function()(sub_vec);
+            Function::Mean.function()(sub_vec);
         }
     }
 }

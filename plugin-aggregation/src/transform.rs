@@ -43,12 +43,9 @@ impl AggregationTransform {
     ) -> Self {
         Self {
             interval,
-            internal_buffer: HashMap::<
-                (RawMetricId, ResourceConsumer, Resource, Vec<(String, AttributeValue)>),
-                Vec<MeasurementPoint>,
-            >::new(),
+            internal_buffer: HashMap::new(),
             metric_correspondence_table,
-            function: function.get_function(),
+            function: function.function(),
         }
     }
 
@@ -57,18 +54,15 @@ impl AggregationTransform {
         &mut self,
         measurements: &mut alumet::measurement::MeasurementBuffer,
     ) -> Result<(), TransformError> {
-        let metric_correspondence_table_clone = Arc::clone(&self.metric_correspondence_table.clone());
-        let metric_correspondence_table_read = (*metric_correspondence_table_clone)
+        let metric_correspondence_table_clone = &self.metric_correspondence_table.clone();
+        let metric_correspondence_table_read = metric_correspondence_table_clone
             .read()
             .map_err(|_| anyhow!("could not read the metric correspondence table"))?;
 
         let mut aggregated_points = MeasurementBuffer::new();
         log::debug!("buffer size: {}", self.internal_buffer.len());
 
-        for key in self.internal_buffer.clone().keys() {
-            let values = self.internal_buffer.get_mut(&key).ok_or(TransformError::Fatal(anyhow!(
-                "error while trying to read the internal buffer"
-            )))?;
+        for (key, values) in &mut self.internal_buffer {
             // TODO: Clean the internal_buffer by deleting the empty values/key P2.
             loop {
                 let min_timestamp = compute_min_timestamp(values[0].timestamp, self.interval);
@@ -121,17 +115,17 @@ impl AggregationTransform {
 
 impl Transform for AggregationTransform {
     fn apply(&mut self, measurements: &mut MeasurementBuffer, _: &TransformContext) -> Result<(), TransformError> {
-        let metric_correspondence_table_clone = Arc::clone(&self.metric_correspondence_table.clone());
-        let metric_correspondence_table_read = (*metric_correspondence_table_clone)
+        let metric_correspondence_table_clone = &self.metric_correspondence_table.clone();
+        let metric_correspondence_table_read = metric_correspondence_table_clone
             .read()
-            .map_err(|_| anyhow!("could not read the metric correspondence table"))?;
+            .expect("metric_correspondence_table lock poisoned");
 
         let mut not_needed_measurement_point = MeasurementBuffer::new();
 
         // Store the measurementBuffer needed metrics to the internal_buffer.
         for measurement in measurements.iter() {
             // If metric id not needed, then skip it.
-            if !(*metric_correspondence_table_read).contains_key(&measurement.metric) {
+            if !metric_correspondence_table_read.contains_key(&measurement.metric) {
                 not_needed_measurement_point.push(measurement.clone());
                 continue;
             }
@@ -170,12 +164,11 @@ impl Transform for AggregationTransform {
 /// Returns true if the vec contains enough data to compute the aggregation
 /// for the configured window.
 fn contains_enough_data(interval: Duration, values: &Vec<MeasurementPoint>, min_timestamp: Timestamp) -> bool {
-    values[values.len() - 1]
+    let elapsed = values[values.len() - 1]
         .timestamp
         .duration_since(min_timestamp)
-        .unwrap()
-        .cmp(&interval)
-        .is_ge()
+        .unwrap();
+    elapsed >= interval
 }
 
 /// Get the IDs of the first and last measurement point that are
@@ -188,12 +181,8 @@ fn get_ids(
     let i: usize = 0;
 
     let Some(j) = values.iter().position(|point| {
-        point
-            .timestamp
-            .duration_since(min_timestamp)
-            .unwrap()
-            .cmp(&interval)
-            .is_ge()
+        let elapsed = point.timestamp.duration_since(min_timestamp).unwrap();
+        elapsed >= interval
     }) else {
         return Err(anyhow!("could not compute the IDs for the current sub_vec"));
     };
@@ -224,7 +213,8 @@ fn compute_min_timestamp(reference_timestamp: Timestamp, interval: Duration) -> 
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::time::{Duration, SystemTime};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
     use alumet::{
         measurement::{MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementValue},
@@ -236,9 +226,14 @@ pub(crate) mod tests {
 
     use super::get_ids;
 
+    /// Parses an RFC 3339 date-and-time string into a Timestamp value.
+    pub(crate) fn timestamp_from_rfc3339(timestamp: &str) -> Timestamp {
+        SystemTime::from(OffsetDateTime::parse(timestamp, &Rfc3339).unwrap()).into()
+    }
+
     pub(crate) fn new_point(timestamp: &str, value: WrappedMeasurementValue, id: u64) -> MeasurementPoint {
         MeasurementPoint::new_untyped(
-            Timestamp::parse_from_rfc3339(timestamp).unwrap(),
+            timestamp_from_rfc3339(timestamp),
             RawMetricId::from_u64(id),
             Resource::LocalMachine,
             ResourceConsumer::LocalMachine,
@@ -260,8 +255,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_compute_min_timestamp() {
-        let reference_date = Timestamp::parse_from_rfc3339("2025-02-10T13:19:05.87Z").unwrap();
-        let mut expected_date = Timestamp::parse_from_rfc3339("2025-02-10T13:19:00Z").unwrap();
+        let reference_date = timestamp_from_rfc3339("2025-02-10 13:19:05.87Z");
+        let mut expected_date = timestamp_from_rfc3339("2025-02-10T13:19:00Z");
 
         // Compute the round timestamp with a 1 minute interval.
         assert_eq!(
@@ -270,7 +265,7 @@ pub(crate) mod tests {
             "{reference_date:?} should be rounded to {expected_date:?} with the given interval of 1 minute",
         );
 
-        expected_date = Timestamp::parse_from_rfc3339("2025-02-10T13:19:05Z").unwrap();
+        expected_date = timestamp_from_rfc3339("2025-02-10T13:19:05Z");
 
         // Compute the round timestamp with a 1 second interval.
         assert_eq!(
@@ -279,7 +274,7 @@ pub(crate) mod tests {
             "{reference_date:?} should be rounded to {expected_date:?} with the given interval of 1 second",
         );
 
-        expected_date = Timestamp::parse_from_rfc3339("2025-02-10T13:19:05.80Z").unwrap();
+        expected_date = timestamp_from_rfc3339("2025-02-10T13:19:05.80Z");
 
         // Compute the round timestamp with a 100 milliseconds interval.
         assert_eq!(
@@ -299,7 +294,7 @@ pub(crate) mod tests {
             new_point("2025-02-10T13:19:20Z", WrappedMeasurementValue::U64(0), 0),
         ];
 
-        let min_timestamp = Timestamp::parse_from_rfc3339("2025-02-10T13:19:00Z").unwrap();
+        let min_timestamp = timestamp_from_rfc3339("2025-02-10T13:19:00Z");
 
         assert_eq!(
             get_ids(Duration::from_secs(1), &test_list, min_timestamp).unwrap(),
@@ -326,7 +321,7 @@ pub(crate) mod tests {
             get_ids(
                 Duration::from_secs(1),
                 &test_list[0..=1].to_vec(),
-                Timestamp::parse_from_rfc3339("2025-02-10T13:19:00Z").unwrap()
+                timestamp_from_rfc3339("2025-02-10T13:19:00Z")
             )
             .unwrap(),
             (0, 0)
@@ -335,7 +330,7 @@ pub(crate) mod tests {
         assert!(get_ids(
             Duration::from_secs(1),
             &Vec::<MeasurementPoint>::new(),
-            Timestamp::parse_from_rfc3339("2025-02-10T13:19:00Z").unwrap()
+            timestamp_from_rfc3339("2025-02-10T13:19:00Z")
         )
         .is_err());
     }
@@ -351,7 +346,7 @@ pub(crate) mod tests {
             new_point("2025-02-10T13:19:20Z", WrappedMeasurementValue::U64(0), 0),
         ];
 
-        let min_timestamp = Timestamp::parse_from_rfc3339("2025-02-10T13:19:00Z").unwrap();
+        let min_timestamp = timestamp_from_rfc3339("2025-02-10T13:19:00Z");
 
         assert!(contains_enough_data(Duration::from_secs(1), &test_list, min_timestamp));
         assert!(contains_enough_data(Duration::from_secs(5), &test_list, min_timestamp));
@@ -385,7 +380,7 @@ pub(crate) mod tests {
         use crate::{
             aggregations,
             transform::{
-                tests::{measurement_buffer_to_comparable_vec, new_point},
+                tests::{measurement_buffer_to_comparable_vec, new_point, timestamp_from_rfc3339},
                 AggregationTransform,
             },
         };
@@ -474,17 +469,17 @@ pub(crate) mod tests {
                 measurement_buffer_to_comparable_vec(measurement_buffer),
                 vec![
                     (
-                        Timestamp::parse_from_rfc3339("2025-02-10T13:19:00Z").unwrap(),
+                        timestamp_from_rfc3339("2025-02-10T13:19:00Z"),
                         WrappedMeasurementValue::U64(6),
                         4
                     ),
                     (
-                        Timestamp::parse_from_rfc3339("2025-02-10T13:19:00Z").unwrap(),
+                        timestamp_from_rfc3339("2025-02-10T13:19:00Z"),
                         WrappedMeasurementValue::U64(5),
                         7
                     ),
                     (
-                        Timestamp::parse_from_rfc3339("2025-02-10T13:19:10Z").unwrap(),
+                        timestamp_from_rfc3339("2025-02-10T13:19:10Z"),
                         WrappedMeasurementValue::U64(4),
                         4
                     ),
@@ -584,21 +579,19 @@ pub(crate) mod tests {
             time::Duration,
         };
 
-        use anyhow::anyhow;
-
         use alumet::{
-            measurement::{AttributeValue, MeasurementBuffer, Timestamp, WrappedMeasurementValue},
+            measurement::{AttributeValue, MeasurementBuffer, WrappedMeasurementValue},
             metrics::RawMetricId,
-            pipeline::{
-                elements::{error::TransformError, transform::TransformContext},
-                Builder, Transform,
-            },
+            pipeline::{elements::transform::TransformContext, Builder, Transform},
             resources::{Resource, ResourceConsumer},
         };
 
         use crate::{
             aggregations,
-            transform::{tests::measurement_buffer_to_comparable_vec, AggregationTransform},
+            transform::{
+                tests::{measurement_buffer_to_comparable_vec, timestamp_from_rfc3339},
+                AggregationTransform,
+            },
         };
 
         use super::new_point;
@@ -661,7 +654,7 @@ pub(crate) mod tests {
             assert_eq!(
                 measurement_buffer_to_comparable_vec(measurement_buffer.clone())[0],
                 (
-                    Timestamp::parse_from_rfc3339("2025-02-10T13:19:00Z").unwrap(),
+                    timestamp_from_rfc3339("2025-02-10T13:19:00Z"),
                     WrappedMeasurementValue::U64(24),
                     4
                 )
@@ -711,6 +704,7 @@ pub(crate) mod tests {
         }
 
         #[test]
+        #[should_panic]
         fn metric_correspondence_table_lock_poisoned() {
             let mut transform_plugin = AggregationTransform::new(
                 Duration::from_secs(10),
@@ -740,12 +734,7 @@ pub(crate) mod tests {
             let metric_correspondence_table_clone = Arc::clone(&transform_plugin.metric_correspondence_table.clone());
             assert!((*metric_correspondence_table_clone).is_poisoned()); // Check that the lock is poisoned.
 
-            let result = Transform::apply(&mut transform_plugin, &mut measurement_buffer, &test_tranform_context);
-            assert!(result.is_err());
-            assert_eq!(
-                result.unwrap_err().to_string(),
-                TransformError::Fatal(anyhow!("could not read the metric correspondence table")).to_string()
-            );
+            let _ = Transform::apply(&mut transform_plugin, &mut measurement_buffer, &test_tranform_context);
         }
     }
 }

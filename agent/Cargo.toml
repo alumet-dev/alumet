@@ -20,7 +20,6 @@ toml = "0.8.19"
 thiserror = "2.0.11"
 
 # Plugins that are available for every target
-plugin-aggregation = { path = "../plugin-aggregation" }
 plugin-csv = { path = "../plugin-csv" }
 plugin-influxdb = { path = "../plugin-influxdb" }
 plugin-relay = { path = "../plugin-relay" }

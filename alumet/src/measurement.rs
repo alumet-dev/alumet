@@ -184,13 +184,6 @@ impl Timestamp {
     pub fn duration_since(&self, earlier: Timestamp) -> Result<Duration, SystemTimeError> {
         self.0.duration_since(earlier.0)
     }
-
-    /// Parses an RFC 3339 date-and-time string into a Timestamp value.
-    pub fn parse_from_rfc3339(s: &str) -> Result<Self, ParseError> {
-        Ok(Self::from(<DateTime<FixedOffset> as Into<SystemTime>>::into(
-            DateTime::parse_from_rfc3339(s)?,
-        )))
-    }
 }
 
 impl From<SystemTime> for Timestamp {
