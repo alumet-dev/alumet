@@ -1,6 +1,6 @@
 use std::{path::Path, time::Duration};
 
-use alumet::pipeline::control::{AnonymousControlHandle, ScopedControlHandle};
+use alumet::pipeline::control::{AnonymousControlHandle, PluginControlHandle};
 use anyhow::Context;
 use tokio::{
     net::{unix::SocketAddr, UnixListener, UnixStream},
@@ -18,7 +18,7 @@ pub struct SocketControl {
 
 impl SocketControl {
     pub fn start_new<P: AsRef<Path>>(
-        alumet_handle: ScopedControlHandle,
+        alumet_handle: PluginControlHandle,
         socket_path: P,
     ) -> anyhow::Result<SocketControl> {
         // get socket_path as a PathBuf, so that we can send it across threads
@@ -54,7 +54,7 @@ impl SocketControl {
                     },
                     new_connection = listener.accept() => {
                         // handle the new connection
-                        let alumet_handle = alumet_handle.anonymous().clone();
+                        let alumet_handle = alumet_handle.clone().anonymous();
                         let rt_handle = rt_handle.clone();
 
                         rt_handle.spawn(async move {

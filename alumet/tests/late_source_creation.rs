@@ -6,7 +6,11 @@ use std::{
 use alumet::{
     agent::{self, plugin::PluginSet},
     measurement::{MeasurementAccumulator, Timestamp},
-    pipeline::{self, elements::error::PollError, elements::source::trigger::TriggerSpec},
+    pipeline::{
+        self,
+        control::request,
+        elements::{error::PollError, source::trigger::TriggerSpec},
+    },
     plugin::{
         rust::{serialize_config, AlumetPlugin},
         AlumetPluginStart, AlumetPostStart, ConfigTable,
@@ -48,13 +52,15 @@ impl AlumetPlugin for TestPlugin {
 
     fn post_pipeline_start(&mut self, alumet: &mut AlumetPostStart) -> anyhow::Result<()> {
         let control_handle = alumet.pipeline_control();
-        control_handle
-            .add_source(
-                "x",
-                Box::new(TestSource),
-                TriggerSpec::at_interval(Duration::from_secs(1)),
-            )
-            .context("failed to add source in post_pipeline_start")?;
+        // TODO fix the type here
+        let request = request::create_one().add_source(
+            "x",
+            Box::new(TestSource),
+            TriggerSpec::at_interval(Duration::from_secs(1)),
+        );
+        // NOTE: I don't want to add control_handle.blocking_dispatch(...) because people will try to call it in sources, outputs, etc.
+        // and it will never work here.
+        alumet.block_on(control_handle.dispatch(request, None))?;
         Ok(())
     }
 }

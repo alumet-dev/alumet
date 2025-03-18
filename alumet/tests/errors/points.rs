@@ -32,8 +32,10 @@ pub struct PluginErrorPoints {
 
     pub source1_build: Behavior,
     pub source2_build: Behavior,
+    pub source3_build: Behavior,
     pub source1_poll: Behavior,
     pub source2_poll: Behavior,
+    pub source3_poll: Behavior,
 
     pub transf_build: Behavior,
     pub transf_apply: Behavior,

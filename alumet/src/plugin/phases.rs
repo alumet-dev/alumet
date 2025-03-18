@@ -1,4 +1,5 @@
 //! Phases of the plugins lifecycle.
+use std::future::Future;
 use std::marker::PhantomData;
 
 use crate::measurement::{MeasurementType, WrappedMeasurementType};
@@ -396,8 +397,8 @@ impl<'a> AlumetPostStart<'a> {
 
     /// Returns a handle that allows to send commands to control the measurement pipeline
     /// while it is running.
-    pub fn pipeline_control(&self) -> pipeline::control::ScopedControlHandle {
-        self.pipeline.control_handle().scoped(self.current_plugin.clone())
+    pub fn pipeline_control(&self) -> pipeline::control::PluginControlHandle {
+        self.pipeline.control_handle().with_plugin(self.current_plugin.clone())
     }
 
     /// Returns a handle that allows to register new metrics while the pipeline is running,
@@ -414,5 +415,13 @@ impl<'a> AlumetPostStart<'a> {
     /// Returns a handle to the main asynchronous runtime used by the pipeline.
     pub fn async_runtime(&self) -> tokio::runtime::Handle {
         self.pipeline.async_runtime().clone()
+    }
+
+    /// Runs a future to completion on the underlying async runtime.
+    ///
+    /// It is fine to block the thread in `post_pipeline_start`,
+    /// since the pipeline runs in separate threads.
+    pub fn block_on<F: Future>(&self, future: F) -> F::Output {
+        self.pipeline.async_runtime().block_on(future)
     }
 }

@@ -11,11 +11,11 @@ use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
     pipeline::{
-        control::{error::ControlError, message::matching::SourceMatcher, ScopedControlHandle, SourceCreationBuffer},
-        elements::{
-            error::PollError,
-            source::{self, control::TriggerMessage, trigger::TriggerSpec},
+        control::{
+            request::{self, MultiCreationRequestBuilder},
+            PluginControlHandle,
         },
+        elements::{error::PollError, source::trigger::TriggerSpec},
         matching::{SourceNamePattern, StringPattern},
         Source,
     },
@@ -222,7 +222,7 @@ impl DeltaCpuTime {
 /// See https://github.com/eminence/procfs/issues/125.
 pub struct ProcessWatcher {
     watched_processes: HashMap<i32, ProcessFingerprint>,
-    alumet_handle: ScopedControlHandle,
+    alumet_handle: PluginControlHandle,
     monitoring: MultiProcessMonitoring,
 }
 
@@ -233,7 +233,7 @@ struct MultiProcessMonitoring {
 }
 
 pub struct ManualProcessMonitor {
-    alumet_handle: ScopedControlHandle,
+    alumet_handle: PluginControlHandle,
     source_spawner: ProcessSourceSpawner,
     settings: MonitoringSettings,
 }
@@ -277,7 +277,7 @@ impl ProcessFingerprint {
 }
 
 impl ManualProcessMonitor {
-    pub fn new(alumet_handle: ScopedControlHandle, metrics: ProcessMetrics, settings: MonitoringSettings) -> Self {
+    pub fn new(alumet_handle: PluginControlHandle, metrics: ProcessMetrics, settings: MonitoringSettings) -> Self {
         let tps = procfs::ticks_per_second();
         let ms_per_ticks = 1000 / tps;
         Self {
@@ -287,29 +287,50 @@ impl ManualProcessMonitor {
         }
     }
 
-    pub fn start_monitoring(&self, pid: i32, source_buf: &mut SourceCreationBuffer) -> anyhow::Result<()> {
-        let p = Process::new(pid).with_context(|| format!("could not acquire information about pid {pid}"))?;
-        self.source_spawner.create_source_in(p, &self.settings, source_buf)?;
+    pub fn start_monitoring(
+        &self,
+        pids: impl Iterator<Item = i32>,
+        ctx: &tokio::runtime::Handle,
+    ) -> anyhow::Result<()> {
+        // prepare to create the sources
+        let mut matchers = Vec::new();
+        let mut request_builder = request::create_many();
+        for pid in pids {
+            log::debug!("Starting to monitor process with pid {pid}");
+            let p = Process::new(pid).with_context(|| format!("could not acquire information about pid {pid}"))?;
+            self.source_spawner
+                .create_source_in(p, &self.settings, &mut request_builder)?;
+            let source_name = format!("pid-{pid}");
+            let matcher = SourceNamePattern::new(
+                StringPattern::Exact(String::from("procfs")),
+                StringPattern::Exact(source_name),
+            );
+            matchers.push(matcher);
+        }
+        let create_request = request_builder.build();
+
+        // prepare to trigger the sources
         // TODO find a more elegant way to immediately trigger a source that has just been created
-        let source_name = format!("pid-{pid}");
-        let matcher = SourceMatcher::Name(SourceNamePattern::new(
-            StringPattern::Exact(String::from("procfs")),
-            StringPattern::Exact(source_name),
-        ));
-        self.alumet_handle
-            .anonymous()
-            .try_send(alumet::pipeline::control::ControlMessage::Source(
-                source::control::ControlMessage::TriggerManually(TriggerMessage { matcher }),
-            ))
-            .map_err(ControlError::from)
-            .context("failed to trigger the new source")?;
+        let trigger_requests = matchers.into_iter().map(|m| request::source(m).trigger_now());
+
+        // send requests
+        ctx.block_on(async {
+            self.alumet_handle
+                .dispatch(create_request, Duration::from_secs(2))
+                .await?;
+            for req in trigger_requests {
+                self.alumet_handle.dispatch(req, Duration::from_secs(1)).await?;
+            }
+            anyhow::Ok(())
+        })
+        .context("failed to dispatch messages")?;
         Ok(())
     }
 }
 
 impl ProcessWatcher {
     pub fn new(
-        alumet_handle: ScopedControlHandle,
+        alumet_handle: PluginControlHandle,
         metrics: ProcessMetrics,
         groups: Vec<(ProcessFilter, MonitoringSettings)>,
     ) -> Self {
@@ -327,9 +348,9 @@ impl ProcessWatcher {
 
     pub fn refresh(&mut self) -> anyhow::Result<()> {
         // The loop below can add a lot of sources, which can put too much pressure on the control packet buffer.
-        // To avoid filling the buffer, we call `source_buffer()` and use the returned structure to group all the sources
-        // creation messages together, in a single message that will be sent after the loop.
-        let mut source_buf = self.alumet_handle.source_buffer();
+        // To avoid filling the buffer, we group all the sources creation messages together
+        // in a single message that will be sent after the loop.
+        let mut request_builder = request::create_many();
         let monitoring = &mut self.monitoring;
         for p in procfs::process::all_processes().context("cannot read /proc")? {
             match p {
@@ -363,25 +384,27 @@ impl ProcessWatcher {
                         true
                     };
                     if is_new {
-                        monitoring.on_new_process(process, &mut source_buf)?;
+                        monitoring.on_new_process(process, &mut request_builder)?;
                     }
                 }
                 Err(ProcError::NotFound(_)) => continue,
                 Err(e) => Err(e)?,
             }
         }
-        // Flush the buffer and handle errors.
-        // NOTE: the buffer is automatically flushed on drop, but calling `flush()` is better because it
-        // allows to handle errors.
-        source_buf
-            .flush()
-            .context("failed to create sources for new processes detected by ProcessWatcher")?;
+        // Send the request and handle errors.
+        let request = request_builder.build();
+
+        // Sources run in a tokio context, we can obtain a Handle to the runtime.
+        let handle = &self.alumet_handle;
+        tokio::runtime::Handle::try_current()
+            .expect("refresh must be called in a tokio runtime")
+            .block_on(handle.dispatch(request, None))?;
         Ok(())
     }
 }
 
 impl MultiProcessMonitoring {
-    fn on_new_process(&mut self, p: Process, source_buf: &mut SourceCreationBuffer) -> anyhow::Result<()> {
+    fn on_new_process(&mut self, p: Process, request_builder: &mut MultiCreationRequestBuilder) -> anyhow::Result<()> {
         // find a group whose filter accepts the process
         let pid = p.pid;
         for (filter, settings) in &self.groups {
@@ -389,7 +412,7 @@ impl MultiProcessMonitoring {
                 Ok(false) => (), // not accepted by this group filter, continue
                 Ok(true) => {
                     log::trace!("process {pid} matches filter {filter:?} with settings {settings:?}");
-                    self.source_spawner.create_source_in(p, settings, source_buf)?;
+                    self.source_spawner.create_source_in(p, settings, request_builder)?;
                     return Ok(());
                 }
                 Err(ProcError::PermissionDenied(path)) => {
@@ -415,7 +438,7 @@ impl ProcessSourceSpawner {
         &self,
         p: Process,
         settings: &MonitoringSettings,
-        source_buf: &mut SourceCreationBuffer,
+        create_many: &mut MultiCreationRequestBuilder,
     ) -> anyhow::Result<()> {
         let source_name = format!("pid-{}", p.pid);
         let trigger = TriggerSpec::builder(settings.poll_interval)
@@ -438,7 +461,7 @@ impl ProcessSourceSpawner {
             )
             .with_context(|| format!("failed to create source {source_name}"))?,
         );
-        source_buf.add_source(&source_name, source, trigger);
+        create_many.add_source(&source_name, source, trigger);
         Ok(())
     }
 }

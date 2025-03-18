@@ -2,7 +2,7 @@
 
 /// Lazy creation of outputs.
 pub mod builder;
-pub mod control;
+pub(crate) mod control;
 /// Outputs-related errors.
 pub mod error;
 /// Public interface for implementing outputs.

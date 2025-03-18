@@ -1,6 +1,8 @@
 use alumet::{
-    pipeline::control::ScopedControlHandle,
-    pipeline::elements::source::trigger::TriggerSpec,
+    pipeline::{
+        control::{request, PluginControlHandle},
+        elements::source::trigger::TriggerSpec,
+    },
     plugin::{
         rust::{deserialize_config, serialize_config, AlumetPlugin},
         util::CounterDiff,
@@ -107,8 +109,9 @@ impl AlumetPlugin for OARPlugin {
         let poll_interval = self.config.poll_interval;
         struct PodDetector {
             metrics: Metrics,
-            control_handle: ScopedControlHandle,
+            control_handle: PluginControlHandle,
             poll_interval: Duration,
+            rt: tokio::runtime::Runtime,
         }
 
         impl EventHandler for PodDetector {
@@ -181,13 +184,17 @@ impl AlumetPlugin for OARPlugin {
                                         counter_tmp_usr,
                                     )?;
 
-                                    // Add the probe to the sources
+                                    let source_name = pod_uid.to_str().unwrap();
+                                    let trigger = TriggerSpec::at_interval(detector.poll_interval);
+                                    let create_source =
+                                        request::create_one().add_source(source_name, Box::new(probe), trigger);
+
                                     detector
-                                        .control_handle
-                                        .add_source(
-                                            pod_uid.to_str().unwrap(),
-                                            Box::new(probe),
-                                            TriggerSpec::at_interval(detector.poll_interval),
+                                        .rt
+                                        .block_on(
+                                            detector
+                                                .control_handle
+                                                .dispatch(create_source, Duration::from_millis(500)),
                                         )
                                         .with_context(|| {
                                             format!("failed to add source for pod {}", pod_uid.to_str().unwrap())
@@ -206,10 +213,17 @@ impl AlumetPlugin for OARPlugin {
                 }
             }
         }
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .context("tokio Runtime should build")?;
+
         let handler = PodDetector {
             control_handle,
             metrics,
             poll_interval,
+            rt,
         };
 
         let mut watcher = notify::recommended_watcher(handler)?;

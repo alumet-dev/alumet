@@ -1,8 +1,11 @@
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
-    pipeline::elements::source::trigger::TriggerSpec,
-    pipeline::{control::ScopedControlHandle, elements::error::PollError, Source},
+    pipeline::{
+        control::{self, request, PluginControlHandle},
+        elements::{error::PollError, source::trigger::TriggerSpec},
+        Source,
+    },
     plugin::{
         rust::{deserialize_config, serialize_config, AlumetPlugin},
         AlumetPluginStart, AlumetPostStart, ConfigTable,
@@ -156,8 +159,9 @@ impl AlumetPlugin for Oar2Plugin {
             config_path: PathBuf,
             cpu_metric: TypedMetricId<u64>,
             memory_metric: TypedMetricId<u64>,
-            control_handle: ScopedControlHandle,
+            control_handle: PluginControlHandle,
             poll_interval: Duration,
+            rt: tokio::runtime::Runtime,
         }
 
         impl EventHandler for JobDetector {
@@ -193,14 +197,16 @@ impl AlumetPlugin for Oar2Plugin {
                                     job_id,
                                 });
 
-                                let source_name = job_name.to_string();
+                                let source_name = job_name;
+                                let trigger = TriggerSpec::at_interval(job_detect.poll_interval);
+                                let create_source = request::create_one().add_source(source_name, new_source, trigger);
 
                                 job_detect
-                                    .control_handle
-                                    .add_source(
-                                        &source_name,
-                                        new_source,
-                                        TriggerSpec::at_interval(job_detect.poll_interval),
+                                    .rt
+                                    .block_on(
+                                        job_detect
+                                            .control_handle
+                                            .dispatch(create_source, Duration::from_millis(500)),
                                     )
                                     .with_context(|| format!("failed to add source {source_name}"))?;
                             }
@@ -228,12 +234,18 @@ impl AlumetPlugin for Oar2Plugin {
             }
         }
 
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .context("tokio Runtime should build")?;
+
         let handler = JobDetector {
             config_path: config_path.clone(),
             cpu_metric,
             memory_metric,
             control_handle,
             poll_interval,
+            rt,
         };
         let mut watcher = notify::recommended_watcher(handler)?;
 

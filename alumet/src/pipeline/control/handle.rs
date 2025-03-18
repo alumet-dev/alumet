@@ -1,16 +1,14 @@
-use tokio::sync::mpsc::{self, Sender};
+use std::time::Duration;
+
+use thiserror::Error;
+use tokio::sync::mpsc::{error::SendTimeoutError, Sender};
 use tokio_util::sync::CancellationToken;
 
-use crate::pipeline::{
-    elements::source::{self, builder::ManagedSourceBuilder, trigger},
-    naming::{PluginName, SourceName},
-    Source,
-};
+use crate::pipeline::{error::PipelineError, naming::PluginName};
 
 use super::{
-    error::{ControlError, ControlSendError},
-    message::ControlMessage,
-    SourceCreationBuffer,
+    main_loop::{ControlRequestBody, ControlRequestMessage},
+    request,
 };
 
 /// A control handle that is not tied to a particular plugin.
@@ -20,169 +18,173 @@ use super::{
 /// into a scoped one.
 #[derive(Clone)]
 pub struct AnonymousControlHandle {
-    tx: Sender<ControlMessage>,
-    shutdown: CancellationToken,
+    pub(super) tx: Sender<ControlRequestMessage>,
+    pub(super) shutdown_token: CancellationToken,
 }
 
-/// A control handle with the scope of a plugin.
-///
-/// Sources registered with methods like [`ScopedControlHandle::add_source`] will be named after the plugin scope.
 #[derive(Clone)]
-pub struct ScopedControlHandle {
+pub struct PluginControlHandle {
     pub(super) inner: AnonymousControlHandle,
     pub(super) plugin: PluginName,
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::pipeline::util;
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum DispatchError {
+    /// The pipeline controller was not available.
+    /// This happens when the pipeline is shut down before dispatching the request.
+    #[error("dispatch failed: pipeline controller not available")]
+    NotAvailable,
+    /// The deadline has expired.
+    #[error("dispatch failed: timeout expired")]
+    Timeout,
+}
 
-    use super::ControlMessage;
-
-    #[test]
-    fn type_constraints() {
-        util::assert_send::<ControlMessage>();
-    }
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum SendWaitError {
+    /// The pipeline controlled was not available.
+    /// This happens when the pipeline is shut down before processing the request.
+    #[error("send_wait failed: pipeline controller not available")]
+    NotAvailable,
+    /// The deadline has expired.
+    #[error("send_wait failed: timeout expired")]
+    Timeout,
+    /// The request was processed by the pipeline controller, but it returned an error.
+    ///
+    /// This does not always mean that the entire operation failed.
+    /// It could be a partial failure. For instance, if your requested the creation of
+    /// multiple elements, some of them may have been created successfully while others
+    /// have failed.
+    #[error("send_wait failed: processing the request returned an error")]
+    Operation(#[source] PipelineError),
 }
 
 impl AnonymousControlHandle {
-    pub(super) fn new(tx: Sender<ControlMessage>, shutdown: CancellationToken) -> Self {
-        Self { tx, shutdown }
+    pub fn with_plugin(self, plugin: PluginName) -> PluginControlHandle {
+        PluginControlHandle { inner: self, plugin }
     }
 
-    pub(crate) fn is_shutdown(&self) -> bool {
-        self.shutdown.is_cancelled()
+    /// Shuts the pipeline down.
+    pub fn shutdown(&self) {
+        self.shutdown_token.cancel();
     }
 
-    /// Sends a control message to the pipeline, waiting until there is capacity.
+    /// Sends a control request to the pipeline, without waiting for a response.
     ///
     /// # Errors
-    ///
-    /// Returns an error if the pipeline has been shut down.
-    pub async fn send(&self, message: ControlMessage) -> Result<(), ControlError> {
-        self.tx.send(message).await.map_err(|_| ControlError::Shutdown)
+    /// If the pipeline has been shut down, returns a `NotAvailable` error.
+    pub async fn dispatch(
+        &self,
+        request: impl request::ControlRequest,
+        timeout: impl Into<Option<Duration>>,
+    ) -> Result<(), DispatchError> {
+        self.impl_dispatch(request.serialize(), timeout.into()).await
     }
 
-    /// Attempts to immediately send a control message to the pipeline.
+    /// Sends a control request to the pipeline, and waits for a response.
+    ///
+    /// Unlike [`dispatch`], `send_wait` waits for the request to be processed
+    /// by the pipeline and returns its result.
     ///
     /// # Errors
-    ///
-    /// There are two possible cases:
-    /// - The pipeline has been shut down and can no longer accept any message.
-    /// - The buffer of the control channel is full.
-    pub fn try_send(&self, message: ControlMessage) -> Result<(), ControlSendError> {
-        match self.tx.try_send(message) {
-            Ok(_) => Ok(()),
-            Err(mpsc::error::TrySendError::Full(m)) => Err(ControlSendError::ChannelFull(m)),
-            Err(mpsc::error::TrySendError::Closed(_)) => Err(ControlSendError::Shutdown),
+    /// If the pipeline is shut down before the request is processed, the function
+    /// returns a `NotAvailable` error.
+    pub async fn send_wait(
+        &self,
+        request: impl request::ControlRequest,
+        timeout: impl Into<Option<Duration>>,
+    ) -> Result<(), SendWaitError> {
+        self.impl_send_wait(request.serialize(), timeout.into()).await
+    }
+
+    async fn impl_dispatch(&self, body: ControlRequestBody, timeout: Option<Duration>) -> Result<(), DispatchError> {
+        let msg = ControlRequestMessage { response: None, body };
+        match timeout {
+            Some(timeout) => self.tx.send_timeout(msg, timeout).await.map_err(|e| match e {
+                SendTimeoutError::Timeout(_) => DispatchError::Timeout,
+                SendTimeoutError::Closed(_) => DispatchError::NotAvailable,
+            }),
+            None => self.tx.send(msg).await.map_err(|_| DispatchError::NotAvailable),
         }
     }
 
-    /// Requests the pipeline to shut down.
-    pub fn shutdown(&self) {
-        self.shutdown.cancel()
-    }
-
-    /// Creates a new handle with the given plugin scope.
-    pub fn scoped(&self, plugin: PluginName) -> ScopedControlHandle {
-        ScopedControlHandle {
-            inner: self.clone(),
-            plugin,
+    async fn impl_send_wait(&self, body: ControlRequestBody, timeout: Option<Duration>) -> Result<(), SendWaitError> {
+        // open a channel to allow the message handler to send us a response
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let msg = ControlRequestMessage {
+            response: Some(tx),
+            body,
+        };
+        // send the message
+        match timeout {
+            Some(timeout) => self.tx.send_timeout(msg, timeout).await.map_err(|e| match e {
+                SendTimeoutError::Timeout(_) => SendWaitError::Timeout,
+                SendTimeoutError::Closed(_) => SendWaitError::NotAvailable,
+            }),
+            None => self.tx.send(msg).await.map_err(|_| SendWaitError::NotAvailable),
+        }?;
+        // wait for a response
+        match rx.await {
+            Ok(ret) => match ret.result {
+                Ok(_) => Ok(()),
+                Err(err) => Err(SendWaitError::Operation(err)),
+            },
+            Err(_recv_error) => Err(SendWaitError::NotAvailable),
         }
     }
 }
 
-impl ScopedControlHandle {
-    pub fn anonymous(&self) -> &AnonymousControlHandle {
-        &self.inner
+impl PluginControlHandle {
+    pub fn anonymous(self) -> AnonymousControlHandle {
+        self.inner
     }
 
-    /// Creates a new buffer for bulk source creation.
-    pub fn source_buffer<'a>(&'a mut self) -> SourceCreationBuffer<'a> {
-        SourceCreationBuffer {
-            handle: self,
-            buffer: Vec::new(),
-        }
-    }
-
-    /// Creates a new buffer for bulk source creation, with the given initial capacity.
-    pub fn source_buffer_with_capacity<'a>(&'a mut self, capacity: usize) -> SourceCreationBuffer<'a> {
-        SourceCreationBuffer {
-            handle: self,
-            buffer: Vec::with_capacity(capacity),
-        }
-    }
-
-    /// Adds a measurement source to the Alumet pipeline.
+    /// Sends a control request to the pipeline, without waiting for a response.
     ///
-    /// This is similar to [`AlumetPluginStart::add_source()`](crate::plugin::AlumetPluginStart::add_source()).
-    ///
-    /// # Bulk registration of sources
-    /// To add multiple sources, it is more efficient to use [`source_buffer`](Self::source_buffer) instead of many `add_source`.
-    pub fn add_source(
+    /// # Errors
+    /// If the pipeline has been shut down, returns a `NotAvailable` error.
+    pub async fn dispatch(
         &self,
-        name: &str,
-        source: Box<dyn Source>,
-        trigger: trigger::TriggerSpec,
-    ) -> Result<(), ControlError> {
-        let builder = self.managed_source_builder(trigger, source);
-        self.add_source_builder(name, builder)
+        request: impl request::PluginControlRequest,
+        timeout: impl Into<Option<Duration>>,
+    ) -> Result<(), DispatchError> {
+        let body = request.serialize(&self.plugin);
+        self.inner.impl_dispatch(body, timeout.into()).await
     }
 
-    /// Adds a measurement source to the Alumet pipeline, with an explicit builder.
+    /// Sends a control request to the pipeline, and waits for a response.
     ///
-    /// This is similar to [`AlumetPluginStart::add_source_builder()`](crate::plugin::AlumetPluginStart::add_source_builder()),
-    /// except that the builder needs to be [`Send`].
+    /// Unlike [`dispatch`], `send_wait` waits for the request to be processed
+    /// by the pipeline and returns its result.
     ///
-    /// # Bulk registration of sources
-    /// To add multiple sources, it is more efficient to use [`source_buffer`](Self::source_buffer) instead of many `add_source_builder`.
-    pub fn add_source_builder<F: ManagedSourceBuilder + Send + 'static>(
+    /// # Errors
+    /// If the pipeline is shut down before the request is processed, the function
+    /// returns a `NotAvailable` error.
+    pub async fn send_wait(
         &self,
-        name: &str,
-        builder: F,
-    ) -> Result<(), ControlError> {
-        let message = ControlMessage::Source(source::control::ControlMessage::CreateOne(
-            source::control::CreateOneMessage {
-                name: SourceName::new(self.plugin.0.clone(), name.to_owned()),
-                builder: source::builder::SendSourceBuilder::Managed(Box::new(builder)),
-            },
-        ));
-        self.inner.try_send(message).map_err(|e| e.into())
+        request: impl request::PluginControlRequest,
+        timeout: impl Into<Option<Duration>>,
+    ) -> Result<(), SendWaitError> {
+        let body = request.serialize(&self.plugin);
+        self.inner.impl_send_wait(body, timeout.into()).await
     }
 
-    /// Adds an autonomous measurement source to the Alumet pipeline, with an explicit builder.
-    ///
-    /// This is similar to [`AlumetPluginStart::add_autonomous_source_builder()`](crate::plugin::AlumetPluginStart::add_autonomous_source_builder()),
-    /// except that the builder needs to be [`Send`].
-    ///
-    /// # Bulk registration of sources
-    /// To add multiple sources, it is more efficient to use [`source_buffer`](Self::source_buffer) instead of many `add_source_builder`.
-    pub fn add_autonomous_source_builder<F: source::builder::AutonomousSourceBuilder + Send + 'static>(
-        &self,
-        name: &str,
-        builder: F,
-    ) -> Result<(), ControlError> {
-        let message = ControlMessage::Source(source::control::ControlMessage::CreateOne(
-            source::control::CreateOneMessage {
-                name: SourceName::new(self.plugin.0.clone(), name.to_owned()),
-                builder: source::builder::SendSourceBuilder::Autonomous(Box::new(builder)),
-            },
-        ));
-        self.inner.try_send(message).map_err(|e| e.into())
+    /// Shuts the pipeline down.
+    pub fn shutdown(&self) {
+        self.inner.shutdown();
     }
+}
 
-    /// Returns a source builder that returns the given boxed source.
-    pub(super) fn managed_source_builder(
-        &self,
-        trigger: trigger::TriggerSpec,
-        source: Box<dyn Source>,
-    ) -> impl FnOnce(&mut dyn source::builder::ManagedSourceBuildContext) -> anyhow::Result<source::builder::ManagedSource>
-    {
-        move |_ctx: &mut dyn source::builder::ManagedSourceBuildContext| {
-            Ok(source::builder::ManagedSource {
-                trigger_spec: trigger,
-                source,
-            })
-        }
+#[cfg(test)]
+mod tests {
+    use crate::pipeline::util::assert_send;
+
+    use super::{AnonymousControlHandle, PluginControlHandle};
+
+    #[test]
+    fn types() {
+        assert_send::<AnonymousControlHandle>();
+        assert_send::<PluginControlHandle>();
     }
 }

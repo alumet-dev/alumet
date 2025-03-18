@@ -10,7 +10,7 @@ use tokio::{
 };
 
 use crate::metrics::online::MetricReader;
-use crate::pipeline::control::message::matching::OutputMatcher;
+use crate::pipeline::control::matching::OutputMatcher;
 use crate::pipeline::elements::output::{run::run_async_output, AsyncOutputStream};
 use crate::pipeline::matching::OutputNamePattern;
 use crate::pipeline::naming::{namespace::Namespace2, OutputName};
