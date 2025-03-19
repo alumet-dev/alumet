@@ -25,7 +25,7 @@ enum PluginControlRequestImpl {
     Create(create::CreationRequest),
 }
 
-// trait impls
+// trait implementations
 
 impl ControlRequest for AnyAnonymousControlRequest {
     fn serialize(self) -> ControlRequestBody {

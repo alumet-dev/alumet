@@ -28,6 +28,7 @@ use alumet::{
     test::{startup::Metric, RuntimeExpectations},
     units::Unit,
 };
+use serial_test::serial;
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -149,6 +150,7 @@ fn startup_ok() {
 }
 
 #[test]
+#[serial]
 #[should_panic]
 fn startup_bad_metric() {
     init_logger();
@@ -166,6 +168,7 @@ fn startup_bad_metric() {
 }
 
 #[test]
+#[serial]
 fn runtime_source_err() {
     init_logger();
     let plugins = PluginSet::from(static_plugins![TestedPlugin]);
@@ -210,8 +213,10 @@ fn runtime_source_err() {
 }
 
 #[test]
+#[serial]
 fn runtime_source_ok() {
     init_logger();
+    // TODO make tests serialized/exclusive
     let plugins = PluginSet::from(static_plugins![TestedPlugin]);
 
     let runtime = RuntimeExpectations::new().test_source(
@@ -239,6 +244,7 @@ fn runtime_source_ok() {
 }
 
 #[test]
+#[serial]
 fn runtime_transform_err() {
     init_logger();
     let plugins = PluginSet::from(static_plugins![TestedPlugin]);
@@ -289,6 +295,7 @@ fn runtime_transform_err() {
 }
 
 #[test]
+#[serial]
 fn runtime_transform_ok() {
     init_logger();
     let plugins = PluginSet::from(static_plugins![TestedPlugin]);
@@ -323,6 +330,7 @@ fn runtime_transform_ok() {
 }
 
 #[test]
+#[serial]
 fn runtime_output_err() {
     init_logger();
     let plugins = PluginSet::from(static_plugins![TestedPlugin]);
@@ -373,6 +381,7 @@ fn runtime_output_err() {
 }
 
 #[test]
+#[serial]
 fn runtime_output_ok() {
     init_logger();
     let plugins = PluginSet::from(static_plugins![TestedPlugin]);
@@ -408,6 +417,7 @@ fn runtime_output_ok() {
 }
 
 #[test]
+#[serial]
 fn all_together() {
     init_logger();
     let plugins = PluginSet::from(static_plugins![TestedPlugin]);
