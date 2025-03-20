@@ -395,10 +395,15 @@ impl ProcessWatcher {
         let request = request_builder.build();
 
         // Sources run in a tokio context, we can obtain a Handle to the runtime.
-        let handle = &self.alumet_handle;
+        let handle = self.alumet_handle.clone();
         tokio::runtime::Handle::try_current()
             .expect("refresh must be called in a tokio runtime")
-            .block_on(handle.dispatch(request, None))?;
+            .spawn(async move {
+                handle
+                    .dispatch(request, None)
+                    .await
+                    .context("failed to dispatch request from ProcessWatcher")
+            });
         Ok(())
     }
 }
