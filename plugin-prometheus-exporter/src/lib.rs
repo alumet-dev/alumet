@@ -31,9 +31,9 @@ impl AlumetPlugin for PrometheusPlugin {
     }
 
     fn init(config: alumet::plugin::ConfigTable) -> anyhow::Result<Box<Self>> {
-        let config = deserialize_config(config)?;
+        let plugin_config = deserialize_config(config)?;
         Ok(Box::new(PrometheusPlugin {
-            config: config,
+            config: plugin_config,
             shutdown_tx_server: None,
         }))
     }
