@@ -20,8 +20,6 @@ pub struct OpenTelemetryOutput {
     collector_host: String,
 }
 
-
-
 impl OpenTelemetryOutput {
     pub fn new(
         append_unit_to_metric_name: bool,
@@ -38,7 +36,7 @@ impl OpenTelemetryOutput {
             prefix,
             suffix,
             initialized: false,
-            collector_host: format!("{}{}", collector_host, "/v1/metrics")
+            collector_host: format!("{}{}", collector_host, "/v1/metrics"),
         })
     }
     pub fn initialize(&mut self) {
@@ -52,14 +50,14 @@ impl OpenTelemetryOutput {
             .get_or_init(|| Resource::builder().with_service_name("alumet-otlp-grpc").build())
             .clone()
     }
-    
+
     fn init_metrics(&mut self) -> SdkMeterProvider {
         let exporter = MetricExporter::builder()
             .with_tonic()
             .with_endpoint(self.collector_host.clone())
             .build()
             .expect("Failed to create metric exporter");
-    
+
         SdkMeterProvider::builder()
             .with_periodic_exporter(exporter)
             .with_resource(self.get_resource())
