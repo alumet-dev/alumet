@@ -4,7 +4,7 @@ use alumet::{
 };
 use anyhow::Context;
 use opentelemetry::{global, InstrumentationScope, KeyValue};
-use opentelemetry_otlp::MetricExporter;
+use opentelemetry_otlp::{MetricExporter, WithExportConfig};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry_sdk::Resource;
 use std::{env, sync::OnceLock};
@@ -17,26 +17,10 @@ pub struct OpenTelemetryOutput {
     prefix: String,
     suffix: String,
     initialized: bool,
+    collector_host: String,
 }
 
-fn get_resource() -> Resource {
-    static RESOURCE: OnceLock<Resource> = OnceLock::new();
-    RESOURCE
-        .get_or_init(|| Resource::builder().with_service_name("alumet-otlp-grpc").build())
-        .clone()
-}
 
-fn init_metrics() -> SdkMeterProvider {
-    let exporter = MetricExporter::builder()
-        .with_tonic()
-        .build()
-        .expect("Failed to create metric exporter");
-
-    SdkMeterProvider::builder()
-        .with_periodic_exporter(exporter)
-        .with_resource(get_resource())
-        .build()
-}
 
 impl OpenTelemetryOutput {
     pub fn new(
@@ -45,6 +29,7 @@ impl OpenTelemetryOutput {
         add_attributes_to_labels: bool,
         prefix: String,
         suffix: String,
+        collector_host: String,
     ) -> anyhow::Result<OpenTelemetryOutput> {
         Ok(Self {
             append_unit_to_metric_name,
@@ -53,12 +38,32 @@ impl OpenTelemetryOutput {
             prefix,
             suffix,
             initialized: false,
+            collector_host: format!("{}{}", collector_host, "/v1/metrics")
         })
     }
-    pub fn initialize() {
+    pub fn initialize(&mut self) {
         // Needs to be created inside the tokio thread
-        let meter_provider = init_metrics();
+        let meter_provider = self.init_metrics();
         global::set_meter_provider(meter_provider.clone());
+    }
+    fn get_resource(&mut self) -> Resource {
+        static RESOURCE: OnceLock<Resource> = OnceLock::new();
+        RESOURCE
+            .get_or_init(|| Resource::builder().with_service_name("alumet-otlp-grpc").build())
+            .clone()
+    }
+    
+    fn init_metrics(&mut self) -> SdkMeterProvider {
+        let exporter = MetricExporter::builder()
+            .with_tonic()
+            .with_endpoint(self.collector_host.clone())
+            .build()
+            .expect("Failed to create metric exporter");
+    
+        SdkMeterProvider::builder()
+            .with_periodic_exporter(exporter)
+            .with_resource(self.get_resource())
+            .build()
     }
 }
 
@@ -68,7 +73,7 @@ impl alumet::pipeline::Output for OpenTelemetryOutput {
             return Ok(());
         }
         if !self.initialized {
-            OpenTelemetryOutput::initialize();
+            self.initialize();
             self.initialized = true;
         }
         let common_scope_attributes = vec![KeyValue::new("tool", "alumet")];

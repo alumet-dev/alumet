@@ -1,7 +1,5 @@
 mod output;
 
-use std::env;
-
 use alumet::plugin::rust::{deserialize_config, serialize_config, AlumetPlugin};
 use output::OpenTelemetryOutput;
 use serde::{Deserialize, Serialize};
@@ -25,11 +23,6 @@ impl AlumetPlugin for OpenTelemetryPlugin {
 
     fn init(config: alumet::plugin::ConfigTable) -> anyhow::Result<Box<Self>> {
         let config: Config = deserialize_config(config)?;
-        // Threads only read this value
-        env::set_var(
-            "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
-            format!("{}{}", config.collector_host, "/v1/metrics"),
-        );
         // Create a new OpenTelemetryOutput instance
         let otel_output = Box::new(OpenTelemetryOutput::new(
             config.append_unit_to_metric_name,
@@ -37,6 +30,7 @@ impl AlumetPlugin for OpenTelemetryPlugin {
             config.add_attributes_to_labels,
             config.prefix.clone(),
             config.suffix.clone(),
+            config.collector_host.clone(),
         )?);
         Ok(Box::new(OpenTelemetryPlugin { output: otel_output }))
     }
