@@ -50,7 +50,6 @@ To work this plugin needs k8s plugin configured, so the needed things are relate
 ### Configuration
 
 [plugins.EnergyEstimationTdpPlugin]
-enable = true
 poll_interval = "30s"
 tdp = 100.0
 nb_vcpu = 1.0

@@ -79,12 +79,8 @@ pub enum PluginFilter {
 pub enum UnknownPluginInConfigPolicy {
     /// Logs a warning message and continues.
     LogWarn,
-    /// Logs a warning message only if the config enables the plugin.
-    LogWarnIfEnabled,
     /// Returns an error.
     Error,
-    /// Returns an error only if the config enables the plugin.
-    ErrorIfEnabled,
     /// Ignores the plugin config and continues.
     Ignore,
 }
@@ -116,6 +112,8 @@ impl PluginSet {
     }
 
     /// Enables the specified plugins and disables all the others.
+    ///
+    /// Plugins that are not in the set are ignored.
     pub fn enable_only(&mut self, plugin_names: &[impl AsRef<str>]) {
         // We disable every plugin and re-enable only the ones we are interested in.
         // Cost: O(P+E) where P is the number of plugins in the set and E the size of `plugin_names`,
@@ -130,16 +128,27 @@ impl PluginSet {
 
     /// Extracts the config of each plugin.
     ///
-    /// If `update_status` is true, enable/disable the plugins according to the configuration field `enabled`.
-    /// If the field is not present, enables the plugin.
-    ///
     /// Use `on_unknown` to choose what to do when the config mentions a plugin that is not in the plugin set.
+    ///
+    /// # Enabling/disabling plugins
+    /// If `update_status` is true, enable/disable the plugins according to the configuration.
+    /// Plugins that are present in the config are enabled, those that are not present are disabled.
+    /// If the configuration of a plugin contains an `enabled` or `enable` boolean key, its value determines
+    /// whether the plugin is enabled or not.
     pub fn extract_config(
         &mut self,
         global_config: &mut toml::Table,
         update_status: bool,
         on_unknown: UnknownPluginInConfigPolicy,
     ) -> anyhow::Result<()> {
+        // Disable every plugin first.
+        if update_status {
+            for plugin_info in self.0.values_mut() {
+                plugin_info.enabled = false;
+            }
+        }
+
+        // Extract the config and enable the plugins that it contains.
         let extracted = super::config::extract_plugins_config(global_config).context("invalid config")?;
         for (plugin_name, (enabled, config)) in extracted {
             if let Some(plugin_info) = self.0.get_mut(&plugin_name) {
@@ -152,18 +161,8 @@ impl PluginSet {
                     UnknownPluginInConfigPolicy::LogWarn => {
                         log::warn!("unknown plugin '{plugin_name}' in configuration")
                     }
-                    UnknownPluginInConfigPolicy::LogWarnIfEnabled => {
-                        if enabled {
-                            log::warn!("unknown plugin '{plugin_name}' in configuration")
-                        }
-                    }
                     UnknownPluginInConfigPolicy::Error => {
                         return Err(anyhow!("unknown plugin '{plugin_name}' in configuration"))
-                    }
-                    UnknownPluginInConfigPolicy::ErrorIfEnabled => {
-                        if enabled {
-                            return Err(anyhow!("unknown plugin '{plugin_name}' in configuration"));
-                        }
                     }
                     UnknownPluginInConfigPolicy::Ignore => {
                         // do nothing
@@ -246,7 +245,7 @@ impl PluginFilter {
 }
 
 #[cfg(test)]
-mod macro_tests {
+mod tests {
     use serde::Serialize;
 
     use crate::plugin::{
@@ -254,42 +253,194 @@ mod macro_tests {
         AlumetPluginStart, ConfigTable,
     };
 
-    #[test]
-    fn static_plugins_macro() {
-        let a = static_plugins![MyPlugin];
-        let b = static_plugins![MyPlugin,];
-        let empty = static_plugins![];
-        assert_eq!(1, a.len());
-        assert_eq!(1, b.len());
-        assert_eq!(a[0].name, b[0].name);
-        assert_eq!(a[0].version, b[0].version);
-        assert!(empty.is_empty());
+    mod macros {
+        use super::MyPlugin;
+
+        #[test]
+        fn static_plugins_macro() {
+            let a = static_plugins![MyPlugin];
+            let b = static_plugins![MyPlugin,];
+            let empty = static_plugins![];
+            assert_eq!(1, a.len());
+            assert_eq!(1, b.len());
+            assert_eq!(a[0].name, b[0].name);
+            assert_eq!(a[0].version, b[0].version);
+            assert!(empty.is_empty());
+        }
+
+        #[test]
+        fn static_plugins_macro_with_attributes() {
+            let single = static_plugins![
+                #[cfg(test)]
+                MyPlugin,
+            ];
+            assert_eq!(1, single.len());
+
+            let empty = static_plugins![
+                #[cfg(not(test))]
+                MyPlugin
+            ];
+            assert_eq!(0, empty.len());
+
+            let multiple = static_plugins![
+                #[cfg(test)]
+                MyPlugin,
+                #[cfg(not(test))]
+                MyPlugin,
+                #[cfg(test)]
+                MyPlugin
+            ];
+            assert_eq!(2, multiple.len());
+        }
     }
 
-    #[test]
-    fn static_plugins_macro_with_attributes() {
-        let single = static_plugins![
-            #[cfg(test)]
-            MyPlugin,
-        ];
-        assert_eq!(1, single.len());
+    mod plugin_set {
+        use toml::toml;
 
-        let empty = static_plugins![
-            #[cfg(not(test))]
-            MyPlugin
-        ];
-        assert_eq!(0, empty.len());
+        use crate::plugin::rust::AlumetPlugin;
 
-        let multiple = static_plugins![
-            #[cfg(test)]
-            MyPlugin,
-            #[cfg(not(test))]
-            MyPlugin,
-            #[cfg(test)]
-            MyPlugin
-        ];
-        assert_eq!(2, multiple.len());
+        use super::super::{PluginInfo, PluginMetadata, PluginSet, UnknownPluginInConfigPolicy};
+        use super::MyPlugin;
+
+        fn plugin_set() -> PluginSet {
+            let mut set = PluginSet::new();
+            set.add_plugin(PluginInfo {
+                metadata: PluginMetadata::from_static::<MyPlugin>(),
+                enabled: false,
+                config: None,
+            });
+            assert_eq!(set.0.len(), 1);
+            assert!(set.get_plugin(MyPlugin::name()).is_some());
+            set
+        }
+
+        #[test]
+        fn extract_config_no_update() {
+            let mut set = plugin_set();
+            let mut global_config = toml! {
+                global = 0
+
+                [plugins.name]
+                n = 123
+            };
+
+            // extract with `update_status=false`, the plugin should not be enabled yet.
+            set.extract_config(&mut global_config, false, UnknownPluginInConfigPolicy::Error)
+                .expect("config should be valid");
+            // check that the plugin's config has been moved to its PluginInfo
+            let plugin_info = set.get_plugin("name").unwrap();
+            assert_eq!(
+                plugin_info
+                    .config
+                    .as_ref()
+                    .expect("plugin config should be set")
+                    .get("n"),
+                Some(&toml::Value::Integer(123))
+            );
+            // check that the plugin is NOT enabled
+            assert!(!plugin_info.enabled);
+            assert!(!set.is_plugin_enabled("name"));
+            // check that the plugins' configs are no longer in the global config
+            assert!(global_config.get("plugins").is_none());
+        }
+
+        #[test]
+        fn extract_config_update_status_implicitly_enabled() {
+            let mut set = plugin_set();
+            let mut global_config = toml! {
+                global = 0
+
+                [plugins.name]
+                n = 123
+            };
+
+            // extract with `update_status=true`, the plugin should be enabled
+            set.extract_config(&mut global_config, true, UnknownPluginInConfigPolicy::Error)
+                .expect("config should be valid");
+            let plugin_info = set.get_plugin("name").unwrap();
+            assert_eq!(
+                plugin_info
+                    .config
+                    .as_ref()
+                    .expect("plugin config should be set")
+                    .get("n"),
+                Some(&toml::Value::Integer(123))
+            );
+            assert!(plugin_info.enabled);
+            assert!(set.is_plugin_enabled("name"));
+        }
+
+        #[test]
+        fn extract_config_update_status_implicitly_disabled() {
+            let mut set = plugin_set();
+            let mut global_config = toml! {
+                global = 0
+            };
+
+            // extract with `update_status=true`, the plugin should be enabled
+            set.extract_config(&mut global_config, true, UnknownPluginInConfigPolicy::Error)
+                .expect("config should be valid");
+            let plugin_info = set.get_plugin("name").unwrap();
+            assert!(plugin_info.config.is_none(), "plugin should have no config");
+            assert!(!plugin_info.enabled);
+            assert!(!set.is_plugin_enabled("name"));
+        }
+
+        #[test]
+        fn extract_config_update_status_explicitly_disabled() {
+            let mut set = plugin_set();
+            let mut global_config = toml! {
+                global = 0
+
+                [plugins.name]
+                enabled = false
+                n = 123
+            };
+
+            // extract with `update_status=true`, the plugin should be enabled
+            set.extract_config(&mut global_config, true, UnknownPluginInConfigPolicy::Error)
+                .expect("config should be valid");
+            let plugin_info = set.get_plugin("name").unwrap();
+            assert_eq!(
+                plugin_info
+                    .config
+                    .as_ref()
+                    .expect("plugin config should be set")
+                    .get("n"),
+                Some(&toml::Value::Integer(123))
+            );
+            assert!(!plugin_info.enabled);
+            assert!(!set.is_plugin_enabled("name"));
+        }
+
+        #[test]
+        fn extract_config_update_status_explicitly_enabled() {
+            let mut set = plugin_set();
+            let mut global_config = toml! {
+                global = 0
+
+                [plugins.name]
+                enabled = true
+                n = 123
+            };
+
+            // extract with `update_status=true`, the plugin should be enabled
+            set.extract_config(&mut global_config, true, UnknownPluginInConfigPolicy::Error)
+                .expect("config should be valid");
+            let plugin_info = set.get_plugin("name").unwrap();
+            assert_eq!(
+                plugin_info
+                    .config
+                    .as_ref()
+                    .expect("plugin config should be set")
+                    .get("n"),
+                Some(&toml::Value::Integer(123))
+            );
+            assert!(plugin_info.enabled);
+            assert!(set.is_plugin_enabled("name"));
+        }
     }
+
     struct MyPlugin;
     impl AlumetPlugin for MyPlugin {
         fn name() -> &'static str {
