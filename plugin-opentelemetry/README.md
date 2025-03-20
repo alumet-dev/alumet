@@ -2,7 +2,7 @@
 
 This crate is a library that defines the OpenTelemetry plugin.
 
-Implements a push-based OTPL receiver (via gRPC) which can be connected to an OpenTelemetry Collector, processed in any way, and then exported to a observability backend like Jaeger, Prometheus, Thanos, OpenSearch, ElasticSearch, etc.
+Implements a push-based exporter (via gRPC) which can be connected to an OpenTelemetry Collector (via a receiver), processed in any way, and then exported to a observability backend like Jaeger, Prometheus, Thanos, OpenSearch, ElasticSearch, etc.
 
 ## Demos
 
@@ -10,7 +10,7 @@ The plugin has been tested on a NUC with the default configuration.
 
 ### OpenTelemetry demo
 
-The connection to the OpenTelemetry Collector was done following the [official data prepper tutorial](https://github.com/opensearch-project/data-prepper/tree/main/examples/metrics-ingestion-otel).
+The connection to the OpenTelemetry Collector was done following the [official Data Prepper tutorial](https://github.com/opensearch-project/data-prepper/tree/main/examples/metrics-ingestion-otel).
 
 Notes:
 - For clarity, I disconnected traces and metrics from other sources to better visualize in OpenSearch.

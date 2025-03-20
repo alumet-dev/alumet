@@ -46,3 +46,5 @@ Trystram
 UCUM
 uncore
 VERGEN
+hostmetrics
+prepper
