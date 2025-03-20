@@ -5,7 +5,7 @@ use output::OpenTelemetryOutput;
 use serde::{Deserialize, Serialize};
 
 pub struct OpenTelemetryPlugin {
-    output: Box<OpenTelemetryOutput>,
+    config: Config,
 }
 
 impl AlumetPlugin for OpenTelemetryPlugin {
@@ -23,20 +23,20 @@ impl AlumetPlugin for OpenTelemetryPlugin {
 
     fn init(config: alumet::plugin::ConfigTable) -> anyhow::Result<Box<Self>> {
         let config: Config = deserialize_config(config)?;
-        // Create a new OpenTelemetryOutput instance
-        let otel_output = Box::new(OpenTelemetryOutput::new(
-            config.append_unit_to_metric_name,
-            config.use_unit_display_name,
-            config.add_attributes_to_labels,
-            config.prefix.clone(),
-            config.suffix.clone(),
-            config.collector_host.clone(),
-        )?);
-        Ok(Box::new(OpenTelemetryPlugin { output: otel_output }))
+        Ok(Box::new(OpenTelemetryPlugin { config: config }))
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
-        alumet.add_blocking_output(OpenTelemetryPlugin::name(), self.output.clone());
+        // Create a new OpenTelemetryOutput instance
+        let otel_output = Box::new(OpenTelemetryOutput::new(
+            self.config.append_unit_to_metric_name,
+            self.config.use_unit_display_name,
+            self.config.add_attributes_to_labels,
+            self.config.prefix.clone(),
+            self.config.suffix.clone(),
+            self.config.collector_host.clone(),
+        )?);
+        alumet.add_blocking_output(OpenTelemetryPlugin::name(), otel_output.clone());
         Ok(())
     }
 

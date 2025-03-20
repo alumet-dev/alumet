@@ -41,6 +41,7 @@ impl OpenTelemetryOutput {
     }
     pub fn initialize(&mut self) {
         // Needs to be created inside the tokio thread
+        // TODO: rework after https://github.com/alumet-dev/alumet/issues/119 is implemented
         let meter_provider = self.init_metrics();
         global::set_meter_provider(meter_provider.clone());
     }
@@ -80,7 +81,6 @@ impl alumet::pipeline::Output for OpenTelemetryOutput {
             .with_attributes(common_scope_attributes)
             .build();
         for m in measurements {
-            let metric = ctx.metrics.by_id(&m.metric).unwrap().clone();
             // Configure the name of the metric
             let full_metric = ctx
                 .metrics
@@ -133,6 +133,7 @@ impl alumet::pipeline::Output for OpenTelemetryOutput {
 
             // Prepare the meter provider
             let meter = global::meter_with_scope(scope.clone());
+            let metric = ctx.metrics.by_id(&m.metric).unwrap().clone();
             let gauge = meter
                 .f64_gauge(metric_name)
                 .with_description(metric.description.to_string())
