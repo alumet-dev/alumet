@@ -1,7 +1,10 @@
 use std::time::Duration;
 
 use thiserror::Error;
-use tokio::sync::mpsc::error::SendTimeoutError;
+use tokio::{
+    sync::mpsc::error::{SendTimeoutError, TrySendError},
+    task::JoinHandle,
+};
 use tokio_util::sync::CancellationToken;
 
 use crate::pipeline::{error::PipelineError, naming::PluginName};
@@ -57,6 +60,10 @@ pub enum SendWaitError {
     Operation(#[source] PipelineError),
 }
 
+pub enum OnBackgroundError {
+    Log,
+}
+
 impl AnonymousControlHandle {
     pub fn with_plugin(self, plugin: PluginName) -> PluginControlHandle {
         PluginControlHandle { inner: self, plugin }
@@ -98,6 +105,28 @@ impl AnonymousControlHandle {
         self.impl_send_wait(msg, rx, timeout.into()).await
     }
 
+    /// Sends a request without waiting for a response and without blocking.
+    ///
+    /// If the request cannot be sent immediately, spawns a background task on the current Tokio runtime.
+    /// Background task failures are handled according to the `on_error` strategy.
+    ///
+    /// # Errors
+    /// If the pipeline has been shut down, returns a `NotAvailable` error.
+    ///
+    /// # Panics
+    /// Panics if not called in the context of a Tokio runtime.
+    #[allow(private_bounds)]
+    pub fn dispatch_in_current_runtime(
+        &self,
+        request: impl request::AnonymousControlRequest,
+        timeout: impl Into<Option<Duration>>,
+        on_error: OnBackgroundError,
+    ) -> Result<(), DispatchError> {
+        let _ = on_error; // there is only one strategy, it's hardcoded in impl
+        self.impl_dispatch_in_current_runtime(request.serialize(), timeout.into())
+            .map(|_| ())
+    }
+
     async fn impl_dispatch(
         &self,
         msg: messages::ControlRequest,
@@ -133,6 +162,34 @@ impl AnonymousControlHandle {
                 Err(err) => Err(SendWaitError::Operation(err)),
             },
             Err(_recv_error) => Err(SendWaitError::NotAvailable),
+        }
+    }
+
+    fn impl_dispatch_in_current_runtime(
+        &self,
+        msg: messages::ControlRequest,
+        timeout: Option<Duration>,
+    ) -> Result<Option<JoinHandle<Result<(), DispatchError>>>, DispatchError> {
+        // get the handle to the current runtime
+        let current = tokio::runtime::Handle::try_current()
+            .expect("dispatch_in_current_runtime must be called within a Tokio runtime. If you are not in a thread that is managed by Alumet, a potential solution is to create a runtime yourself.");
+
+        // attempt to send the message right now
+        match self.tx.try_send(msg) {
+            Ok(()) => Ok(None),
+            Err(TrySendError::Closed(_)) => Err(DispatchError::NotAvailable),
+            Err(TrySendError::Full(msg)) => {
+                // the message queue is full, we need to wait in an async task
+                let control_handle = self.clone();
+                let task_handle = current.spawn(async move {
+                    let res = control_handle.impl_dispatch(msg, timeout).await;
+                    if let Err(e) = &res {
+                        log::error!("dispacth failed in background: {e:?}");
+                    }
+                    res
+                });
+                Ok(Some(task_handle))
+            }
         }
     }
 }
@@ -177,6 +234,30 @@ impl PluginControlHandle {
     /// Shuts the pipeline down.
     pub fn shutdown(&self) {
         self.inner.shutdown();
+    }
+
+    /// Sends a request without waiting for a response and without blocking.
+    ///
+    /// If the request cannot be sent immediately, spawns a background task on the current Tokio runtime.
+    /// Background task failures are handled according to the `on_error` strategy.
+    ///
+    /// # Errors
+    /// If the pipeline has been shut down, returns a `NotAvailable` error.
+    ///
+    /// # Panics
+    /// Panics if not called in the context of a Tokio runtime.
+    #[allow(private_bounds)]
+    pub fn dispatch_in_current_runtime(
+        &self,
+        request: impl request::PluginControlRequest,
+        timeout: impl Into<Option<Duration>>,
+        on_error: OnBackgroundError,
+    ) -> Result<(), DispatchError> {
+        let _ = on_error;
+        let request = request.serialize(&self.plugin);
+        self.inner
+            .impl_dispatch_in_current_runtime(request, timeout.into())
+            .map(|_| ())
     }
 }
 
