@@ -554,10 +554,7 @@ impl MeasurementPipeline {
     /// # Blocking
     /// This is a blocking function, it should not be called from within an async runtime.
     pub fn wait_for_shutdown(self, timeout: Option<Duration>) -> Result<(), ShutdownError> {
-        log::debug!(
-            "pipeline::wait_for_shutdown, shutdown={}",
-            self.control_handle.is_shutdown()
-        );
+        log::debug!("pipeline::wait_for_shutdown");
         let shutdown_task = async {
             let pipeline_result = self
                 .pipeline_control_task

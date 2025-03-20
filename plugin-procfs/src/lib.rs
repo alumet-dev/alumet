@@ -1,5 +1,5 @@
 use alumet::{
-    pipeline::elements::source::trigger::TriggerSpec,
+    pipeline::{control::request, elements::source::trigger::TriggerSpec},
     plugin::{
         event,
         rust::{deserialize_config, serialize_config, AlumetPlugin},
@@ -135,7 +135,7 @@ fn start_process_watcher(
         })
         .collect();
 
-    // We need a ScopedControlHandle to spawn new sources in the ProcessWatcher,
+    // We need a PluginControlHandle to spawn new sources in the ProcessWatcher,
     // therefore it needs to be created after the pipeline startup.
     //
     // Note: using `on_pipeline_start` is easier than storing a state in the plugin and
@@ -145,8 +145,8 @@ fn start_process_watcher(
         log::info!("Starting system-wide process watcher.");
         let control_handle = ctx.pipeline_control();
         let source = Box::new(process::ProcessWatcher::new(control_handle.clone(), metrics, groups));
-        control_handle
-            .add_source("process-watcher", source, trigger)
+        let create_source = request::create_one().add_source("process-watcher", source, trigger);
+        ctx.block_on(control_handle.send_wait(create_source, None))
             .context("failed to add the process-watcher to the pipeline")
     });
 }
@@ -165,20 +165,13 @@ fn setup_process_event_listener(
         log::info!("Setting up on-demand process watcher.");
         let control_handle = ctx.pipeline_control();
         let monitor = process::ManualProcessMonitor::new(control_handle.clone(), metrics, settings);
+        let rt_handle = ctx.async_runtime().clone();
         event::start_consumer_measurement().subscribe(move |evt| {
-            let mut control_handle = control_handle.clone();
-            let mut buf = control_handle.source_buffer_with_capacity(evt.0.len());
-            for process in evt.0 {
-                match process {
-                    ResourceConsumer::Process { pid } => {
-                        // TODO continue even in case of error (useful when there are multiple processes to watch)
-                        log::debug!("Starting to monitor process with pid {pid}");
-                        monitor.start_monitoring(pid.try_into().unwrap(), &mut buf)?;
-                    }
-                    _ => (),
-                }
-            }
-            buf.flush()?;
+            let pids = evt.0.into_iter().filter_map(|c| match c {
+                ResourceConsumer::Process { pid } => Some(pid as i32),
+                _ => None,
+            });
+            monitor.start_monitoring(pids, &rt_handle);
             Ok(())
         });
         Ok(())

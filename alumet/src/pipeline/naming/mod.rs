@@ -50,15 +50,15 @@ pub struct ElementName {
 
 /// The full name of a source.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct SourceName(ElementName);
+pub struct SourceName(pub(super) ElementName);
 
 /// The full name of a transform.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct TransformName(ElementName);
+pub struct TransformName(pub(super) ElementName);
 
 /// The full name of an output.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct OutputName(ElementName);
+pub struct OutputName(pub(super) ElementName);
 
 impl SourceName {
     pub fn new(plugin: String, source_name: String) -> Self {

@@ -11,21 +11,16 @@ use crate::{
     measurement::MeasurementBuffer,
     metrics::registry::MetricRegistry,
     pipeline::{
-        control::{
-            message::matching::{SourceMatcher, TransformMatcher},
-            AnonymousControlHandle, ControlMessage,
-        },
+        control::{request, AnonymousControlHandle},
         elements::{
             output::builder::{BlockingOutputBuilder, OutputBuilder},
             source::{
-                self,
                 builder::{ManagedSourceBuilder, SourceBuilder},
-                control::TriggerMessage,
                 trigger,
             },
-            transform::{self, builder::TransformBuilder},
+            transform::builder::TransformBuilder,
         },
-        matching::{SourceNamePattern, TransformNamePattern},
+        matching::TransformNamePattern,
         naming::{OutputName, PluginName, SourceName, TransformName},
         Output,
     },
@@ -98,6 +93,8 @@ pub struct RuntimeExpectations {
 pub(super) const TESTER_SOURCE_NAME: &str = "_tester";
 pub(super) const TESTER_OUTPUT_NAME: &str = "_keep_alive";
 pub(super) const TESTER_PLUGIN_NAME: &str = "_test_runtime_expectations";
+
+const CONTROL_TIMEOUT: Duration = Duration::from_millis(100);
 
 type TestControllerMap<N, C> = Rc<RefCell<FxHashMap<N, C>>>;
 
@@ -231,28 +228,14 @@ impl TestExpectations for RuntimeExpectations {
 
         async fn disable_all_transforms(control: &AnonymousControlHandle) {
             log::debug!("Disabling transforms...");
-            control
-                .send(ControlMessage::Transform(transform::control::ControlMessage {
-                    matcher: TransformMatcher::Name(TransformNamePattern::wildcard()),
-                    new_state: transform::control::TaskState::Disabled,
-                }))
-                .await
-                .unwrap();
-            // TODO remove this hack: wait for the control command to be processed
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            let request = request::transform(TransformNamePattern::wildcard()).disable();
+            control.send_wait(request, CONTROL_TIMEOUT).await.unwrap();
         }
 
         async fn enable_transform(control: &AnonymousControlHandle, name: TransformName) {
             log::debug!("Enabling transforms...");
-            control
-                .send(ControlMessage::Transform(transform::control::ControlMessage {
-                    matcher: TransformMatcher::Name(TransformNamePattern::exact(name.plugin(), name.transform())),
-                    new_state: transform::control::TaskState::Enabled,
-                }))
-                .await
-                .unwrap();
-            // TODO remove this hack: wait for the control command to be processed
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            let request = request::transform(name).enable();
+            control.send_wait(request, CONTROL_TIMEOUT).await.unwrap();
         }
 
         let source_tests_before = source_tests.clone();
@@ -414,11 +397,8 @@ impl TestExpectations for RuntimeExpectations {
 
                         // tell Alumet to trigger the source now
                         // message to send to Alumet to trigger the source
-                        let trigger_msg =
-                            ControlMessage::Source(source::control::ControlMessage::TriggerManually(TriggerMessage {
-                                matcher: SourceMatcher::Name(SourceNamePattern::from(name.clone())),
-                            }));
-                        control.send(trigger_msg).await.unwrap();
+                        let trigger = request::source(name.clone()).trigger_now();
+                        control.dispatch(trigger, CONTROL_TIMEOUT).await.unwrap();
 
                         // wait for the test to finish
                         if done_rx.recv().await.is_none() {

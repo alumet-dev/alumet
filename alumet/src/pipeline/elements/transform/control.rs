@@ -10,7 +10,7 @@ use tokio::{
 
 use crate::measurement::MeasurementBuffer;
 use crate::metrics::online::MetricReader;
-use crate::pipeline::control::message::matching::TransformMatcher;
+use crate::pipeline::control::matching::TransformMatcher;
 use crate::pipeline::error::PipelineError;
 use crate::pipeline::naming::TransformName;
 

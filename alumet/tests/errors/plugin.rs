@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use alumet::pipeline::control::request;
 use anyhow::Context;
 
 use super::points::{error_point, panic_point};
@@ -18,6 +19,7 @@ use alumet::plugin::{
 pub struct BadPlugin;
 pub struct BadSource1;
 pub struct BadSource2;
+pub struct BadSource3;
 pub struct BadTransform;
 pub struct BadOutput;
 
@@ -77,15 +79,30 @@ impl AlumetPlugin for BadPlugin {
     fn post_pipeline_start(&mut self, alumet: &mut AlumetPostStart) -> anyhow::Result<()> {
         error_point!(post_pipeline_start);
         let control_handle = alumet.pipeline_control();
-        control_handle
-            .add_source_builder("source2", |_| {
-                error_point!(source2_build);
-                Ok(ManagedSource {
-                    trigger_spec: TriggerSpec::at_interval(Duration::from_millis(100)),
-                    source: Box::new(BadSource2),
-                })
+        let create_source2 = request::create_one().add_source_builder("source2", |_| {
+            error_point!(source2_build);
+            Ok(ManagedSource {
+                trigger_spec: TriggerSpec::at_interval(Duration::from_millis(100)),
+                source: Box::new(BadSource2),
             })
-            .context("failed to add source in post_pipeline_start")?;
+        });
+        let create_source3 = request::create_one().add_source_builder("source3", |_| {
+            error_point!(source3_build);
+            Ok(ManagedSource {
+                trigger_spec: TriggerSpec::at_interval(Duration::from_millis(100)),
+                source: Box::new(BadSource3),
+            })
+        });
+        // create source2, don't catch errors here
+        alumet
+            .async_runtime()
+            .block_on(control_handle.dispatch(create_source2, Duration::from_secs(1)))
+            .context("failed to add source2 in post_pipeline_start")?;
+        // create source3, wait for the result and catch errors here (build error => post_pipeline_start error)
+        alumet
+            .async_runtime()
+            .block_on(control_handle.send_wait(create_source3, Duration::from_secs(1)))
+            .context("failed to add source3 in post_pipeline_start")?;
         Ok(())
     }
 }
@@ -106,6 +123,13 @@ impl Source for BadSource1 {
 impl Source for BadSource2 {
     fn poll(&mut self, _m: &mut MeasurementAccumulator, _t: Timestamp) -> Result<(), PollError> {
         error_point!(source2_poll);
+        Ok(())
+    }
+}
+
+impl Source for BadSource3 {
+    fn poll(&mut self, _m: &mut MeasurementAccumulator, _t: Timestamp) -> Result<(), PollError> {
+        error_point!(source3_poll);
         Ok(())
     }
 }

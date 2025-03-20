@@ -8,7 +8,7 @@ use std::{
 use anyhow::Context;
 
 use crate::{
-    pipeline::{control::ControlMessage, naming::matching::SourceNamePattern, MeasurementPipeline},
+    pipeline::{control::request, naming::matching::SourceNamePattern, MeasurementPipeline},
     plugin::event::StartConsumerMeasurement,
     resources::ResourceConsumer,
 };
@@ -79,16 +79,15 @@ fn exec_child(external_command: String, args: Vec<String>) -> Result<ExitStatus,
     Ok(status)
 }
 
+const TRIGGER_TIMEOUT: Duration = Duration::from_secs(1);
+
 // Triggers one measurement (on all sources that support manual trigger).
 fn trigger_measurement_now(pipeline: &MeasurementPipeline) -> anyhow::Result<()> {
-    use crate::pipeline::elements::source;
-
     let control_handle = pipeline.control_handle();
-    let send_task = control_handle.send(ControlMessage::Source(
-        source::control::ControlMessage::TriggerManually(source::control::TriggerMessage {
-            matcher: SourceNamePattern::wildcard().into(),
-        }),
-    ));
+    let send_task = control_handle.send_wait(
+        request::source(SourceNamePattern::wildcard()).trigger_now(),
+        TRIGGER_TIMEOUT,
+    );
     pipeline
         .async_runtime()
         .block_on(send_task)

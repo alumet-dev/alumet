@@ -6,7 +6,7 @@ use std::{
 
 use alumet::{
     metrics::TypedMetricId,
-    pipeline::elements::source::trigger::TriggerSpec,
+    pipeline::{control::request, elements::source::trigger::TriggerSpec},
     plugin::{
         event,
         rust::{deserialize_config, serialize_config, AlumetPlugin},
@@ -112,6 +112,7 @@ impl AlumetPlugin for PerfPlugin {
     fn post_pipeline_start(&mut self, alumet: &mut AlumetPostStart) -> anyhow::Result<()> {
         let config_cloned = self.config.clone();
         let pipeline_control = alumet.pipeline_control();
+        let runtime = alumet.async_runtime().clone();
 
         // Listen to events.
         event::start_consumer_measurement().subscribe(move |e| {
@@ -167,7 +168,8 @@ impl AlumetPlugin for PerfPlugin {
                         .flush_interval(flush_interval)
                         .build()?;
 
-                    pipeline_control.add_source(&source_name, Box::new(source), trigger)?;
+                    let request = request::create_one().add_source(&source_name, Box::new(source), trigger);
+                    runtime.block_on(pipeline_control.dispatch(request, Duration::from_secs(1)))?;
                     log::debug!("New source has started.");
                 }
             }

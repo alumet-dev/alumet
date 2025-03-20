@@ -253,7 +253,7 @@ fn panic_source1_build() -> anyhow::Result<()> {
 }
 
 #[test]
-fn error_source2_build() -> anyhow::Result<()> {
+fn error_source2_build_dispatch() -> anyhow::Result<()> {
     let _g = sequential_test(
         // Make the source builder in post_pipeline_start fail.
         PluginErrorPoints {
@@ -265,6 +265,25 @@ fn error_source2_build() -> anyhow::Result<()> {
         // which now returns any runtime errors even if it doesn't close the pipeline.
         ExpectedCatchPoints {
             wait_for_shutdown: Expect::Error,
+            ..Default::default()
+        },
+    );
+    let plugins = static_plugins![super::plugin::BadPlugin];
+    super::agent::build_and_run(plugins)
+}
+
+#[test]
+fn error_source3_build_send_wait() -> anyhow::Result<()> {
+    let _g = sequential_test(
+        // Make the source builder in post_pipeline_start fail.
+        PluginErrorPoints {
+            source3_build: Behavior::Error,
+            ..Default::default()
+        },
+        // The agent should stop quickly, because source3 is created with send_wait and
+        // errors are handled in plugin post_pipeline_start.
+        ExpectedCatchPoints {
+            agent_build_and_start: Expect::Error,
             ..Default::default()
         },
     );

@@ -1,7 +1,7 @@
 //! Implementation and control of transform tasks.
 
 pub mod builder;
-pub mod control;
+pub(crate) mod control;
 pub mod error;
 pub mod interface;
 pub mod run;

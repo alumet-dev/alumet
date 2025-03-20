@@ -8,7 +8,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::measurement::MeasurementBuffer;
 use crate::metrics::online::{MetricReader, MetricSender};
-use crate::pipeline::control::message::matching::SourceMatcher;
+use crate::pipeline::control::matching::SourceMatcher;
 use crate::pipeline::elements::source::run::{run_autonomous, run_managed};
 use crate::pipeline::error::PipelineError;
 use crate::pipeline::matching::SourceNamePattern;

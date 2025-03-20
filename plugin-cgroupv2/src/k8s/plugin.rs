@@ -1,6 +1,8 @@
 use alumet::{
-    pipeline::control::ScopedControlHandle,
-    pipeline::elements::source::trigger::TriggerSpec,
+    pipeline::{
+        control::{request, PluginControlHandle},
+        elements::source::trigger::TriggerSpec,
+    },
     plugin::{
         rust::{deserialize_config, serialize_config, AlumetPlugin},
         util::CounterDiff,
@@ -139,11 +141,12 @@ impl AlumetPlugin for K8sPlugin {
 
         struct PodDetector {
             metrics: Metrics,
-            control_handle: ScopedControlHandle,
+            control_handle: PluginControlHandle,
             poll_interval: Duration,
             kubernetes_api_url: String,
             hostname: String,
             token: Token,
+            rt: tokio::runtime::Runtime,
         }
 
         impl EventHandler for PodDetector {
@@ -257,13 +260,14 @@ impl AlumetPlugin for K8sPlugin {
                                 )?;
 
                                 // Add the probe to the sources
+                                let create_source = request::create_one().add_source(
+                                    pod_uid,
+                                    Box::new(probe),
+                                    TriggerSpec::at_interval(detector.poll_interval),
+                                );
                                 detector
-                                    .control_handle
-                                    .add_source(
-                                        pod_uid,
-                                        Box::new(probe),
-                                        TriggerSpec::at_interval(detector.poll_interval),
-                                    )
+                                    .rt
+                                    .block_on(detector.control_handle.dispatch(create_source, Duration::from_secs(1)))
                                     .with_context(|| format!("failed to add source for pod {pod_uid}"))?;
                             }
                         }
@@ -278,6 +282,12 @@ impl AlumetPlugin for K8sPlugin {
                 }
             }
         }
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .context("tokio Runtime should build")?;
+
         let handler = PodDetector {
             metrics,
             control_handle,
@@ -285,6 +295,7 @@ impl AlumetPlugin for K8sPlugin {
             kubernetes_api_url,
             hostname,
             token: Token::new(token_retrieval),
+            rt,
         };
 
         let mut watcher = notify::recommended_watcher(handler)?;
