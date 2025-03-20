@@ -22,8 +22,8 @@ impl AlumetPlugin for OpenTelemetryPlugin {
     }
 
     fn init(config: alumet::plugin::ConfigTable) -> anyhow::Result<Box<Self>> {
-        let config: Config = deserialize_config(config)?;
-        Ok(Box::new(OpenTelemetryPlugin { config: config }))
+        let plugin_config: Config = deserialize_config(config)?;
+        Ok(Box::new(OpenTelemetryPlugin { config: plugin_config }))
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
