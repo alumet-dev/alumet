@@ -15,7 +15,9 @@
         ".gitignore",
         ".github/",
         ".circleci/",
-        "Cargo.lock"
+        "Cargo.lock",
+        "**/**.yaml",
+        ".circleci/"
     ],
     "import": [
         "@cspell/dict-rust/cspell-ext.json"
