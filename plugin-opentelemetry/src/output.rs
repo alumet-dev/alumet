@@ -89,7 +89,7 @@ impl alumet::pipeline::Output for OpenTelemetryOutput {
             let metric_name = format!(
                 "{}{}{}",
                 self.prefix,
-                sanitize_name(if self.append_unit_to_metric_name {
+                if self.append_unit_to_metric_name {
                     let unit_string = if self.use_unit_display_name {
                         full_metric.unit.display_name()
                     } else {
@@ -102,7 +102,7 @@ impl alumet::pipeline::Output for OpenTelemetryOutput {
                     }
                 } else {
                     full_metric.name.clone()
-                }),
+                },
                 self.suffix
             );
 
@@ -119,8 +119,7 @@ impl alumet::pipeline::Output for OpenTelemetryOutput {
             if self.add_attributes_to_labels {
                 // Add attributes as labels
                 for (key, value) in m.attributes() {
-                    let key = sanitize_name(key.to_owned());
-                    labels.push(KeyValue::new(key, value.to_string()));
+                    labels.push(KeyValue::new(key.to_owned(), value.to_string()));
                 }
             }
             // OpenTelemetry does not accept empty label
@@ -147,11 +146,4 @@ impl alumet::pipeline::Output for OpenTelemetryOutput {
 
         Ok(())
     }
-}
-
-// Helper functions to ensure metric/label names follow Prometheus naming rules
-fn sanitize_name(name: String) -> String {
-    name.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
-        .collect()
 }
