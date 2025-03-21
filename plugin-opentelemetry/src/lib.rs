@@ -10,7 +10,7 @@ pub struct OpenTelemetryPlugin {
 
 impl AlumetPlugin for OpenTelemetryPlugin {
     fn name() -> &'static str {
-        "plugin-opentelemetry"
+        "opentelemetry"
     }
 
     fn version() -> &'static str {
