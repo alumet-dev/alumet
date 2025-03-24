@@ -78,6 +78,16 @@ jobs:
       release-version: ${{ needs.gather-informations.outputs.release }}
       tag: ${{ needs.gather-informations.outputs.tag }}
 
+  build-docker:
+    needs:
+      - gather-informations
+      - create-rpm
+    uses: alumet-dev/packaging/.github/workflows/build_docker.yaml@main
+    with:
+      target-architecture: x86_64
+      build-version: ${{ needs.gather-informations.outputs.version }}
+      release-version: ${{ needs.gather-informations.outputs.release }}
+
   attach-artifacts:
     needs:
       - create-rpm
@@ -142,3 +152,37 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           find rpm -type f -exec gh release upload ${{ steps.get_latest_release_and_delete_old_artifacts.outputs.release_tag }} {} \;
+
+  push-docker:
+    needs:
+      - build-docker
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create docker artifacts directory
+        run: mkdir docker-artifacts
+
+      - name: Download docker images artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "**/*.docker.tar"
+          path: ./docker-artifacts
+          merge-multiple: true
+      -
+        name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push images
+        run: |
+          tars=$(find ./docker-artifacts -type f)
+          for tar in $tars
+            do
+              image_tags=$(docker load -q -i $tar | sed 's/Loaded image: //g')
+              for image_tag in $image_tags
+                do
+                  docker push $image_tag
+                done
+            done
