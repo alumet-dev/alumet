@@ -389,7 +389,7 @@ pub fn merge_override(original: &mut toml::Table, overrider: toml::Table) {
 ///     global_option = "this value is not for plugins"
 ///
 ///     [plugins.a]
-///     enabled = false  # default is enabled (see plugins.b)
+///     enabled = false
 ///     key = "value"
 ///     
 ///     [plugins.b]
@@ -430,7 +430,7 @@ pub fn extract_plugins_config(config: &mut toml::Table) -> Result<BTreeMap<Strin
     ) -> Result<(bool, toml::Table), BadTypeError> {
         match config_section {
             toml::Value::Table(mut plugin_config) => {
-                // get the TOML value
+                // get the TOML value, true if absent
                 let enabled_val = plugin_config
                     .remove("enabled")
                     .or_else(|| plugin_config.remove("enable"))
