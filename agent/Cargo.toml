@@ -24,6 +24,7 @@ plugin-csv = { path = "../plugin-csv" }
 plugin-influxdb = { path = "../plugin-influxdb" }
 plugin-relay = { path = "../plugin-relay" }
 plugin-mongodb = { path = "../plugin-mongodb" }
+plugin-opentelemetry = { path = "../plugin-opentelemetry" }
 
 # Linux-only dependencies
 [target.'cfg(target_os = "linux")'.dependencies]
