@@ -71,18 +71,27 @@ jobs:
 
   create-rpm:
     needs: gather-informations
-    uses: alumet-dev/packaging/.github/workflows/build_rpm.yaml@main
+    uses: ahuret/packaging/.github/workflows/build_rpm.yaml@main
     with:
-      target-architecture: x86_64
-      build-version: ${{ needs.gather-informations.outputs.version }}
+      arch: x86_64
+      version: ${{ needs.gather-informations.outputs.version }}
       release-version: ${{ needs.gather-informations.outputs.release }}
+      tag: ${{ needs.gather-informations.outputs.tag }}
+
+  build-deb:
+    needs: gather-informations
+    uses: ahuret/packaging/.github/workflows/build_deb.yaml@main
+    with:
+      arch: amd64
+      version: ${{ needs.gather-informations.outputs.version }}
+      revision: ${{ needs.gather-informations.outputs.release }}
       tag: ${{ needs.gather-informations.outputs.tag }}
 
   build-docker:
     needs:
       - gather-informations
       - create-rpm
-    uses: alumet-dev/packaging/.github/workflows/build_docker.yaml@main
+    uses: ahuret/packaging/.github/workflows/build_docker.yaml@main
     with:
       target-architecture: x86_64
       build-version: ${{ needs.gather-informations.outputs.version }}
@@ -156,6 +165,7 @@ jobs:
   push-docker:
     needs:
       - build-docker
+      - build-deb
     runs-on: ubuntu-latest
     steps:
       - name: Create docker artifacts directory
