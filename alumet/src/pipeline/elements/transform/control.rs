@@ -12,7 +12,8 @@ use crate::measurement::MeasurementBuffer;
 use crate::metrics::online::MetricReader;
 use crate::pipeline::control::matching::TransformMatcher;
 use crate::pipeline::error::PipelineError;
-use crate::pipeline::naming::TransformName;
+use crate::pipeline::matching::ElementNamePattern;
+use crate::pipeline::naming::{ElementKind, ElementName, TransformName};
 
 use super::builder::{BuildContext, TransformBuilder};
 use super::run::run_all_in_order;
@@ -90,6 +91,18 @@ impl TransformControl {
         // We simply wait for the task to finish.
         while let Some(res) = self.tasks.spawned_tasks.join_next().await {
             handle_task_result(res);
+        }
+    }
+
+    pub fn list_elements(&self, buf: &mut Vec<ElementName>, pat: &ElementNamePattern) {
+        if pat.kind == None || pat.kind == Some(ElementKind::Transform) {
+            buf.extend(self.tasks.names_by_bitset_position.iter().filter_map(|name| {
+                if pat.matches(name) {
+                    Some(name.to_owned().into())
+                } else {
+                    None
+                }
+            }))
         }
     }
 }
