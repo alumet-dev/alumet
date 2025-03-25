@@ -213,26 +213,38 @@ fn escape_string<'a>(s: &'a str, chars_to_escape: &[char]) -> Cow<'a, str> {
 
 #[cfg(test)]
 mod tests {
+    use mockito::{Matcher, Mock, Server, ServerGuard};
     use std::time::{Duration, UNIX_EPOCH};
 
+    use super::{Client, LineProtocolBuilder, LineProtocolData};
+    use crate::influxdb2::escape_string;
     use alumet::measurement::Timestamp;
 
-    use crate::influxdb2::escape_string;
-
-    use super::LineProtocolData;
-
-    #[test]
-    fn escaping() {
-        assert_eq!("myMeasurement", escape_string("myMeasurement", &['\\', ' ', '=']));
-        assert_eq!("with\\ space", escape_string("with space", &['\\', ' ', '=']));
-        assert_eq!(
-            "with\\ space\\ and\\ backslash\\\\",
-            escape_string("with space and backslash\\", &['\\', ' ', '='])
-        );
+    async fn mock_influx_write(server: &mut ServerGuard, org: &str, bucket: &str, token: &str, body: &str) -> Mock {
+        server
+            .mock("POST", "/api/v2/write")
+            .match_query(Matcher::AllOf(vec![
+                Matcher::UrlEncoded("org".into(), org.into()),
+                Matcher::UrlEncoded("bucket".into(), bucket.into()),
+                Matcher::UrlEncoded("precision".into(), "ns".into()),
+            ]))
+            .match_header("authorization", format!("Token {token}").as_str())
+            .match_header("accept", "application/json")
+            .match_header("Content-Type", "text/plain; charset=utf-8")
+            .match_body(body)
+            .with_status(204)
+            .create_async()
+            .await
     }
 
-    #[test]
-    fn build_line() {
+    struct TestedLineProtocolData {
+        line: LineProtocolData,
+        expected_str: &'static str,
+    }
+
+    fn get_tested_lines() -> Vec<TestedLineProtocolData> {
+        let mut tested_lines = Vec::new();
+
         let mut builder = LineProtocolData::builder();
         builder
             .measurement("myMeasurement")
@@ -241,10 +253,11 @@ mod tests {
             .field_string("fieldKey", "fieldValue")
             .timestamp(Timestamp::from(UNIX_EPOCH + Duration::from_nanos(1556813561098000000)));
         let line = builder.build();
-        assert_eq!(
-            r#"myMeasurement,tag1=value1,tag2=value2 fieldKey="fieldValue" 1556813561098000000"#,
-            line.0
-        );
+
+        tested_lines.push(TestedLineProtocolData {
+            line: line,
+            expected_str: r#"myMeasurement,tag1=value1,tag2=value2 fieldKey="fieldValue" 1556813561098000000"#,
+        });
 
         let mut builder = LineProtocolData::builder();
         builder
@@ -262,10 +275,97 @@ mod tests {
             .field_uint("uint", 123)
             .timestamp(Timestamp::from(UNIX_EPOCH + Duration::from_nanos(1556813561098000000)));
         let line = builder.build();
-        assert_eq!(
-            r#"myMeasurement,tag1=value1,tag2=value2 fieldKey="fieldValue" 1556813561098000000
+        tested_lines.push(TestedLineProtocolData {
+            line: line,
+            expected_str: r#"myMeasurement,tag1=value1,tag2=value2 fieldKey="fieldValue" 1556813561098000000
 measurement_without_tags fieldKey="fieldValue",bool=T,float=123,int=-123i,uint=123u 1556813561098000000"#,
-            line.0
-        )
+        });
+        tested_lines
+    }
+
+    #[test]
+    fn escaping() {
+        assert_eq!("myMeasurement", escape_string("myMeasurement", &['\\', ' ', '=']));
+        assert_eq!("with\\ space", escape_string("with space", &['\\', ' ', '=']));
+        assert_eq!(
+            "with\\ space\\ and\\ backslash\\\\",
+            escape_string("with space and backslash\\", &['\\', ' ', '='])
+        );
+    }
+
+    #[test]
+    fn build_line() {
+        for tested_line in get_tested_lines() {
+            assert_eq!(tested_line.line.0, tested_line.expected_str);
+        }
+    }
+
+    #[tokio::test]
+    async fn write() {
+        let mut server = Server::new_async().await;
+
+        let token = "sometoken";
+        let org = "someorg";
+        let bucket = "somebucket";
+
+        let influx_client = Client::new(server.url(), String::from(token));
+
+        for tested_line in get_tested_lines() {
+            let tested_line_write_mock =
+                mock_influx_write(&mut server, org, bucket, token, tested_line.expected_str).await;
+
+            let _ = influx_client.write(org, bucket, tested_line.line).await;
+            tested_line_write_mock.assert();
+        }
+    }
+
+    #[tokio::test]
+    async fn test_write() {
+        let mut server = Server::new_async().await;
+
+        let token = "sometoken";
+        let org = "someorg";
+        let bucket = "somebucket";
+
+        let influx_client = Client::new(server.url(), String::from(token));
+
+        let test_write_line = mock_influx_write(&mut server, org, bucket, token, "").await;
+
+        let _ = influx_client.test_write(org, bucket).await;
+        test_write_line.assert();
+    }
+
+    #[test]
+    fn verify_client() {
+        let url = "http://127.0.0.1:8086";
+        let token = "sometoken";
+        let token_header = format!("Token {}", token);
+
+        let influx_client = Client::new(String::from(url), String::from(token));
+
+        assert_eq!(
+            influx_client.write_url,
+            format!("{}/api/v2/write", url),
+            "influx write_url doesn't have the expected format when Client is created"
+        );
+        assert_eq!(
+            influx_client.token_header, token_header,
+            "influx token header doesn't have the expected format when Client is created"
+        );
+    }
+
+    #[test]
+    fn test_with_capacity() {
+        let capacity = 100;
+        let builder = LineProtocolBuilder::with_capacity(capacity);
+
+        assert!(
+            builder.buf.capacity() >= capacity,
+            "Buffer capacity is less than requested"
+        );
+        assert_eq!(
+            builder.after_first_field, false,
+            "after_first_field should be false on initialization"
+        );
     }
 }
