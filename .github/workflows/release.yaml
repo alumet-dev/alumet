@@ -29,7 +29,7 @@ jobs:
             // Retrieve informations from the latest release
             const assets = latestRelease.data.assets.map(asset => asset.name);
             let version = latestRelease.data.tag_name.replace(/^v/i, '');
-            let release = 1
+            let release = 1;
             if (assets.length === 0) {
               core.notice("No artifacts attached to the latest release. Using 1 as release number.");
             } else {
@@ -40,7 +40,7 @@ jobs:
               if (release !== '') {
                 release = (parseInt(release) + 1).toString();
               } else {
-                release = 1
+                release = 1;
               }
             }
 
@@ -78,9 +78,19 @@ jobs:
       release-version: ${{ needs.gather-informations.outputs.release }}
       tag: ${{ needs.gather-informations.outputs.tag }}
 
+  build-deb:
+    needs: gather-informations
+    uses: alumet-dev/packaging/.github/workflows/build_deb.yaml@main
+    with:
+      arch: "amd64"
+      version: ${{ needs.gather-informations.outputs.version }}
+      release-version: ${{ needs.gather-informations.outputs.release }}
+      tag: ${{ needs.gather-informations.outputs.tag }}
+
   attach-artifacts:
     needs:
       - build-rpm
+      - build-deb
     runs-on: ubuntu-latest
 
     steps:
@@ -92,6 +102,12 @@ jobs:
         with:
           pattern: '**/*.rpm'
           path: ./rpm
+      
+      - name: Download RPM artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: '**/*.deb'
+          path: ./deb
 
       - name: Create new release
         if: ${{ github.event_name != 'workflow_dispatch' }}
@@ -99,6 +115,7 @@ jobs:
         with:
           files: |
             rpm/**/*.rpm
+            deb/**/*.deb
 
       - name: Update release, deleting old artifacts
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -138,3 +155,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           find rpm -type f -exec gh release upload ${{ steps.get_latest_release_and_delete_old_artifacts.outputs.release_tag }} {} \;
+          find deb -type f -exec gh release upload ${{ steps.get_latest_release_and_delete_old_artifacts.outputs.release_tag }} {} \;
