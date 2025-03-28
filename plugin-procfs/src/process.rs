@@ -12,6 +12,7 @@ use alumet::{
     metrics::TypedMetricId,
     pipeline::{
         control::{
+            handle::OnBackgroundError,
             request::{self, MultiCreationRequestBuilder},
             PluginControlHandle,
         },
@@ -394,11 +395,10 @@ impl ProcessWatcher {
         // Send the request and handle errors.
         let request = request_builder.build();
 
-        // Sources run in a tokio context, we can obtain a Handle to the runtime.
-        let handle = &self.alumet_handle;
-        tokio::runtime::Handle::try_current()
-            .expect("refresh must be called in a tokio runtime")
-            .block_on(handle.dispatch(request, None))?;
+        // Sources run in a tokio context, we can use the underlying runtime.
+        self.alumet_handle
+            .dispatch_in_current_runtime(request, None, OnBackgroundError::Log)
+            .context("failed to dispatch request from ProcessWatcher")?;
         Ok(())
     }
 }
