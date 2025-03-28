@@ -1,10 +1,14 @@
+use tokio::sync::oneshot;
+
 use crate::pipeline::{
-    control::matching::SourceMatcher,
+    control::{matching::SourceMatcher, messages},
     elements::source::{
         control::{ConfigureCommand, ConfigureMessage, ControlMessage},
         trigger::TriggerSpec,
     },
 };
+
+use super::DirectResponseReceiver;
 
 pub struct SourceRequestBuilder {
     matcher: SourceMatcher,
@@ -15,6 +19,7 @@ pub struct SourceRequest {
     msg: ControlMessage,
 }
 
+/// Returns a builder that allows to build a request for controlling sources.
 pub fn source(matcher: impl Into<SourceMatcher>) -> SourceRequestBuilder {
     SourceRequestBuilder {
         matcher: matcher.into(),
@@ -67,8 +72,29 @@ impl SourceRequestBuilder {
     }
 }
 
-impl super::ControlRequest for SourceRequest {
-    fn serialize(self) -> super::ControlRequestBody {
-        super::ControlRequestBody::Source(self.msg)
+impl SourceRequest {
+    fn into_body(self) -> messages::EmptyResponseBody {
+        messages::EmptyResponseBody::Source(self.msg)
+    }
+}
+
+impl super::AnonymousControlRequest for SourceRequest {
+    type OkResponse = ();
+    type Receiver = DirectResponseReceiver<()>;
+
+    fn serialize(self) -> messages::ControlRequest {
+        messages::ControlRequest::NoResult(messages::RequestMessage {
+            response_tx: None,
+            body: self.into_body(),
+        })
+    }
+
+    fn serialize_with_response(self) -> (messages::ControlRequest, Self::Receiver) {
+        let (tx, rx) = oneshot::channel();
+        let req = messages::ControlRequest::NoResult(messages::RequestMessage {
+            response_tx: Some(tx),
+            body: self.into_body(),
+        });
+        (req, DirectResponseReceiver(rx))
     }
 }

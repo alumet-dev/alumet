@@ -127,6 +127,14 @@ impl OutputName {
 }
 
 impl ElementName {
+    pub fn from_str(kind: ElementKind, plugin: &str, element: &str) -> Self {
+        Self {
+            kind,
+            plugin: plugin.to_owned(),
+            element: element.to_owned(),
+        }
+    }
+
     pub fn as_source(self) -> Option<SourceName> {
         match self.kind {
             ElementKind::Source => Some(SourceName(self)),

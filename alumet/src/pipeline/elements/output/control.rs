@@ -9,8 +9,6 @@ use tokio::{
     task::{JoinError, JoinSet},
 };
 
-use crate::metrics::online::MetricReader;
-use crate::pipeline::control::matching::OutputMatcher;
 use crate::pipeline::elements::output::{run::run_async_output, AsyncOutputStream};
 use crate::pipeline::matching::OutputNamePattern;
 use crate::pipeline::naming::{namespace::Namespace2, OutputName};
@@ -18,7 +16,9 @@ use crate::pipeline::util::{
     channel,
     stream::{ControlledStream, SharedStreamState, StreamState},
 };
+use crate::pipeline::{control::matching::OutputMatcher, matching::ElementNamePattern, naming::ElementKind};
 use crate::{measurement::MeasurementBuffer, pipeline::error::PipelineError};
+use crate::{metrics::online::MetricReader, pipeline::naming::ElementName};
 
 use super::{
     builder::{self, OutputBuilder},
@@ -183,6 +183,18 @@ impl OutputControl {
 
         // Close the channel and wait for all outputs to finish
         self.tasks.shutdown(handle_task_result).await;
+    }
+
+    pub fn list_elements(&self, buf: &mut Vec<ElementName>, pat: &ElementNamePattern) {
+        if pat.kind == None || pat.kind == Some(ElementKind::Output) {
+            buf.extend(self.tasks.controllers.iter().filter_map(|(name, _)| {
+                if pat.matches(name) {
+                    Some(name.to_owned().into())
+                } else {
+                    None
+                }
+            }))
+        }
     }
 }
 

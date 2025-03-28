@@ -4,7 +4,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use alumet::pipeline::control::handle::DispatchError;
-use alumet::pipeline::control::request::{self, AnyAnonymousControlRequest};
+use alumet::pipeline::control::request::{self, any::AnyAnonymousControlRequest};
 use alumet::pipeline::control::AnonymousControlHandle;
 use alumet::pipeline::elements::source::trigger::TriggerSpec;
 use alumet::pipeline::matching::{
@@ -199,7 +199,7 @@ mod tests {
 
     use super::{parse, Command};
     use alumet::pipeline::control::matching::{OutputMatcher, SourceMatcher, TransformMatcher};
-    use alumet::pipeline::control::request::{self, AnyAnonymousControlRequest};
+    use alumet::pipeline::control::request::{self, any::AnyAnonymousControlRequest};
     use alumet::pipeline::elements::source::trigger::TriggerSpec;
     use alumet::pipeline::matching::{OutputNamePattern, SourceNamePattern, TransformNamePattern};
 

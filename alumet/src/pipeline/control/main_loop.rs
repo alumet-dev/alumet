@@ -1,39 +1,22 @@
 //! On-the-fly modification of the pipeline.
+use crate::pipeline::control::messages::RequestMessage;
 use crate::pipeline::error::PipelineError;
 
 use crate::pipeline::elements::{output, source, transform};
 
 use anyhow::anyhow;
 use tokio::runtime;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use super::AnonymousControlHandle;
+use super::{messages, AnonymousControlHandle};
 
 /// Encapsulates sources, transforms and outputs control.
 pub(crate) struct PipelineControl {
     sources: source::control::SourceControl,
     transforms: transform::control::TransformControl,
     outputs: output::control::OutputControl,
-}
-
-#[derive(Debug)]
-pub(super) struct ControlRequestMessage {
-    pub(super) response: Option<oneshot::Sender<ControlResponseMessage>>,
-    pub(super) body: ControlRequestBody,
-}
-
-#[derive(Debug)]
-pub(super) enum ControlRequestBody {
-    Source(source::control::ControlMessage),
-    Transform(transform::control::ControlMessage),
-    Output(output::control::ControlMessage),
-}
-
-#[derive(Debug)]
-pub(super) struct ControlResponseMessage {
-    pub(super) result: Result<(), PipelineError>,
 }
 
 impl PipelineControl {
@@ -65,18 +48,45 @@ impl PipelineControl {
         (control_handle, task_handle)
     }
 
-    async fn handle_message(&mut self, mut msg: ControlRequestMessage) -> Result<(), PipelineError> {
-        let res = match msg.body {
-            ControlRequestBody::Source(msg) => self.sources.handle_message(msg).await,
-            ControlRequestBody::Transform(msg) => self.transforms.handle_message(msg),
-            ControlRequestBody::Output(msg) => self.outputs.handle_message(msg),
-        };
-        let result = res.map_err(|e| PipelineError::internal(e));
-        match msg.response.take() {
-            Some(tx) => tx
-                .send(ControlResponseMessage { result })
-                .map_err(|_| PipelineError::internal(anyhow!("failed to send control response"))),
-            None => result,
+    async fn handle_message(&mut self, msg: messages::ControlRequest) -> Result<(), PipelineError> {
+        /// Responds to a message with a value of type `Result<R, PipelineError>`.
+        fn send_response<R>(
+            result: Result<R, PipelineError>,
+            response_tx: Option<messages::ResponseSender<R>>,
+        ) -> Result<(), PipelineError> {
+            match response_tx {
+                Some(tx) => tx
+                    .send(result)
+                    .map_err(|_| PipelineError::internal(anyhow!("failed to send control response"))),
+                None => {
+                    // those who has sent the message does not care about the response, discard it
+                    result.map(|_| ())
+                }
+            }
+        }
+
+        // ControlRequest uses variants for each response type.
+        match msg {
+            messages::ControlRequest::NoResult(RequestMessage { response_tx, body }) => {
+                let result = match body {
+                    messages::EmptyResponseBody::Source(msg) => self.sources.handle_message(msg).await,
+                    messages::EmptyResponseBody::Transform(msg) => self.transforms.handle_message(msg),
+                    messages::EmptyResponseBody::Output(msg) => self.outputs.handle_message(msg),
+                };
+                send_response(result.map_err(PipelineError::internal), response_tx)
+            }
+            messages::ControlRequest::Introspect(RequestMessage { response_tx, body }) => {
+                let result = match body {
+                    messages::IntrospectionBody::ListElements(filter) => {
+                        let mut buf = Vec::new();
+                        self.sources.list_elements(&mut buf, &filter);
+                        self.transforms.list_elements(&mut buf, &filter);
+                        self.outputs.list_elements(&mut buf, &filter);
+                        Ok(buf)
+                    }
+                };
+                send_response(result, response_tx)
+            }
         }
     }
 
@@ -95,7 +105,7 @@ impl PipelineControl {
         mut self,
         init_shutdown: CancellationToken,
         finalize_shutdown: CancellationToken,
-        mut rx: mpsc::Receiver<ControlRequestMessage>,
+        mut rx: messages::Receiver,
     ) -> Result<(), PipelineError> {
         fn task_finished(
             res: Result<Result<(), PipelineError>, tokio::task::JoinError>,

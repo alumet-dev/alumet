@@ -1,7 +1,11 @@
+use tokio::sync::oneshot;
+
 use crate::pipeline::{
-    control::matching::OutputMatcher,
+    control::{matching::OutputMatcher, messages},
     elements::output::control::{ControlMessage, TaskState},
 };
+
+use super::DirectResponseReceiver;
 
 pub struct OutputRequestBuilder {
     matcher: OutputMatcher,
@@ -12,6 +16,7 @@ pub struct OutputRequest {
     msg: ControlMessage,
 }
 
+/// Returns a builder that allows to build a request for controlling outputs.
 pub fn output(matcher: impl Into<OutputMatcher>) -> OutputRequestBuilder {
     OutputRequestBuilder {
         matcher: matcher.into(),
@@ -56,8 +61,29 @@ impl OutputRequestBuilder {
     }
 }
 
-impl super::ControlRequest for OutputRequest {
-    fn serialize(self) -> super::ControlRequestBody {
-        super::ControlRequestBody::Output(self.msg)
+impl OutputRequest {
+    fn into_body(self) -> messages::EmptyResponseBody {
+        messages::EmptyResponseBody::Output(self.msg)
+    }
+}
+
+impl super::AnonymousControlRequest for OutputRequest {
+    type OkResponse = ();
+    type Receiver = DirectResponseReceiver<()>;
+
+    fn serialize(self) -> messages::ControlRequest {
+        messages::ControlRequest::NoResult(messages::RequestMessage {
+            response_tx: None,
+            body: self.into_body(),
+        })
+    }
+
+    fn serialize_with_response(self) -> (messages::ControlRequest, Self::Receiver) {
+        let (tx, rx) = oneshot::channel();
+        let req = messages::ControlRequest::NoResult(messages::RequestMessage {
+            response_tx: Some(tx),
+            body: self.into_body(),
+        });
+        (req, DirectResponseReceiver(rx))
     }
 }

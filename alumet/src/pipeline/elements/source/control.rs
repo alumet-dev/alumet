@@ -11,8 +11,9 @@ use crate::metrics::online::{MetricReader, MetricSender};
 use crate::pipeline::control::matching::SourceMatcher;
 use crate::pipeline::elements::source::run::{run_autonomous, run_managed};
 use crate::pipeline::error::PipelineError;
-use crate::pipeline::matching::SourceNamePattern;
+use crate::pipeline::matching::{ElementNamePattern, SourceNamePattern};
 use crate::pipeline::naming::{namespace::Namespace2, SourceName};
+use crate::pipeline::naming::{ElementKind, ElementName};
 
 use super::builder;
 use super::trigger::{Trigger, TriggerConstraints, TriggerSpec};
@@ -229,6 +230,18 @@ impl SourceControl {
 
     pub fn has_task(&self) -> bool {
         !self.tasks.spawned_tasks.is_empty()
+    }
+
+    pub fn list_elements(&self, buf: &mut Vec<ElementName>, pat: &ElementNamePattern) {
+        if pat.kind == None || pat.kind == Some(ElementKind::Source) {
+            buf.extend(self.tasks.controllers.iter().filter_map(|(name, _)| {
+                if pat.matches(name) {
+                    Some(name.to_owned().into())
+                } else {
+                    None
+                }
+            }))
+        }
     }
 
     pub async fn shutdown<F>(mut self, mut handle_task_result: F)

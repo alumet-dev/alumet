@@ -1,5 +1,7 @@
+use tokio::sync::oneshot;
+
 use crate::pipeline::{
-    control::main_loop::ControlRequestBody,
+    control::messages,
     elements::source::{
         builder::{AutonomousSourceBuilder, ManagedSource, ManagedSourceBuilder, SendSourceBuilder},
         control::CreateManyMessage,
@@ -9,7 +11,7 @@ use crate::pipeline::{
     Source,
 };
 
-use super::PluginControlRequest;
+use super::DirectResponseReceiver;
 
 #[derive(Default, Debug)]
 pub struct MultiCreationRequestBuilder {
@@ -103,8 +105,8 @@ impl MultiCreationRequestBuilder {
     }
 }
 
-impl PluginControlRequest for CreationRequest {
-    fn serialize(self, plugin: &PluginName) -> crate::pipeline::control::main_loop::ControlRequestBody {
+impl CreationRequest {
+    fn into_body(self, plugin: &PluginName) -> messages::EmptyResponseBody {
         let builders = self.builders;
 
         // add the plugin name to every builder
@@ -117,10 +119,31 @@ impl PluginControlRequest for CreationRequest {
             })
             .collect();
         // create the message
-        ControlRequestBody::Source(crate::pipeline::elements::source::control::ControlMessage::CreateMany(
+        messages::EmptyResponseBody::Source(crate::pipeline::elements::source::control::ControlMessage::CreateMany(
             CreateManyMessage {
                 builders: source_builders,
             },
         ))
+    }
+}
+
+impl super::PluginControlRequest for CreationRequest {
+    type OkResponse = ();
+    type Receiver = DirectResponseReceiver<()>;
+
+    fn serialize(self, plugin: &PluginName) -> messages::ControlRequest {
+        messages::ControlRequest::NoResult(messages::RequestMessage {
+            response_tx: None,
+            body: self.into_body(plugin),
+        })
+    }
+
+    fn serialize_with_response(self, plugin: &PluginName) -> (messages::ControlRequest, Self::Receiver) {
+        let (tx, rx) = oneshot::channel();
+        let req = messages::ControlRequest::NoResult(messages::RequestMessage {
+            response_tx: Some(tx),
+            body: self.into_body(plugin),
+        });
+        (req, DirectResponseReceiver(rx))
     }
 }
