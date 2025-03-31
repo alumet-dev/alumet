@@ -4,6 +4,7 @@ use std::marker::PhantomData;
 
 use crate::measurement::{MeasurementType, WrappedMeasurementType};
 use crate::metrics::def::{Metric, RawMetricId, TypedMetricId};
+use crate::metrics::duplicate::{DuplicateCriteria, DuplicateReaction};
 use crate::metrics::error::MetricCreationError;
 use crate::metrics::online::listener::{MetricListener, MetricListenerBuilder};
 use crate::metrics::online::{MetricReader, MetricSender};
@@ -73,7 +74,10 @@ impl<'a> AlumetPluginStart<'a> {
             value_type: T::wrapped_type(),
             unit: unit.into(),
         };
-        let untyped_id = self.pipeline_builder.metrics.register(m)?;
+        let untyped_id =
+            self.pipeline_builder
+                .metrics
+                .register(m, DuplicateCriteria::Different, DuplicateReaction::Error)?;
         Ok(TypedMetricId(untyped_id, PhantomData))
     }
 
@@ -96,7 +100,9 @@ impl<'a> AlumetPluginStart<'a> {
             value_type,
             unit: unit.into(),
         };
-        self.pipeline_builder.metrics.register(m)
+        self.pipeline_builder
+            .metrics
+            .register(m, DuplicateCriteria::Different, DuplicateReaction::Error)
     }
 
     /// Adds a _managed_ measurement source to the Alumet pipeline.
