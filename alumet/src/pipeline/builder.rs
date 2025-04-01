@@ -66,7 +66,7 @@ pub struct Builder {
 
     /// How many `MeasurementBuffer` can be stored in the channel that sources write to.
     source_channel_size: usize,
-    
+
     /// Enables or disables the "simplified pipeline" optimization.
     /// Set this to `false` if you plan to add more outputs at runtime, while there is only one output at the beginning.
     allow_simplified_pipeline: bool,
@@ -119,7 +119,7 @@ impl Builder {
     pub fn source_channel_size(&mut self) -> &mut usize {
         &mut self.source_channel_size
     }
-    
+
     pub fn allow_simplified_pipeline(&mut self) -> &mut bool {
         &mut self.allow_simplified_pipeline
     }

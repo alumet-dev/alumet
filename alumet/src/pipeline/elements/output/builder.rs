@@ -42,7 +42,6 @@ impl std::fmt::Debug for SendOutputBuilder {
     }
 }
 
-
 /// Trait for builders of blocking outputs.
 ///
 ///  # Example
