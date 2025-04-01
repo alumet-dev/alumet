@@ -27,11 +27,22 @@ use super::{
 
 /// A control messages for outputs.
 #[derive(Debug)]
-pub struct ControlMessage {
+pub enum ControlMessage {
+    Configure(ConfigureMessage),
+    CreateMany(CreateManyMessage),
+}
+
+#[derive(Debug)]
+pub struct ConfigureMessage {
     /// Which output(s) to reconfigure.
     pub matcher: OutputMatcher,
     /// The new state to apply to the selected output(s).
     pub new_state: TaskState,
+}
+
+#[derive(Debug)]
+pub struct CreateManyMessage {
+    pub builders: Vec<(OutputName, builder::SendOutputBuilder)>,
 }
 
 /// State of a (managed) output task.
@@ -39,6 +50,7 @@ pub struct ControlMessage {
 #[repr(u8)]
 pub enum TaskState {
     Run,
+    RunDiscard,
     Pause,
     StopNow,
     StopFinish,
@@ -47,11 +59,13 @@ pub enum TaskState {
 impl From<u8> for TaskState {
     fn from(value: u8) -> Self {
         const RUN: u8 = TaskState::Run as u8;
+        const RUN_DISCARD: u8 = TaskState::RunDiscard as u8;
         const PAUSE: u8 = TaskState::Pause as u8;
         const STOP_FINISH: u8 = TaskState::StopFinish as u8;
 
         match value {
             RUN => TaskState::Run,
+            RUN_DISCARD => TaskState::RunDiscard,
             PAUSE => TaskState::Pause,
             STOP_FINISH => TaskState::StopFinish,
             _ => TaskState::StopNow,
@@ -140,19 +154,42 @@ impl OutputControl {
         Ok(())
     }
 
-    #[allow(unused)]
-    pub async fn create_output(&mut self, name: OutputName, builder: builder::SendOutputBuilder) {
+    pub async fn create_outputs(
+        &mut self,
+        builders: Vec<(OutputName, builder::SendOutputBuilder)>,
+    ) -> anyhow::Result<()> {
         let metrics = self.metrics.read().await;
         let mut ctx = builder::OutputBuildContext {
             metrics: &metrics,
             metrics_r: &self.metrics,
             runtime: self.tasks.rt_normal.clone(),
         };
-        self.tasks.create_output(&mut ctx, name, builder.into());
+        let n = builders.len();
+        log::debug!("Creating {n} outputs...");
+        let mut n_errors = 0;
+        for (name, builder) in builders {
+            let _ = self
+                .tasks
+                .create_output(&mut ctx, name.clone(), builder.into())
+                .inspect_err(|e| {
+                    log::error!("Error while creating source '{name}': {e:?}");
+                    n_errors += 1;
+                });
+        }
+        if n_errors == 0 {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(
+                "failed to create {n_errors}/{n} outputs (see logs above)"
+            ))
+        }
     }
 
-    pub fn handle_message(&mut self, msg: ControlMessage) -> anyhow::Result<()> {
-        self.tasks.reconfigure(msg);
+    pub async fn handle_message(&mut self, msg: ControlMessage) -> anyhow::Result<()> {
+        match msg {
+            ControlMessage::Configure(msg) => self.tasks.reconfigure(msg),
+            ControlMessage::CreateMany(msg) => self.create_outputs(msg.builders).await?,
+        }
         Ok(())
     }
 
@@ -174,11 +211,12 @@ impl OutputControl {
         // Outputs naturally close when the input channel is closed,
         // but that only works when the output is running.
         // If the output is paused, it needs to be stopped with a command.
-        let stop_msg = ControlMessage {
+        let stop_msg = ControlMessage::Configure(ConfigureMessage {
             matcher: OutputMatcher::Name(OutputNamePattern::wildcard()),
             new_state: TaskState::StopFinish,
-        };
+        });
         self.handle_message(stop_msg)
+            .await
             .expect("handle_message in shutdown should not fail");
 
         // Close the channel and wait for all outputs to finish
@@ -199,9 +237,9 @@ impl OutputControl {
 }
 
 impl TaskManager {
-    fn create_output<'a>(
+    fn create_output(
         &mut self,
-        ctx: &'a mut builder::OutputBuildContext<'a>,
+        ctx: &mut builder::OutputBuildContext,
         name: OutputName,
         builder: OutputBuilder,
     ) -> anyhow::Result<()> {
@@ -287,7 +325,7 @@ impl TaskManager {
         Ok(())
     }
 
-    fn reconfigure(&mut self, msg: ControlMessage) {
+    fn reconfigure(&mut self, msg: ConfigureMessage) {
         for (name, output_config) in &mut self.controllers {
             if msg.matcher.matches(name) {
                 output_config.set_state(msg.new_state);

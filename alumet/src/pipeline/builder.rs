@@ -66,6 +66,10 @@ pub struct Builder {
 
     /// How many `MeasurementBuffer` can be stored in the channel that sources write to.
     source_channel_size: usize,
+    
+    /// Enables or disables the "simplified pipeline" optimization.
+    /// Set this to `false` if you plan to add more outputs at runtime, while there is only one output at the beginning.
+    allow_simplified_pipeline: bool,
 
     /// Metrics
     pub(crate) metrics: MetricRegistry,
@@ -93,6 +97,7 @@ impl Builder {
             default_transforms_order: Vec::new(),
             trigger_constraints: TriggerConstraints::default(),
             source_channel_size: DEFAULT_CHAN_BUF_SIZE,
+            allow_simplified_pipeline: true,
             metrics: MetricRegistry::new(),
             metric_listeners: Namespace2::new(),
             threads_normal: None, // default to the number of cores
@@ -113,6 +118,10 @@ impl Builder {
     /// if you have a large number of sources that flush at the same time.
     pub fn source_channel_size(&mut self) -> &mut usize {
         &mut self.source_channel_size
+    }
+    
+    pub fn allow_simplified_pipeline(&mut self) -> &mut bool {
+        &mut self.allow_simplified_pipeline
     }
 
     /// Registers a listener that will be notified of the metrics that are created while the pipeline is running,
@@ -322,7 +331,7 @@ impl Builder {
             add_dummy_output(&mut self.outputs);
         }
 
-        if self.outputs.total_count() == 1 && self.transforms.is_empty() {
+        if self.outputs.total_count() == 1 && self.transforms.is_empty() && self.allow_simplified_pipeline {
             // OPTIMIZATION: there is only one output and no transform,
             // we can connect the inputs directly to the output.
             log::info!("Only one output and no transform, using a simplified and optimized measurement pipeline.");

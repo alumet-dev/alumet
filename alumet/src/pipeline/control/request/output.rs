@@ -2,7 +2,7 @@ use tokio::sync::oneshot;
 
 use crate::pipeline::{
     control::{matching::OutputMatcher, messages},
-    elements::output::control::{ControlMessage, TaskState},
+    elements::output::control::{ConfigureMessage, ControlMessage, TaskState},
 };
 
 use super::DirectResponseReceiver;
@@ -31,19 +31,29 @@ pub enum RemainingDataStrategy {
 impl OutputRequestBuilder {
     pub fn enable(self) -> OutputRequest {
         OutputRequest {
-            msg: ControlMessage {
+            msg: ControlMessage::Configure(ConfigureMessage {
                 matcher: self.matcher,
-                new_state: TaskState::Pause,
-            },
+                new_state: TaskState::Run,
+            }),
+        }
+    }
+
+    /// Enables the output and discards any pending data.
+    pub fn enable_discard(self) -> OutputRequest {
+        OutputRequest {
+            msg: ControlMessage::Configure(ConfigureMessage {
+                matcher: self.matcher,
+                new_state: TaskState::RunDiscard,
+            }),
         }
     }
 
     pub fn disable(self) -> OutputRequest {
         OutputRequest {
-            msg: ControlMessage {
+            msg: ControlMessage::Configure(ConfigureMessage {
                 matcher: self.matcher,
-                new_state: TaskState::Run,
-            },
+                new_state: TaskState::Pause,
+            }),
         }
     }
 
@@ -53,17 +63,17 @@ impl OutputRequestBuilder {
             RemainingDataStrategy::Ignore => TaskState::StopNow,
         };
         OutputRequest {
-            msg: ControlMessage {
+            msg: ControlMessage::Configure(ConfigureMessage {
                 matcher: self.matcher,
                 new_state,
-            },
+            }),
         }
     }
 }
 
 impl OutputRequest {
     fn into_body(self) -> messages::EmptyResponseBody {
-        messages::EmptyResponseBody::Output(self.msg)
+        messages::EmptyResponseBody::Single(messages::SpecificBody::Output(self.msg))
     }
 }
 

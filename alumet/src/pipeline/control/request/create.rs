@@ -2,13 +2,19 @@ use tokio::sync::oneshot;
 
 use crate::pipeline::{
     control::messages,
-    elements::source::{
-        builder::{AutonomousSourceBuilder, ManagedSource, ManagedSourceBuilder, SendSourceBuilder},
-        control::CreateManyMessage,
-        trigger::TriggerSpec,
+    elements::{
+        output::{
+            self,
+            builder::{BlockingOutputBuilder, SendOutputBuilder},
+        },
+        source::{
+            self,
+            builder::{AutonomousSourceBuilder, ManagedSource, ManagedSourceBuilder, SendSourceBuilder},
+            trigger::TriggerSpec,
+        },
     },
-    naming::{PluginName, SourceName},
-    Source,
+    naming::{OutputName, PluginName, SourceName},
+    Output, Source,
 };
 
 use super::DirectResponseReceiver;
@@ -16,9 +22,9 @@ use super::DirectResponseReceiver;
 #[derive(Default, Debug)]
 pub struct MultiCreationRequestBuilder {
     sources: Vec<(String, SendSourceBuilder)>,
-    // TODO transforms and outputs when it becomes possible to add them at runtime
+    // TODO transforms when it becomes possible to add them at runtime
     // transforms: Vec<(String, Box<dyn TransformBuilder + Send>)>,
-    // outputs: Vec<(String, SendOutputBuilder)>,
+    outputs: Vec<(String, SendOutputBuilder)>,
 }
 
 pub struct SingleCreationRequestBuilder {
@@ -66,6 +72,21 @@ impl SingleCreationRequestBuilder {
         self.inner.add_autonomous_source_builder(name, builder);
         self.inner.build()
     }
+
+    /// Requests the creation of a blocking output.
+    pub fn add_blocking_output(mut self, name: &str, output: Box<dyn Output>) -> CreationRequest {
+        self.inner.add_blocking_output(name, output);
+        self.inner.build()
+    }
+
+    pub fn add_blocking_output_builder<F: BlockingOutputBuilder + Send + 'static>(
+        &mut self,
+        name: &str,
+        builder: F,
+    ) -> CreationRequest {
+        self.inner.add_blocking_output_builder(name, builder);
+        self.inner.build()
+    }
 }
 
 impl MultiCreationRequestBuilder {
@@ -103,11 +124,22 @@ impl MultiCreationRequestBuilder {
         self.sources.push((name.to_string(), builder));
         self
     }
+
+    pub fn add_blocking_output(&mut self, name: &str, output: Box<dyn Output>) {
+        self.add_blocking_output_builder(name, |_| Ok(output));
+    }
+
+    pub fn add_blocking_output_builder<F: BlockingOutputBuilder + Send + 'static>(&mut self, name: &str, builder: F) {
+        let builder = SendOutputBuilder::Blocking(Box::new(builder));
+        self.outputs.push((name.to_string(), builder));
+    }
 }
 
 impl CreationRequest {
     fn into_body(self, plugin: &PluginName) -> messages::EmptyResponseBody {
         let builders = self.builders;
+        let has_sources = !builders.sources.is_empty();
+        let has_outputs = !builders.outputs.is_empty();
 
         // add the plugin name to every builder
         let source_builders = builders
@@ -118,12 +150,33 @@ impl CreationRequest {
                 (full_name, builder)
             })
             .collect();
+        let output_builders = builders
+            .outputs
+            .into_iter()
+            .map(|(output_name, builder)| {
+                let full_name = OutputName::new(plugin.to_owned().0, output_name);
+                (full_name, builder)
+            })
+            .collect();
+
         // create the message
-        messages::EmptyResponseBody::Source(crate::pipeline::elements::source::control::ControlMessage::CreateMany(
-            CreateManyMessage {
+        let source_msg = messages::SpecificBody::Source(source::control::ControlMessage::CreateMany(
+            source::control::CreateManyMessage {
                 builders: source_builders,
             },
-        ))
+        ));
+        let out_msg = messages::SpecificBody::Output(output::control::ControlMessage::CreateMany(
+            output::control::CreateManyMessage {
+                builders: output_builders,
+            },
+        ));
+        if !has_outputs {
+            messages::EmptyResponseBody::Single(source_msg)
+        } else if !has_sources {
+            messages::EmptyResponseBody::Single(out_msg)
+        } else {
+            messages::EmptyResponseBody::Mixed(vec![source_msg, out_msg])
+        }
     }
 }
 

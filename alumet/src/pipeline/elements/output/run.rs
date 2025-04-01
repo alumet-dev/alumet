@@ -81,6 +81,12 @@ pub async fn run_blocking_output<Rx: channel::MeasurementReceiver>(
                     control::TaskState::Run => {
                         receive = true;
                     }
+                    control::TaskState::RunDiscard => {
+                        // Resume the output but discard the data that is in the buffer.
+                        // The output will only see the measurements that are sent after this point.
+                        rx = rx.discard_pending();
+                        receive = true;
+                    }
                     control::TaskState::Pause => {
                         receive = false;
                     }
