@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use futures::task::AtomicWaker;
+use num_enum::{FromPrimitive, IntoPrimitive};
 use tokio_stream::Stream;
 
 /// A [`Stream`] wrapper that allows to pause, unpause and stop the stream.
@@ -23,11 +24,12 @@ pub struct SharedStreamState {
 }
 
 /// State of a (managed) output task.
-#[derive(Clone, Debug, PartialEq, Eq, Copy)]
+#[derive(Clone, Debug, PartialEq, Eq, Copy, IntoPrimitive, FromPrimitive)]
 #[repr(u8)]
 pub enum StreamState {
     Run,
     Pause,
+    #[num_enum(default)]
     Stop,
 }
 
@@ -102,19 +104,6 @@ impl<S: Stream> Stream for ControlledStream<S> {
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.inner.size_hint()
-    }
-}
-
-impl From<u8> for StreamState {
-    fn from(value: u8) -> Self {
-        const RUN: u8 = StreamState::Run as u8;
-        const PAUSE: u8 = StreamState::Pause as u8;
-
-        match value {
-            RUN => StreamState::Run,
-            PAUSE => StreamState::Pause,
-            _ => StreamState::Stop,
-        }
     }
 }
 
