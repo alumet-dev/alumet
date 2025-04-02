@@ -77,12 +77,12 @@ dependencies = [
  "indoc",
  "libc",
  "log",
+ "plugin-cgroupv1",
  "plugin-cgroupv2",
  "plugin-csv",
  "plugin-influxdb",
  "plugin-mongodb",
  "plugin-nvidia",
- "plugin-oar2",
  "plugin-opentelemetry",
  "plugin-perf",
  "plugin-procfs",
@@ -2462,6 +2462,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "plugin-cgroupv1"
+version = "0.1.0"
+dependencies = [
+ "alumet",
+ "anyhow",
+ "humantime-serde",
+ "log",
+ "notify",
+ "serde",
+ "serde_derive",
+ "tokio",
+]
+
+[[package]]
 name = "plugin-cgroupv2"
 version = "0.1.0"
 dependencies = [
@@ -2551,20 +2565,6 @@ dependencies = [
  "regex",
  "serde",
  "tempfile",
-]
-
-[[package]]
-name = "plugin-oar2"
-version = "0.1.0"
-dependencies = [
- "alumet",
- "anyhow",
- "humantime-serde",
- "log",
- "notify",
- "serde",
- "serde_derive",
- "tokio",
 ]
 
 [[package]]
