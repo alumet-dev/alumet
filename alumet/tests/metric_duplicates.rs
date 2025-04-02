@@ -1,4 +1,9 @@
-use alumet::{plugin::rust::AlumetPlugin, units::Unit};
+use alumet::{
+    measurement::WrappedMeasurementType,
+    metrics::{duplicate::DuplicateReaction, Metric},
+    plugin::rust::AlumetPlugin,
+    units::Unit,
+};
 
 struct TestPlugin;
 
@@ -30,6 +35,50 @@ impl AlumetPlugin for TestPlugin {
             .expect_err("incompatible metric registration should fail");
         alumet.create_metric::<f64>("m2", Unit::Second, "test metric 2, different from test metric 1")?;
         alumet.create_metric::<u64>("m3", Unit::Watt, "test metric")?;
+        Ok(())
+    }
+
+    fn post_pipeline_start(&mut self, alumet: &mut alumet::plugin::AlumetPostStart) -> anyhow::Result<()> {
+        let m1 = Metric {
+            name: "m1".to_owned(), // existing metric, but compatible
+            description: "".to_owned(),
+            value_type: WrappedMeasurementType::U64,
+            unit: Unit::Second.into(),
+        };
+        let m2 = Metric {
+            name: "m2".to_owned(),
+            description: "".to_owned(),
+            value_type: WrappedMeasurementType::U64, // bad
+            unit: Unit::Second.into(),
+        };
+        let m3 = Metric {
+            name: "m3".to_owned(),
+            description: "".to_owned(),
+            value_type: WrappedMeasurementType::U64,
+            unit: Unit::Second.into(), // bad
+        };
+        let m4 = Metric {
+            name: "m4".to_owned(), // new metric
+            description: "".to_owned(),
+            value_type: WrappedMeasurementType::F64,
+            unit: Unit::Watt.into(),
+        };
+
+        // Attempt to create these 4 metrics. Only m2 and m3 should succeed.
+        let metrics = vec![m1, m2, m3, m4];
+        let res = alumet
+            .block_on(
+                alumet
+                    .metrics_sender()
+                    .create_metrics(metrics, DuplicateReaction::Error),
+            )
+            .expect("metrics_sender().create_metrics should send the message");
+
+        assert_eq!(4, res.len(), "there should be one result per metric");
+        assert!(res[0].is_ok());
+        assert!(res[1].as_ref().is_err_and(|e| e.name == "m2"));
+        assert!(res[2].as_ref().is_err_and(|e| e.name == "m3"));
+        assert!(res[3].is_ok());
         Ok(())
     }
 
