@@ -8,6 +8,9 @@ pub enum DuplicateCriteria {
     Strict,
     /// If a metric with the exact same definition exists, ignore the new metric.
     /// If a metric with the same name but a **different** definition exists, that's a duplicate.
+    ///
+    /// # Different metrics
+    /// Two metric definitions are deemed "different" if [`are_identical`] returns `false`.
     Different,
     /// If a metric with a compatible definition exists, ignore the new metric.
     /// If a metric with the same name but an **incompatible** definition exists, that's a duplicate.
@@ -17,9 +20,17 @@ pub enum DuplicateCriteria {
     Incompatible,
 }
 
+/// What should we do when a duplicate is detected (according to a [`DuplicateCriteria`])?
 #[derive(Clone, Debug)]
 pub enum DuplicateReaction {
+    /// Don't register the metric and return an error.
     Error,
+    /// Generate a new, unique name for the metric by using the given `suffix`,
+    /// and use that new name to register the metric.
+    ///
+    /// The first attempt is to use `"{name}_{suffix}"` as the new metric name.
+    /// If a metric already exist with this name, `"{name}_{suffix}_2"` is tried,
+    /// then `"{name}_{suffix}_3"`, and so on...
     Rename { suffix: String },
 }
 
@@ -35,7 +46,7 @@ pub(super) fn are_compatible(m1: &Metric, m2: &Metric) -> bool {
     m1.name == m2.name && m1.unit == m2.unit && m1.value_type == m2.value_type
 }
 
-/// Checks whether two metric definitions are identical, that is, all their fields are equal.
+/// Checks whether two metric definitions are identical, that is, whether all their fields are equal.
 ///
 /// # Transitivity
 /// This relation is transitive: `are_identical(a, b) == are_identical(b, a)`
