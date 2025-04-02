@@ -1,8 +1,4 @@
-use std::time::Duration;
-
-use alumet::{
-    agent::plugin::PluginSet, plugin::rust::AlumetPlugin, static_plugins, test::StartupExpectations, units::Unit,
-};
+use alumet::{plugin::rust::AlumetPlugin, units::Unit};
 
 struct TestPlugin;
 
@@ -42,18 +38,26 @@ impl AlumetPlugin for TestPlugin {
     }
 }
 
-#[test]
-fn plugin_metric_registration() {
-    const TIMEOUT: Duration = Duration::from_millis(250);
-    let plugins = PluginSet::from(static_plugins![TestPlugin]);
-    let expectations = StartupExpectations::new()
-        .expect_metric::<u64>("m1", Unit::Second)
-        .expect_metric::<f64>("m2", Unit::Second)
-        .expect_metric::<u64>("m3", Unit::Watt);
-    let agent = alumet::agent::Builder::new(plugins)
-        .with_expectations(expectations)
-        .build_and_start()
-        .expect("agent should build");
-    agent.pipeline.control_handle().shutdown();
-    agent.wait_for_shutdown(TIMEOUT).expect("error while running");
+#[cfg(feature = "test")]
+
+mod tests {
+    use std::time::Duration;
+
+    use alumet::{agent::plugin::PluginSet, static_plugins, test::StartupExpectations, units::Unit};
+
+    #[test]
+    fn plugin_metric_registration() {
+        const TIMEOUT: Duration = Duration::from_millis(250);
+        let plugins = PluginSet::from(static_plugins![super::TestPlugin]);
+        let expectations = StartupExpectations::new()
+            .expect_metric::<u64>("m1", Unit::Second)
+            .expect_metric::<f64>("m2", Unit::Second)
+            .expect_metric::<u64>("m3", Unit::Watt);
+        let agent = alumet::agent::Builder::new(plugins)
+            .with_expectations(expectations)
+            .build_and_start()
+            .expect("agent should build");
+        agent.pipeline.control_handle().shutdown();
+        agent.wait_for_shutdown(TIMEOUT).expect("error while running");
+    }
 }
