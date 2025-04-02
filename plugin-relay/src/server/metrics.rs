@@ -2,10 +2,7 @@
 
 use alumet::{
     measurement::MeasurementBuffer,
-    metrics::{
-        online::{DuplicateStrategy, MetricSender},
-        Metric, RawMetricId,
-    },
+    metrics::{duplicate::DuplicateReaction, online::MetricSender, Metric, RawMetricId},
 };
 use anyhow::{anyhow, Context};
 
@@ -44,7 +41,7 @@ impl MetricConverter {
             .inner
             .create_metrics(
                 metric_defs,
-                DuplicateStrategy::Rename {
+                DuplicateReaction::Rename {
                     suffix: format!("relay-client-{client}"),
                 },
             )

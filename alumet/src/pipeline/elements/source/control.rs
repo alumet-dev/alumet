@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 
 use anyhow::Context;
+use num_enum::{FromPrimitive, IntoPrimitive};
 use tokio::runtime;
 use tokio::sync::mpsc;
 use tokio::task::{JoinError, JoinSet};
@@ -77,25 +78,13 @@ pub(super) enum Reconfiguration {
 }
 
 /// State of a (managed) source task.
-#[derive(Clone, Debug, PartialEq, Eq, Copy)]
+#[derive(Clone, Debug, PartialEq, Eq, Copy, IntoPrimitive, FromPrimitive)]
 #[repr(u8)]
 pub(super) enum TaskState {
     Run,
     Pause,
+    #[num_enum(default)]
     Stop,
-}
-
-impl From<u8> for TaskState {
-    fn from(value: u8) -> Self {
-        const RUN: u8 = TaskState::Run as u8;
-        const PAUSE: u8 = TaskState::Pause as u8;
-
-        match value {
-            RUN => TaskState::Run,
-            PAUSE => TaskState::Pause,
-            _ => TaskState::Stop,
-        }
-    }
 }
 
 /// Controls the sources of a measurement pipeline.

@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use super::{
     def::{Metric, MetricId, RawMetricId},
+    duplicate::{self, DuplicateCriteria, DuplicateReaction},
     error::MetricCreationError,
 };
 
@@ -76,28 +77,88 @@ impl MetricRegistry {
     /// # Duplicates
     /// Metric names are intended to be unique.
     /// If a metric with the same name has already been registered, `register` returns an error.
-    pub(crate) fn register(&mut self, m: Metric) -> Result<RawMetricId, MetricCreationError> {
-        let name = &m.name;
-        if let Some(_name_conflict) = self.metrics_by_name.get(name) {
-            return Err(MetricCreationError::new(format!(
-                "A metric with this name already exist: {name}"
-            )));
+    pub(crate) fn register(
+        &mut self,
+        m: Metric,
+        dup: DuplicateCriteria,
+        on_dup: DuplicateReaction,
+    ) -> Result<RawMetricId, MetricCreationError> {
+        match on_dup {
+            DuplicateReaction::Error => self.register_no_duplicate(m, dup),
+            DuplicateReaction::Rename { suffix } => Ok(self.register_infallible(m, dup, &suffix)),
         }
-        let id = self.register_new(m);
-        Ok(id)
     }
 
     /// Registers multiple metrics.
     ///
     /// For each metric, the registration may fail if a metric with the same name already exists.
     /// See [`register()`].
-    pub(crate) fn extend(&mut self, metrics: Vec<Metric>) -> Vec<Result<RawMetricId, MetricCreationError>> {
+    pub(crate) fn register_many(
+        &mut self,
+        metrics: Vec<Metric>,
+        dup: DuplicateCriteria,
+        on_dup: DuplicateReaction,
+    ) -> Vec<Result<RawMetricId, MetricCreationError>> {
         self.metrics_by_name.reserve(metrics.len());
         self.metrics_by_id.reserve(metrics.len());
-        metrics.into_iter().map(|m| self.register(m)).collect()
+        match on_dup {
+            DuplicateReaction::Error => metrics
+                .into_iter()
+                .map(|m| self.register_no_duplicate(m, dup))
+                .collect(),
+            DuplicateReaction::Rename { suffix } => metrics
+                .into_iter()
+                .map(|m| Ok(self.register_infallible(m, dup, &suffix)))
+                .collect(),
+        }
     }
 
-    /// Registers a new metric in this registry.
+    /// Registers a new metric and deny any duplicate.
+    fn register_no_duplicate(
+        &mut self,
+        m: Metric,
+        criteria: DuplicateCriteria,
+    ) -> Result<RawMetricId, MetricCreationError> {
+        let name = &m.name;
+        if let Some(conflict) = self.metrics_by_name.get(name) {
+            match criteria {
+                DuplicateCriteria::Strict => {
+                    return Err(MetricCreationError {
+                        name: name.to_owned(),
+                        criteria,
+                    });
+                }
+                DuplicateCriteria::Different => {
+                    let conflict_def = self.metrics_by_id.get(conflict).unwrap();
+                    if !duplicate::are_identical(&m, conflict_def) {
+                        return Err(MetricCreationError {
+                            name: name.to_owned(),
+                            criteria,
+                        });
+                    }
+                }
+                DuplicateCriteria::Incompatible => {
+                    let conflict_def = self.metrics_by_id.get(conflict).unwrap();
+                    if !duplicate::are_compatible(&m, conflict_def) {
+                        return Err(MetricCreationError {
+                            name: name.to_owned(),
+                            criteria,
+                        });
+                    }
+                }
+            }
+            // At this point, the duplicate criteria has determined that the new metric is identical
+            // or compatible with the existing one, and can be ignored.
+            // Return the existing metric id.
+            Ok(*conflict)
+        } else {
+            // The metric is not present in the registry, register it and return its (newly generated) id.
+            let id = self.register_new(m);
+            Ok(id)
+        }
+    }
+
+    /// Registers a new metric and resolve any conflict to avoid duplicates.
     ///
     /// A new id is generated and returned.
     ///
@@ -109,7 +170,7 @@ impl MetricRegistry {
     /// 1. Checks whether `m` and the conflicting metric are "equal" (same name, same unit, same type of value).
     /// 2. If `m` is different, `register_infallible` uses the `dedup_suffix` to generate a new, unique name for `m`,
     /// and registers it under that name.
-    pub(crate) fn register_infallible(&mut self, m: Metric, dedup_suffix: &str) -> RawMetricId {
+    fn register_infallible(&mut self, m: Metric, dup: DuplicateCriteria, dedup_suffix: &str) -> RawMetricId {
         fn resolve_conflict(reg: &mut MetricRegistry, mut metric: Metric, dedup_suffix: &str) -> RawMetricId {
             use std::fmt::Write;
 
@@ -151,28 +212,16 @@ impl MetricRegistry {
         let name = &m.name;
         if let Some(conflict_id) = self.metrics_by_name.get(name) {
             let conflict = &self.metrics_by_id[conflict_id];
-            if conflict.unit == m.unit && conflict.value_type == m.value_type {
-                // If the conflicting metric is the same, it's ok.
-                *conflict_id
-            } else {
-                // If it's different, create a new metric with a slightly different name, using the suffix.
+            if dup.are_duplicate(&m, conflict) {
+                // Create a new metric with a slightly different name.
                 resolve_conflict(self, m, dedup_suffix)
+            } else {
+                // Use the existing metric.
+                *conflict_id
             }
         } else {
             self.register_new(m)
         }
-    }
-
-    /// Registers multiple metrics, resolving conflicts by deduplicating names.
-    ///
-    /// The registration cannot fail. See [`register_infallible()`].
-    pub(crate) fn extend_infallible(&mut self, metrics: Vec<Metric>, dedup_suffix: &str) -> Vec<RawMetricId> {
-        self.metrics_by_name.reserve(metrics.len());
-        self.metrics_by_id.reserve(metrics.len());
-        metrics
-            .into_iter()
-            .map(|m| self.register_infallible(m, dedup_suffix))
-            .collect()
     }
 }
 
@@ -200,68 +249,107 @@ impl<'a> IntoIterator for &'a MetricRegistry {
 
 #[cfg(test)]
 mod tests {
-    use crate::{measurement::WrappedMeasurementType, metrics::def::Metric, units::Unit};
+    use crate::{
+        measurement::WrappedMeasurementType,
+        metrics::{
+            def::Metric,
+            duplicate::{DuplicateCriteria, DuplicateReaction},
+        },
+        units::Unit,
+    };
 
     use super::MetricRegistry;
 
     #[test]
-    fn no_duplicate_metrics() {
+    fn register_no_duplicate() {
         let mut metrics = MetricRegistry::new();
         assert_eq!(metrics.len(), 0);
         metrics
-            .register(Metric {
-                name: "metric".to_owned(),
-                description: "...".to_owned(),
-                value_type: WrappedMeasurementType::U64,
-                unit: Unit::Watt.into(),
-            })
+            .register_no_duplicate(
+                Metric {
+                    name: "metric".to_owned(),
+                    description: "...".to_owned(),
+                    value_type: WrappedMeasurementType::U64,
+                    unit: Unit::Watt.into(),
+                },
+                DuplicateCriteria::Strict,
+            )
             .unwrap();
         metrics
-            .register(Metric {
-                name: "metric".to_owned(),
-                description: "abcd".to_owned(),
-                value_type: WrappedMeasurementType::F64,
-                unit: Unit::Volt.into(),
-            })
+            .register_no_duplicate(
+                Metric {
+                    name: "metric".to_owned(),
+                    description: "abcd".to_owned(),
+                    value_type: WrappedMeasurementType::F64,
+                    unit: Unit::Volt.into(),
+                },
+                DuplicateCriteria::Strict,
+            )
             .unwrap_err(); // error is expected
         assert_eq!(metrics.len(), 1);
     }
 
     #[test]
-    fn metric_registry() {
+    fn register() {
         let mut metrics = MetricRegistry::new();
         assert_eq!(metrics.len(), 0);
         let metric_id = metrics
-            .register(Metric {
-                name: "metric".to_owned(),
-                description: "".to_owned(),
-                value_type: WrappedMeasurementType::U64,
-                unit: Unit::Watt.into(),
-            })
+            .register(
+                Metric {
+                    name: "metric".to_owned(),
+                    description: "".to_owned(),
+                    value_type: WrappedMeasurementType::U64,
+                    unit: Unit::Watt.into(),
+                },
+                DuplicateCriteria::Strict,
+                DuplicateReaction::Error,
+            )
             .unwrap();
         let metric_id2 = metrics
-            .register(Metric {
-                name: "metric2".to_owned(),
-                description: "".to_owned(),
-                value_type: WrappedMeasurementType::F64,
-                unit: Unit::Watt.into(),
-            })
+            .register(
+                Metric {
+                    name: "metric2".to_owned(),
+                    description: "".to_owned(),
+                    value_type: WrappedMeasurementType::F64,
+                    unit: Unit::Watt.into(),
+                },
+                DuplicateCriteria::Strict,
+                DuplicateReaction::Error,
+            )
             .unwrap();
-        assert_eq!(metrics.len(), 2);
+        let metric_id3 = metrics
+            .register(
+                Metric {
+                    name: "metric2".to_owned(),
+                    description: "".to_owned(),
+                    value_type: WrappedMeasurementType::U64,
+                    unit: Unit::Second.into(),
+                },
+                DuplicateCriteria::Incompatible,
+                DuplicateReaction::Rename {
+                    suffix: "dedup".to_owned(),
+                },
+            )
+            .unwrap();
+        assert_eq!(metrics.len(), 3);
 
-        let (_id, metric) = metrics.by_name("metric").expect("metrics.with_name failed");
-        let (_id2, metric2) = metrics.by_name("metric2").expect("metrics.with_name failed");
+        let (_id, metric) = metrics.by_name("metric").expect("metric should exist");
+        let (_id2, metric2) = metrics.by_name("metric2").expect("metric2 should exist");
+        let (_id2, metric3) = metrics.by_name("metric2_dedup").expect("metric2_dedup should exist");
         assert_eq!("metric", metric.name);
         assert_eq!("metric2", metric2.name);
+        assert_eq!("metric2_dedup", metric3.name);
 
-        let metric = metrics.by_id(&metric_id).expect("metrics.with_id failed");
-        let metric2 = metrics.by_id(&metric_id2).expect("metrics.with_id failed");
+        let metric = metrics.by_id(&metric_id).expect("metric should exist");
+        let metric2 = metrics.by_id(&metric_id2).expect("metric should exist");
+        let metric3 = metrics.by_id(&metric_id3).expect("metric should exist");
         assert_eq!("metric", metric.name);
         assert_eq!("metric2", metric2.name);
+        assert_eq!("metric2_dedup", metric3.name);
 
         let mut names: Vec<&str> = metrics.iter().map(|m| &*m.1.name).collect();
         names.sort();
-        assert_eq!(vec!["metric", "metric2"], names);
+        assert_eq!(vec!["metric", "metric2", "metric2_dedup"], names);
     }
 
     #[test]
@@ -278,12 +366,14 @@ mod tests {
                     value_type: WrappedMeasurementType::U64,
                     unit: Unit::Watt.into(),
                 },
+                DuplicateCriteria::Strict,
                 "suffix",
             );
             assert_eq!(metrics.len(), 1);
             assert_eq!(metrics.by_name("metric").unwrap().1.name, "metric");
 
-            // register again with the same metric, the metric should not change
+            // register again with an identical metric and DuplicateCriteria::Different,
+            // the new metric should be ignored
             let id1_bis = metrics.register_infallible(
                 Metric {
                     name: "metric".to_owned(),
@@ -291,58 +381,101 @@ mod tests {
                     value_type: WrappedMeasurementType::U64,
                     unit: Unit::Watt.into(),
                 },
+                DuplicateCriteria::Different,
                 "suffix",
             );
             assert_eq!(metrics.len(), 1);
             assert_eq!(metrics.by_name("metric").unwrap().1.name, "metric");
             assert_eq!(id1, id1_bis);
 
-            // register another metric with the same name, it should be deduplicated
+            // register again with an identical metric and DuplicateCriteria::Strict,
+            // a new metric should be registered with a newly generated suffix
+            let id1_deduplicated = metrics.register_infallible(
+                Metric {
+                    name: "metric".to_owned(),
+                    description: "...".to_owned(),
+                    value_type: WrappedMeasurementType::U64,
+                    unit: Unit::Watt.into(),
+                },
+                DuplicateCriteria::Strict,
+                "suffix",
+            );
+            assert_eq!(metrics.len(), 2);
+            assert_eq!(metrics.by_name("metric").unwrap().1.name, "metric");
+            assert_eq!(metrics.by_name("metric_suffix").unwrap().1.name, "metric_suffix");
+            assert_ne!(id1, id1_deduplicated);
+
+            // register another metric with the same name but a different description,
+            // and DuplicateCriteria::Incompatible. It should be ignored.
             let id2 = metrics.register_infallible(
                 Metric {
                     name: "metric".to_owned(),
                     description: "abcd".to_owned(),
-                    value_type: WrappedMeasurementType::F64,
-                    unit: Unit::Volt.into(),
+                    value_type: WrappedMeasurementType::U64,
+                    unit: Unit::Watt.into(),
                 },
+                DuplicateCriteria::Incompatible,
                 "suffix",
             );
             assert_eq!(metrics.len(), 2);
             assert_eq!(metrics.by_name("metric").unwrap().1.name, "metric");
             assert_eq!(metrics.by_name("metric_suffix").unwrap().1.name, "metric_suffix");
-            assert_ne!(id2, id1);
+            assert_eq!(id2, id1);
 
-            // register another one, which is actually the same as `metric_suffix`
-            let id2_bis = metrics.register_infallible(
-                Metric {
-                    name: "metric".to_owned(),
-                    description: "abcd".to_owned(),
-                    value_type: WrappedMeasurementType::F64,
-                    unit: Unit::Volt.into(),
-                },
-                "suffix",
-            );
-            assert_eq!(metrics.len(), 2);
-            assert_eq!(metrics.by_name("metric").unwrap().1.name, "metric");
-            assert_eq!(metrics.by_name("metric_suffix").unwrap().1.name, "metric_suffix");
-            assert_eq!(id2, id2_bis);
-
-            // register yet another one, which is different
+            // register another metric with an incompatible *type* and DuplicateCriteria::Incompatible.
+            // It should create a new, different metric.
             let id3 = metrics.register_infallible(
                 Metric {
                     name: "metric".to_owned(),
-                    description: "xyz".to_owned(),
-                    value_type: WrappedMeasurementType::U64,
-                    unit: Unit::Volt.into(),
+                    description: "...".to_owned(),
+                    value_type: WrappedMeasurementType::F64,
+                    unit: Unit::Watt.into(),
                 },
+                DuplicateCriteria::Incompatible,
                 "suffix",
             );
             assert_eq!(metrics.len(), 3);
+            assert_ne!(id3, id1);
+            assert_ne!(id3, id2);
+
+            // register another metric with an incompatible *unit* and DuplicateCriteria::Incompatible.
+            // It should create a new, different metric.
+            let _id4 = metrics.register_infallible(
+                Metric {
+                    name: "metric".to_owned(),
+                    description: "...".to_owned(),
+                    value_type: WrappedMeasurementType::U64,
+                    unit: Unit::Byte.into(), // Byte instead of Watt
+                },
+                DuplicateCriteria::Incompatible,
+                "suffix",
+            );
+            assert_eq!(metrics.len(), 4);
+
+            // register yet another one, which is different
+            let _id5 = metrics.register_infallible(
+                Metric {
+                    name: "metric".to_owned(),
+                    description: "xyz".to_owned(),
+                    value_type: WrappedMeasurementType::U64, // U64 instead of F64
+                    unit: Unit::Volt.into(),
+                },
+                DuplicateCriteria::Strict,
+                "suffix",
+            );
+            assert_eq!(metrics.len(), 5);
             assert_eq!(metrics.by_name("metric").unwrap().1.name, "metric");
             assert_eq!(metrics.by_name("metric_suffix").unwrap().1.name, "metric_suffix");
             assert_eq!(metrics.by_name("metric_suffix_2").unwrap().1.name, "metric_suffix_2");
+            assert_eq!(metrics.by_name("metric_suffix_3").unwrap().1.name, "metric_suffix_3");
+            assert_eq!(metrics.by_name("metric_suffix_4").unwrap().1.name, "metric_suffix_4");
             assert_ne!(id3, id2);
             assert_ne!(id3, id1);
+            // metric_suffix_1 should NOT exist
+            assert!(
+                metrics.by_name("metric_suffix_1").is_none(),
+                "name generation should go from `suffix` to `suffix_2`"
+            );
 
             // register YET another one, which is different
             let id4 = metrics.register_infallible(
@@ -352,33 +485,19 @@ mod tests {
                     value_type: WrappedMeasurementType::U64,
                     unit: Unit::Second.into(),
                 },
+                DuplicateCriteria::Strict,
                 "suffix",
             );
-            assert_eq!(metrics.len(), 4);
+            assert_eq!(metrics.len(), 6);
             assert_eq!(metrics.by_name("metric").unwrap().1.name, "metric");
             assert_eq!(metrics.by_name("metric_suffix").unwrap().1.name, "metric_suffix");
             assert_eq!(metrics.by_name("metric_suffix_2").unwrap().1.name, "metric_suffix_2");
             assert_eq!(metrics.by_name("metric_suffix_3").unwrap().1.name, "metric_suffix_3");
+            assert_eq!(metrics.by_name("metric_suffix_4").unwrap().1.name, "metric_suffix_4");
+            assert_eq!(metrics.by_name("metric_suffix_5").unwrap().1.name, "metric_suffix_5");
             assert_ne!(id4, id3);
             assert_ne!(id4, id2);
             assert_ne!(id4, id1);
-
-            // and the same as metric_suffix_3
-            let id4_bis = metrics.register_infallible(
-                Metric {
-                    name: "metric".to_owned(),
-                    description: "not the same".to_owned(),
-                    value_type: WrappedMeasurementType::U64,
-                    unit: Unit::Second.into(),
-                },
-                "suffix",
-            );
-            assert_eq!(metrics.len(), 4);
-            assert_eq!(metrics.by_name("metric").unwrap().1.name, "metric");
-            assert_eq!(metrics.by_name("metric_suffix").unwrap().1.name, "metric_suffix");
-            assert_eq!(metrics.by_name("metric_suffix_2").unwrap().1.name, "metric_suffix_2");
-            assert_eq!(metrics.by_name("metric_suffix_3").unwrap().1.name, "metric_suffix_3");
-            assert_eq!(id4_bis, id4);
         }
     }
 }

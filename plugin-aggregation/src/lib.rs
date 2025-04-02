@@ -8,7 +8,7 @@ use std::{
 };
 
 use alumet::{
-    metrics::{online::MetricSender, Metric, RawMetricId},
+    metrics::{duplicate::DuplicateReaction, online::MetricSender, Metric, RawMetricId},
     plugin::{
         rust::{deserialize_config, serialize_config, AlumetPlugin},
         ConfigTable,
@@ -118,7 +118,7 @@ async fn register_new_metrics(
     metric_correspondence_table: Arc<RwLock<HashMap<RawMetricId, RawMetricId>>>,
 ) -> anyhow::Result<()> {
     let result = metric_sender
-        .create_metrics(new_metrics, alumet::metrics::online::DuplicateStrategy::Error)
+        .create_metrics(new_metrics, DuplicateReaction::Error)
         .await
         .map_err(|a| anyhow!("{a}"))?;
 

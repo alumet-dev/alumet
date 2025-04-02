@@ -10,6 +10,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
+use super::messages::SpecificBody;
 use super::{messages, AnonymousControlHandle};
 
 /// Encapsulates sources, transforms and outputs control.
@@ -48,6 +49,14 @@ impl PipelineControl {
         (control_handle, task_handle)
     }
 
+    async fn handle_specific_msg(&mut self, body: SpecificBody) -> anyhow::Result<()> {
+        match body {
+            messages::SpecificBody::Source(msg) => self.sources.handle_message(msg).await,
+            messages::SpecificBody::Transform(msg) => self.transforms.handle_message(msg),
+            messages::SpecificBody::Output(msg) => self.outputs.handle_message(msg).await,
+        }
+    }
+
     async fn handle_message(&mut self, msg: messages::ControlRequest) -> Result<(), PipelineError> {
         /// Responds to a message with a value of type `Result<R, PipelineError>`.
         fn send_response<R>(
@@ -69,9 +78,15 @@ impl PipelineControl {
         match msg {
             messages::ControlRequest::NoResult(RequestMessage { response_tx, body }) => {
                 let result = match body {
-                    messages::EmptyResponseBody::Source(msg) => self.sources.handle_message(msg).await,
-                    messages::EmptyResponseBody::Transform(msg) => self.transforms.handle_message(msg),
-                    messages::EmptyResponseBody::Output(msg) => self.outputs.handle_message(msg),
+                    messages::EmptyResponseBody::Single(msg) => self.handle_specific_msg(msg).await,
+                    messages::EmptyResponseBody::Mixed(messages) => {
+                        // TODO handle multiple errors in a smarter way
+                        // "atomic transactions" with rollback?
+                        for msg in messages {
+                            self.handle_specific_msg(msg).await?
+                        }
+                        Ok(())
+                    }
                 };
                 send_response(result.map_err(PipelineError::internal), response_tx)
             }

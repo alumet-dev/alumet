@@ -74,7 +74,7 @@ impl SourceRequestBuilder {
 
 impl SourceRequest {
     fn into_body(self) -> messages::EmptyResponseBody {
-        messages::EmptyResponseBody::Source(self.msg)
+        messages::EmptyResponseBody::Single(messages::SpecificBody::Source(self.msg))
     }
 }
 

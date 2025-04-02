@@ -45,7 +45,7 @@ impl TransformRequestBuilder {
 
 impl TransformRequest {
     fn into_body(self) -> messages::EmptyResponseBody {
-        messages::EmptyResponseBody::Transform(self.msg)
+        messages::EmptyResponseBody::Single(messages::SpecificBody::Transform(self.msg))
     }
 }
 

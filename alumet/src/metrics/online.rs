@@ -15,34 +15,25 @@ use tokio_util::sync::CancellationToken;
 
 use super::{
     def::{Metric, RawMetricId},
+    duplicate::DuplicateReaction,
     error::MetricCreationError,
     registry::MetricRegistry,
 };
-use crate::pipeline::naming::namespace::Namespace2;
+use crate::{metrics::duplicate::DuplicateCriteria, pipeline::naming::namespace::Namespace2};
 use listener::{ListenerName, MetricListener, MetricListenerBuilder};
 
 /// A message that can be sent to the task that controls the [`MetricRegistry`],
 /// for instance via [`MetricSender`].
 pub enum ControlMessage {
     /// Registers new metrics.
-    RegisterMetrics(
-        Vec<Metric>,
-        DuplicateStrategy,
-        Option<oneshot::Sender<Vec<Result<RawMetricId, MetricCreationError>>>>,
-    ),
+    RegisterMetrics {
+        metrics: Vec<Metric>,
+        duplicate_criteria: DuplicateCriteria,
+        on_duplicate: DuplicateReaction,
+        reply_to: Option<oneshot::Sender<Vec<Result<RawMetricId, MetricCreationError>>>>,
+    },
     /// Adds a new listener that will be notified on new metric registration.
     Subscribe(ListenerName, Box<dyn listener::MetricListenerBuilder + Send>),
-}
-
-/// A strategy to handle duplicate metrics.
-#[derive(Debug)]
-pub enum DuplicateStrategy {
-    /// Return an error immediately.
-    Error,
-    /// Rename the duplicate metrics by appending a suffix and an integer to its name.
-    Rename { suffix: String },
-    // TODO distinguish between "strictly rejecting the metric if one with the same name exists"
-    // and "rejecting the metric if one with the same name _and_ a different definiton exists"
 }
 
 /// Controls the central registry of metrics.
@@ -150,7 +141,12 @@ impl MetricRegistryControl {
         }
 
         match msg {
-            ControlMessage::RegisterMetrics(metrics, dup, reply_to) => {
+            ControlMessage::RegisterMetrics {
+                metrics,
+                duplicate_criteria,
+                on_duplicate,
+                reply_to,
+            } => {
                 // Use an RCU (Read, Copy, Update) scheme to modify the registry with the minimal
                 // amount of blocking for readers and writers.
                 //
@@ -159,40 +155,39 @@ impl MetricRegistryControl {
                 // desynchronized copies). This is achieved by handling all the messages in one
                 // task, thus making their processing sequential.
 
+                let n = metrics.len();
+
                 // read and copy
                 let mut copy = (*self.registry.read().await).clone();
+
                 // modify the copy
-                let res = match dup {
-                    DuplicateStrategy::Error => copy.extend(metrics.clone()),
-                    DuplicateStrategy::Rename { suffix } => copy
-                        .extend_infallible(metrics.clone(), &suffix)
-                        .into_iter()
-                        .map(|res| Ok(res))
-                        .collect(),
-                };
-                // update
+                let res = copy.register_many(metrics, duplicate_criteria, on_duplicate);
+
+                // get the new metric definitions: they could have changed because of the deduplication
+                // also collect the Ok/Errs because we may need to send them to the sender of the ControlMessage
+                let mut new_metrics = Vec::with_capacity(n);
+                let mut results = Vec::with_capacity(n);
+                for individual_res in res {
+                    if let Ok(metric_id) = individual_res {
+                        let metric_def = copy
+                            .by_id(&metric_id)
+                            .expect("metric has just been registered and should exist");
+                        new_metrics.push((metric_id, metric_def.to_owned()));
+                    }
+                    results.push(individual_res);
+                }
+
+                // update - the write lock is only held during this simple (and fast) operation
                 *self.registry.write().await = copy;
 
-                // call listeners
-                let mut registered_metrics = Vec::with_capacity(res.len());
-                for (metric, maybe_id) in metrics.into_iter().zip(res.iter()) {
-                    if let Ok(id) = maybe_id {
-                        registered_metrics.push((*id, metric));
-                    }
-                }
-                match &mut self.listeners[..] {
-                    [] => (),
-                    [(name, listener)] => call_listener(name, listener, registered_metrics),
-                    listeners => {
-                        for (name, listener) in listeners {
-                            call_listener(name, listener, registered_metrics.clone());
-                        }
-                    }
+                // call listeners with the new metric definitions
+                for (name, listener) in &mut self.listeners {
+                    call_listener(name, listener, new_metrics.clone());
                 }
 
                 // send reply
                 if let Some(tx) = reply_to {
-                    if let Err(e) = tx.send(res) {
+                    if let Err(e) = tx.send(results) {
                         log::error!("Failed to send reply to metric registration message: {e:?}");
                     }
                 }
@@ -275,7 +270,7 @@ impl Debug for SendError {
         match self {
             Self::ChannelFull(msg) => {
                 let msg_short: &dyn Debug = &match msg {
-                    ControlMessage::RegisterMetrics(_, _, _) => "ControlMessage::RegisterMetrics(...)",
+                    ControlMessage::RegisterMetrics { .. } => "ControlMessage::RegisterMetrics(...)",
                     ControlMessage::Subscribe(_, _) => "ControlMessage::Subscribe(...)",
                 };
                 f.debug_tuple("ChannelFull").field(msg_short).finish()
@@ -354,10 +349,15 @@ impl MetricSender {
     pub async fn create_metrics(
         &self,
         metrics: Vec<Metric>,
-        on_duplicate: DuplicateStrategy,
+        on_duplicate: DuplicateReaction,
     ) -> Result<Vec<Result<RawMetricId, MetricCreationError>>, SendWithReplyError> {
         let (tx, rx) = oneshot::channel();
-        let message = ControlMessage::RegisterMetrics(metrics, on_duplicate, Some(tx));
+        let message = ControlMessage::RegisterMetrics {
+            metrics,
+            duplicate_criteria: DuplicateCriteria::Incompatible,
+            on_duplicate,
+            reply_to: Some(tx),
+        };
         self.send(message).await.map_err(|e| SendWithReplyError::Send(e))?;
         let result = rx.await.map_err(|e| SendWithReplyError::Recv(e))?;
         Ok(result)

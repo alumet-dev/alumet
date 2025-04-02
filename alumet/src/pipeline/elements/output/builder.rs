@@ -33,6 +33,15 @@ impl From<SendOutputBuilder> for OutputBuilder {
     }
 }
 
+impl std::fmt::Debug for SendOutputBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Blocking(_) => f.debug_tuple("Blocking").field(&"Box<dyn _>").finish(),
+            Self::Async(_) => f.debug_tuple("Async").field(&"Box<dyn _>").finish(),
+        }
+    }
+}
+
 /// Trait for builders of blocking outputs.
 ///
 ///  # Example

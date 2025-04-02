@@ -26,6 +26,12 @@ pub struct RequestMessage<Body, Response> {
 
 #[derive(Debug)]
 pub enum EmptyResponseBody {
+    Single(SpecificBody),
+    Mixed(Vec<SpecificBody>),
+}
+
+#[derive(Debug)]
+pub enum SpecificBody {
     Source(source::control::ControlMessage),
     Transform(transform::control::ControlMessage),
     Output(output::control::ControlMessage),

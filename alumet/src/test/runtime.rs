@@ -11,7 +11,10 @@ use crate::{
     measurement::MeasurementBuffer,
     metrics::registry::MetricRegistry,
     pipeline::{
-        control::{request, AnonymousControlHandle},
+        control::{
+            request::{self, any::AnyAnonymousControlRequest},
+            AnonymousControlHandle,
+        },
         elements::{
             output::builder::{BlockingOutputBuilder, OutputBuilder},
             source::{
@@ -20,7 +23,7 @@ use crate::{
             },
             transform::builder::TransformBuilder,
         },
-        matching::TransformNamePattern,
+        matching::{OutputNamePattern, SourceNamePattern, TransformNamePattern},
         naming::{OutputName, PluginName, SourceName, TransformName},
         Output,
     },
@@ -226,18 +229,6 @@ impl TestExpectations for RuntimeExpectations {
             })
         }
 
-        async fn disable_all_transforms(control: &AnonymousControlHandle) {
-            log::debug!("Disabling transforms...");
-            let request = request::transform(TransformNamePattern::wildcard()).disable();
-            control.send_wait(request, CONTROL_TIMEOUT).await.unwrap();
-        }
-
-        async fn enable_transform(control: &AnonymousControlHandle, name: TransformName) {
-            log::debug!("Enabling transforms...");
-            let request = request::transform(name).enable();
-            control.send_wait(request, CONTROL_TIMEOUT).await.unwrap();
-        }
-
         let source_tests_before = source_tests.clone();
         let transform_tests_before = transform_tests.clone();
         let output_tests_before = output_tests.clone();
@@ -340,6 +331,9 @@ impl TestExpectations for RuntimeExpectations {
             }))).unwrap();
         });
 
+        // IMPORTANT: disallow simplified pipeline
+        *builder.pipeline().allow_simplified_pipeline() = false;
+
         // Setup a background task that will trigger the elements one by one for testing purposes.
         builder.after_operation_begin(move |pipeline| {
             let control = pipeline.control_handle();
@@ -374,12 +368,28 @@ impl TestExpectations for RuntimeExpectations {
                     .join(", ")
             );
 
-            let task = async move {
-                // Before testing sources, disable all transforms, so that they don't
-                // process data that could interfere with the transform checks.
-                disable_all_transforms(&control).await;
+            async fn send_requests(control: &AnonymousControlHandle, requests: Vec<AnyAnonymousControlRequest>) {
+                for r in requests {
+                    control
+                        .send_wait(r, CONTROL_TIMEOUT)
+                        .await
+                        .expect("control request failed");
+                }
+            }
 
-                // Test sources
+            let task = async move {
+                // Disable everything, except the special output (in order to consume the measurements).
+                let requests: Vec<AnyAnonymousControlRequest> = vec![
+                    request::source(SourceNamePattern::wildcard()).disable().into(),
+                    request::transform(TransformNamePattern::wildcard()).disable().into(),
+                    request::output(OutputNamePattern::wildcard()).disable().into(),
+                    request::output(OutputNamePattern::exact(TESTER_PLUGIN_NAME, TESTER_OUTPUT_NAME))
+                        .enable()
+                        .into(),
+                ];
+                send_requests(&control, requests).await;
+
+                // Test sources in isolation
                 for (name, controller) in source_tests.into_iter() {
                     let SourceTestController {
                         checks,
@@ -390,6 +400,11 @@ impl TestExpectations for RuntimeExpectations {
                     if !checks.is_empty() {
                         log::debug!("Checking {name}...");
                     }
+                    // enable the source
+                    control
+                        .send_wait(request::source(name.clone()).enable(), CONTROL_TIMEOUT)
+                        .await
+                        .unwrap();
 
                     for check in checks {
                         // first, tell the source which test to execute
@@ -407,9 +422,18 @@ impl TestExpectations for RuntimeExpectations {
                             break;
                         }
                     }
+
+                    // disable the source
+                    control
+                        .send_wait(request::source(name).disable(), CONTROL_TIMEOUT)
+                        .await
+                        .unwrap();
                 }
 
-                // Test transforms
+                // From now on, we will use the special "tester" source to send arbitrary data to transform steps and outputs.
+                //
+
+                // Test transforms in isolation
                 for (name, controller) in transform_tests.into_iter() {
                     let TransformTestController {
                         checks,
@@ -421,10 +445,13 @@ impl TestExpectations for RuntimeExpectations {
                         log::debug!("Checking {name}...");
                     }
 
-                    for check in checks {
-                        // enable only the transform we want
-                        enable_transform(&control, check.name).await;
+                    // enable the transform
+                    control
+                        .send_wait(request::transform(name.clone()).enable(), CONTROL_TIMEOUT)
+                        .await
+                        .unwrap();
 
+                    for check in checks {
                         // tell the transform which check to execute
                         set_tx.send(SetTransformOutputCheck(check.check_output)).await.unwrap();
 
@@ -442,14 +469,14 @@ impl TestExpectations for RuntimeExpectations {
                             // or the wrapped transform panicked (because the test failed)
                             break;
                         }
-
-                        disable_all_transforms(&control).await;
                     }
-                }
 
-                // Before testing outputs, disable all transforms, so that we can pass data from
-                // the tester source to the outputs without any modification.
-                disable_all_transforms(&control).await;
+                    // disable the transform
+                    control
+                        .send_wait(request::transform(name.clone()).disable(), CONTROL_TIMEOUT)
+                        .await
+                        .unwrap();
+                }
 
                 // Test outputs
                 for (name, controller) in output_tests.into_iter() {
@@ -462,6 +489,14 @@ impl TestExpectations for RuntimeExpectations {
                     if !checks.is_empty() {
                         log::debug!("Checking {name}...");
                     }
+
+                    // Enable the output and discard any pending data, otherwise
+                    // the output will see the measurements sent by the tested sources and
+                    // by the special tester source to the tested transforms.
+                    control
+                        .send_wait(request::output(name.clone()).enable_discard(), CONTROL_TIMEOUT)
+                        .await
+                        .unwrap();
 
                     for check in checks {
                         // tell the output which check to execute
@@ -479,12 +514,19 @@ impl TestExpectations for RuntimeExpectations {
                         if done_rx.recv().await.is_none() {
                             // the sender has been dropped: either a bug,
                             // or the wrapped output panicked (because the test failed)
+                            log::warn!("done_tx has been dropped");
                             break;
                         }
                     }
+
+                    // disable the output
+                    control
+                        .send_wait(request::output(name.clone()).disable(), CONTROL_TIMEOUT)
+                        .await
+                        .unwrap();
                 }
 
-                // Shutdown the pipeline (can be disabled)
+                // Tests are done, shutdown the pipeline if requested to do so.
                 if self.auto_shutdown {
                     log::debug!("Requesting shutdown...");
                     control.shutdown();
@@ -549,8 +591,7 @@ impl RuntimeExpectations {
         Fo: Fn(&MeasurementBuffer) + Send + 'static,
     {
         let name = transform.clone();
-        self.transforms.entry(name.clone()).or_default().push(TransformCheck {
-            name,
+        self.transforms.entry(name).or_default().push(TransformCheck {
             make_input: Box::new(make_input),
             check_output: Box::new(check_output),
         });
@@ -585,7 +626,6 @@ pub struct SourceCheck {
 }
 
 pub struct TransformCheck {
-    name: TransformName,
     make_input: Box<dyn Fn(&mut TransformCheckInputContext) -> MeasurementBuffer + Send>,
     check_output: Box<dyn Fn(&MeasurementBuffer) + Send>,
 }

@@ -8,6 +8,7 @@ use crate::measurement::MeasurementBuffer;
 /// Trait that allows to receive measurements from different kinds of channel.
 pub trait MeasurementReceiver {
     async fn recv(&mut self) -> Result<MeasurementBuffer, RecvError>;
+    fn discard_pending(self) -> Self;
     fn into_stream(self) -> impl Stream<Item = Result<MeasurementBuffer, StreamRecvError>>;
 }
 
@@ -46,6 +47,10 @@ impl MeasurementReceiver for broadcast::Receiver<MeasurementBuffer> {
         })
     }
 
+    fn discard_pending(self) -> Self {
+        self.resubscribe()
+    }
+
     fn into_stream(self) -> impl Stream<Item = Result<MeasurementBuffer, StreamRecvError>> {
         use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
         use tokio_stream::StreamExt;
@@ -64,6 +69,13 @@ impl MeasurementReceiver for mpsc::Receiver<MeasurementBuffer> {
             Some(buf) => Ok(buf),
             None => Err(RecvError::Closed),
         }
+    }
+
+    fn discard_pending(mut self) -> Self {
+        while let Ok(_) = self.try_recv() {
+            ()
+        }
+        self
     }
 
     fn into_stream(self) -> impl Stream<Item = Result<MeasurementBuffer, StreamRecvError>> {

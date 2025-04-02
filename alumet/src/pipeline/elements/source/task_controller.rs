@@ -67,7 +67,7 @@ impl SingleSourceController {
                 Reconfiguration::SetState(TaskState::Stop) => {
                     shutdown_token.cancel();
                 }
-                _ => todo!("invalid command for autonomous source"),
+                _ => log::warn!("unsupported command received for autonomous source, ignoring"),
             },
         }
     }
