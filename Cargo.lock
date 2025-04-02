@@ -78,15 +78,14 @@ dependencies = [
  "libc",
  "log",
  "plugin-aggregation",
+ "plugin-cgroupv1",
  "plugin-cgroupv2",
  "plugin-csv",
  "plugin-energy-attribution",
  "plugin-energy-estimation-tdp",
  "plugin-influxdb",
  "plugin-mongodb",
- "plugin-nvidia-jetson",
- "plugin-nvidia-nvml",
- "plugin-oar2",
+ "plugin-nvidia",
  "plugin-opentelemetry",
  "plugin-perf",
  "plugin-procfs",
@@ -2482,6 +2481,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "plugin-cgroupv1"
+version = "0.1.0"
+dependencies = [
+ "alumet",
+ "anyhow",
+ "humantime-serde",
+ "log",
+ "notify",
+ "serde",
+ "serde_derive",
+ "tokio",
+]
+
+[[package]]
 name = "plugin-cgroupv2"
 version = "0.1.0"
 dependencies = [
@@ -2589,20 +2602,6 @@ dependencies = [
  "serde",
  "tempfile",
  "thiserror 2.0.12",
-]
-
-[[package]]
-name = "plugin-oar2"
-version = "0.1.0"
-dependencies = [
- "alumet",
- "anyhow",
- "humantime-serde",
- "log",
- "notify",
- "serde",
- "serde_derive",
- "tokio",
 ]
 
 [[package]]

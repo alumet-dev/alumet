@@ -32,10 +32,9 @@ plugin-energy-estimation-tdp = { path = "../plugin-energy-estimation-tdp" }
 
 # Linux-only dependencies
 [target.'cfg(target_os = "linux")'.dependencies]
+plugin-cgroupv1 = { path = "../plugin-cgroupv1" }
 plugin-cgroupv2 = { path = "../plugin-cgroupv2" }
-plugin-nvidia-jetson = { path = "../plugin-nvidia-jetson" }
-plugin-nvidia-nvml = { path = "../plugin-nvidia-nvml" }
-plugin-oar2 = { path = "../plugin-oar2" }
+plugin-nvidia = { path = "../plugin-nvidia" }
 plugin-perf = { path = "../plugin-perf" }
 plugin-procfs = { path = "../plugin-procfs" }
 plugin-rapl = { path = "../plugin-rapl" }

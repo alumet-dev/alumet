@@ -1,5 +1,5 @@
 [package]
-name = "plugin-oar2"
+name = "plugin-cgroupv1"
 version = "0.1.0"
 edition = "2021"
 
