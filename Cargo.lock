@@ -2539,6 +2539,7 @@ dependencies = [
  "log",
  "nvml-wrapper",
  "nvml-wrapper-sys",
+ "pretty_assertions",
  "regex",
  "serde",
  "tempfile",

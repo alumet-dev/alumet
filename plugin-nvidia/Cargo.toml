@@ -21,6 +21,7 @@ serde = { version = "1.0.210", features = ["derive"] }
 thiserror = "2.0.12"
 
 [dev-dependencies]
+pretty_assertions = "1.4.1"
 tempfile = "3.10"
 
 [lints]
