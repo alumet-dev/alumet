@@ -1,20 +1,21 @@
 use alumet::{
-    metrics::TypedMetricId, pipeline::{
+    metrics::TypedMetricId,
+    pipeline::{
         control::{request, PluginControlHandle},
         elements::source::trigger::TriggerSpec,
-    }, plugin::{
+    },
+    plugin::{
         rust::{deserialize_config, serialize_config, AlumetPlugin},
-        util::CounterDiff,
         AlumetPluginStart, AlumetPostStart, ConfigTable,
-    }, resources::ResourceConsumer
+    },
+    resources::ResourceConsumer,
 };
-use anyhow::{anyhow, Context};
+use anyhow::Context;
 use notify::{Event, EventHandler, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::{fs::File, path::PathBuf, time::Duration};
 
-
-use crate::{cgroupv1::Metrics};
+use crate::cgroupv1::Metrics;
 
 use super::{probe::OarJobSource, utils::Cgroupv1MetricFile};
 
@@ -104,7 +105,13 @@ impl AlumetPlugin for Oar2Plugin {
                         .to_string()
                         .into(),
                 };
-                let metric_file = Cgroupv1MetricFile::new(job_id, consumer_cpu, consumer_memory, cgroup_cpu_file, cgroup_memory_file);
+                let metric_file = Cgroupv1MetricFile::new(
+                    job_id,
+                    consumer_cpu,
+                    consumer_memory,
+                    cgroup_cpu_file,
+                    cgroup_memory_file,
+                );
                 let initial_source = Box::new(OarJobSource {
                     cpu_metric: metrics.cpu_metric,
                     memory_metric: metrics.memory_metric,
@@ -159,11 +166,11 @@ impl AlumetPlugin for Oar2Plugin {
                             let cpu_file_path = cpu_path.join("cpuacct.usage");
                             log::debug!("CPU file path {cpu_file_path:?}");
                             let file_cpu = File::open(&cpu_file_path)
-                                        .with_context(|| format!("failed to open file {}", cpu_file_path.display()))?;
+                                .with_context(|| format!("failed to open file {}", cpu_file_path.display()))?;
                             let memory_file_path = memory_path.join("memory.usage_in_bytes");
                             log::debug!("Memory file path {memory_file_path:?}");
                             let file_memory = File::open(&memory_file_path)
-                                        .with_context(|| format!("failed to open file {}", memory_file_path.display()))?;
+                                .with_context(|| format!("failed to open file {}", memory_file_path.display()))?;
 
                             let consumer_cpu = ResourceConsumer::ControlGroup {
                                 path: cpu_file_path
@@ -179,10 +186,10 @@ impl AlumetPlugin for Oar2Plugin {
                                     .to_string()
                                     .into(),
                             };
-                            let metric_file = Cgroupv1MetricFile::new(job_id, consumer_cpu, consumer_memory, file_cpu, file_memory);
+                            let metric_file =
+                                Cgroupv1MetricFile::new(job_id, consumer_cpu, consumer_memory, file_cpu, file_memory);
 
-
-                            if let (Ok(cgroup_cpu_file), Ok(cgroup_memory_file)) =
+                            if let (Ok(_cgroup_cpu_file), Ok(_cgroup_memory_file)) =
                                 (File::open(&cpu_file_path), File::open(&memory_file_path))
                             {
                                 let new_source = Box::new(OarJobSource {

@@ -1,13 +1,5 @@
 use alumet::resources::ResourceConsumer;
-use anyhow::{Context, Result};
-use std::{
-    fs::{self, File},
-    io::{Read, Seek},
-    path::{Path, PathBuf},
-    result::Result::Ok,
-    str::FromStr,
-    vec,
-};
+use std::fs::File;
 
 #[derive(Debug)]
 pub struct Cgroupv1MetricFile {
