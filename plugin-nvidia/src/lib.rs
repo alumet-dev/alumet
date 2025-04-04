@@ -109,10 +109,11 @@ impl NvidiaPlugin {
     /// This works by querying the embedded INA sensor(s).
     #[cfg(feature = "jetson")]
     fn start_jetson(&self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
-        let sensors = jetson::ina::detect_ina_sensors()?;
+        let mut sensors = jetson::ina::detect_ina_sensors()?;
         if sensors.is_empty() {
             return Err(anyhow!("No INA sensor found. If you are not running on a Jetson device, disable the `jetson` feature of the plugin."));
         }
+        jetson::ina::sort_sensors_recursively(&mut sensors);
 
         for sensor in &sensors {
             log::info!("Found INA sensor {} at {}", sensor.i2c_id, sensor.path.display());

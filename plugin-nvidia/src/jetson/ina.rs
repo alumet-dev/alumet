@@ -60,6 +60,14 @@ pub fn detect_ina_sensors() -> anyhow::Result<Vec<InaSensor>> {
     }
 }
 
+/// Sorts a list of sensors and sorts each element in the sensors, recursively.
+pub fn sort_sensors_recursively(sensors: &mut Vec<InaSensor>) {
+    for s in sensors.iter_mut() {
+        s.sort_channels();
+    }
+    sensors.sort_by_key(|s| s.i2c_id.clone());
+}
+
 impl InaSensor {
     pub fn sort_channels(&mut self) {
         for chan in &mut self.channels {
@@ -343,9 +351,10 @@ fn detect_hierarchy<P: AsRef<Path>>(
 mod tests {
     use std::collections::HashMap;
 
-    use crate::jetson::ina::{DetectionError, InaChannel, InaRailMetric, InaSensor};
-
-    use super::{detect_hierarchy_modern, detect_hierarchy_old_v4};
+    use super::{
+        detect_hierarchy_modern, detect_hierarchy_old_v4, sort_sensors_recursively, DetectionError, InaChannel,
+        InaRailMetric, InaSensor,
+    };
     use alumet::units::{PrefixedUnit, Unit};
     use pretty_assertions::assert_eq;
     use tempfile::tempdir;
@@ -684,12 +693,5 @@ mod tests {
         let res_old = detect_hierarchy_old_v4(&root);
         assert!(matches!(res_modern, Err(DetectionError::SysfsAccess(_))));
         assert!(matches!(res_old, Err(DetectionError::SysfsAccess(_))));
-    }
-
-    fn sort_sensors_recursively(sensors: &mut Vec<InaSensor>) {
-        for s in sensors.iter_mut() {
-            s.sort_channels();
-        }
-        sensors.sort_by_key(|s| s.i2c_id.clone());
     }
 }
