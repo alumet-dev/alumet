@@ -255,14 +255,8 @@ mod tests {
         assert_eq!(partition_tag("is_a_field", AttributeAs::Tag, &tags, &fields), false);
         assert_eq!(partition_tag("is_nothing", AttributeAs::Tag, &tags, &fields), true);
         assert_eq!(partition_tag("is_a_tag", AttributeAs::Field, &tags, &fields), true);
-        assert_eq!(
-            partition_tag("is_a_field", AttributeAs::Field, &tags, &fields),
-            false
-        );
-        assert_eq!(
-            partition_tag("is_nothing", AttributeAs::Field, &tags, &fields),
-            false
-        );
+        assert_eq!(partition_tag("is_a_field", AttributeAs::Field, &tags, &fields), false);
+        assert_eq!(partition_tag("is_nothing", AttributeAs::Field, &tags, &fields), false);
     }
 
     #[test]
