@@ -53,6 +53,10 @@ impl JetsonInaSource {
         for sensor in sensors {
             let mut sensor_opened_channels = Vec::with_capacity(sensor.channels.len());
             for channel in sensor.channels {
+                let channel_string_id = channel.label.clone().map_or_else(
+                    || format!("channel_{}", channel.id),
+                    |v| v.replace(" ", "_").to_ascii_lowercase(),
+                );
                 let metrics: anyhow::Result<Vec<OpenedInaMetric>> = channel
                     .metrics
                     .into_iter()
@@ -61,13 +65,11 @@ impl JetsonInaSource {
                             Some(desc) => format!("channel {} ({}); {}", channel.id, desc, m.name),
                             None => format!("channel {}; {}", channel.id, m.name),
                         };
-                        let metric_id = alumet.create_metric(
-                            format!("{}::{}", channel.label, m.name),
-                            m.unit,
-                            metric_description,
-                        )?;
+                        let metric_id = alumet
+                            .create_metric(format!("{}::{}", channel_string_id, m.name), m.unit, metric_description)
+                            .with_context(|| format!("could not create metric for channel {channel_string_id}"))?;
                         let file = File::open(&m.path)
-                            .with_context(|| format!("Could not open virtual file {}", m.path.display()))?;
+                            .with_context(|| format!("could not open virtual file {}", m.path.display()))?;
                         Ok(OpenedInaMetric {
                             metric_id,
                             resource_id: Resource::LocalMachine,
@@ -76,7 +78,7 @@ impl JetsonInaSource {
                     })
                     .collect();
                 let opened_chan = OpenedInaChannel {
-                    label: channel.label,
+                    label: channel_string_id,
                     description: channel.description.unwrap_or(String::from("")),
                     metrics: metrics?,
                 };
