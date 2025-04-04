@@ -14,7 +14,7 @@ anyhow = "1.0.88"
 humantime-serde = "1.1.1"
 indoc = "2.0.5"
 log = "0.4.22"
-perf-event-open-sys = "4.0.0"
+perf-event-open-sys2 = "5.0.6"
 regex = "1.10.6"
 serde = { version = "1.0.210", features = ["derive"] }
 
