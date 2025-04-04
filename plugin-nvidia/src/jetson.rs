@@ -413,7 +413,8 @@ mod tests {
 
         // Test the detection
         let sensors = detect_hierarchy_modern(root).expect("detection failed");
-        let sensor_ids: Vec<&str> = sensors.iter().map(|s| s.i2c_id.as_ref()).collect();
+        let mut sensor_ids: Vec<&str> = sensors.iter().map(|s| s.i2c_id.as_ref()).collect();
+        sensor_ids.sort();
         assert_eq!(sensor_ids, vec!["1-0040", "1-0041"]);
 
         let expected_channel_labels = vec![
@@ -474,7 +475,8 @@ mod tests {
 
         // Test the detection
         let sensors = detect_hierarchy_old_v4(root).expect("detection failed");
-        let sensor_ids: Vec<&str> = sensors.iter().map(|s| s.i2c_id.as_ref()).collect();
+        let mut sensor_ids: Vec<&str> = sensors.iter().map(|s| s.i2c_id.as_ref()).collect();
+        sensor_ids.sort();
         assert_eq!(sensor_ids, vec!["1-0040", "1-0041"]);
 
         let expected_channel_labels = vec![
@@ -491,8 +493,7 @@ mod tests {
         expected_metrics.sort();
 
         for (sensor, expected_labels) in sensors.into_iter().zip(expected_channel_labels) {
-            let mut channel_labels: Vec<&String> = sensor.channels.iter().map(|chan| &chan.label).collect();
-            channel_labels.sort();
+            let channel_labels: Vec<&String> = sensor.channels.iter().map(|chan| &chan.label).collect();
             assert_eq!(expected_labels, channel_labels);
 
             for channel in sensor.channels {

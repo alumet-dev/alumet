@@ -112,38 +112,25 @@ impl Output for InfluxDbOutput {
             ];
             const RESERVED_FIELD: &str = "value";
 
-            // Returns true if the attribute with this key should be serialized as an InfluxDB tag,
-            // false if it should become a field.
-            let partition_tag = |key: &str| -> bool {
-                match &self.attributes_as {
-                    AttributeAs::Tag => {
-                        // default is tag => tag unless if in set
-                        !self.attributes_as_fields.contains(key)
-                    }
-                    AttributeAs::Field => {
-                        // default is field => tag only if in set
-                        self.attributes_as_tags.contains(key)
-                    }
-                }
-            };
-            let (tags, fields): (Vec<_>, Vec<_>) = m.attributes().partition(|(key, _)| partition_tag(key));
+            let (tags, fields): (Vec<_>, Vec<_>) = m.attributes().partition(|(key, _)| {
+                partition_tag(
+                    key,
+                    self.attributes_as,
+                    &self.attributes_as_tags,
+                    &self.attributes_as_fields,
+                )
+            });
 
             // Append tags.
             for (tag_key, tag_value) in tags {
-                let tag_value = &tag_value.to_string();
-                if RESERVED_TAGS.contains(&tag_key) {
-                    builder.tag(&format!("alumet_attribute__{tag_key}"), tag_value);
-                } else {
-                    builder.tag(tag_key, tag_value);
-                }
+                builder.tag(
+                    &ensure_valid_tag_key(RESERVED_TAGS, tag_key.to_string()),
+                    &tag_value.to_string(),
+                );
             }
             // Append fields.
             for (field_key, field_value) in fields {
-                let field_key = if field_key == RESERVED_FIELD {
-                    "alumet_attribute__value"
-                } else {
-                    field_key
-                };
+                let field_key = ensure_valid_field_key(RESERVED_FIELD, field_key);
                 match field_value {
                     AttributeValue::F64(v) => builder.field_float(field_key, *v),
                     AttributeValue::U64(v) => builder.field_uint(field_key, *v),
@@ -174,22 +161,60 @@ impl Output for InfluxDbOutput {
     }
 }
 
+// Returns true if the attribute with this key should be serialized as an InfluxDB tag,
+// false if it should become a field.
+fn partition_tag(
+    key: &str,
+    attributes_as: AttributeAs,
+    attributes_as_tags: &HashSet<String>,
+    attributes_as_fields: &HashSet<String>,
+) -> bool {
+    match attributes_as {
+        AttributeAs::Tag => {
+            // default is tag => tag unless if in set
+            !attributes_as_fields.contains(key)
+        }
+        AttributeAs::Field => {
+            // default is field => tag only if in set
+            attributes_as_tags.contains(key)
+        }
+    }
+}
+
+// Check if the tag key is reserved and in case it is append a prefix
+fn ensure_valid_tag_key(reserved_tags: [&str; 4], tag_key: String) -> String {
+    if reserved_tags.contains(&tag_key.as_str()) {
+        format!("alumet_attribute__{tag_key}")
+    } else {
+        tag_key
+    }
+}
+
+// Check if the field key is reserved and in case it is return a predefined key
+fn ensure_valid_field_key<'a>(reserved_field: &'a str, field_key: &'a str) -> &'a str {
+    if field_key == reserved_field {
+        "alumet_attribute__value"
+    } else {
+        field_key
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Config {
-    host: String,
-    token: String,
-    org: String,
-    bucket: String,
-    attributes_as: AttributeAs,
-    attributes_as_tags: Option<HashSet<String>>,
-    attributes_as_fields: Option<HashSet<String>>,
+pub struct Config {
+    pub host: String,
+    pub token: String,
+    pub org: String,
+    pub bucket: String,
+    pub attributes_as: AttributeAs,
+    pub attributes_as_tags: Option<HashSet<String>>,
+    pub attributes_as_fields: Option<HashSet<String>>,
 }
 
 /// How to serialize Alumet attributes by default?
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
-enum AttributeAs {
+pub enum AttributeAs {
     /// Serialize attributes as InfluxDB tags, except if their key
     /// is in `attributes_as_fields`.
     Tag,
@@ -209,5 +234,61 @@ impl Default for Config {
             attributes_as_tags: None,
             attributes_as_fields: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{ensure_valid_field_key, ensure_valid_tag_key, partition_tag, AttributeAs};
+    use std::collections::HashSet;
+    #[test]
+    fn test_partition_tag() {
+        let mut tags: HashSet<String> = HashSet::new();
+        tags.insert("is_a_tag".to_string());
+        tags.insert("is_another_tag".to_string());
+
+        let mut fields: HashSet<String> = HashSet::new();
+        fields.insert("is_a_field".to_string());
+        fields.insert("is_another_field".to_string());
+
+        assert_eq!(partition_tag("is_a_tag", AttributeAs::Tag, &tags, &fields), true);
+        assert_eq!(partition_tag("is_a_field", AttributeAs::Tag, &tags, &fields), false);
+        assert_eq!(partition_tag("is_nothing", AttributeAs::Tag, &tags, &fields), true);
+        assert_eq!(partition_tag("is_a_tag", AttributeAs::Field, &tags, &fields), true);
+        assert_eq!(partition_tag("is_a_field", AttributeAs::Field, &tags, &fields), false);
+        assert_eq!(partition_tag("is_nothing", AttributeAs::Field, &tags, &fields), false);
+    }
+
+    #[test]
+    fn test_tag_keys() {
+        let reserved_tags: [&str; 4] = [
+            "resource_kind",
+            "resource_id",
+            "resource_consumer_kind",
+            "resource_consumer_id",
+        ];
+
+        assert_eq!(
+            ensure_valid_tag_key(reserved_tags, "resource_kind".to_string()),
+            "alumet_attribute__resource_kind"
+        );
+        assert_eq!(
+            ensure_valid_tag_key(reserved_tags, "some_random_tag".to_string()),
+            "some_random_tag"
+        );
+    }
+
+    #[test]
+    fn test_field_keys() {
+        let reserved_field = "value";
+
+        assert_eq!(
+            ensure_valid_field_key(reserved_field, "value"),
+            "alumet_attribute__value"
+        );
+        assert_eq!(
+            ensure_valid_field_key(reserved_field, "some_random_field"),
+            "some_random_field"
+        );
     }
 }

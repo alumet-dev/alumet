@@ -603,7 +603,7 @@ impl RuntimeExpectations {
     /// # Execution of an output test
     /// 1. `make_input` is called to prepare the input of the output.
     /// It adds measurements to a buffer, that will be given to the output.
-    /// 2. The output is triggered, its [`apply`](crate::pipeline::Output::write) method is called.
+    /// 2. The output is triggered, its [`write`](crate::pipeline::Output::write) method is called.
     /// 3. `check_output` is called.
     /// Here, you can check that the output is correct by reading files, etc.
     pub fn test_output<Fi, Fo>(mut self, output: OutputName, make_input: Fi, check_output: Fo) -> Self
