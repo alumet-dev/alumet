@@ -220,14 +220,21 @@ mod tests {
     use crate::influxdb2::escape_string;
     use alumet::measurement::Timestamp;
 
-    #[test]
-    fn escaping() {
-        assert_eq!("myMeasurement", escape_string("myMeasurement", &['\\', ' ', '=']));
-        assert_eq!("with\\ space", escape_string("with space", &['\\', ' ', '=']));
-        assert_eq!(
-            "with\\ space\\ and\\ backslash\\\\",
-            escape_string("with space and backslash\\", &['\\', ' ', '='])
-        );
+    async fn mock_influx_write(server: &mut ServerGuard, org: &str, bucket: &str, token: &str, body: &str) -> Mock {
+        server
+            .mock("POST", "/api/v2/write")
+            .match_query(Matcher::AllOf(vec![
+                Matcher::UrlEncoded("org".into(), org.into()),
+                Matcher::UrlEncoded("bucket".into(), bucket.into()),
+                Matcher::UrlEncoded("precision".into(), "ns".into()),
+            ]))
+            .match_header("authorization", format!("Token {token}").as_str())
+            .match_header("accept", "application/json")
+            .match_header("Content-Type", "text/plain; charset=utf-8")
+            .match_body(body)
+            .with_status(204)
+            .create_async()
+            .await
     }
 
     struct TestedLineProtocolData {
@@ -274,6 +281,16 @@ mod tests {
 measurement_without_tags fieldKey="fieldValue",bool=T,float=123,int=-123i,uint=123u 1556813561098000000"#,
         });
         tested_lines
+    }
+
+    #[test]
+    fn escaping() {
+        assert_eq!("myMeasurement", escape_string("myMeasurement", &['\\', ' ', '=']));
+        assert_eq!("with\\ space", escape_string("with space", &['\\', ' ', '=']));
+        assert_eq!(
+            "with\\ space\\ and\\ backslash\\\\",
+            escape_string("with space and backslash\\", &['\\', ' ', '='])
+        );
     }
 
     #[test]
@@ -350,22 +367,5 @@ measurement_without_tags fieldKey="fieldValue",bool=T,float=123,int=-123i,uint=1
             builder.after_first_field, false,
             "after_first_field should be false on initialization"
         );
-    }
-
-    async fn mock_influx_write(server: &mut ServerGuard, org: &str, bucket: &str, token: &str, body: &str) -> Mock {
-        server
-            .mock("POST", "/api/v2/write")
-            .match_query(Matcher::AllOf(vec![
-                Matcher::UrlEncoded("org".into(), org.into()),
-                Matcher::UrlEncoded("bucket".into(), bucket.into()),
-                Matcher::UrlEncoded("precision".into(), "ns".into()),
-            ]))
-            .match_header("authorization", format!("Token {token}").as_str())
-            .match_header("accept", "application/json")
-            .match_header("Content-Type", "text/plain; charset=utf-8")
-            .match_body(body)
-            .with_status(204)
-            .create_async()
-            .await
     }
 }
