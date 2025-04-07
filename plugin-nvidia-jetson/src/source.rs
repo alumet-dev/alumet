@@ -55,7 +55,7 @@ impl JetsonInaSource {
             for channel in sensor.channels {
                 let channel_string_id = channel.label.clone().map_or_else(
                     || format!("channel_{}", channel.id),
-                    |v| v.replace(" ", "_").to_ascii_lowercase(),
+                    |v| v.replace(' ', "_").to_ascii_lowercase(),
                 );
                 let metrics: anyhow::Result<Vec<OpenedInaMetric>> = channel
                     .metrics
