@@ -67,7 +67,7 @@ impl Default for Config {
             append_unit_to_metric_name: true,
             use_unit_display_name: true,
             add_attributes_to_labels: true,
-            push_interval_seconds: 15
+            push_interval_seconds: 15,
         }
     }
 }
