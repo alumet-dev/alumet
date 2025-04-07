@@ -5,9 +5,9 @@ use alumet::{
 use anyhow::Context;
 use opentelemetry::{global, InstrumentationScope, KeyValue};
 use opentelemetry_otlp::{MetricExporter, WithExportConfig};
-use opentelemetry_sdk::metrics::SdkMeterProvider;
+use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider};
 use opentelemetry_sdk::Resource;
-use std::{env, sync::OnceLock};
+use std::{env, sync::OnceLock, time::Duration};
 
 #[derive(Clone)]
 pub struct OpenTelemetryOutput {
@@ -18,6 +18,7 @@ pub struct OpenTelemetryOutput {
     suffix: String,
     initialized: bool,
     collector_host: String,
+    push_interval_seconds: u64,
 }
 
 impl OpenTelemetryOutput {
@@ -28,6 +29,7 @@ impl OpenTelemetryOutput {
         prefix: String,
         suffix: String,
         collector_host: String,
+        push_interval_seconds: u64,
     ) -> anyhow::Result<OpenTelemetryOutput> {
         Ok(Self {
             append_unit_to_metric_name,
@@ -37,6 +39,7 @@ impl OpenTelemetryOutput {
             suffix,
             initialized: false,
             collector_host: format!("{}{}", collector_host, "/v1/metrics"),
+            push_interval_seconds,
         })
     }
     pub fn initialize(&mut self) {
@@ -58,9 +61,13 @@ impl OpenTelemetryOutput {
             .with_endpoint(self.collector_host.clone())
             .build()
             .expect("Failed to create metric exporter");
+        let reader = PeriodicReader::builder(exporter)
+            .with_interval(Duration::new(self.push_interval_seconds, 0))
+            .build();
 
         SdkMeterProvider::builder()
-            .with_periodic_exporter(exporter)
+            .with_reader(reader)
+            // .with_periodic_exporter(exporter)
             .with_resource(self.get_resource())
             .build()
     }

@@ -35,6 +35,7 @@ impl AlumetPlugin for OpenTelemetryPlugin {
             self.config.prefix.clone(),
             self.config.suffix.clone(),
             self.config.collector_host.clone(),
+            self.config.push_interval_seconds,
         )?);
         alumet.add_blocking_output("out", otel_output.clone());
         Ok(())
@@ -54,6 +55,7 @@ struct Config {
     append_unit_to_metric_name: bool,
     use_unit_display_name: bool,
     add_attributes_to_labels: bool,
+    push_interval_seconds: u64,
 }
 
 impl Default for Config {
@@ -65,6 +67,7 @@ impl Default for Config {
             append_unit_to_metric_name: true,
             use_unit_display_name: true,
             add_attributes_to_labels: true,
+            push_interval_seconds: 15,
         }
     }
 }
