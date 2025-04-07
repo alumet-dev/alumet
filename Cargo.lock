@@ -81,7 +81,8 @@ dependencies = [
  "plugin-csv",
  "plugin-influxdb",
  "plugin-mongodb",
- "plugin-nvidia",
+ "plugin-nvidia-jetson",
+ "plugin-nvidia-nvml",
  "plugin-oar2",
  "plugin-opentelemetry",
  "plugin-perf",
@@ -2366,15 +2367,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "perf-event-open-sys"
-version = "4.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c44fb1c7651a45a3652c4afc6e754e40b3d6e6556f1487e2b230bfc4f33c2a8"
-dependencies = [
- "libc",
-]
-
-[[package]]
 name = "perf-event-open-sys2"
 version = "5.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2539,8 +2531,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "plugin-nvidia"
-version = "0.3.0"
+name = "plugin-nvidia-jetson"
+version = "0.4.0"
+dependencies = [
+ "alumet",
+ "anyhow",
+ "humantime-serde",
+ "log",
+ "pretty_assertions",
+ "regex",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.12",
+]
+
+[[package]]
+name = "plugin-nvidia-nvml"
+version = "0.4.0"
 dependencies = [
  "alumet",
  "anyhow",
@@ -2548,9 +2555,10 @@ dependencies = [
  "log",
  "nvml-wrapper",
  "nvml-wrapper-sys",
- "regex",
+ "pretty_assertions",
  "serde",
  "tempfile",
+ "thiserror 2.0.12",
 ]
 
 [[package]]
@@ -2634,7 +2642,7 @@ dependencies = [
  "humantime-serde",
  "indoc",
  "log",
- "perf-event-open-sys",
+ "perf-event-open-sys2",
  "regex",
  "serde",
 ]

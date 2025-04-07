@@ -123,12 +123,11 @@ fn check_running_graphics_processes(device: &Device) -> Result<AvailableVersion,
 /// Checks if a feature is supported by the available GPU by inspecting the return type of an NVML function.
 ///
 /// # Example
-/// ```no_run
-/// use plugin_nvidia::nvml::features;
+/// ```ignore
 /// let device: &nvml_wrapper::Device = todo!();
 /// let power_available = features::is_supported(device.power_usage()).expect("test");
 /// ```
-pub fn is_supported<T>(res: Result<T, NvmlError>) -> Result<bool, NvmlError> {
+fn is_supported<T>(res: Result<T, NvmlError>) -> Result<bool, NvmlError> {
     match res {
         Ok(_) => Ok(true),
         Err(NvmlError::NotSupported) => Ok(false),

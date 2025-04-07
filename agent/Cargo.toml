@@ -30,7 +30,8 @@ plugin-opentelemetry = { path = "../plugin-opentelemetry" }
 # Linux-only dependencies
 [target.'cfg(target_os = "linux")'.dependencies]
 plugin-cgroupv2 = { path = "../plugin-cgroupv2" }
-plugin-nvidia = { path = "../plugin-nvidia" }
+plugin-nvidia-jetson = { path = "../plugin-nvidia-jetson" }
+plugin-nvidia-nvml = { path = "../plugin-nvidia-nvml" }
 plugin-oar2 = { path = "../plugin-oar2" }
 plugin-perf = { path = "../plugin-perf" }
 plugin-procfs = { path = "../plugin-procfs" }
