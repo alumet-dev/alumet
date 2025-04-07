@@ -51,6 +51,9 @@ struct ProcessStatsProbe {
     // metrics
     metric_cpu_time: TypedMetricId<u64>,
     metric_memory: TypedMetricId<u64>,
+
+    /// The memory page size, in bytes
+    page_size: u64,
 }
 
 impl ProcessStatsProbe {
@@ -70,7 +73,12 @@ impl ProcessStatsProbe {
             push_first_stats,
             metric_cpu_time,
             metric_memory,
+            page_size: procfs::page_size(),
         })
+    }
+
+    fn kb_from_pages(&self, pages: u64) -> u64 {
+        pages * self.page_size / 1024
     }
 }
 
@@ -130,7 +138,7 @@ impl Source for ProcessStatsProbe {
                 self.metric_memory,
                 Resource::LocalMachine,
                 consumer.clone(),
-                memory_stats.resident,
+                self.kb_from_pages(memory_stats.resident),
             )
             .with_attr("memory_kind", "resident"),
         );
@@ -140,7 +148,7 @@ impl Source for ProcessStatsProbe {
                 self.metric_memory,
                 Resource::LocalMachine,
                 consumer.clone(),
-                memory_stats.shared,
+                self.kb_from_pages(memory_stats.shared),
             )
             .with_attr("memory_kind", "shared"),
         );
@@ -150,7 +158,7 @@ impl Source for ProcessStatsProbe {
                 self.metric_memory,
                 Resource::LocalMachine,
                 consumer,
-                memory_stats.size,
+                self.kb_from_pages(memory_stats.size),
             )
             .with_attr("memory_kind", "vmsize"),
         );
