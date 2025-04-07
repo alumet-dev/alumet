@@ -84,7 +84,7 @@ jobs:
     with:
       arch: "amd64"
       version: ${{ needs.gather-informations.outputs.version }}
-      release-version: ${{ needs.gather-informations.outputs.release }}
+      revision: ${{ needs.gather-informations.outputs.release }}
       tag: ${{ needs.gather-informations.outputs.tag }}
 
   build-docker:
