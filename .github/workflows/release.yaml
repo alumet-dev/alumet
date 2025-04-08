@@ -99,6 +99,9 @@ jobs:
       release-version: ${{ needs.gather-informations.outputs.release }}
 
   attach-artifacts:
+    permissions:
+      actions: read
+      contents: write
     needs:
       - build-rpm
       - build-deb
@@ -165,10 +168,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          find rpm -type f -exec gh release upload ${{ steps.get_latest_release_and_delete_old_artifacts.outputs.release_tag }} {} \;
-          find deb -type f -exec gh release upload ${{ steps.get_latest_release_and_delete_old_artifacts.outputs.release_tag }} {} \;
+          find rpm -type f | xargs -I {} gh release upload ${{ steps.get_latest_release_and_delete_old_artifacts.outputs.release_tag }} {};
+          find deb -type f | xargs -I {} gh release upload ${{ steps.get_latest_release_and_delete_old_artifacts.outputs.release_tag }} {};
 
   push-docker:
+    permissions:
+      actions: read
+      packages: write
     needs:
       - build-docker
     runs-on: ubuntu-latest
