@@ -3,7 +3,7 @@ name: "Create the release"
 
 on:
   release:
-    types: ["created", "published", "prereleased"]
+    types: ["published"]
   workflow_dispatch:
 
 concurrency:
