@@ -6,6 +6,10 @@ on:
     types: ["created", "published", "prereleased"]
   workflow_dispatch:
 
+concurrency:
+  group: "release-workflow"
+  cancel-in-progress: true
+
 jobs:
   gather-informations:
     runs-on: ubuntu-latest
