@@ -52,11 +52,11 @@ impl AlumetPlugin for ProcfsPlugin {
         }
         if config.processes.enabled {
             let metrics = process::ProcessMetrics {
-                metric_cpu_time: alumet
-                    .create_metric("process_cpu_time", PrefixedUnit::milli(Unit::Second), "CPU usage")
+                metric_cpu_time_delta: alumet
+                    .create_metric("cpu_time_delta", PrefixedUnit::nano(Unit::Second), "CPU usage")
                     .context("unable to register metric cpu_time for process probe")?,
-                metric_memory: alumet
-                    .create_metric("process_memory", PrefixedUnit::kilo(Unit::Byte), "Memory usage")
+                metric_memory_usage: alumet
+                    .create_metric("memory_usage", Unit::Byte, "Memory usage")
                     .context("unable to register metric memory for process probe")?,
             };
 
