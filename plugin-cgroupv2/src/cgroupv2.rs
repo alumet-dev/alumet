@@ -24,14 +24,26 @@ pub struct CgroupMeasurements {
     pub cpu_time_user_mode: u64,
     /// CPU in system mode usage time by the cgroup.
     pub cpu_time_system_mode: u64,
+    /// Resident memory usage (RSS) currently used by the cgroup.
+    pub memory_usage_resident: u64,
     /// Anonymous used memory, corresponding to running process and various allocated memory.
     pub memory_anonymous: u64,
-    // Files memory, corresponding to open files and descriptors.
+    /// Files memory, corresponding to open files and descriptors.
     pub memory_file: u64,
-    // Memory reserved for kernel operations.
+    /// Memory reserved for kernel operations.
     pub memory_kernel: u64,
     /// Memory used to manage correspondence between virtual and physical addresses.
     pub memory_pagetables: u64,
+}
+
+impl CgroupMeasurements {
+    pub fn load_memory_current_from_str(&mut self, s: &str) -> Result<()> {
+        self.memory_usage_resident = s
+            .trim()
+            .parse::<u64>()
+            .map_err(|e| anyhow::anyhow!("Failed to parse '{}': {}", s, e))?;
+        Ok(())
+    }
 }
 
 impl FromStr for CgroupMeasurements {
@@ -46,6 +58,7 @@ impl FromStr for CgroupMeasurements {
             cpu_time_total: 0,
             cpu_time_user_mode: 0,
             cpu_time_system_mode: 0,
+            memory_usage_resident: 0,
             memory_anonymous: 0,
             memory_file: 0,
             memory_kernel: 0,
@@ -76,12 +89,10 @@ impl FromStr for CgroupMeasurements {
 
 #[derive(Clone, Eq, PartialEq)]
 pub struct Metrics {
-    /// Total CPU usage time by the cgroup.
-    pub cpu_time_total: TypedMetricId<u64>,
-    /// CPU in user mode usage time by the cgroup.
-    pub cpu_time_user_mode: TypedMetricId<u64>,
-    /// CPU in system mode usage time by the cgroup.
-    pub cpu_time_system_mode: TypedMetricId<u64>,
+    /// Total CPU usage time by the cgroup since last measurement
+    pub cpu_time_delta: TypedMetricId<u64>,
+    /// Memory currently used by the cgroup.
+    pub memory_usage: TypedMetricId<u64>,
     /// Anonymous used memory, corresponding to running process and various allocated memory.
     pub memory_anonymous: TypedMetricId<u64>,
     /// Files memory, corresponding to open files and descriptors.
@@ -90,8 +101,6 @@ pub struct Metrics {
     pub memory_kernel: TypedMetricId<u64>,
     /// Memory used to manage correspondence between virtual and physical addresses.
     pub memory_pagetables: TypedMetricId<u64>,
-    /// Total memory used by cgroup.
-    pub memory_total: TypedMetricId<u64>,
 }
 
 impl Metrics {
@@ -106,27 +115,19 @@ impl Metrics {
     ///
     ///  Return `MetricCreationError` when an error occur during creation a new metric.
     pub fn new(alumet: &mut AlumetPluginStart) -> Result<Self, MetricCreationError> {
-        let usec = PrefixedUnit::micro(Unit::Second);
-
         Ok(Self {
-            // CPU cgroup data
-            cpu_time_total: alumet.create_metric::<u64>(
-                "cgroup_cpu_usage_total",
-                usec.clone(),
-                "Total CPU usage time by the cgroup",
-            )?,
-            cpu_time_user_mode: alumet.create_metric::<u64>(
-                "cgroup_cpu_usage_user",
-                usec.clone(),
-                "CPU in user mode usage time by the cgroup",
-            )?,
-            cpu_time_system_mode: alumet.create_metric::<u64>(
-                "cgroup_cpu_usage_system",
-                usec.clone(),
-                "CPU in system mode usage time by the cgroup",
+            cpu_time_delta: alumet.create_metric::<u64>(
+                "cpu_time_delta",
+                PrefixedUnit::nano(Unit::Second),
+                "Total CPU usage time by the cgroup since last measurement",
             )?,
 
             // Memory cgroup data
+            memory_usage: alumet.create_metric::<u64>(
+                "memory_usage",
+                Unit::Byte.clone(),
+                "Memory currently used by the cgroup",
+            )?,
             memory_anonymous: alumet.create_metric::<u64>(
                 "cgroup_memory_anonymous",
                 Unit::Byte.clone(),
@@ -146,11 +147,6 @@ impl Metrics {
                 "cgroup_memory_pagetables",
                 Unit::Byte.clone(),
                 "Memory used to manage correspondence between virtual and physical addresses",
-            )?,
-            memory_total: alumet.create_metric::<u64>(
-                "cgroup_memory_total",
-                Unit::Byte.clone(),
-                "Total memory used by cgroup",
             )?,
         })
     }
@@ -237,42 +233,5 @@ mod tests {
         assert_eq!(result.cpu_time_total, 0);
         assert_eq!(result.cpu_time_user_mode, 0);
         assert_eq!(result.cpu_time_system_mode, 0);
-    }
-
-    // Test for calculating `mem_total` with structure parameters
-    #[test]
-    fn test_calc_mem() {
-        let result = CgroupMeasurements {
-            pod_name: "".to_owned(),
-            pod_uid: "test_pod_uid".to_owned(),
-            namespace: "test_pod_namespace".to_owned(),
-            node: "test_pod_node".to_owned(),
-            cpu_time_total: 64,
-            cpu_time_user_mode: 16,
-            cpu_time_system_mode: 32,
-            memory_anonymous: 1024,
-            memory_file: 256,
-            memory_kernel: 4096,
-            memory_pagetables: 512,
-        };
-
-        let expected = CgroupMeasurements {
-            pod_name: "".to_owned(),
-            pod_uid: "test_pod_uid".to_owned(),
-            namespace: "test_pod_namespace".to_owned(),
-            node: "test_pod_node".to_owned(),
-            cpu_time_total: 64,
-            cpu_time_user_mode: 16,
-            cpu_time_system_mode: 32,
-            memory_anonymous: 1024,
-            memory_file: 256,
-            memory_kernel: 4096,
-            memory_pagetables: 512,
-        };
-
-        assert_eq!(result, expected);
-
-        let mem_total = result.memory_anonymous + result.memory_file + result.memory_kernel + result.memory_pagetables;
-        assert_eq!(mem_total, 5888);
     }
 }

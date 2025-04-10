@@ -187,7 +187,8 @@ impl AlumetPlugin for K8sPlugin {
 
                                 // We open a File Descriptor to the newly created file
                                 let mut path_cpu = path.clone();
-                                let mut path_memory = path.clone();
+                                let mut path_memory_stat = path.clone();
+                                let mut path_memory_current = path.clone();
                                 let full_name_to_seek = pod_uid.strip_suffix(".slice").unwrap_or(pod_uid);
                                 let parts: Vec<&str> = full_name_to_seek.split("pod").collect();
                                 let name_to_seek_raw = *(parts.last().unwrap_or(&full_name_to_seek));
@@ -215,9 +216,14 @@ impl AlumetPlugin for K8sPlugin {
                                 let file_cpu = File::open(&path_cpu)
                                     .with_context(|| format!("failed to open file {}", path_cpu.display()))?;
 
-                                path_memory.push("memory.stat");
-                                let file_memory = File::open(&path_memory)
-                                    .with_context(|| format!("failed to open file {}", path_memory.display()))?;
+                                path_memory_stat.push("memory.stat");
+                                let file_memory_stat = File::open(&path_memory_stat)
+                                    .with_context(|| format!("failed to open file {}", path_memory_stat.display()))?;
+
+                                path_memory_current.push("memory.current");
+                                let file_memory_current = File::open(&path_memory_current).with_context(|| {
+                                    format!("failed to open file {}", path_memory_current.display())
+                                })?;
 
                                 // CPU resource consumer for cpu.stat file in cgroup
                                 let consumer_cpu = ResourceConsumer::ControlGroup {
@@ -228,10 +234,18 @@ impl AlumetPlugin for K8sPlugin {
                                         .into(),
                                 };
                                 // Memory resource consumer for memory.stat file in cgroup
-                                let consumer_memory = ResourceConsumer::ControlGroup {
-                                    path: path_memory
+                                let consumer_memory_stat = ResourceConsumer::ControlGroup {
+                                    path: path_memory_stat
                                         .to_str()
                                         .expect("Path to 'memory.stat' must to be valid UTF8")
+                                        .to_string()
+                                        .into(),
+                                };
+                                // Memory current resource consumer for memory.current file in cgroup
+                                let consumer_memory_current = ResourceConsumer::ControlGroup {
+                                    path: path_memory_current
+                                        .to_str()
+                                        .expect("Path to 'memory.current' must to be valid UTF8")
                                         .to_string()
                                         .into(),
                                 };
@@ -240,8 +254,10 @@ impl AlumetPlugin for K8sPlugin {
                                     name: name.to_owned(),
                                     consumer_cpu,
                                     file_cpu,
-                                    consumer_memory,
-                                    file_memory,
+                                    consumer_memory_stat,
+                                    file_memory_stat,
+                                    consumer_memory_current,
+                                    file_memory_current,
                                     uid: uid.to_owned(),
                                     namespace: namespace.to_owned(),
                                     node: node.to_owned(),

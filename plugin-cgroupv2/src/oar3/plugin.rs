@@ -133,7 +133,8 @@ impl AlumetPlugin for OARPlugin {
                             if path.is_dir() {
                                 if let Some(pod_uid) = path.file_name() {
                                     let mut path_cpu = path.clone();
-                                    let mut path_memory = path.clone();
+                                    let mut path_memory_stat = path.clone();
+                                    let mut path_memory_current = path.clone();
 
                                     // CPU resource consumer for cpu.stat file in cgroup
                                     let consumer_cpu = ResourceConsumer::ControlGroup {
@@ -144,8 +145,16 @@ impl AlumetPlugin for OARPlugin {
                                             .into(),
                                     };
                                     // Memory resource consumer for memory.stat file in cgroup
-                                    let consumer_memory = ResourceConsumer::ControlGroup {
-                                        path: path_memory
+                                    let consumer_memory_stat = ResourceConsumer::ControlGroup {
+                                        path: path_memory_stat
+                                            .to_str()
+                                            .expect("Path to 'memory.stat' must to be valid UTF8")
+                                            .to_string()
+                                            .into(),
+                                    };
+                                    // Memory resource consumer for memory.stat file in cgroup
+                                    let consumer_memory_current = ResourceConsumer::ControlGroup {
+                                        path: path_memory_current
                                             .to_str()
                                             .expect("Path to 'memory.stat' must to be valid UTF8")
                                             .to_string()
@@ -156,9 +165,15 @@ impl AlumetPlugin for OARPlugin {
                                     let file_cpu = File::open(&path_cpu)
                                         .with_context(|| format!("failed to open file {}", path_cpu.display()))?;
 
-                                    path_memory.push("memory.stat");
-                                    let file_memory = File::open(&path_memory)
-                                        .with_context(|| format!("failed to open file {}", path_memory.display()))?;
+                                    path_memory_stat.push("memory.stat");
+                                    let file_memory_stat = File::open(&path_memory_stat).with_context(|| {
+                                        format!("failed to open file {}", path_memory_stat.display())
+                                    })?;
+
+                                    path_memory_current.push("memory.current");
+                                    let file_memory_current = File::open(&path_memory_current).with_context(|| {
+                                        format!("failed to open file {}", path_memory_current.display())
+                                    })?;
 
                                     let metric_file = CgroupV2MetricFile {
                                         name: pod_uid
@@ -168,8 +183,10 @@ impl AlumetPlugin for OARPlugin {
                                             .to_string(),
                                         consumer_cpu,
                                         file_cpu,
-                                        consumer_memory,
-                                        file_memory,
+                                        consumer_memory_stat,
+                                        file_memory_stat,
+                                        consumer_memory_current,
+                                        file_memory_current,
                                     };
 
                                     let counter_tmp_tot = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
