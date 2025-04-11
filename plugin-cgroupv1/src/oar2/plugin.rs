@@ -17,7 +17,7 @@ use std::{fs::File, path::PathBuf, time::Duration};
 
 use crate::cgroupv1::Metrics;
 
-use super::{probe::OarJobSource, utils::Cgroupv1MetricFile};
+use super::{probe::OarJobSource, utils::Cgroupv1Resources};
 
 #[derive(Debug)]
 pub struct Oar2Plugin {
@@ -105,13 +105,13 @@ impl AlumetPlugin for Oar2Plugin {
                         .to_string()
                         .into(),
                 };
-                let metric_file = Cgroupv1MetricFile::new(
+                let metric_file = Cgroupv1Resources {
                     job_id,
-                    consumer_cpu,
-                    consumer_memory,
+                    cpu_file_path: consumer_cpu,
+                    memory_file_path: consumer_memory,
                     cgroup_cpu_file,
                     cgroup_memory_file,
-                );
+                };
                 let initial_source = Box::new(OarJobSource {
                     cpu_metric: metrics.cpu_metric,
                     memory_metric: metrics.memory_metric,
@@ -186,9 +186,13 @@ impl AlumetPlugin for Oar2Plugin {
                                     .to_string()
                                     .into(),
                             };
-                            let metric_file =
-                                Cgroupv1MetricFile::new(job_id, consumer_cpu, consumer_memory, file_cpu, file_memory);
-
+                            let metric_file = Cgroupv1Resources {
+                                job_id,
+                                cpu_file_path: consumer_cpu,
+                                memory_file_path: consumer_memory,
+                                cgroup_cpu_file: file_cpu,
+                                cgroup_memory_file: file_memory,
+                            };
                             if let (Ok(_cgroup_cpu_file), Ok(_cgroup_memory_file)) =
                                 (File::open(&cpu_file_path), File::open(&memory_file_path))
                             {
