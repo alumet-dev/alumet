@@ -38,6 +38,7 @@ pub mod pipeline;
 pub mod plugin;
 pub mod resources;
 pub mod units;
+pub mod timeseries;
 
 #[cfg(feature = "test")]
 pub mod test;
