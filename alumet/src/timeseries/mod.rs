@@ -18,7 +18,7 @@ impl ProcessedTimeseries {
     pub fn groups(&self) -> impl Iterator<Item = (GroupKey, Group)> {
         todo!()
     }
-    
+
     pub fn synchronize_on(&self, main_pace: GroupKey, interp: Interpolation) {
         todo!()
     }
