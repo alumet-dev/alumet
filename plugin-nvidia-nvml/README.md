@@ -15,12 +15,12 @@ The `plugin-nvidia-nvml` currently allows to detect GPUs based on NVIDIA archite
 > - **Energy consumption** : Calculates and average between 2 measurement point base on the consumed energy since the last boot.
 > - **Power consumption** : Calculates the electrical power instantly consumed.
 > - **Memory used** : Retrieves the current memory's utilization rates for a device.
-> - **Encoding / Decoding** : Video encoding and decodong unit utilization.
+> - **Encoding / Decoding** : Video encoding and decoding unit utilization.
 > - **Thermal zone** : Retrieves the main temperature emitted by a given device.
 > - **Process** : Get the number of computing and graphic process, and retrieves their associated information :
 >   - **Streaming Multiprocessor** : Refers to the percentage of time that the Streaming Multiprocessors of a GPU.
 >   - **Memory** : Frame buffer memory utilization.
->   - **Encoding / Decoding** : Video encoding and decodong unit utilization.
+>   - **Encoding / Decoding** : Video encoding and decoding unit utilization.
 
 ### Configuration
 
