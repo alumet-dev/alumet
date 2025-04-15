@@ -29,6 +29,7 @@ plugin-opentelemetry = { path = "../plugin-opentelemetry" }
 plugin-aggregation = { path = "../plugin-aggregation" }
 plugin-energy-attribution = { path = "../plugin-energy-attribution" }
 plugin-energy-estimation-tdp = { path = "../plugin-energy-estimation-tdp" }
+plugin-elasticsearch = { path = "../plugin-elasticsearch" }
 
 # Linux-only dependencies
 [target.'cfg(target_os = "linux")'.dependencies]
