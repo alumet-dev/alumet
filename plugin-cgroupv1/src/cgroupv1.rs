@@ -38,13 +38,13 @@ impl Metrics {
 }
 
 pub fn gather_value(job_source: &mut OarJobSource, timestamp: Timestamp) -> Result<Vec<MeasurementPoint>, PollError> {
-    let cpu_usage_file = &mut job_source.cgroup_v1_metric_file.cgroup_cpu_file;
+    let cpu_usage_file = &mut job_source.oar2_metric_file.cgroup_cpu_file;
     cpu_usage_file.rewind()?;
     let mut buffer = String::new();
     cpu_usage_file.read_to_string(&mut buffer)?;
     let cpu_usage_u64 = buffer.trim().parse::<u64>()?;
     buffer.clear();
-    let memory_usage_file = &mut job_source.cgroup_v1_metric_file.cgroup_memory_file;
+    let memory_usage_file = &mut job_source.oar2_metric_file.cgroup_memory_file;
     memory_usage_file.rewind()?;
     memory_usage_file.read_to_string(&mut buffer)?;
     let memory_usage_u64 = buffer.trim().parse::<u64>()?;
@@ -55,20 +55,20 @@ pub fn gather_value(job_source: &mut OarJobSource, timestamp: Timestamp) -> Resu
             timestamp,
             job_source.memory_metric,
             Resource::LocalMachine,
-            job_source.cgroup_v1_metric_file.memory_file_path.clone(),
+            job_source.oar2_metric_file.memory_file_path.clone(),
             memory_usage_u64,
         )
-        .with_attr("oar_job_id", job_source.cgroup_v1_metric_file.job_id.clone()),
+        .with_attr("oar_job_id", job_source.oar2_metric_file.job_id.clone()),
     );
     measurement_point_vector.push(
         MeasurementPoint::new(
             timestamp,
             job_source.cpu_metric,
             Resource::LocalMachine,
-            job_source.cgroup_v1_metric_file.cpu_file_path.clone(),
+            job_source.oar2_metric_file.cpu_file_path.clone(),
             cpu_usage_u64,
         )
-        .with_attr("oar_job_id", job_source.cgroup_v1_metric_file.job_id.clone()),
+        .with_attr("oar_job_id", job_source.oar2_metric_file.job_id.clone()),
     );
     Ok(measurement_point_vector)
 }

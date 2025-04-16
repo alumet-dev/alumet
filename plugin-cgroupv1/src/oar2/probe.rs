@@ -5,7 +5,7 @@ use alumet::{
 };
 use std::result::Result::Ok;
 
-use super::utils::Cgroupv1Resources;
+use super::utils::OpenedCgroupv1;
 
 use crate::cgroupv1::gather_value;
 
@@ -13,7 +13,7 @@ use crate::cgroupv1::gather_value;
 pub struct OarJobSource {
     pub cpu_metric: TypedMetricId<u64>,
     pub memory_metric: TypedMetricId<u64>,
-    pub cgroup_v1_metric_file: Cgroupv1Resources,
+    pub oar2_metric_file: OpenedCgroupv1,
 }
 
 impl Source for OarJobSource {

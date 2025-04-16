@@ -2,8 +2,8 @@ use alumet::resources::ResourceConsumer;
 use std::fs::File;
 
 #[derive(Debug)]
-pub struct Cgroupv1Resources {
-    /// Job ID of the pod.
+pub struct OpenedCgroupv1 {
+    /// Job ID.
     pub job_id: String,
     /// Path to the cgroup cpu stat file.
     pub cpu_file_path: ResourceConsumer,

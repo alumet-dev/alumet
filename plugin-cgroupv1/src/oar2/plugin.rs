@@ -17,7 +17,7 @@ use std::{fs::File, path::PathBuf, time::Duration};
 
 use crate::cgroupv1::Metrics;
 
-use super::{probe::OarJobSource, utils::Cgroupv1Resources};
+use super::{probe::OarJobSource, utils::OpenedCgroupv1};
 
 #[derive(Debug)]
 pub struct Oar2Plugin {
@@ -105,7 +105,7 @@ impl AlumetPlugin for Oar2Plugin {
                         .to_string()
                         .into(),
                 };
-                let metric_file = Cgroupv1Resources {
+                let metric_file = OpenedCgroupv1 {
                     job_id,
                     cpu_file_path: consumer_cpu,
                     memory_file_path: consumer_memory,
@@ -115,7 +115,7 @@ impl AlumetPlugin for Oar2Plugin {
                 let initial_source = Box::new(OarJobSource {
                     cpu_metric: metrics.cpu_metric,
                     memory_metric: metrics.memory_metric,
-                    cgroup_v1_metric_file: metric_file,
+                    oar2_metric_file: metric_file,
                 });
                 let source_name = &job_name;
                 alumet
@@ -186,7 +186,7 @@ impl AlumetPlugin for Oar2Plugin {
                                     .to_string()
                                     .into(),
                             };
-                            let metric_file = Cgroupv1Resources {
+                            let metric_file = OpenedCgroupv1 {
                                 job_id,
                                 cpu_file_path: consumer_cpu,
                                 memory_file_path: consumer_memory,
@@ -199,7 +199,7 @@ impl AlumetPlugin for Oar2Plugin {
                                 let new_source = Box::new(OarJobSource {
                                     cpu_metric: job_detect.cpu_metric,
                                     memory_metric: job_detect.memory_metric,
-                                    cgroup_v1_metric_file: metric_file,
+                                    oar2_metric_file: metric_file,
                                 });
 
                                 let source_name = job_name;
