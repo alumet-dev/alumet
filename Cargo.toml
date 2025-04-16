@@ -5,6 +5,7 @@ members = [
     "alumet",
     "alumet-ffi",
     "plugin-aggregation",
+    "plugin-amdgpu",
     "plugin-cgroupv2",
     "plugin-csv",
     "plugin-energy-attribution",
