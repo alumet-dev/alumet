@@ -31,10 +31,10 @@ struct ProcessStatsProbe {
     /// The process id, as reported by the kernel.
     pid: i32,
 
-    /// Millisecond per tick (computed from the "ticks per second" reported by the kernel).
+    /// Nanosecond per tick (computed from the "ticks per second" reported by the kernel).
     ///
     /// Useful to compute meaningful time from tick-based values.
-    ms_per_ticks: u64,
+    ns_per_ticks: u64,
 
     /// A reader opened to `/proc/<pid>/stat`
     reader_stat: BufReader<File>,
@@ -49,8 +49,8 @@ struct ProcessStatsProbe {
     push_first_stats: bool,
 
     // metrics
-    metric_cpu_time: TypedMetricId<u64>,
-    metric_memory: TypedMetricId<u64>,
+    metric_cpu_time_delta: TypedMetricId<u64>,
+    metric_memory_usage: TypedMetricId<u64>,
 
     /// The memory page size, in bytes
     page_size: u64,
@@ -59,26 +59,26 @@ struct ProcessStatsProbe {
 impl ProcessStatsProbe {
     fn new(
         process: Process,
-        ms_per_ticks: u64,
+        ns_per_ticks: u64,
         push_first_stats: bool,
-        metric_cpu_time: TypedMetricId<u64>,
-        metric_memory: TypedMetricId<u64>,
+        metric_cpu_time_delta: TypedMetricId<u64>,
+        metric_memory_usage: TypedMetricId<u64>,
     ) -> Result<Self, procfs::ProcError> {
         Ok(Self {
             pid: process.pid,
-            ms_per_ticks,
+            ns_per_ticks,
             reader_stat: BufReader::new(process.open_relative("stat")?),
             reader_statm: BufReader::new(process.open_relative("statm")?),
             previous_general_stats: None,
             push_first_stats,
-            metric_cpu_time,
-            metric_memory,
+            metric_cpu_time_delta,
+            metric_memory_usage,
             page_size: procfs::page_size(),
         })
     }
 
-    fn kb_from_pages(&self, pages: u64) -> u64 {
-        pages * self.page_size / 1024
+    fn pages_to_bytes(&self, pages: u64) -> u64 {
+        pages * self.page_size
     }
 }
 
@@ -116,13 +116,13 @@ impl Source for ProcessStatsProbe {
 
         // Compute CPU usage in the last time slice.
         let cpu_usage = match self.previous_general_stats.take() {
-            Some(prev) => Some(DeltaCpuTime::compute_diff(&prev, &general_stats, self.ms_per_ticks)),
-            None if self.push_first_stats => Some(DeltaCpuTime::compute_first(&general_stats, self.ms_per_ticks)),
+            Some(prev) => Some(DeltaCpuTime::compute_diff(&prev, &general_stats, self.ns_per_ticks)),
+            None if self.push_first_stats => Some(DeltaCpuTime::compute_first(&general_stats, self.ns_per_ticks)),
             None => None,
         };
         if let Some(measurements) = cpu_usage {
-            measurements.push_measurements(
-                self.metric_cpu_time,
+            measurements.push_cpu_measurements(
+                self.metric_cpu_time_delta,
                 Resource::LocalMachine,
                 consumer.clone(),
                 buffer,
@@ -135,32 +135,32 @@ impl Source for ProcessStatsProbe {
         buffer.push(
             MeasurementPoint::new(
                 t,
-                self.metric_memory,
+                self.metric_memory_usage,
                 Resource::LocalMachine,
                 consumer.clone(),
-                self.kb_from_pages(memory_stats.resident),
+                self.pages_to_bytes(memory_stats.resident),
             )
-            .with_attr("memory_kind", "resident"),
+            .with_attr("kind", "resident"),
         );
         buffer.push(
             MeasurementPoint::new(
                 t,
-                self.metric_memory,
+                self.metric_memory_usage,
                 Resource::LocalMachine,
                 consumer.clone(),
-                self.kb_from_pages(memory_stats.shared),
+                self.pages_to_bytes(memory_stats.shared),
             )
-            .with_attr("memory_kind", "shared"),
+            .with_attr("kind", "shared"),
         );
         buffer.push(
             MeasurementPoint::new(
                 t,
-                self.metric_memory,
+                self.metric_memory_usage,
                 Resource::LocalMachine,
                 consumer,
-                self.kb_from_pages(memory_stats.size),
+                self.pages_to_bytes(memory_stats.size),
             )
-            .with_attr("memory_kind", "vmsize"),
+            .with_attr("kind", "virtual"),
         );
 
         Ok(())
@@ -177,26 +177,26 @@ struct DeltaCpuTime {
 }
 
 impl DeltaCpuTime {
-    pub fn compute_first(now: &procfs::process::Stat, ms_per_ticks: u64) -> Self {
+    pub fn compute_first(now: &procfs::process::Stat, ns_per_ticks: u64) -> Self {
         Self {
-            user: now.utime * ms_per_ticks,
-            system: now.stime * ms_per_ticks,
-            guest: now.guest_time.map(|x| x * ms_per_ticks),
+            user: now.utime * ns_per_ticks,
+            system: now.stime * ns_per_ticks,
+            guest: now.guest_time.map(|x| x * ns_per_ticks),
         }
     }
 
-    pub fn compute_diff(prev: &procfs::process::Stat, now: &procfs::process::Stat, ms_per_ticks: u64) -> Self {
+    pub fn compute_diff(prev: &procfs::process::Stat, now: &procfs::process::Stat, ns_per_ticks: u64) -> Self {
         Self {
-            user: (now.utime - prev.utime) * ms_per_ticks,
-            system: (now.stime - prev.stime) * ms_per_ticks,
-            // children_user: (now.cutime - prev.cutime) * ms_per_ticks,
-            // children_system: (now.cstime - prev.cstime) * ms_per_ticks,
-            guest: now.guest_time.map(|x| (x - prev.guest_time.unwrap()) * ms_per_ticks),
-            // children_guest: (now.cguest_time - prev.cguest_time) * ms_per_ticks,
+            user: (now.utime - prev.utime) * ns_per_ticks,
+            system: (now.stime - prev.stime) * ns_per_ticks,
+            // children_user: (now.cutime - prev.cutime) * ns_per_ticks,
+            // children_system: (now.cstime - prev.cstime) * ns_per_ticks,
+            guest: now.guest_time.map(|x| (x - prev.guest_time.unwrap()) * ns_per_ticks),
+            // children_guest: (now.cguest_time - prev.cguest_time) * ns_per_ticks,
         }
     }
 
-    pub fn push_measurements(
+    pub fn push_cpu_measurements(
         &self,
         metric: TypedMetricId<u64>,
         res: Resource,
@@ -206,14 +206,14 @@ impl DeltaCpuTime {
     ) {
         acc.push(
             MeasurementPoint::new(timestamp, metric, res.clone(), consumer.clone(), self.user)
-                .with_attr("cpu_state", "user"),
+                .with_attr("kind", "user"),
         );
         acc.push(
             MeasurementPoint::new(timestamp, metric, res.clone(), consumer.clone(), self.system)
-                .with_attr("cpu_state", "system"),
+                .with_attr("kind", "system"),
         );
         if let Some(guest) = self.guest {
-            acc.push(MeasurementPoint::new(timestamp, metric, res, consumer, guest).with_attr("cpu_state", "guest"));
+            acc.push(MeasurementPoint::new(timestamp, metric, res, consumer, guest).with_attr("kind", "guest"));
         }
     }
 }
@@ -248,13 +248,13 @@ pub struct ManualProcessMonitor {
 }
 
 struct ProcessSourceSpawner {
-    ms_per_ticks: u64,
+    ns_per_ticks: u64,
     metrics: ProcessMetrics,
 }
 
 pub struct ProcessMetrics {
-    pub metric_cpu_time: TypedMetricId<u64>,
-    pub metric_memory: TypedMetricId<u64>,
+    pub metric_cpu_time_delta: TypedMetricId<u64>,
+    pub metric_memory_usage: TypedMetricId<u64>,
 }
 
 #[derive(Debug)]
@@ -288,10 +288,10 @@ impl ProcessFingerprint {
 impl ManualProcessMonitor {
     pub fn new(alumet_handle: PluginControlHandle, metrics: ProcessMetrics, settings: MonitoringSettings) -> Self {
         let tps = procfs::ticks_per_second();
-        let ms_per_ticks = 1000 / tps;
+        let ns_per_ticks = ns_per_ticks();
         Self {
             alumet_handle,
-            source_spawner: ProcessSourceSpawner { ms_per_ticks, metrics },
+            source_spawner: ProcessSourceSpawner { ns_per_ticks, metrics },
             settings,
         }
     }
@@ -344,12 +344,12 @@ impl ProcessWatcher {
         groups: Vec<(ProcessFilter, MonitoringSettings)>,
     ) -> Self {
         let tps = procfs::ticks_per_second();
-        let ms_per_ticks = 1000 / tps;
+        let ns_per_ticks = ns_per_ticks();
         Self {
             watched_processes: HashMap::new(),
             alumet_handle,
             monitoring: MultiProcessMonitoring {
-                source_spawner: ProcessSourceSpawner { ms_per_ticks, metrics },
+                source_spawner: ProcessSourceSpawner { ns_per_ticks, metrics },
                 groups,
             },
         }
@@ -462,10 +462,10 @@ impl ProcessSourceSpawner {
         let source = Box::new(
             ProcessStatsProbe::new(
                 p,
-                self.ms_per_ticks,
+                self.ns_per_ticks,
                 true,
-                self.metrics.metric_cpu_time,
-                self.metrics.metric_memory,
+                self.metrics.metric_cpu_time_delta,
+                self.metrics.metric_memory_usage,
             )
             .with_context(|| format!("failed to create source {source_name}"))?,
         );
@@ -507,4 +507,8 @@ impl ProcessFilter {
         }
         Ok(true)
     }
+}
+
+fn ns_per_ticks() -> u64 {
+    1_000_000_000 / procfs::ticks_per_second()
 }
