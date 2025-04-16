@@ -466,7 +466,7 @@ pub async fn get_pod_name(
 #[cfg(test)]
 mod tests {
     use super::{super::plugin::TokenRetrieval, *};
-    use mockito::mock;
+    use mockito::Server;
     use serde_json::json;
     use std::{fs::File, path::PathBuf};
     use tempfile::tempdir;
@@ -1007,7 +1007,9 @@ mod tests {
 
         let node = "pod1";
         let url = format!("/api/v1/pods/?fieldSelector=spec.nodeName={}", node);
-        let _mock = mock("GET", url.as_str())
+        let mut server = Server::new_async().await;
+        let _mock = server
+            .mock("GET", url.as_str())
             .with_status(200)
             .with_header("Content-Type", "application/json")
             .with_body(
@@ -1040,14 +1042,17 @@ mod tests {
                 })
                 .to_string(),
             )
-            .create();
+            .create_async()
+            .await;
 
-        let kubernetes_api_url = &mockito::server_url();
+        let kubernetes_api_url = server.url();
         let mut token = Token::new(TokenRetrieval::File);
 
         token.path = Some(path.to_str().unwrap().to_owned());
 
-        let result = get_existing_pods(node, kubernetes_api_url, &token).await.unwrap();
+        let result = get_existing_pods(node, kubernetes_api_url.as_str(), &token)
+            .await
+            .unwrap();
 
         assert_eq!(
             result.get("hash1").unwrap(),
@@ -1078,7 +1083,9 @@ mod tests {
 
         let node = "pod1";
         let url = format!("/api/v1/pods/?fieldSelector=spec.nodeName={}", node);
-        let _mock = mock("GET", url.as_str())
+        let mut server = Server::new_async().await;
+        let _mock = server
+            .mock("GET", url.as_str())
             .with_status(200)
             .with_header("Content-Type", "application/json")
             .with_body(
@@ -1097,14 +1104,17 @@ mod tests {
                 })
                 .to_string(),
             )
-            .create();
+            .create_async()
+            .await;
 
-        let kubernetes_api_url = &mockito::server_url();
+        let kubernetes_api_url = server.url();
         let mut token = Token::new(TokenRetrieval::File);
 
         token.path = Some(path.to_str().unwrap().to_owned());
 
-        let result = get_existing_pods(node, kubernetes_api_url, &token).await.unwrap();
+        let result = get_existing_pods(node, kubernetes_api_url.as_str(), &token)
+            .await
+            .unwrap();
 
         assert_eq!(
             result.get("hash1").unwrap(),
@@ -1129,7 +1139,9 @@ mod tests {
         std::fs::write(&path, TOKEN_CONTENT).unwrap();
 
         let node = "pod1";
-        let _mock = mock("GET", "invalid")
+        let mut server = Server::new_async().await;
+        let _mock = server
+            .mock("GET", "invalid")
             .with_status(200)
             .with_header("Content-Type", "application/json")
             .with_body(
@@ -1144,14 +1156,15 @@ mod tests {
                 })
                 .to_string(),
             )
-            .create();
+            .create_async()
+            .await;
 
-        let kubernetes_api_url = &mockito::server_url();
+        let kubernetes_api_url = server.url();
         let mut token = Token::new(TokenRetrieval::File);
 
         token.path = Some(path.to_str().unwrap().to_owned());
 
-        let result = get_existing_pods(node, kubernetes_api_url, &token).await;
+        let result = get_existing_pods(node, kubernetes_api_url.as_str(), &token).await;
         assert!(result.is_ok());
 
         let map = result.unwrap();
@@ -1176,7 +1189,9 @@ mod tests {
 
         let node = "pod1";
         let url = format!("/api/v1/pods/?fieldSelector=spec.nodeName={}", node);
-        let _mock = mock("GET", url.as_str())
+        let mut server = Server::new_async().await;
+        let _mock = server
+            .mock("GET", url.as_str())
             .with_status(200)
             .with_header("Content-Type", "application/json")
             .with_body(
@@ -1185,14 +1200,15 @@ mod tests {
                 })
                 .to_string(),
             )
-            .create();
+            .create_async()
+            .await;
 
-        let kubernetes_api_url = &mockito::server_url();
+        let kubernetes_api_url = server.url();
         let mut token = Token::new(TokenRetrieval::File);
 
         token.path = Some(path.to_str().unwrap().to_owned());
 
-        let result = get_existing_pods(node, kubernetes_api_url, &token).await;
+        let result = get_existing_pods(node, kubernetes_api_url.as_str(), &token).await;
         assert!(result.is_ok());
 
         let map = result.unwrap();
@@ -1264,7 +1280,9 @@ mod tests {
 
         let node = "pod1";
         let url = format!("/api/v1/pods/?fieldSelector=spec.nodeName={}", node);
-        let _mock = mock("GET", url.as_str())
+        let mut server = Server::new_async().await;
+        let _mock = server
+            .mock("GET", url.as_str())
             .with_status(200)
             .with_header("Content-Type", "application/json")
             .with_body(
@@ -1297,15 +1315,18 @@ mod tests {
                 })
                 .to_string(),
             )
-            .create();
+            .create_async()
+            .await;
 
         let uid = "hash1";
-        let kubernetes_api_url = &mockito::server_url();
+        let kubernetes_api_url = server.url();
         let mut token = Token::new(TokenRetrieval::File);
 
         token.path = Some(path.to_str().unwrap().to_owned());
 
-        let result = get_pod_name(uid, node, kubernetes_api_url, &token).await.unwrap();
+        let result = get_pod_name(uid, node, kubernetes_api_url.as_str(), &token)
+            .await
+            .unwrap();
         assert_eq!(result.0, "pod1");
         assert_eq!(result.1, "default");
         assert_eq!(result.2, "node1");
@@ -1330,7 +1351,9 @@ mod tests {
 
         let node = "pod1";
         let url = format!("/api/v1/pods/?fieldSelector=spec.nodeName={}", node);
-        let _mock = mock("GET", url.as_str())
+        let mut server = Server::new_async().await;
+        let _mock = server
+            .mock("GET", url.as_str())
             .with_status(200)
             .with_header("Content-Type", "application/json")
             .with_body(
@@ -1350,15 +1373,18 @@ mod tests {
                 })
                 .to_string(),
             )
-            .create();
+            .create_async()
+            .await;
 
         let uid = "hash1";
-        let kubernetes_api_url = &mockito::server_url();
+        let kubernetes_api_url = server.url();
         let mut token = Token::new(TokenRetrieval::File);
 
         token.path = Some(path.to_str().unwrap().to_owned());
 
-        let result = get_pod_name(uid, node, kubernetes_api_url, &token).await.unwrap();
+        let result = get_pod_name(uid, node, kubernetes_api_url.as_str(), &token)
+            .await
+            .unwrap();
         assert_eq!(result.0, "");
         assert_eq!(result.1, "default");
         assert_eq!(result.2, "");
@@ -1381,7 +1407,9 @@ mod tests {
         std::fs::write(&path, TOKEN_CONTENT).unwrap();
 
         let node = "pod1";
-        let _mock = mock("GET", "invalid")
+        let mut server = Server::new_async().await;
+        let _mock = server
+            .mock("GET", "invalid")
             .with_status(200)
             .with_header("Content-Type", "application/json")
             .with_body(
@@ -1396,15 +1424,16 @@ mod tests {
                 })
                 .to_string(),
             )
-            .create();
+            .create_async()
+            .await;
 
         let uid = "hash1";
-        let kubernetes_api_url = &mockito::server_url();
+        let kubernetes_api_url = server.url();
         let mut token = Token::new(TokenRetrieval::File);
 
         token.path = Some(path.to_str().unwrap().to_owned());
 
-        let result = get_pod_name(uid, node, kubernetes_api_url, &token).await;
+        let result = get_pod_name(uid, node, kubernetes_api_url.as_str(), &token).await;
         assert!(result.is_ok());
 
         let (name, namespace, node) = result.unwrap();
@@ -1431,7 +1460,9 @@ mod tests {
 
         let node = "pod1";
         let url = format!("/api/v1/pods/?fieldSelector=spec.nodeName={}", node);
-        let _mock = mock("GET", url.as_str())
+        let mut server = Server::new_async().await;
+        let _mock = server
+            .mock("GET", url.as_str())
             .with_status(200)
             .with_header("Content-Type", "application/json")
             .with_body(
@@ -1464,15 +1495,16 @@ mod tests {
                 })
                 .to_string(),
             )
-            .create();
+            .create_async()
+            .await;
 
         let uid = "invalid";
-        let kubernetes_api_url = &mockito::server_url();
+        let kubernetes_api_url = server.url();
         let mut token = Token::new(TokenRetrieval::File);
 
         token.path = Some(path.to_str().unwrap().to_owned());
 
-        let result = get_pod_name(uid, node, kubernetes_api_url, &token).await;
+        let result = get_pod_name(uid, node, kubernetes_api_url.as_str(), &token).await;
         assert!(result.is_ok());
 
         let (name, namespace, node) = result.unwrap();
@@ -1499,7 +1531,9 @@ mod tests {
 
         let node = "pod1";
         let url = format!("/api/v1/pods/?fieldSelector=spec.nodeName={}", node);
-        let _mock = mock("GET", url.as_str())
+        let mut server = Server::new_async().await;
+        let _mock = server
+            .mock("GET", url.as_str())
             .with_status(200)
             .with_header("Content-Type", "application/json")
             .with_body(
@@ -1508,15 +1542,16 @@ mod tests {
                 })
                 .to_string(),
             )
-            .create();
+            .create_async()
+            .await;
 
         let uid = "invalid";
-        let kubernetes_api_url = &mockito::server_url();
+        let kubernetes_api_url = server.url();
         let mut token = Token::new(TokenRetrieval::File);
 
         token.path = Some(path.to_str().unwrap().to_owned());
 
-        let result = get_pod_name(uid, node, kubernetes_api_url, &token).await;
+        let result = get_pod_name(uid, node, kubernetes_api_url.as_str(), &token).await;
         assert!(result.is_ok());
 
         let (name, namespace, node) = result.unwrap();
