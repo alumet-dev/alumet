@@ -40,14 +40,18 @@ jobs:
             - v2-dependency-cache
       - run:
           name: Compile Alumet core
-          command: "cargo build -p alumet"
-      # build libraries and agents now to avoid a timeout in the tests
+          command: cargo build -p alumet
       - run:
           name: Build all libraries
-          command: "cargo build"
+          command: cargo build
       - run:
-          name: Build the agents
+          name: Build the agent binary
           command: cargo build -p alumet-agent --bins --all-features
+      # compile tests first to avoid a timeout during execution
+      - run:
+          name: Compile Tests
+          command: cargo test --all-features --no-run
+      # run tests with a timeout to detect a bit earlier if there's a test that hangs indefinitely
       - run:
           name: Run Tests (including doc tests)
           command: cargo test --all-features -- --show-output
