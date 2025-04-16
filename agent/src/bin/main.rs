@@ -30,6 +30,9 @@ fn load_plugins_metadata() -> Vec<PluginMetadata> {
         plugin_relay::client::RelayClientPlugin,
         plugin_relay::server::RelayServerPlugin,
         plugin_opentelemetry::OpenTelemetryPlugin,
+        plugin_aggregation::AggregationPlugin,
+        plugin_energy_attribution::EnergyAttributionPlugin,
+        plugin_energy_estimation_tdp::EnergyEstimationTdpPlugin,
     ];
 
     // plugins that only work on Linux

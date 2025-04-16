@@ -32,7 +32,7 @@ struct Metrics {
 impl AlumetPlugin for EnergyEstimationTdpPlugin {
     // So we define the name of the plugin.
     fn name() -> &'static str {
-        "EnergyEstimationTdp"
+        "energy-estimation-tdp"
     }
 
     // We also define it's version.

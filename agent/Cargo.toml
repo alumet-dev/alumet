@@ -1,6 +1,6 @@
 [package]
 name = "alumet-agent"
-version = "0.8.0"
+version = "0.8.1"
 edition = "2021"
 rust-version = "1.78"
 description = "Agent that collects energy and performance metrics."
@@ -26,6 +26,9 @@ plugin-influxdb = { path = "../plugin-influxdb" }
 plugin-relay = { path = "../plugin-relay" }
 plugin-mongodb = { path = "../plugin-mongodb" }
 plugin-opentelemetry = { path = "../plugin-opentelemetry" }
+plugin-aggregation = { path = "../plugin-aggregation" }
+plugin-energy-attribution = { path = "../plugin-energy-attribution" }
+plugin-energy-estimation-tdp = { path = "../plugin-energy-estimation-tdp" }
 
 # Linux-only dependencies
 [target.'cfg(target_os = "linux")'.dependencies]
