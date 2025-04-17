@@ -1,4 +1,3 @@
----
 name: Check documentation
 on: [pull_request, push]
 
@@ -8,7 +7,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
       - name: Spell check everything
         uses: streetsidesoftware/cspell-action@v6
         with:

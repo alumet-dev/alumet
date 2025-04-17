@@ -1,0 +1,21 @@
+name: Ensure a clean Git history
+on: [pull_request]
+
+jobs:
+  git-checkup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+
+      - name: Check that the Git history is linear
+        run: |
+          NB_MERGE_COMMITS_ON_BRANCH=$(git rev-list --min-parents=2 --count ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }})
+          if [ $NB_MERGE_COMMITS_ON_BRANCH -ne 0 ]; then
+            echo "ERROR: The git history of your branch is non-linear: $NB_MERGE_COMMITS_ON_BRANCH merge commits detected"
+            echo "When updating your branch, you must rebase instead of merging."
+            exit 1
+          fi
