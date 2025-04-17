@@ -6,6 +6,7 @@ use alumet::{
     },
     plugin::{
         rust::{deserialize_config, serialize_config, AlumetPlugin},
+        util::CounterDiff,
         AlumetPluginStart, AlumetPostStart, ConfigTable,
     },
     resources::ResourceConsumer,
@@ -113,6 +114,7 @@ impl AlumetPlugin for Oar2Plugin {
                     cgroup_memory_file,
                 };
                 let initial_source = Box::new(OAR2Probe {
+                    cpu_metric_counter_diff: CounterDiff::with_max_value(u64::MAX.into()),
                     cpu_metric: metrics.cpu_metric,
                     memory_metric: metrics.memory_metric,
                     oar2_metric_file: metric_file,
@@ -197,6 +199,7 @@ impl AlumetPlugin for Oar2Plugin {
                                 (File::open(&cpu_file_path), File::open(&memory_file_path))
                             {
                                 let new_source = Box::new(OAR2Probe {
+                                    cpu_metric_counter_diff: CounterDiff::with_max_value(u64::MAX.into()),
                                     cpu_metric: job_detect.cpu_metric,
                                     memory_metric: job_detect.memory_metric,
                                     oar2_metric_file: metric_file,
