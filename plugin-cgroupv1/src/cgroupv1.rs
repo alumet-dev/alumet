@@ -1,4 +1,4 @@
-use crate::oar2::probe::OarJobSource;
+use crate::oar2::probe::OAR2Probe;
 use alumet::{
     measurement::{MeasurementPoint, Timestamp},
     metrics::{error::MetricCreationError, TypedMetricId},
@@ -37,7 +37,7 @@ impl Metrics {
     }
 }
 
-pub fn gather_value(job_source: &mut OarJobSource, timestamp: Timestamp) -> Result<Vec<MeasurementPoint>, PollError> {
+pub fn gather_value(job_source: &mut OAR2Probe, timestamp: Timestamp) -> Result<Vec<MeasurementPoint>, PollError> {
     let cpu_usage_file = &mut job_source.oar2_metric_file.cgroup_cpu_file;
     cpu_usage_file.rewind()?;
     let mut buffer = String::new();
