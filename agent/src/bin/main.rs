@@ -42,7 +42,7 @@ fn load_plugins_metadata() -> Vec<PluginMetadata> {
             plugin_socket_control::SocketControlPlugin,
             plugin_cgroupv2::K8sPlugin,
             plugin_cgroupv2::OARPlugin,
-            plugin_oar2::Oar2Plugin,
+            plugin_cgroupv1::Oar2Plugin,
             plugin_rapl::RaplPlugin,
             plugin_perf::PerfPlugin,
             plugin_procfs::ProcfsPlugin,

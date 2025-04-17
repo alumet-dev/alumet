@@ -1,38 +1,29 @@
 use alumet::{
-    measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
     pipeline::{
-        control::{self, request, PluginControlHandle},
-        elements::{error::PollError, source::trigger::TriggerSpec},
-        Source,
+        control::{request, PluginControlHandle},
+        elements::source::trigger::TriggerSpec,
     },
     plugin::{
         rust::{deserialize_config, serialize_config, AlumetPlugin},
         AlumetPluginStart, AlumetPostStart, ConfigTable,
     },
-    resources::{Resource, ResourceConsumer},
-    units::{PrefixedUnit, Unit},
+    resources::ResourceConsumer,
 };
 use anyhow::Context;
 use notify::{Event, EventHandler, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-use std::{
-    fs::{self, File},
-    io::{Read, Seek},
-    path::PathBuf,
-    time::Duration,
-};
+use std::{fs::File, path::PathBuf, time::Duration};
+
+use crate::cgroupv1::Metrics;
+
+use super::{probe::OAR2Probe, utils::OpenedCgroupv1};
 
 #[derive(Debug)]
 pub struct Oar2Plugin {
     config: Config,
     metrics: Option<Metrics>,
     watcher: Option<RecommendedWatcher>,
-}
-#[derive(Debug, Clone)]
-pub struct Metrics {
-    cpu_metric: TypedMetricId<u64>,
-    memory_metric: TypedMetricId<u64>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -41,17 +32,6 @@ struct Config {
     path: PathBuf,
     #[serde(with = "humantime_serde")]
     poll_interval: Duration,
-}
-
-#[derive(Debug)]
-struct OarJobSource {
-    cpu_metric: TypedMetricId<u64>,
-    memory_metric: TypedMetricId<u64>,
-    cgroup_cpu_file: File,
-    cgroup_memory_file: File,
-    cpu_file_path: PathBuf,
-    memory_file_path: PathBuf,
-    job_id: u64,
 }
 
 impl AlumetPlugin for Oar2Plugin {
@@ -77,27 +57,15 @@ impl AlumetPlugin for Oar2Plugin {
     }
 
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> Result<(), anyhow::Error> {
-        let cpu_metric = alumet.create_metric::<u64>(
-            "cpu_time",
-            PrefixedUnit::nano(Unit::Second),
-            "Total CPU time consumed by the cgroup (in nanoseconds).",
-        )?;
-        let memory_metric = alumet.create_metric::<u64>(
-            "memory_usage",
-            Unit::Unity,
-            "Total memory usage by the cgroup (in bytes).",
-        )?;
-
-        self.metrics = Some(Metrics {
-            cpu_metric,
-            memory_metric,
-        });
+        let metrics_result = Metrics::new(alumet);
+        let metrics = metrics_result?;
+        self.metrics = Some(metrics.clone());
 
         let cgroup_cpu_path = self.config.path.join("cpuacct/oar");
         let cgroup_memory_path = self.config.path.join("memory/oar");
 
         // Scanning to check if there are jobs already running
-        for entry in fs::read_dir(&cgroup_cpu_path)
+        for entry in std::fs::read_dir(&cgroup_cpu_path)
             .with_context(|| format!("Invalid oar cpuacct cgroup path, {cgroup_cpu_path:?}"))?
         {
             let entry = entry?;
@@ -123,15 +91,31 @@ impl AlumetPlugin for Oar2Plugin {
                     .with_context(|| format!("Failed to open CPU usage file at {}", cpu_file_path.display()))?;
                 let cgroup_memory_file = File::open(&memory_file_path)
                     .with_context(|| format!("Failed to open memory usage file at {}", memory_file_path.display()))?;
-
-                let initial_source = Box::new(OarJobSource {
-                    cpu_metric,
-                    memory_metric,
+                let consumer_cpu = ResourceConsumer::ControlGroup {
+                    path: cpu_file_path
+                        .to_str()
+                        .expect("Path to 'cpu.stat' must be valid UTF8")
+                        .to_string()
+                        .into(),
+                };
+                let consumer_memory = ResourceConsumer::ControlGroup {
+                    path: memory_file_path
+                        .to_str()
+                        .expect("Path to 'memory.stat' must to be valid UTF8")
+                        .to_string()
+                        .into(),
+                };
+                let metric_file = OpenedCgroupv1 {
+                    job_id,
+                    cpu_file_path: consumer_cpu,
+                    memory_file_path: consumer_memory,
                     cgroup_cpu_file,
                     cgroup_memory_file,
-                    cpu_file_path,
-                    memory_file_path,
-                    job_id,
+                };
+                let initial_source = Box::new(OAR2Probe {
+                    cpu_metric: metrics.cpu_metric,
+                    memory_metric: metrics.memory_metric,
+                    oar2_metric_file: metric_file,
                 });
                 let source_name = &job_name;
                 alumet
@@ -181,20 +165,41 @@ impl AlumetPlugin for Oar2Plugin {
 
                             let cpu_file_path = cpu_path.join("cpuacct.usage");
                             log::debug!("CPU file path {cpu_file_path:?}");
+                            let file_cpu = File::open(&cpu_file_path)
+                                .with_context(|| format!("failed to open file {}", cpu_file_path.display()))?;
                             let memory_file_path = memory_path.join("memory.usage_in_bytes");
                             log::debug!("Memory file path {memory_file_path:?}");
+                            let file_memory = File::open(&memory_file_path)
+                                .with_context(|| format!("failed to open file {}", memory_file_path.display()))?;
 
-                            if let (Ok(cgroup_cpu_file), Ok(cgroup_memory_file)) =
+                            let consumer_cpu = ResourceConsumer::ControlGroup {
+                                path: cpu_file_path
+                                    .to_str()
+                                    .expect("Path to 'cpu.stat' must be valid UTF8")
+                                    .to_string()
+                                    .into(),
+                            };
+                            let consumer_memory = ResourceConsumer::ControlGroup {
+                                path: memory_file_path
+                                    .to_str()
+                                    .expect("Path to 'memory.stat' must to be valid UTF8")
+                                    .to_string()
+                                    .into(),
+                            };
+                            let metric_file = OpenedCgroupv1 {
+                                job_id,
+                                cpu_file_path: consumer_cpu,
+                                memory_file_path: consumer_memory,
+                                cgroup_cpu_file: file_cpu,
+                                cgroup_memory_file: file_memory,
+                            };
+                            if let (Ok(_cgroup_cpu_file), Ok(_cgroup_memory_file)) =
                                 (File::open(&cpu_file_path), File::open(&memory_file_path))
                             {
-                                let new_source = Box::new(OarJobSource {
+                                let new_source = Box::new(OAR2Probe {
                                     cpu_metric: job_detect.cpu_metric,
                                     memory_metric: job_detect.memory_metric,
-                                    cgroup_cpu_file,
-                                    cgroup_memory_file,
-                                    cpu_file_path,
-                                    memory_file_path,
-                                    job_id,
+                                    oar2_metric_file: metric_file,
                                 });
 
                                 let source_name = job_name;
@@ -270,58 +275,5 @@ impl Default for Config {
             path,
             poll_interval: Duration::from_secs(1),
         }
-    }
-}
-
-impl Source for OarJobSource {
-    fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
-        let cpu_usage_file = &mut self.cgroup_cpu_file;
-        cpu_usage_file.rewind()?;
-        let mut cpu_usage = String::new();
-        cpu_usage_file.read_to_string(&mut cpu_usage)?;
-        let memory_usage_file = &mut self.cgroup_memory_file;
-        memory_usage_file.rewind()?;
-        let mut memory_usage = String::new();
-        memory_usage_file.read_to_string(&mut memory_usage)?;
-        let cpu_usage_u64 = cpu_usage.trim().parse::<u64>()?;
-        let memory_usage_u64 = memory_usage.trim().parse::<u64>()?;
-
-        measurements.push(
-            MeasurementPoint::new(
-                timestamp,
-                self.cpu_metric,
-                Resource::LocalMachine,
-                ResourceConsumer::ControlGroup {
-                    path: (self
-                        .cpu_file_path
-                        .to_str()
-                        .expect("cpu_file_path should be valid UTF-8")
-                        .to_owned()
-                        .into()),
-                },
-                cpu_usage_u64,
-            )
-            .with_attr("oar_job_id", self.job_id),
-        );
-
-        measurements.push(
-            MeasurementPoint::new(
-                timestamp,
-                self.memory_metric,
-                Resource::LocalMachine,
-                ResourceConsumer::ControlGroup {
-                    path: (self
-                        .memory_file_path
-                        .to_str()
-                        .expect("memory_file_path should be valid UTF-8")
-                        .to_owned()
-                        .into()),
-                },
-                memory_usage_u64,
-            )
-            .with_attr("oar_job_id", self.job_id),
-        );
-
-        Ok(())
     }
 }
