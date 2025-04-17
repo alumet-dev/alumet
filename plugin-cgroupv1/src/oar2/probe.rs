@@ -2,6 +2,7 @@ use alumet::{
     measurement::{MeasurementAccumulator, Timestamp},
     metrics::TypedMetricId,
     pipeline::{elements::error::PollError, Source},
+    plugin::util::CounterDiff,
 };
 use std::result::Result::Ok;
 
@@ -9,8 +10,8 @@ use super::utils::OpenedCgroupv1;
 
 use crate::cgroupv1::gather_value;
 
-#[derive(Debug)]
 pub struct OAR2Probe {
+    pub cpu_metric_counter_diff: CounterDiff,
     pub cpu_metric: TypedMetricId<u64>,
     pub memory_metric: TypedMetricId<u64>,
     pub oar2_metric_file: OpenedCgroupv1,
