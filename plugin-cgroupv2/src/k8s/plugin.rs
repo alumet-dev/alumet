@@ -24,7 +24,7 @@ use crate::{
 
 use super::{
     probe::K8SProbe,
-    token::Token,
+    token::{Token, TokenRetrieval},
     utils::{self, CgroupV2MetricFile},
 };
 
@@ -45,13 +45,6 @@ struct K8sConfig {
     hostname: String,
     /// Way to retrieve the k8s API token.
     token_retrieval: TokenRetrieval,
-}
-
-#[derive(Clone, Deserialize, Serialize, PartialEq, Debug)]
-#[serde(rename_all = "lowercase")]
-pub enum TokenRetrieval {
-    Kubectl,
-    File,
 }
 
 impl AlumetPlugin for K8sPlugin {
