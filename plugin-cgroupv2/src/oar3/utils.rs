@@ -207,12 +207,7 @@ mod tests {
     // Test `list_metric_file_in_dir` function to simulate arborescence of kubernetes pods
     #[test]
     fn test_list_metric_file_in_dir() {
-        let tmp = tempdir().unwrap();
-        let root = tmp.path().join("test-alumet-plugin-oar/kubepods-folder.slice/");
-
-        if root.exists() {
-            std::fs::remove_dir_all(&root).unwrap();
-        }
+        let root = tempdir().unwrap().into_path();
 
         let dir = root.join("kubepods-burstable.slice/");
         std::fs::create_dir_all(&dir).unwrap();
@@ -264,12 +259,7 @@ mod tests {
     // Test `gather_value` function with invalid memory.current data
     #[test]
     fn test_gather_value_with_invalid_memory_current_data() {
-        let tmp = tempdir().unwrap();
-        let root = tmp.path().join("test-alumet-plugin-oar/kubepods-invalid-gather.slice/");
-
-        if root.exists() {
-            std::fs::remove_dir_all(&root).unwrap();
-        }
+        let root = tempdir().unwrap().into_path();
 
         let dir = root.join("kubepods-burstable.slice/");
         std::fs::create_dir_all(&dir).unwrap();
@@ -384,12 +374,7 @@ mod tests {
     // Test `gather_value` function with invalid data
     #[test]
     fn test_gather_value_with_invalid_cpu_metric_stat_data() {
-        let tmp = tempdir().unwrap();
-        let root = tmp.path().join("test-alumet-plugin-oar/kubepods-invalid-gather.slice/");
-
-        if root.exists() {
-            std::fs::remove_dir_all(&root).unwrap();
-        }
+        let root = tempdir().unwrap().into_path();
 
         let dir = root.join("kubepods-burstable.slice/");
         std::fs::create_dir_all(&dir).unwrap();
@@ -476,12 +461,7 @@ mod tests {
     // Test `gather_value` function with valid values
     #[test]
     fn test_gather_value_with_valid_values() {
-        let tmp = tempdir().unwrap();
-        let root = tmp.path().join("test-alumet-plugin-oar/kubepods-gather.slice/");
-
-        if root.exists() {
-            std::fs::remove_dir_all(&root).unwrap();
-        }
+        let root = tempdir().unwrap().into_path();
 
         let dir = root.join("kubepods-burstable.slice/");
         std::fs::create_dir_all(&dir).unwrap();
@@ -617,15 +597,14 @@ mod tests {
     // Test `list_all_file` function with different file system
     #[test]
     fn test_list_all_file() {
-        let tmp = tempdir().unwrap();
-        let root = tmp.path();
+        let root = tempdir().unwrap().into_path();
 
         let path = root.join("non_existent");
         let result = list_all_file(&path);
         assert!(result.is_ok());
         assert!(result.unwrap().is_empty());
 
-        let result = list_all_file(root);
+        let result = list_all_file(&root);
         assert!(result.is_ok());
         assert!(result.unwrap().is_empty());
 
@@ -637,7 +616,7 @@ mod tests {
             File::create(sub_dir.join(list_file_name[i])).unwrap();
         }
 
-        let result = list_all_file(root);
+        let result = list_all_file(&root);
         assert!(result.is_ok());
     }
 }
