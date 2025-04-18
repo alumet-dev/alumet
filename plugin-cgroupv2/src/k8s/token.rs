@@ -245,12 +245,7 @@ mod tests {
     // Test `refresh` function with valid file and token
     #[tokio::test]
     async fn test_refresh_with_valid_token() {
-        let tmp = tempdir().unwrap();
-        let root = tmp.path().join("test-alumet-plugin-k8s/var_1/");
-
-        if root.exists() {
-            std::fs::remove_dir_all(&root).unwrap();
-        }
+        let root = tempdir().unwrap().into_path();
 
         let dir = root.join("run/secrets/kubernetes.io/serviceaccount/");
         std::fs::create_dir_all(&dir).unwrap();
@@ -277,12 +272,7 @@ mod tests {
     // Test `refresh` function with missing exp field token
     #[tokio::test]
     async fn test_refresh_with_missing_exp() {
-        let tmp = tempdir().unwrap();
-        let root = tmp.path().join("test-alumet-plugin-k8s/var_2/");
-
-        if root.exists() {
-            std::fs::remove_dir_all(&root).unwrap();
-        }
+        let root = tempdir().unwrap().into_path();
 
         let dir = root.join("run/secrets/kubernetes.io/serviceaccount/");
         std::fs::create_dir_all(&dir).unwrap();

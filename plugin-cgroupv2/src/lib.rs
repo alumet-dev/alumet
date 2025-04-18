@@ -30,12 +30,7 @@ mod tests {
     // Tests `is_accessible_dir` function to check the existence of cgroupv2 file system
     #[test]
     fn test_is_accessible_dir() {
-        let tmp = tempdir().unwrap();
-        let root = tmp.path().join("test-alumet-plugin-k8s/kubepods-list-metrics");
-
-        if root.exists() {
-            std::fs::remove_dir_all(&root).unwrap();
-        }
+        let root = tempdir().unwrap().into_path();
 
         let dir = root.join("dir_cgroup");
         std::fs::create_dir_all(&dir).unwrap();

@@ -480,12 +480,7 @@ mod tests {
     // and missing files in Kubernetes directory
     #[test]
     fn test_list_metric_file_in_dir() {
-        let tmp = tempdir().unwrap();
-        let root = tmp.path().join("test-alumet-plugin-k8s/kubepods-folder.slice/");
-
-        if root.exists() {
-            std::fs::remove_dir_all(&root).unwrap();
-        }
+        let root = tempdir().unwrap().into_path();
 
         let dir = root.join("kubepods-burstable.slice/");
         std::fs::create_dir_all(&dir).unwrap();
@@ -544,12 +539,7 @@ mod tests {
     // Test `gather_value` function with invalid memory.current data
     #[test]
     fn test_gather_value_with_invalid_memory_current_data() {
-        let tmp = tempdir().unwrap();
-        let root = tmp.path().join("test-alumet-plugin-oar/kubepods-invalid-gather.slice/");
-
-        if root.exists() {
-            std::fs::remove_dir_all(&root).unwrap();
-        }
+        let root = tempdir().unwrap().into_path();
 
         let dir = root.join("kubepods-burstable.slice/");
         std::fs::create_dir_all(&dir).unwrap();
@@ -670,12 +660,7 @@ mod tests {
     // Test `gather_value` function with invalid metric and cpu stat data
     #[test]
     fn test_gather_value_with_invalid_cpu_metric_stat_data() {
-        let tmp = tempdir().unwrap();
-        let root = tmp.path().join("test-alumet-plugin-oar/kubepods-invalid-gather.slice/");
-
-        if root.exists() {
-            std::fs::remove_dir_all(&root).unwrap();
-        }
+        let root = tempdir().unwrap().into_path();
 
         let dir = root.join("kubepods-burstable.slice/");
         std::fs::create_dir_all(&dir).unwrap();
@@ -768,12 +753,7 @@ mod tests {
     // Test `gather_value` function with valid values
     #[test]
     fn test_gather_value_with_valid_values() {
-        let tmp = tempdir().unwrap();
-        let root = tmp.path().join("test-alumet-plugin-k8s/kubepods-gather.slice/");
-
-        if root.exists() {
-            std::fs::remove_dir_all(&root).unwrap();
-        }
+        let root = tempdir().unwrap().into_path();
 
         let dir = root.join("kubepods-burstable.slice/");
         std::fs::create_dir_all(&dir).unwrap();
@@ -962,12 +942,7 @@ mod tests {
     // Test `get_existing_pods` with an empty kubernetes api url
     #[tokio::test]
     async fn test_get_existing_pods_with_empty_url() {
-        let tmp = tempdir().unwrap();
-        let root = tmp.path().join("test-alumet-plugin-k8s/var_3/");
-
-        if root.exists() {
-            std::fs::remove_dir_all(&root).unwrap();
-        }
+        let root = tempdir().unwrap().into_path();
 
         let dir = root.join("run/secrets/kubernetes.io/serviceaccount/");
         std::fs::create_dir_all(&dir).unwrap();
@@ -990,12 +965,7 @@ mod tests {
     // Test `get_existing_pods` with JSON send in fake server to a specific token
     #[tokio::test]
     async fn test_get_existing_pods_with_valid_data() {
-        let tmp = tempdir().unwrap();
-        let root = tmp.path().join("test-alumet-plugin-k8s/var_4/");
-
-        if root.exists() {
-            std::fs::remove_dir_all(&root).unwrap();
-        }
+        let root = tempdir().unwrap().into_path();
 
         let dir = root.join("run/secrets/kubernetes.io/serviceaccount/");
         std::fs::create_dir_all(&dir).unwrap();
@@ -1064,12 +1034,7 @@ mod tests {
     // with some of them missing in the JSON
     #[tokio::test]
     async fn test_get_existing_pods_with_half_valid_data() {
-        let tmp = tempdir().unwrap();
-        let root = tmp.path().join("test-alumet-plugin-k8s/var_5/");
-
-        if root.exists() {
-            std::fs::remove_dir_all(&root).unwrap();
-        }
+        let root = tempdir().unwrap().into_path();
 
         let dir = root.join("run/secrets/kubernetes.io/serviceaccount/");
         std::fs::create_dir_all(&dir).unwrap();
@@ -1119,12 +1084,7 @@ mod tests {
     // Test `get_existing_pods` with JSON parsing and URL error
     #[tokio::test]
     async fn test_get_existing_pods_with_url_and_json_error() {
-        let tmp = tempdir().unwrap();
-        let root = tmp.path().join("test-alumet-plugin-k8s/var_6/");
-
-        if root.exists() {
-            std::fs::remove_dir_all(&root).unwrap();
-        }
+        let root = tempdir().unwrap().into_path();
 
         let dir = root.join("run/secrets/kubernetes.io/serviceaccount/");
         std::fs::create_dir_all(&dir).unwrap();
@@ -1166,12 +1126,7 @@ mod tests {
     // Test `get_existing_pods` with JSON reading cursor error
     #[tokio::test]
     async fn test_get_existing_pods_with_cursor_error() {
-        let tmp = tempdir().unwrap();
-        let root = tmp.path().join("test-alumet-plugin-k8s/var_7/");
-
-        if root.exists() {
-            std::fs::remove_dir_all(&root).unwrap();
-        }
+        let root = tempdir().unwrap().into_path();
 
         let dir = root.join("run/secrets/kubernetes.io/serviceaccount/");
         std::fs::create_dir_all(&dir).unwrap();
@@ -1224,12 +1179,7 @@ mod tests {
     // Test `get_pod_name` with valid existing token file and empty kubernetes api url
     #[tokio::test]
     async fn test_get_pod_name_with_valid_token_and_empty_url() {
-        let tmp = tempdir().unwrap();
-        let root = tmp.path().join("test-alumet-plugin-k8s/var_8/");
-
-        if root.exists() {
-            std::fs::remove_dir_all(&root).unwrap();
-        }
+        let root = tempdir().unwrap().into_path();
 
         let dir = root.join("run/secrets/kubernetes.io/serviceaccount/");
         std::fs::create_dir_all(&dir).unwrap();
@@ -1253,12 +1203,7 @@ mod tests {
     // Test `get_pod_name` with JSON send in fake server to a specific token and get valid data
     #[tokio::test]
     async fn test_get_pod_name_with_valid_data() {
-        let tmp = tempdir().unwrap();
-        let root = tmp.path().join("test-alumet-plugin-k8s/var_9/");
-
-        if root.exists() {
-            std::fs::remove_dir_all(&root).unwrap();
-        }
+        let root = tempdir().unwrap().into_path();
 
         let dir = root.join("run/secrets/kubernetes.io/serviceaccount/");
         std::fs::create_dir_all(&dir).unwrap();
@@ -1322,12 +1267,7 @@ mod tests {
     // with some of them missing in the JSON
     #[tokio::test]
     async fn test_get_pod_name_with_half_valid_data() {
-        let tmp = tempdir().unwrap();
-        let root = tmp.path().join("test-alumet-plugin-k8s/var_10/");
-
-        if root.exists() {
-            std::fs::remove_dir_all(&root).unwrap();
-        }
+        let root = tempdir().unwrap().into_path();
 
         let dir = root.join("run/secrets/kubernetes.io/serviceaccount/");
         std::fs::create_dir_all(&dir).unwrap();
@@ -1377,12 +1317,7 @@ mod tests {
     // Test `get_pod_name` with JSON parsing and URL error
     #[tokio::test]
     async fn test_get_pod_name_with_url_and_json_error() {
-        let tmp = tempdir().unwrap();
-        let root = tmp.path().join("test-alumet-plugin-k8s/var_11/");
-
-        if root.exists() {
-            std::fs::remove_dir_all(&root).unwrap();
-        }
+        let root = tempdir().unwrap().into_path();
 
         let dir = root.join("run/secrets/kubernetes.io/serviceaccount/");
         std::fs::create_dir_all(&dir).unwrap();
@@ -1427,12 +1362,7 @@ mod tests {
     // Test `get_pod_name` with uid error
     #[tokio::test]
     async fn test_get_pod_name_with_uid_error() {
-        let tmp = tempdir().unwrap();
-        let root = tmp.path().join("test-alumet-plugin-k8s/var_12/");
-
-        if root.exists() {
-            std::fs::remove_dir_all(&root).unwrap();
-        }
+        let root = tempdir().unwrap().into_path();
 
         let dir = root.join("run/secrets/kubernetes.io/serviceaccount/");
         std::fs::create_dir_all(&dir).unwrap();
@@ -1496,12 +1426,7 @@ mod tests {
     // Test `get_pod_name` with JSON reading cursor error
     #[tokio::test]
     async fn test_get_pod_name_with_cursor_error() {
-        let tmp = tempdir().unwrap();
-        let root = tmp.path().join("test-alumet-plugin-k8s/var_13/");
-
-        if root.exists() {
-            std::fs::remove_dir_all(&root).unwrap();
-        }
+        let root = tempdir().unwrap().into_path();
 
         let dir = root.join("run/secrets/kubernetes.io/serviceaccount/");
         std::fs::create_dir_all(&dir).unwrap();
