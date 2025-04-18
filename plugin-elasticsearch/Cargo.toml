@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-reqwest = { version = "0.12.15", features = ["blocking", "json"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 alumet = { path = "../alumet" }
@@ -12,6 +11,23 @@ time = { version = "0.3.41", features = ["formatting"] }
 anyhow = "1.0.98"
 base64 = "0.22.1"
 log = "0.4.27"
+
+# Use RusTLS instead of OpenSSL on musl
+[target.'cfg(target_env = "musl")'.dependencies]
+reqwest = { version = "0.12.15", default-features = false, features = [
+    "rustls-tls",
+    "http2",
+    "blocking",
+    "json",
+] }
+
+[target.'cfg(not(target_env = "musl"))'.dependencies]
+reqwest = { version = "0.12.15", default-features = false, features = [
+    "native-tls",
+    "http2",
+    "blocking",
+    "json",
+] }
 
 [lints]
 workspace = true
