@@ -164,29 +164,45 @@ mod config {
 
 #[cfg(test)]
 mod tests {
-    use crate::plugin::config::AuthConfig;
-
-    use super::config::Config;
+    use super::config::{AuthConfig, Config};
 
     #[test]
-    fn parse_config() {
-        let config = "
+    fn parse_auth_config() {
+        let config = r#"
+            server_url = "http://localhost:5601"
+            allow_insecure = true
+            index_prefix = "alumet"
+            metric_unit_as_index_suffix = false
+
             [auth.api_key]
-            key = \"abcd\"
-        ";
-        let parsed: Config = toml::from_str(config).unwrap();
+            key = "abcd"
+        "#;
+        let parsed: Config = toml::from_str(config).expect("config should be valid");
         println!("{parsed:?}");
         assert!(matches!(parsed.auth, AuthConfig::ApiKey { key } if key == "abcd"));
+        assert_eq!(parsed.server_url, "http://localhost:5601");
+        assert_eq!(parsed.allow_insecure, true);
+        assert_eq!(parsed.index_prefix, "alumet");
+        assert_eq!(parsed.metric_unit_as_index_suffix, false);
 
-        let config = "
+        let config = r#"
+            server_url = "https://192.168.1.3:5601"
+            allow_insecure = false
+            index_prefix = "alumet"
+            metric_unit_as_index_suffix = true
+            
             [auth.basic]
-            user = \"bob\"
-            password = \"very_secure\"
-        ";
-        let parsed: Config = toml::from_str(config).unwrap();
+            user = "bob"
+            password = "very_secure"
+        "#;
+        let parsed: Config = toml::from_str(config).expect("config should be valid");
         println!("{parsed:?}");
         assert!(
             matches!(parsed.auth, AuthConfig::Basic { user, password } if user == "bob" && password == "very_secure")
         );
+        assert_eq!(parsed.server_url, "https://192.168.1.3:5601");
+        assert_eq!(parsed.allow_insecure, false);
+        assert_eq!(parsed.index_prefix, "alumet");
+        assert_eq!(parsed.metric_unit_as_index_suffix, true);
     }
 }
