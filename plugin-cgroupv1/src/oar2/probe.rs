@@ -2,16 +2,16 @@ use alumet::{
     measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp},
     pipeline::{elements::error::PollError, Source},
 };
-use std::{collections::HashMap, result::Result::Ok};
+use std::result::Result::Ok;
 
 use crate::cgroupv1::{Cgroupv1Probe, Metrics};
 
-pub struct OAR2Probe {
+pub struct Oar2Probe {
     cgroupv1: Cgroupv1Probe,
     additional_attrs: Vec<(String, AttributeValue)>,
 }
 
-impl OAR2Probe {
+impl Oar2Probe {
     pub fn new(
         job_id: String,
         metrics: Metrics,
@@ -30,7 +30,7 @@ impl OAR2Probe {
     }
 }
 
-impl Source for OAR2Probe {
+impl Source for Oar2Probe {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         for point in self.collect_measurements(timestamp)? {
             measurements.push(point);
