@@ -2499,7 +2499,9 @@ dependencies = [
  "notify",
  "serde",
  "serde_derive",
+ "tempfile",
  "tokio",
+ "toml",
 ]
 
 [[package]]
