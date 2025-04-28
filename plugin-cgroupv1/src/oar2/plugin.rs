@@ -31,10 +31,10 @@ pub struct Oar2Plugin {
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
-struct Config {
-    path: PathBuf,
+pub struct Config {
+    pub path: PathBuf,
     #[serde(with = "humantime_serde")]
-    poll_interval: Duration,
+    pub poll_interval: Duration,
 }
 
 impl AlumetPlugin for Oar2Plugin {
@@ -120,6 +120,7 @@ impl AlumetPlugin for Oar2Plugin {
         };
         let mut watcher = notify::recommended_watcher(handler)?;
 
+        println!("START WATCHER");
         watcher.watch(&cpuacct_controller_path, RecursiveMode::NonRecursive)?;
         watcher.watch(&memory_controller_path, RecursiveMode::NonRecursive)?;
 
