@@ -1,30 +1,32 @@
 use alumet::{
-    metrics::TypedMetricId,
     pipeline::{
         control::{request, PluginControlHandle},
         elements::source::trigger::TriggerSpec,
     },
     plugin::{
         rust::{deserialize_config, serialize_config, AlumetPlugin},
-        util::CounterDiff,
         AlumetPluginStart, AlumetPostStart, ConfigTable,
     },
-    resources::ResourceConsumer,
 };
 use anyhow::Context;
 use notify::{Event, EventHandler, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-use std::{fs::File, path::PathBuf, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use crate::cgroupv1::Metrics;
 
-use super::{probe::OAR2Probe, utils::OpenedCgroupv1};
+use super::probe::OAR2Probe;
 
 #[derive(Debug)]
 pub struct Oar2Plugin {
-    config: Config,
     metrics: Option<Metrics>,
     watcher: Option<RecommendedWatcher>,
+    cpuacct_controller_path: PathBuf,
+    memory_controller_path: PathBuf,
+    trigger: TriggerSpec,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -48,26 +50,27 @@ impl AlumetPlugin for Oar2Plugin {
         Ok(Some(serialize_config(Config::default())?))
     }
 
-    fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
-        let config: Config = deserialize_config(config)?;
+    fn init(config_table: ConfigTable) -> anyhow::Result<Box<Self>> {
+        let config: Config = deserialize_config(config_table)?;
+        let cpuacct_controller_path = config.path.clone().join("cpuacct/oar");
+        let memory_controller_path = config.path.clone().join("memory/oar");
+        let poll_interval = config.poll_interval;
         Ok(Box::new(Oar2Plugin {
-            config,
+            cpuacct_controller_path,
+            memory_controller_path,
             metrics: None,
             watcher: None,
+            trigger: TriggerSpec::at_interval(poll_interval),
         }))
     }
 
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> Result<(), anyhow::Error> {
-        let metrics_result = Metrics::new(alumet);
-        let metrics = metrics_result?;
+        let metrics = Metrics::new(alumet)?;
         self.metrics = Some(metrics.clone());
 
-        let cgroup_cpu_path = self.config.path.join("cpuacct/oar");
-        let cgroup_memory_path = self.config.path.join("memory/oar");
-
         // Scanning to check if there are jobs already running
-        for entry in std::fs::read_dir(&cgroup_cpu_path)
-            .with_context(|| format!("Invalid oar cpuacct cgroup path, {cgroup_cpu_path:?}"))?
+        for entry in
+            std::fs::read_dir(&self.cpuacct_controller_path).with_context(|| "Invalid oar cpuacct cgroup path")?
         {
             let entry = entry?;
 
@@ -79,53 +82,16 @@ impl AlumetPlugin for Oar2Plugin {
                 .with_context(|| format!("Invalid oar username and job id, for job: {:?}", job_name))?;
 
             if entry.file_type()?.is_dir() && job_name.chars().any(|c| c.is_numeric()) {
-                let job_separated = job_name.split_once('_');
-                let job_id = job_separated.context("Invalid oar cgroup.")?.1.parse()?;
+                let source = Oar2Plugin::new_job_source(
+                    &job_name,
+                    metrics.clone(),
+                    &self.cpuacct_controller_path,
+                    &self.memory_controller_path,
+                )?;
 
-                let cpu_job_path = cgroup_cpu_path.join(&job_name);
-                let memory_job_path = cgroup_memory_path.join(&job_name);
-
-                let cpu_file_path = cpu_job_path.join("cpuacct.usage");
-                let memory_file_path = memory_job_path.join("memory.usage_in_bytes");
-
-                let cgroup_cpu_file = File::open(&cpu_file_path)
-                    .with_context(|| format!("Failed to open CPU usage file at {}", cpu_file_path.display()))?;
-                let cgroup_memory_file = File::open(&memory_file_path)
-                    .with_context(|| format!("Failed to open memory usage file at {}", memory_file_path.display()))?;
-                let consumer_cpu = ResourceConsumer::ControlGroup {
-                    path: cpu_file_path
-                        .to_str()
-                        .expect("Path to 'cpu.stat' must be valid UTF8")
-                        .to_string()
-                        .into(),
-                };
-                let consumer_memory = ResourceConsumer::ControlGroup {
-                    path: memory_file_path
-                        .to_str()
-                        .expect("Path to 'memory.stat' must to be valid UTF8")
-                        .to_string()
-                        .into(),
-                };
-                let metric_file = OpenedCgroupv1 {
-                    job_id,
-                    cpu_file_path: consumer_cpu,
-                    memory_file_path: consumer_memory,
-                    cgroup_cpu_file,
-                    cgroup_memory_file,
-                };
-                let initial_source = Box::new(OAR2Probe {
-                    cpu_metric_counter_diff: CounterDiff::with_max_value(u64::MAX.into()),
-                    cpu_metric: metrics.cpu_metric,
-                    memory_metric: metrics.memory_metric,
-                    oar2_metric_file: metric_file,
-                });
                 let source_name = &job_name;
                 alumet
-                    .add_source(
-                        source_name,
-                        initial_source,
-                        TriggerSpec::at_interval(self.config.poll_interval),
-                    )
+                    .add_source(source_name, source, self.trigger.clone())
                     .expect("no duplicate job");
             }
         }
@@ -134,113 +100,10 @@ impl AlumetPlugin for Oar2Plugin {
 
     fn post_pipeline_start(&mut self, alumet: &mut AlumetPostStart) -> anyhow::Result<()> {
         let control_handle = alumet.pipeline_control();
-        let config_path = self.config.path.clone();
-
-        let metrics = self.metrics.take().expect("Metrics should be initialized by start()");
-        let cpu_metric = metrics.cpu_metric;
-        let memory_metric = metrics.memory_metric;
-        let poll_interval = self.config.poll_interval;
-
-        struct JobDetector {
-            config_path: PathBuf,
-            cpu_metric: TypedMetricId<u64>,
-            memory_metric: TypedMetricId<u64>,
-            control_handle: PluginControlHandle,
-            poll_interval: Duration,
-            rt: tokio::runtime::Runtime,
-        }
-
-        impl EventHandler for JobDetector {
-            fn handle_event(&mut self, event: Result<Event, notify::Error>) {
-                fn handle_event_on_path(job_detect: &mut JobDetector, path: PathBuf) -> anyhow::Result<()> {
-                    if let Some(job_name) = path.file_name() {
-                        let job_name = job_name.to_str().expect("Can't retrieve the job name value");
-
-                        if job_name.chars().any(|c| c.is_numeric()) {
-                            let job_separated = job_name.split_once('_');
-                            let job_id = job_separated.context("Invalid oar cgroup")?.1.parse()?;
-
-                            let cpu_path = job_detect.config_path.join("cpuacct/oar").join(job_name);
-                            log::debug!("CPU path {cpu_path:?}");
-                            let memory_path = job_detect.config_path.join("memory/oar").join(job_name);
-                            log::debug!("Memory path {memory_path:?}");
-
-                            let cpu_file_path = cpu_path.join("cpuacct.usage");
-                            log::debug!("CPU file path {cpu_file_path:?}");
-                            let file_cpu = File::open(&cpu_file_path)
-                                .with_context(|| format!("failed to open file {}", cpu_file_path.display()))?;
-                            let memory_file_path = memory_path.join("memory.usage_in_bytes");
-                            log::debug!("Memory file path {memory_file_path:?}");
-                            let file_memory = File::open(&memory_file_path)
-                                .with_context(|| format!("failed to open file {}", memory_file_path.display()))?;
-
-                            let consumer_cpu = ResourceConsumer::ControlGroup {
-                                path: cpu_file_path
-                                    .to_str()
-                                    .expect("Path to 'cpu.stat' must be valid UTF8")
-                                    .to_string()
-                                    .into(),
-                            };
-                            let consumer_memory = ResourceConsumer::ControlGroup {
-                                path: memory_file_path
-                                    .to_str()
-                                    .expect("Path to 'memory.stat' must to be valid UTF8")
-                                    .to_string()
-                                    .into(),
-                            };
-                            let metric_file = OpenedCgroupv1 {
-                                job_id,
-                                cpu_file_path: consumer_cpu,
-                                memory_file_path: consumer_memory,
-                                cgroup_cpu_file: file_cpu,
-                                cgroup_memory_file: file_memory,
-                            };
-                            if let (Ok(_cgroup_cpu_file), Ok(_cgroup_memory_file)) =
-                                (File::open(&cpu_file_path), File::open(&memory_file_path))
-                            {
-                                let new_source = Box::new(OAR2Probe {
-                                    cpu_metric_counter_diff: CounterDiff::with_max_value(u64::MAX.into()),
-                                    cpu_metric: job_detect.cpu_metric,
-                                    memory_metric: job_detect.memory_metric,
-                                    oar2_metric_file: metric_file,
-                                });
-
-                                let source_name = job_name;
-                                let trigger = TriggerSpec::at_interval(job_detect.poll_interval);
-                                let create_source = request::create_one().add_source(source_name, new_source, trigger);
-
-                                job_detect
-                                    .rt
-                                    .block_on(
-                                        job_detect
-                                            .control_handle
-                                            .dispatch(create_source, Duration::from_millis(500)),
-                                    )
-                                    .with_context(|| format!("failed to add source {source_name}"))?;
-                            }
-                        }
-                    }
-                    Ok(())
-                }
-
-                log::debug!("Handle event function");
-                if let Ok(Event {
-                    kind: EventKind::Create(_),
-                    paths,
-                    ..
-                }) = event
-                {
-                    log::debug!("Paths: {paths:?}");
-                    for path in paths {
-                        if let Err(e) = handle_event_on_path(self, path.clone()) {
-                            log::error!("Unable to handle event on {}: {}", path.display(), e);
-                        }
-                    }
-                } else if let Err(e) = event {
-                    log::error!("watch error: {:?}", e);
-                }
-            }
-        }
+        let trigger = self.trigger.clone();
+        let metrics = self.metrics.as_ref().unwrap().clone();
+        let cpuacct_controller_path = self.cpuacct_controller_path.clone();
+        let memory_controller_path = self.memory_controller_path.clone();
 
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_time()
@@ -248,17 +111,17 @@ impl AlumetPlugin for Oar2Plugin {
             .context("tokio Runtime should build")?;
 
         let handler = JobDetector {
-            config_path: config_path.clone(),
-            cpu_metric,
-            memory_metric,
+            cpuacct_controller_path: cpuacct_controller_path.clone(),
+            memory_controller_path: memory_controller_path.clone(),
             control_handle,
-            poll_interval,
+            metrics,
+            trigger,
             rt,
         };
         let mut watcher = notify::recommended_watcher(handler)?;
 
-        watcher.watch(&config_path.join("cpuacct/oar"), RecursiveMode::NonRecursive)?;
-        watcher.watch(&config_path.join("memory/oar"), RecursiveMode::NonRecursive)?;
+        watcher.watch(&cpuacct_controller_path, RecursiveMode::NonRecursive)?;
+        watcher.watch(&memory_controller_path, RecursiveMode::NonRecursive)?;
 
         self.watcher = Some(watcher);
 
@@ -267,6 +130,104 @@ impl AlumetPlugin for Oar2Plugin {
 
     fn stop(&mut self) -> anyhow::Result<()> {
         Ok(())
+    }
+}
+
+impl Oar2Plugin {
+    fn job_id_from_name(name: &str) -> Result<String, anyhow::Error> {
+        Ok(name.split_once('_').context("Invalid oar cgroup")?.1.parse()?)
+    }
+
+    //TODO: could implement here some configuration that would enable/disable some metrics collections (using filepaths Options)
+    fn new_job_source(
+        job_name: &String,
+        metrics: Metrics,
+        cpuacct_controller_path: &Path,
+        memory_controller_path: &Path,
+    ) -> Result<Box<OAR2Probe>, anyhow::Error> {
+        let job_id = Self::job_id_from_name(job_name)?;
+
+        let cpuacct_controller_job_path = cpuacct_controller_path.join(job_name);
+        log::debug!("CPU path {cpuacct_controller_job_path:?}");
+        let memory_controller_job_path = memory_controller_path.join(job_name);
+        log::debug!("Memory path {memory_controller_job_path:?}");
+
+        let cpuacct_usage_filepath = cpuacct_controller_job_path
+            .join("cpuacct.usage")
+            .to_str()
+            .unwrap()
+            .to_string();
+        let memory_usage_filepath = memory_controller_job_path
+            .join("memory.usage_in_bytes")
+            .to_str()
+            .unwrap()
+            .to_string();
+
+        Ok(Box::new(OAR2Probe::new(
+            job_id,
+            metrics,
+            Some(cpuacct_usage_filepath),
+            Some(memory_usage_filepath),
+        )?))
+    }
+}
+
+struct JobDetector {
+    cpuacct_controller_path: PathBuf,
+    memory_controller_path: PathBuf,
+    control_handle: PluginControlHandle,
+    metrics: Metrics,
+    trigger: TriggerSpec,
+    rt: tokio::runtime::Runtime,
+}
+
+impl EventHandler for JobDetector {
+    fn handle_event(&mut self, event: Result<Event, notify::Error>) {
+        fn handle_event_on_path(job_detect: &mut JobDetector, path: PathBuf) -> anyhow::Result<()> {
+            if let Some(job_name) = path.file_name() {
+                let job_name = job_name.to_str().unwrap().to_string();
+
+                if job_name.chars().any(|c| c.is_numeric()) {
+                    let source = Oar2Plugin::new_job_source(
+                        &job_name,
+                        job_detect.metrics.clone(),
+                        &job_detect.cpuacct_controller_path,
+                        &job_detect.memory_controller_path,
+                    )?;
+
+                    let source_name = job_name;
+                    let new_job_source =
+                        request::create_one().add_source(&source_name, source, job_detect.trigger.clone());
+
+                    job_detect
+                        .rt
+                        .block_on(
+                            job_detect
+                                .control_handle
+                                .dispatch(new_job_source, Duration::from_millis(500)),
+                        )
+                        .with_context(|| format!("failed to add source {source_name}"))?;
+                }
+            }
+            Ok(())
+        }
+
+        log::debug!("Handle event function");
+        if let Ok(Event {
+            kind: EventKind::Create(_),
+            paths,
+            ..
+        }) = event
+        {
+            log::debug!("Paths: {paths:?}");
+            for path in paths {
+                if let Err(e) = handle_event_on_path(self, path.clone()) {
+                    log::error!("Unable to handle event on {}: {}", path.display(), e);
+                }
+            }
+        } else if let Err(e) = event {
+            log::error!("watch error: {:?}", e);
+        }
     }
 }
 
