@@ -35,6 +35,7 @@
             ],
             "ignoreRegExpList": [
                 "rustdoc_code_block",
+                "rust_item_path",
                 "`.*`",
                 "\\/[\\w.\\-_]+",
                 "[\\w.\\-_]+\\/",
@@ -103,6 +104,11 @@
             // NOTE: with /gm it doesn't work!
             "name": "rustdoc_code_block",
             "pattern": "^\\/\\/\\/ ```[\\s\\S]*?^\\/\\/\\/ ```"
+        },
+        {
+            // path::to::item
+            "name": "rust_item_path",
+            "pattern": "([A-Za-z0-9_]+(::)?)+"
         },
         {
             // .expect("this") or .context("this")
