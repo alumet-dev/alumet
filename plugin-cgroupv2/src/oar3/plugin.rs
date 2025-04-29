@@ -5,22 +5,17 @@ use alumet::{
     },
     plugin::{
         rust::{deserialize_config, serialize_config, AlumetPlugin},
-        util::CounterDiff,
         AlumetPluginStart, AlumetPostStart, ConfigTable,
     },
-    resources::ResourceConsumer,
 };
 use anyhow::{anyhow, Context};
 use notify::{Event, EventHandler, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-use std::{fs::File, path::PathBuf, time::Duration};
+use std::{path::PathBuf, time::Duration};
 
-use crate::{
-    cgroupv2::{Metrics, CGROUP_MAX_TIME_COUNTER},
-    is_accessible_dir,
-};
+use crate::{cgroupv2::Metrics, is_accessible_dir};
 
-use super::{probe::CgroupV2prob, utils::CgroupV2MetricFile};
+use super::probe::{get_all_job_probes, get_job_probe, OAR3JobProbe};
 
 pub struct OARPlugin {
     config: OAR3Config,
@@ -67,31 +62,18 @@ impl AlumetPlugin for OARPlugin {
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         let v2_used = is_accessible_dir(&PathBuf::from("/sys/fs/cgroup/"))?;
         if !v2_used {
-            return Err(anyhow!("Cgroups v2 are not being used!"));
+            return Err(anyhow!(
+                "Cgroups v2 are not being used (/sys/fs/cgroup/ is not accessible)"
+            ));
         }
-        let metrics_result = Metrics::new(alumet);
-        let metrics = metrics_result?;
-        self.metrics = Some(metrics.clone());
+        self.metrics = Some(Metrics::new(alumet)?);
 
-        let final_list_metric_file = super::utils::list_all_file(&self.config.path)?;
+        let job_probes: Vec<OAR3JobProbe> = get_all_job_probes(&self.config.path, self.metrics.clone().unwrap())?;
 
-        // Add as a source each pod already present
-        for metric_file in final_list_metric_file {
-            let counter_tmp_tot: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
-            let counter_tmp_usr: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
-            let counter_tmp_sys: CounterDiff = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
-
-            let source_name = format!("job:{}", metric_file.name);
-            let probe = CgroupV2prob::new(
-                metrics.clone(),
-                metric_file,
-                counter_tmp_tot,
-                counter_tmp_sys,
-                counter_tmp_usr,
-            )?;
+        for probe in job_probes {
             alumet
                 .add_source(
-                    &source_name,
+                    &probe.source_name(),
                     Box::new(probe),
                     TriggerSpec::at_interval(self.config.poll_interval),
                 )
@@ -107,129 +89,6 @@ impl AlumetPlugin for OARPlugin {
         // let metrics = self.metrics.clone().unwrap();
         let metrics = self.metrics.clone().with_context(|| "Metrics is not available")?;
         let poll_interval = self.config.poll_interval;
-        struct PodDetector {
-            metrics: Metrics,
-            control_handle: PluginControlHandle,
-            poll_interval: Duration,
-            rt: tokio::runtime::Runtime,
-        }
-
-        impl EventHandler for PodDetector {
-            fn handle_event(&mut self, event: Result<Event, notify::Error>) {
-                fn try_handle(
-                    detector: &mut PodDetector,
-                    event: Result<Event, notify::Error>,
-                ) -> Result<(), anyhow::Error> {
-                    // The events look like the following
-                    // Handle_Event: Ok(Event { kind: Create(Folder), paths: ["/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/TESTTTTT"], attr:tracker: None, attr:flag: None, attr:info: None, attr:source: None })
-                    // Handle_Event: Ok(Event { kind: Remove(Folder), paths: ["/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/TESTTTTT"], attr:tracker: None, attr:flag: None, attr:info: None, attr:source: None })
-                    if let Ok(Event {
-                        kind: EventKind::Create(notify::event::CreateKind::Folder),
-                        paths,
-                        ..
-                    }) = event
-                    {
-                        for path in paths {
-                            if path.is_dir() {
-                                if let Some(pod_uid) = path.file_name() {
-                                    let mut path_cpu = path.clone();
-                                    let mut path_memory_stat = path.clone();
-                                    let mut path_memory_current = path.clone();
-
-                                    // CPU resource consumer for cpu.stat file in cgroup
-                                    let consumer_cpu = ResourceConsumer::ControlGroup {
-                                        path: path_cpu
-                                            .to_str()
-                                            .expect("Path to 'cpu.stat' must be valid UTF8")
-                                            .to_string()
-                                            .into(),
-                                    };
-                                    // Memory resource consumer for memory.stat file in cgroup
-                                    let consumer_memory_stat = ResourceConsumer::ControlGroup {
-                                        path: path_memory_stat
-                                            .to_str()
-                                            .expect("Path to 'memory.stat' must to be valid UTF8")
-                                            .to_string()
-                                            .into(),
-                                    };
-                                    // Memory resource consumer for memory.stat file in cgroup
-                                    let consumer_memory_current = ResourceConsumer::ControlGroup {
-                                        path: path_memory_current
-                                            .to_str()
-                                            .expect("Path to 'memory.stat' must to be valid UTF8")
-                                            .to_string()
-                                            .into(),
-                                    };
-
-                                    path_cpu.push("cpu.stat");
-                                    let file_cpu = File::open(&path_cpu)
-                                        .with_context(|| format!("failed to open file {}", path_cpu.display()))?;
-
-                                    path_memory_stat.push("memory.stat");
-                                    let file_memory_stat = File::open(&path_memory_stat).with_context(|| {
-                                        format!("failed to open file {}", path_memory_stat.display())
-                                    })?;
-
-                                    path_memory_current.push("memory.current");
-                                    let file_memory_current = File::open(&path_memory_current).with_context(|| {
-                                        format!("failed to open file {}", path_memory_current.display())
-                                    })?;
-
-                                    let metric_file = CgroupV2MetricFile {
-                                        name: pod_uid
-                                            .to_str()
-                                            .with_context(|| format!("Filename is not valid UTF-8: {:?}", path))
-                                            .unwrap_or("ERROR")
-                                            .to_string(),
-                                        consumer_cpu,
-                                        file_cpu,
-                                        consumer_memory_stat,
-                                        file_memory_stat,
-                                        consumer_memory_current,
-                                        file_memory_current,
-                                    };
-
-                                    let counter_tmp_tot = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
-                                    let counter_tmp_usr = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
-                                    let counter_tmp_sys = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
-
-                                    let probe: CgroupV2prob = CgroupV2prob::new(
-                                        detector.metrics.clone(),
-                                        metric_file,
-                                        counter_tmp_tot,
-                                        counter_tmp_sys,
-                                        counter_tmp_usr,
-                                    )?;
-
-                                    let source_name = pod_uid.to_str().unwrap();
-                                    let trigger = TriggerSpec::at_interval(detector.poll_interval);
-                                    let create_source =
-                                        request::create_one().add_source(source_name, Box::new(probe), trigger);
-
-                                    detector
-                                        .rt
-                                        .block_on(
-                                            detector
-                                                .control_handle
-                                                .dispatch(create_source, Duration::from_millis(500)),
-                                        )
-                                        .with_context(|| {
-                                            format!("failed to add source for pod {}", pod_uid.to_str().unwrap())
-                                        })?;
-                                }
-                            }
-                        }
-                        Ok(())
-                    } else {
-                        Ok(())
-                    }
-                }
-
-                if let Err(e) = try_handle(self, event) {
-                    log::error!("Error try_handle: {}", e);
-                }
-            }
-        }
 
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_time()
@@ -249,6 +108,57 @@ impl AlumetPlugin for OARPlugin {
         self.watcher = Some(watcher);
 
         Ok(())
+    }
+}
+
+struct PodDetector {
+    metrics: Metrics,
+    control_handle: PluginControlHandle,
+    poll_interval: Duration,
+    rt: tokio::runtime::Runtime,
+}
+
+impl EventHandler for PodDetector {
+    fn handle_event(&mut self, event: Result<Event, notify::Error>) {
+        fn try_handle(detector: &mut PodDetector, event: Result<Event, notify::Error>) -> Result<(), anyhow::Error> {
+            // The events look like the following
+            // Handle_Event: Ok(Event { kind: Create(Folder), paths: ["/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/TESTTTTT"], attr:tracker: None, attr:flag: None, attr:info: None, attr:source: None })
+            // Handle_Event: Ok(Event { kind: Remove(Folder), paths: ["/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/TESTTTTT"], attr:tracker: None, attr:flag: None, attr:info: None, attr:source: None })
+            if let Ok(Event {
+                kind: EventKind::Create(notify::event::CreateKind::Folder),
+                paths,
+                ..
+            }) = event
+            {
+                for path in paths {
+                    if path.is_dir() {
+                        let job_name = path
+                            .file_name()
+                            .ok_or_else(|| anyhow::anyhow!("No file name found"))?
+                            .to_str()
+                            .context("Filename is not valid UTF-8")?
+                            .to_string();
+                        let probe = get_job_probe(path.clone(), detector.metrics.clone(), job_name.clone())?;
+                        let source = request::create_one().add_source(
+                            &probe.source_name(),
+                            Box::new(probe),
+                            TriggerSpec::at_interval(detector.poll_interval),
+                        );
+                        detector
+                            .rt
+                            .block_on(detector.control_handle.dispatch(source, Duration::from_secs(1)))
+                            .with_context(|| format!("failed to add source for pod {job_name}"))?;
+                    }
+                }
+                Ok(())
+            } else {
+                Ok(())
+            }
+        }
+
+        if let Err(e) = try_handle(self, event) {
+            log::error!("Error try_handle: {}", e);
+        }
     }
 }
 
