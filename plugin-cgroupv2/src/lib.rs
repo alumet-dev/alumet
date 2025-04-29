@@ -1,4 +1,3 @@
-mod cgroupv2;
 mod k8s;
 mod oar3;
 
