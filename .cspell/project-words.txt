@@ -3,6 +3,7 @@ alpes
 ASCIINEMA
 astring
 Atos
+Burstable
 cbindgen
 cdylib
 Cgroups
