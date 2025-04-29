@@ -19,6 +19,7 @@ pub enum TokenRetrieval {
 }
 
 impl TokenRetrieval {
+    #[cfg(test)]
     pub fn default_file() -> TokenRetrieval {
         Self::File("/var/run/secrets/kubernetes.io/serviceaccount/token".to_string())
     }
@@ -53,14 +54,17 @@ impl Token {
         }
     }
 
+    #[cfg(test)]
     pub fn with_kubectl() -> Self {
         Self::new(TokenRetrieval::Kubectl)
     }
 
+    #[cfg(test)]
     pub fn with_file(path: String) -> Self {
         Self::new(TokenRetrieval::File(path))
     }
 
+    #[cfg(test)]
     pub fn with_default_file() -> Self {
         Self::new(TokenRetrieval::default_file())
     }
@@ -263,7 +267,7 @@ mod tests {
 
         std::fs::write(&path, content).unwrap();
 
-        let mut token = Token::with_file(path.to_str().unwrap().to_owned());
+        let token = Token::with_file(path.to_str().unwrap().to_owned());
         let result = token.refresh().await;
 
         assert!(result.is_ok());
@@ -296,7 +300,7 @@ mod tests {
 
         std::fs::write(&path, content).unwrap();
 
-        let mut token = Token::with_file(path.to_str().unwrap().to_owned());
+        let token = Token::with_file(path.to_str().unwrap().to_owned());
         let result = token.refresh().await;
 
         assert!(result.is_err());
