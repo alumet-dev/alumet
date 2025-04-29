@@ -1,176 +1,110 @@
 use alumet::{
-    measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp},
-    metrics::TypedMetricId,
-    pipeline::elements::source::error::{PollError, PollRetry},
-    plugin::util::CounterDiff,
-    resources::{Resource, ResourceConsumer},
+    measurement::{MeasurementAccumulator, Timestamp},
+    pipeline::elements::source::error::PollError,
+    pipeline::Source,
 };
-use anyhow::{Context, Result};
+use anyhow::Result;
 
-use super::utils::{gather_value, CgroupV2MetricFile};
-use crate::cgroupv2::{CgroupMeasurements, Metrics};
+use super::{pod::PodInfos, token::Token};
+use crate::cgroupv2::{Cgroupv2Probe, Metrics};
+use alumet::measurement::AttributeValue;
+use std::{
+    path::{Path, PathBuf},
+    result::Result::Ok,
+    vec,
+};
+use walkdir::WalkDir;
 
-pub struct K8SProbe {
-    pub cgroup_v2_metric_file: CgroupV2MetricFile,
-    pub time_tot: CounterDiff,
-    pub time_usr: CounterDiff,
-    pub time_sys: CounterDiff,
-    pub cpu_time_delta: TypedMetricId<u64>,
-    pub memory_usage: TypedMetricId<u64>,
-    pub memory_anon: TypedMetricId<u64>,
-    pub memory_file: TypedMetricId<u64>,
-    pub memory_kernel: TypedMetricId<u64>,
-    pub memory_pagetables: TypedMetricId<u64>,
+use super::pod::{get_node_pods_infos, get_uid_from_cgroup_dir, is_cgroup_pod_dir};
+
+pub struct K8SPodProbe {
+    cgroupv2: Cgroupv2Probe,
+    uid: String,
+    name: String,
+    namespace: String,
 }
 
-impl K8SProbe {
-    pub fn new(
-        metric: Metrics,
-        metric_file: CgroupV2MetricFile,
-        counter_tot: CounterDiff,
-        counter_sys: CounterDiff,
-        counter_usr: CounterDiff,
-    ) -> anyhow::Result<K8SProbe> {
-        Ok(K8SProbe {
-            cgroup_v2_metric_file: metric_file,
-            time_tot: counter_tot,
-            time_usr: counter_usr,
-            time_sys: counter_sys,
-            cpu_time_delta: metric.cpu_time_delta,
-            memory_usage: metric.memory_usage,
-            memory_anon: metric.memory_anonymous,
-            memory_file: metric.memory_file,
-            memory_kernel: metric.memory_kernel,
-            memory_pagetables: metric.memory_pagetables,
+impl K8SPodProbe {
+    pub fn new(uid: String, name: String, namespace: String, cgroupv2: Cgroupv2Probe) -> Result<Self, anyhow::Error> {
+        Ok(Self {
+            cgroupv2,
+            uid,
+            name,
+            namespace,
         })
     }
+    pub fn source_name(&self) -> String {
+        format!("pod:{}_{}_{}", self.namespace, self.name, self.uid)
+    }
 }
 
-impl alumet::pipeline::Source for K8SProbe {
+impl Source for K8SPodProbe {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
-        /// Create a measurement point with given value,
-        /// the `LocalMachine` resource and some attributes related to the pod.
-        fn create_measurement_point(
-            timestamp: Timestamp,
-            metric_id: TypedMetricId<u64>,
-            resource_consumer: ResourceConsumer,
-            value_measured: u64,
-            metrics_param: &CgroupMeasurements,
-        ) -> MeasurementPoint {
-            MeasurementPoint::new(
-                timestamp,
-                metric_id,
-                Resource::LocalMachine,
-                resource_consumer,
-                value_measured,
-            )
-            .with_attr("uid", AttributeValue::String(metrics_param.pod_uid.clone()))
-            .with_attr("name", AttributeValue::String(metrics_param.pod_name.clone()))
-            .with_attr("namespace", AttributeValue::String(metrics_param.namespace.clone()))
-            .with_attr("node", AttributeValue::String(metrics_param.node.clone()))
-        }
-
-        let mut buffer = String::new();
-        let metrics = gather_value(&mut self.cgroup_v2_metric_file, &mut buffer)?;
-        let diff_tot = self.time_tot.update(metrics.cpu_time_total).difference();
-        let diff_usr = self.time_usr.update(metrics.cpu_time_user_mode).difference();
-        let diff_sys = self.time_sys.update(metrics.cpu_time_system_mode).difference();
-
-        // Push cpu total usage measure for user and system
-        if let Some(value_tot) = diff_tot {
-            let p_tot = create_measurement_point(
-                timestamp,
-                self.cpu_time_delta,
-                self.cgroup_v2_metric_file.consumer_cpu.clone(),
-                value_tot,
-                &metrics,
-            )
-            .with_attr("kind", "total");
-            measurements.push(p_tot);
-        }
-
-        // Push cpu usage measure for user
-        if let Some(value_usr) = diff_usr {
-            let p_usr = create_measurement_point(
-                timestamp,
-                self.cpu_time_delta,
-                self.cgroup_v2_metric_file.consumer_cpu.clone(),
-                value_usr,
-                &metrics,
-            )
-            .with_attr("kind", "user");
-            measurements.push(p_usr);
-        }
-
-        // Push cpu usage measure for system
-        if let Some(value_sys) = diff_sys {
-            let p_sys = create_measurement_point(
-                timestamp,
-                self.cpu_time_delta,
-                self.cgroup_v2_metric_file.consumer_cpu.clone(),
-                value_sys,
-                &metrics,
-            )
-            .with_attr("kind", "system");
-            measurements.push(p_sys);
-        }
-
-        // Push resident memory usage corresponding to running process
-        let mem_usage_value = metrics.memory_usage_resident;
-        let m_usage_resident = create_measurement_point(
-            timestamp,
-            self.memory_usage,
-            self.cgroup_v2_metric_file.consumer_memory_current.clone(),
-            mem_usage_value,
-            &metrics,
-        )
-        .with_attr("kind", "resident");
-        measurements.push(m_usage_resident);
-
-        // Push anonymous used memory measure corresponding to running process and various allocated memory
-        let mem_anon_value = metrics.memory_anonymous;
-        let m_anon = create_measurement_point(
-            timestamp,
-            self.memory_anon,
-            self.cgroup_v2_metric_file.consumer_memory_stat.clone(),
-            mem_anon_value,
-            &metrics,
-        );
-        measurements.push(m_anon);
-
-        // Push files memory measure, corresponding to open files and descriptors
-        let mem_file_value = metrics.memory_file;
-        let m_file = create_measurement_point(
-            timestamp,
-            self.memory_file,
-            self.cgroup_v2_metric_file.consumer_memory_stat.clone(),
-            mem_file_value,
-            &metrics,
-        );
-        measurements.push(m_file);
-
-        // Push kernel memory measure
-        let mem_kernel_value = metrics.memory_kernel;
-        let m_ker = create_measurement_point(
-            timestamp,
-            self.memory_kernel,
-            self.cgroup_v2_metric_file.consumer_memory_stat.clone(),
-            mem_kernel_value,
-            &metrics,
-        );
-        measurements.push(m_ker);
-
-        // Push pagetables memory measure
-        let mem_pagetables_value = metrics.memory_pagetables;
-        let m_pgt = create_measurement_point(
-            timestamp,
-            self.memory_pagetables,
-            self.cgroup_v2_metric_file.consumer_memory_stat.clone(),
-            mem_pagetables_value,
-            &metrics,
-        );
-        measurements.push(m_pgt);
-
+        self.cgroupv2.collect_measurements(timestamp, measurements)?;
         Ok(())
     }
+}
+
+pub fn get_all_pod_probes(
+    root_directory_path: &Path,
+    hostname: String,
+    kubernetes_api_url: String,
+    token: &Token,
+    metrics: Metrics,
+) -> Result<Vec<K8SPodProbe>> {
+    let mut probes: Vec<K8SPodProbe> = Vec::new();
+
+    if !root_directory_path.exists() {
+        return Ok(probes);
+    }
+
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let pods_infos_by_uid = rt.block_on(async { get_node_pods_infos(&hostname, &kubernetes_api_url, token).await })?;
+
+    for entry in WalkDir::new(root_directory_path)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_dir())
+    {
+        let path = entry.path();
+        if is_cgroup_pod_dir(path) {
+            let pod_uid = get_uid_from_cgroup_dir(path)?;
+
+            let empty_pod_infos = PodInfos::default();
+            let pod_infos = pods_infos_by_uid.get(&pod_uid).unwrap_or(&empty_pod_infos);
+
+            probes.push(get_pod_probe(
+                path.to_path_buf(),
+                metrics.clone(),
+                pod_uid,
+                pod_infos.name.clone(),
+                pod_infos.namespace.clone(),
+                pod_infos.node.clone(),
+            )?);
+        }
+    }
+
+    Ok(probes)
+}
+
+pub fn get_pod_probe(
+    path: PathBuf,
+    metrics: Metrics,
+    uid: String,
+    name: String,
+    namespace: String,
+    node: String,
+) -> anyhow::Result<K8SPodProbe> {
+    let base_attrs = vec![
+        ("uid".to_string(), AttributeValue::String(uid.clone())),
+        ("name".to_string(), AttributeValue::String(name.clone())),
+        ("namespace".to_string(), AttributeValue::String(namespace.clone())),
+        ("node".to_string(), AttributeValue::String(node.clone())),
+    ];
+    let mut cgroup_probe = Cgroupv2Probe::new_from_cgroup_dir(path, metrics)?;
+    cgroup_probe.add_additional_attrs(base_attrs);
+    if let Some(cpu_stat) = &mut cgroup_probe.cpu_stat {
+        cpu_stat.add_usage_additional_attrs(Vec::new());
+    }
+    K8SPodProbe::new(uid.to_string(), name, namespace, cgroup_probe)
 }
