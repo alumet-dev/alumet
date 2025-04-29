@@ -8,9 +8,21 @@ use std::{
 
 use anyhow::{anyhow, Context};
 use base64::{prelude::BASE64_STANDARD_NO_PAD, Engine};
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-use super::plugin::TokenRetrieval;
+#[derive(Clone, Deserialize, Serialize, PartialEq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum TokenRetrieval {
+    Kubectl,
+    File(String),
+}
+
+impl TokenRetrieval {
+    pub fn default_file() -> TokenRetrieval {
+        Self::File("/var/run/secrets/kubernetes.io/serviceaccount/token".to_string())
+    }
+}
 
 /// Kubernetes token and way to retrieve it.
 #[derive(Debug)]
@@ -19,8 +31,6 @@ pub struct Token {
     retrieval: TokenRetrieval,
     /// Thread safe token data.
     data: Arc<RwLock<TokenData>>,
-    /// Public path for a token if we store it in a file.
-    pub path: Option<String>,
 }
 
 /// Private structure that holds the JWT token data.
@@ -40,8 +50,19 @@ impl Token {
                 expiration_time: None,
                 value: None,
             })),
-            path: None,
         }
+    }
+
+    pub fn with_kubectl() -> Self {
+        Self::new(TokenRetrieval::Kubectl)
+    }
+
+    pub fn with_file(path: String) -> Self {
+        Self::new(TokenRetrieval::File(path))
+    }
+
+    pub fn with_default_file() -> Self {
+        Self::new(TokenRetrieval::default_file())
     }
 
     /// Check if the token' lifetime has reached its expiration or not.
@@ -76,7 +97,7 @@ impl Token {
     /// Retrieves the k8s API token using either a kubectl command
     /// or by reading  the service account token's file.
     async fn refresh(&self) -> anyhow::Result<String> {
-        let token = match self.retrieval {
+        let token = match &self.retrieval {
             TokenRetrieval::Kubectl => {
                 let output = Command::new("kubectl")
                     .args(["create", "token", "alumet-reader", "-n", "alumet"])
@@ -94,12 +115,7 @@ impl Token {
                 token.trim().to_string()
             }
 
-            TokenRetrieval::File => {
-                let token_path = match &self.path {
-                    Some(path_value) => path_value.clone(),
-                    None => "/var/run/secrets/kubernetes.io/serviceaccount/token".to_string(),
-                };
-
+            TokenRetrieval::File(token_path) => {
                 let mut file = File::open(token_path).context("Could not retrieve the file")?;
                 let mut token = String::new();
                 file.read_to_string(&mut token)?;
@@ -161,8 +177,7 @@ mod tests {
     // Test `get_value` function to get token with valid value
     #[tokio::test]
     async fn test_get_value_with_valid_value() {
-        let retrieval = TokenRetrieval::File;
-        let token = Token::new(retrieval);
+        let token = Token::with_default_file();
 
         {
             // Expand the expiration of the token to make it still valid.
@@ -180,8 +195,7 @@ mod tests {
     // Test `get_value` function to returns error when value is none
     #[tokio::test]
     async fn test_get_value_with_invalid_value() {
-        let retrieval = TokenRetrieval::File;
-        let token = Token::new(retrieval);
+        let token = Token::with_default_file();
 
         {
             // Expand the expiration of the token to make it still valid.
@@ -197,7 +211,7 @@ mod tests {
     // Test `is_valid` function
     #[tokio::test]
     async fn test_is_valid() {
-        let token: Token = Token::new(TokenRetrieval::File);
+        let token = Token::with_default_file();
         assert!(!token.is_valid().await);
         {
             let mut new_data = token.data.write().await;
@@ -249,8 +263,7 @@ mod tests {
 
         std::fs::write(&path, content).unwrap();
 
-        let mut token = Token::new(TokenRetrieval::File);
-        token.path = Some(path.to_str().unwrap().to_owned());
+        let mut token = Token::with_file(path.to_str().unwrap().to_owned());
         let result = token.refresh().await;
 
         assert!(result.is_ok());
@@ -283,8 +296,7 @@ mod tests {
 
         std::fs::write(&path, content).unwrap();
 
-        let mut token = Token::new(TokenRetrieval::File);
-        token.path = Some(path.to_str().unwrap().to_owned());
+        let mut token = Token::with_file(path.to_str().unwrap().to_owned());
         let result = token.refresh().await;
 
         assert!(result.is_err());

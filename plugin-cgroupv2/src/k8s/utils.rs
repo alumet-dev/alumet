@@ -465,7 +465,7 @@ pub async fn get_pod_name(
 
 #[cfg(test)]
 mod tests {
-    use super::{super::plugin::TokenRetrieval, *};
+    use super::{super::token::TokenRetrieval, *};
     use mockito::Server;
     use serde_json::json;
     use std::{fs::File, path::PathBuf};
@@ -494,7 +494,7 @@ mod tests {
         std::fs::create_dir_all(&sub_dir).unwrap();
         std::fs::write(sub_dir.join("cpu.stat"), "test_cpu").unwrap();
 
-        let result = list_metric_file_in_dir(&dir, "", "", &Token::new(TokenRetrieval::Kubectl));
+        let result = list_metric_file_in_dir(&dir, "", "", &Token::with_kubectl());
         assert!(result.is_err());
 
         let sub_dir = [
@@ -514,7 +514,7 @@ mod tests {
             std::fs::write(sub_dir[i].join("memory.current"), "test_memory_current").unwrap();
         }
 
-        let list_met_file = list_metric_file_in_dir(&dir, "", "", &Token::new(TokenRetrieval::Kubectl));
+        let list_met_file = list_metric_file_in_dir(&dir, "", "", &Token::with_kubectl());
         let list_pod_name = [
             "pod32a1942cb9a81912549c152a49b5f9b1",
             "podd9209de2b4b526361248c9dcf3e702c0",
@@ -919,7 +919,7 @@ mod tests {
         let root = PathBuf::from("invalid");
         let hostname = "test-host".to_string();
         let kubernetes_api_url = "https://127.0.0.1:8080".to_string();
-        let token = Token::new(TokenRetrieval::Kubectl);
+        let token = Token::with_kubectl();
 
         let result = list_all_k8s_pods_file(&root, hostname, kubernetes_api_url, &token);
         assert!(result.unwrap().is_empty());
@@ -931,7 +931,7 @@ mod tests {
         let temp = tempdir()?;
         let hostname = "test-host".to_string();
         let kubernetes_api_url = "https://127.0.0.1:8080".to_string();
-        let token = Token::new(TokenRetrieval::Kubectl);
+        let token = Token::with_kubectl();
 
         fs::create_dir(temp.path().join("folder1"))?;
         fs::create_dir(temp.path().join("folder2"))?;
@@ -947,7 +947,7 @@ mod tests {
         let temp_dir = tempdir()?;
         let hostname = "test-host".to_string();
         let kubernetes_api_url = "https://127.0.0.1:8080".to_string();
-        let token = Token::new(TokenRetrieval::Kubectl);
+        let token = Token::with_kubectl();
 
         let slice_dir = temp_dir.path().join("folder1.slice");
         fs::create_dir(&slice_dir)?;
@@ -976,9 +976,7 @@ mod tests {
         std::fs::write(&path, TOKEN_CONTENT).unwrap();
 
         let node = "test_node";
-        let mut token = Token::new(TokenRetrieval::File);
-
-        token.path = Some(path.to_str().unwrap().to_owned());
+        let mut token = Token::with_file(path.to_str().unwrap().to_owned());
 
         let result = get_existing_pods(node, "", &token).await;
         assert!(result.is_ok());
@@ -1046,9 +1044,7 @@ mod tests {
             .await;
 
         let kubernetes_api_url = server.url();
-        let mut token = Token::new(TokenRetrieval::File);
-
-        token.path = Some(path.to_str().unwrap().to_owned());
+        let mut token = Token::with_file(path.to_str().unwrap().to_owned());
 
         let result = get_existing_pods(node, kubernetes_api_url.as_str(), &token)
             .await
@@ -1108,9 +1104,7 @@ mod tests {
             .await;
 
         let kubernetes_api_url = server.url();
-        let mut token = Token::new(TokenRetrieval::File);
-
-        token.path = Some(path.to_str().unwrap().to_owned());
+        let mut token = Token::with_file(path.to_str().unwrap().to_owned());
 
         let result = get_existing_pods(node, kubernetes_api_url.as_str(), &token)
             .await
@@ -1160,9 +1154,7 @@ mod tests {
             .await;
 
         let kubernetes_api_url = server.url();
-        let mut token = Token::new(TokenRetrieval::File);
-
-        token.path = Some(path.to_str().unwrap().to_owned());
+        let mut token = Token::with_file(path.to_str().unwrap().to_owned());
 
         let result = get_existing_pods(node, kubernetes_api_url.as_str(), &token).await;
         assert!(result.is_ok());
@@ -1204,9 +1196,7 @@ mod tests {
             .await;
 
         let kubernetes_api_url = server.url();
-        let mut token = Token::new(TokenRetrieval::File);
-
-        token.path = Some(path.to_str().unwrap().to_owned());
+        let mut token = Token::with_file(path.to_str().unwrap().to_owned());
 
         let result = get_existing_pods(node, kubernetes_api_url.as_str(), &token).await;
         assert!(result.is_ok());
@@ -1220,7 +1210,7 @@ mod tests {
     async fn test_get_pod_name_with_empty_url() {
         let uid = "test_uid";
         let node = "test_node";
-        let token = Token::new(TokenRetrieval::File);
+        let token = Token::with_default_file();
 
         let result = get_pod_name(uid, node, "", &token).await;
         assert!(result.is_ok());
@@ -1249,9 +1239,7 @@ mod tests {
 
         let uid = "test_uid";
         let node = "test_node";
-        let mut token = Token::new(TokenRetrieval::File);
-
-        token.path = Some(path.to_str().unwrap().to_owned());
+        let mut token = Token::with_file(path.to_str().unwrap().to_owned());
 
         let result = get_pod_name(uid, node, "", &token).await;
         assert!(result.is_ok());
@@ -1320,9 +1308,7 @@ mod tests {
 
         let uid = "hash1";
         let kubernetes_api_url = server.url();
-        let mut token = Token::new(TokenRetrieval::File);
-
-        token.path = Some(path.to_str().unwrap().to_owned());
+        let mut token = Token::with_file(path.to_str().unwrap().to_owned());
 
         let result = get_pod_name(uid, node, kubernetes_api_url.as_str(), &token)
             .await
@@ -1378,9 +1364,7 @@ mod tests {
 
         let uid = "hash1";
         let kubernetes_api_url = server.url();
-        let mut token = Token::new(TokenRetrieval::File);
-
-        token.path = Some(path.to_str().unwrap().to_owned());
+        let mut token = Token::with_file(path.to_str().unwrap().to_owned());
 
         let result = get_pod_name(uid, node, kubernetes_api_url.as_str(), &token)
             .await
@@ -1429,9 +1413,7 @@ mod tests {
 
         let uid = "hash1";
         let kubernetes_api_url = server.url();
-        let mut token = Token::new(TokenRetrieval::File);
-
-        token.path = Some(path.to_str().unwrap().to_owned());
+        let mut token = Token::with_file(path.to_str().unwrap().to_owned());
 
         let result = get_pod_name(uid, node, kubernetes_api_url.as_str(), &token).await;
         assert!(result.is_ok());
@@ -1500,9 +1482,7 @@ mod tests {
 
         let uid = "invalid";
         let kubernetes_api_url = server.url();
-        let mut token = Token::new(TokenRetrieval::File);
-
-        token.path = Some(path.to_str().unwrap().to_owned());
+        let mut token = Token::with_file(path.to_str().unwrap().to_owned());
 
         let result = get_pod_name(uid, node, kubernetes_api_url.as_str(), &token).await;
         assert!(result.is_ok());
@@ -1547,9 +1527,7 @@ mod tests {
 
         let uid = "invalid";
         let kubernetes_api_url = server.url();
-        let mut token = Token::new(TokenRetrieval::File);
-
-        token.path = Some(path.to_str().unwrap().to_owned());
+        let mut token = Token::with_file(path.to_str().unwrap().to_owned());
 
         let result = get_pod_name(uid, node, kubernetes_api_url.as_str(), &token).await;
         assert!(result.is_ok());
