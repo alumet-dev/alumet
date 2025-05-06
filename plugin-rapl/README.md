@@ -12,7 +12,7 @@ The RAPL plugin creates an Alumet **source** that collects measurements of Intel
 
 Here are the metrics collected by the plugin source.
 
-|name|type|unit|description|attributes|more informations|
+|Name|Type|Unit|Description|Attributes|More informations|
 |----|----|----|-----------|----------|-----------------|
 |rapl_consumed_energy|Counter Diff|Joule|Energy consumed since the previous measurement|domain||
 
