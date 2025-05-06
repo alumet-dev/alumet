@@ -1,8 +1,8 @@
-# Description
+# 📄 Description
 
 The RAPL plugin creates an Alumet **source** that collects measurements of Intel processors' energy usage via [RAPL interfaces](https://www.intel.com/content/www/us/en/developer/articles/technical/software-security-guidance/advisory-guidance/running-average-power-limit-energy-reporting.html), such as perf event and powercap.
 
-# Requirements
+# ⚙️ Requirements
 
 - Linux (the plugin relies on abstractions provided by the kernel)
 
@@ -14,15 +14,15 @@ If you want to use perf event over powercap (see [should I use perf event or pow
 
 For Alumet setup under containers, be sure to follow these instructions about RAPL: https://github.com/alumet-dev/packaging/blob/main/docker/README.md#using-rapl-plugin .
 
-# Metrics
+# 📊Metrics
 
 Here are the metrics collected by the plugin source.
 
 |name|type|unit|description|attributes|more informations|
 |----|----|----|-----------|----------|-----------------|
-|rapl_consumed_energy|Counter Diff|Joule|Energy consumed since the previous measurement||
+|rapl_consumed_energy|Counter Diff|Joule|Energy consumed since the previous measurement|domain||
 
-# Configuration
+# 🛠️Configuration
 
 ```toml
 [plugins.rapl]
