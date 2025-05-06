@@ -14,15 +14,16 @@ Here are the metrics collected by the plugin source.
 
 |Name|Type|Unit|Description|Attributes|More informations|
 |----|----|----|-----------|----------|-----------------|
-|rapl_consumed_energy|Counter Diff|Joule|Energy consumed since the previous measurement|domain||
+|rapl_consumed_energy|Counter Diff|Joule|Energy consumed since the previous measurement|domain (package,pp0,pp1,dram,platform)||
+
 
 # 🛠️Configuration
 
 ```toml
 [plugins.rapl]
-# Initial interval between two RAPL measurements.
+# Interval between two RAPL measurements.
 poll_interval = "1s"
-# Initial interval between two flushing of RAPL measurements.
+# Interval between two flushing of RAPL measurements.
 flush_interval = "5s"
 # Set to true to disable perf_events and always use the powercap sysfs.
 no_perf_events = false
