@@ -43,7 +43,6 @@ no_perf_events = false
 # Should I use perf-events or powercap ?
 
 While using perf-events or powercap will give you similar results, it's recommended to use perf-events to limit the measurement overhead.
-
 Note that perf-events requires some capabalities while powercap don't.
 
 If you want deep details about the difference between both you can see [this publication that deep dive into RAPL measurements](https://hal.science/hal-04420527v2/document).
