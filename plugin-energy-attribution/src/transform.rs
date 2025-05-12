@@ -9,7 +9,8 @@ use alumet::{
         elements::{error::TransformError, transform::TransformContext},
         Transform,
     },
-    resources::Resource,
+    resources::{Resource, ResourceConsumer},
+    timeseries::grouped_buffer::GroupedBuffer,
 };
 
 pub struct EnergyAttributionTransform {
