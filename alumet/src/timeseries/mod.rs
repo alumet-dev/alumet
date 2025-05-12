@@ -1,51 +1,39 @@
-use crate::measurement::{MeasurementBuffer, MeasurementPoint};
+use std::hash::Hash;
 
-pub struct TimeseriesProcessor {}
+use fxhash::FxHashMap;
 
-pub struct ProcessedTimeseries {}
+use crate::{
+    measurement::MeasurementPoint,
+    metrics::RawMetricId,
+    resources::{Resource, ResourceConsumer},
+};
 
-pub struct GroupKey {}
-pub struct Group {}
-pub struct Interpolation {}
+pub mod grouped_buffer;
+pub mod interpolate;
+pub mod window;
 
-impl TimeseriesProcessor {
-    pub fn process(m: &mut MeasurementBuffer) -> ProcessedTimeseries {
-        todo!()
-    }
+pub struct Timeseries {
+    points: Vec<MeasurementPoint>,
 }
 
-impl ProcessedTimeseries {
-    pub fn groups(&self) -> impl Iterator<Item = (GroupKey, Group)> {
-        todo!()
-    }
-
-    pub fn synchronize_on(&self, main_pace: GroupKey, interp: Interpolation) {
-        todo!()
-    }
+pub struct GroupedTimeseries<K: Eq + Hash> {
+    groups: FxHashMap<K, Timeseries>,
 }
 
-impl Group {
-    pub fn iter(&self) -> impl Iterator<Item = &Vec<&MeasurementPoint>> {
-        todo!()
-    }
-}
+#[derive(PartialEq, Eq, Hash)]
+pub struct GroupKey(RawMetricId, Resource, ResourceConsumer);
 
-mod attempt2 {
-    pub struct Timeseries;
-    pub struct GroupedTimeseries;
-    pub struct SynchronizedTimeseries;
-
-    impl Timeseries {
-        pub fn group_by(self) -> GroupedTimeseries {
-            todo!()
+impl Timeseries {
+    pub fn group(self) -> GroupedTimeseries<GroupKey> {
+        // TODO opt: reuse buffers across grouping operations
+        let mut groups: FxHashMap<GroupKey, Timeseries> = FxHashMap::default();
+        for p in self.points.into_iter() {
+            let key = GroupKey(p.metric, p.resource.clone(), p.consumer.clone());
+            groups
+                .entry(key)
+                .and_modify(|series| series.points.push(p))
+                .or_insert_with(|| Timeseries { points: Vec::new() });
         }
-        
-        
-    }
-    
-    impl GroupedTimeseries {
-        pub fn synchronize_on(self) -> SynchronizedTimeseries {
-            todo!()
-        }
+        GroupedTimeseries { groups }
     }
 }

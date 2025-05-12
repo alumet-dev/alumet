@@ -19,19 +19,6 @@ pub struct EnergyAttributionPlugin {
     config: Config,
 }
 
-struct Metrics {
-    // To attribute the CPU consumption to K8S pods, we need three metrics:
-    // - overall consumed energy per pod
-    // - overall hardware usage per pod
-    // - energy attributed to a pod
-    //
-    // Their IDs are gathered in different phases of the plugin initialization,
-    // that is why they are Options.
-    hardware_usage: RawMetricId,
-    consumed_energy: RawMetricId,
-    pod_attributed_energy: TypedMetricId<f64>,
-}
-
 impl AlumetPlugin for EnergyAttributionPlugin {
     fn name() -> &'static str {
         "energy-attribution"
@@ -93,6 +80,18 @@ impl AlumetPlugin for EnergyAttributionPlugin {
 struct Config {
     consumed_energy_rapl: String,
     hardware_usage_cgroup: String,
+}
+
+struct AttributionConfig {
+    energy_metric: String,
+    hardware_usage_metric: String,
+    result_metric: String,
+}
+
+struct AttributionMetrics {
+    energy_metric: RawMetricId,
+    hardware_usage_metric: RawMetricId,
+    result_metric: TypedMetricId<f64>,
 }
 
 impl Default for Config {
