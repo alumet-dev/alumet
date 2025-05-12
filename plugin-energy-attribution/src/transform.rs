@@ -27,7 +27,7 @@ struct Measurements {
 impl EnergyAttributionTransform {
     /// Instantiates a new EnergyAttributionTransform with its private fields initialized.
     pub fn new(metrics: super::Metrics) -> Self {
-        let nb_cores = if metrics.divide_usage_by_core_count { num_cpus::get_physical() } else { 1 };
+        let nb_cores = if metrics.divide_usage_by_core_count { num_cpus::get() } else { 1 };
         Self {
             metrics,
             buffer: HashMap::new(),
@@ -102,6 +102,7 @@ impl Transform for EnergyAttributionTransform {
                         let consumer_usage_sec = consumer_usage * factor;
 
                         // compute fraction and attribute energy
+                        log::trace!("attributed_energy({consumer:?}) = {consumer_usage_sec} s / {dt} s / {}", self.nb_cores);
                         let consumer_usage_fraction = consumer_usage_sec / dt / (self.nb_cores as f64);
                         let attributed_energy = total_energy * consumer_usage_fraction;
 
@@ -118,7 +119,7 @@ impl Transform for EnergyAttributionTransform {
                 // remove this buffer if it's old enough, otherwise keep it a little bit in case more hardware usage arrives
                 let remove = SystemTime::now()
                     .duration_since(UNIX_EPOCH.checked_add(Duration::from_secs(*t_sec)).unwrap())
-                    .map(|d| d.as_secs_f64() > 2.0)
+                    .map(|d| d.as_secs_f64() >= 2.0)
                     .unwrap_or(false);
                 !remove
             }
