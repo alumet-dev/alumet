@@ -1,7 +1,7 @@
 #[cfg(test)]
 use serde::Serialize;
 use std::fs::File;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use toml;
 
 pub trait MockFileCgroupKV: Serialize {
@@ -13,6 +13,50 @@ pub trait MockFileCgroupKV: Serialize {
                 writeln!(file, "{} {}", key.trim(), value.trim_matches('"'))?;
             }
         }
+
+        Ok(())
+    }
+
+    fn replace_to_file(&self, mut file: File) -> io::Result<()> {
+        // Lire le contenu actuel du fichier pour pouvoir le modifier
+        let mut file_content = String::new();
+        file.read_to_string(&mut file_content)?;
+
+        // Parser le contenu existant en un objet TOML (ici une Value)
+        let mut parsed_toml: toml::Value = toml::de::from_str(&file_content).unwrap_or_else(|_| toml::Value::Table(Default::default()));
+
+        // Sérialiser la structure `self` en TOML pour obtenir les nouvelles clés et valeurs
+        let toml_str = toml::to_string(self).expect("TOML serialization failed");
+
+        // Parser la nouvelle chaîne TOML
+        let new_toml: toml::Value = toml::de::from_str(&toml_str).expect("TOML deserialization failed");
+
+        // Fusionner les anciennes données avec les nouvelles
+        match new_toml {
+            toml::Value::Table(new_table) => {
+                // Si nous avons un tableau (un objet de paires clé-valeur), on le fusionne
+                let table = parsed_toml.as_table_mut().unwrap();
+                for (key, value) in new_table {
+                    table.insert(key, value);
+                }
+            }
+            _ => {}
+        }
+
+        // Réécrire le contenu mis à jour dans le fichier en utilisant un espace entre clé et valeur
+        let mut updated_toml = String::new();
+        if let Some(table) = parsed_toml.as_table() {
+            for (key, value) in table {
+                // Convertir la valeur en chaîne
+                let value_str = value.to_string();
+                // Ecrire le couple clé-valeur avec un espace
+                updated_toml.push_str(&format!("{} {}\n", key, value_str.trim_matches('"')));
+            }
+        }
+
+        // Réinitialiser le fichier avant de réécrire son contenu
+        file.set_len(0)?; // Réinitialiser le fichier à une longueur de 0
+        file.write_all(updated_toml.as_bytes())?; // Écrire le contenu modifié dans le fichier
 
         Ok(())
     }

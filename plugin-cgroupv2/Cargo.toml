@@ -30,6 +30,7 @@ reqwest = { version = "0.12.12", default-features = false, features = ["http2", 
 workspace = true
 
 [dev-dependencies]
+alumet = {path = "../alumet", features = ["test"]}
 tempfile = "3.5"
 mockito = "1.7.0"
 toml = "0.8.22"
