@@ -28,6 +28,7 @@ struct Metrics {
     consumed_energy: RawMetricId,
     attributed_energy: TypedMetricId<f64>,
     filter_energy_attr: Option<(String, String)>,
+    divide_usage_by_core_count: bool,
 }
 
 impl AlumetPlugin for EnergyAttributionPlugin {
@@ -70,6 +71,7 @@ impl AlumetPlugin for EnergyAttributionPlugin {
         let hardware_usage = self.config.hardware_usage.clone();
         let filter_energy_attr = self.config.filter_energy_attr.clone();
         let hardware_usage_poll_interval = self.config.hardware_usage_poll_interval.clone();
+        let divide_usage_by_core_count = self.config.divide_usage_by_core_count;
 
         // Add the transform builder and its metrics
         alumet.add_transform_builder("transform", move |ctx| {
@@ -88,6 +90,7 @@ impl AlumetPlugin for EnergyAttributionPlugin {
                 consumed_energy,
                 attributed_energy,
                 filter_energy_attr,
+                divide_usage_by_core_count,
             };
 
             let transform = Box::new(EnergyAttributionTransform::new(metrics));
@@ -108,6 +111,7 @@ struct Config {
     #[serde(with = "humantime_serde")]
     hardware_usage_poll_interval: Duration,
     filter_energy_attr: Option<(String, String)>,
+    divide_usage_by_core_count: bool,
 }
 
 impl Default for Config {
@@ -117,6 +121,7 @@ impl Default for Config {
             hardware_usage: String::from("cpu_time_delta"),
             hardware_usage_poll_interval: Duration::from_secs(2),
             filter_energy_attr: Some((String::from("domain"), String::from("package"))),
+            divide_usage_by_core_count: true,
         }
     }
 }

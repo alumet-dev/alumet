@@ -15,6 +15,7 @@ use alumet::{
 pub struct EnergyAttributionTransform {
     pub metrics: super::Metrics,
     buffer: HashMap<u64, Measurements>,
+    nb_cores: usize,
 }
 
 #[derive(Debug, Default)]
@@ -26,9 +27,11 @@ struct Measurements {
 impl EnergyAttributionTransform {
     /// Instantiates a new EnergyAttributionTransform with its private fields initialized.
     pub fn new(metrics: super::Metrics) -> Self {
+        let nb_cores = if metrics.divide_usage_by_core_count { num_cpus::get_physical() } else { 1 };
         Self {
             metrics,
             buffer: HashMap::new(),
+            nb_cores,
         }
     }
 }
@@ -99,7 +102,7 @@ impl Transform for EnergyAttributionTransform {
                         let consumer_usage_sec = consumer_usage * factor;
 
                         // compute fraction and attribute energy
-                        let consumer_usage_fraction = consumer_usage_sec / dt;
+                        let consumer_usage_fraction = consumer_usage_sec / dt / (self.nb_cores as f64);
                         let attributed_energy = total_energy * consumer_usage_fraction;
 
                         // push the result
