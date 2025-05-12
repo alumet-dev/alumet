@@ -262,6 +262,18 @@ impl UnitPrefix {
             UnitPrefix::Giga => "G",
         }
     }
+
+    pub fn scale_f64(&self) -> f64 {
+        match self {
+            UnitPrefix::Nano => 1e-9,
+            UnitPrefix::Micro => 1e-6,
+            UnitPrefix::Milli => 1e-3,
+            UnitPrefix::Plain => 1.0,
+            UnitPrefix::Kilo => 1e3,
+            UnitPrefix::Mega => 1e6,
+            UnitPrefix::Giga => 1e9,
+        }
+    }
 }
 
 impl Display for UnitPrefix {

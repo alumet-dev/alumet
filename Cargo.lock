@@ -2514,6 +2514,7 @@ version = "0.1.0"
 dependencies = [
  "alumet",
  "anyhow",
+ "humantime-serde",
  "log",
  "serde",
  "serde_json",

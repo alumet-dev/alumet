@@ -321,7 +321,7 @@ mod config {
                     flush_interval: Duration::from_secs(4),
                 }],
                 events: EventModeProcessMonitoring {
-                    poll_interval: Duration::from_secs(1),
+                    poll_interval: Duration::from_secs(2),
                     flush_interval: Duration::from_secs(4),
                 },
             }

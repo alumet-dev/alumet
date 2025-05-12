@@ -261,6 +261,13 @@ impl WrappedMeasurementValue {
             WrappedMeasurementValue::U64(_) => WrappedMeasurementType::U64,
         }
     }
+
+    pub fn as_f64(&self) -> f64 {
+        match self {
+            WrappedMeasurementValue::F64(x) => *x,
+            WrappedMeasurementValue::U64(x) => *x as f64,
+        }
+    }
 }
 
 /// An attribute value of any supported attribute type.
