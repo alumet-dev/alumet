@@ -155,35 +155,7 @@ jobs:
             SKIP_BINDGEN: "true"
 
 workflows:
-  # Workflow for external PRs: require manual approval for long jobs.
-  rust_workflow_external:
-    when:
-      matches: { value: "<< pipeline.git.branch >>", pattern: "^pull\\/.+$" }
-
-    jobs:
-      # Format check is very fast and not risky, do it automatically
-      - check_format
-
-      # Other jobs require an approval to run.
-      - build_and_test:
-          requires: [hold]
-      - build_on_musl:
-          requires: [hold]
-      - lint:
-          requires: [hold]
-      - miri_test:
-          requires: [hold]
-
-      - hold:
-          type: approval # The job will wait for a manual approval in CircleCI web UI.
-          requires:
-            - check_format
-
-  # Workflow for internal branches: execute automatically.
-  rust_workflow_internal:
-    when:
-      matches: { value: "<< pipeline.git.branch >>", pattern: "^(?!pull\\/).+$" }
-
+  rust_workflow_circle:
     jobs:
       - check_format
       - build_and_test
