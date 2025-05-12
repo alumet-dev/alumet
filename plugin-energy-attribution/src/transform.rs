@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -14,7 +14,7 @@ use alumet::{
 
 pub struct EnergyAttributionTransform {
     pub metrics: super::Metrics,
-    buffer: HashMap<u64, Measurements>,
+    buffer: BTreeMap<u64, Measurements>,
     nb_cores: usize,
 }
 
@@ -27,10 +27,14 @@ struct Measurements {
 impl EnergyAttributionTransform {
     /// Instantiates a new EnergyAttributionTransform with its private fields initialized.
     pub fn new(metrics: super::Metrics) -> Self {
-        let nb_cores = if metrics.divide_usage_by_core_count { num_cpus::get() } else { 1 };
+        let nb_cores = if metrics.divide_usage_by_core_count {
+            num_cpus::get()
+        } else {
+            1
+        };
         Self {
             metrics,
-            buffer: HashMap::new(),
+            buffer: BTreeMap::new(),
             nb_cores,
         }
     }
@@ -56,9 +60,21 @@ impl Transform for EnergyAttributionTransform {
             }
         }
 
+        /// Rounds UP to a multiple of `multiple`.
+        fn round_to_multiple(n: u64, multiple: u64) -> u64 {
+            (n as f64 / multiple as f64).ceil() as u64 * multiple
+        }
+
         // fill buffers
         for m in measurements.iter() {
             let t_sec = m.timestamp.to_unix_timestamp().0; // take the whole second only => does not work if freq > 1Hz
+
+            // round to group multiple values together, depending on the frequency
+            // NOTE: we need energy poll_interval >= usage poll_interval
+            let t_sec = round_to_multiple(
+                t_sec,
+                self.metrics.hardware_usage_poll_interval.as_secs_f64().ceil() as u64,
+            );
             if m.metric == energy_metric && pass_attr_filter(m, &self.metrics.filter_energy_attr) {
                 self.buffer
                     .entry(t_sec)
@@ -80,7 +96,15 @@ impl Transform for EnergyAttributionTransform {
 
         // compute energy attribution
         self.buffer.retain(|t_sec, data| {
-            if data.energy_by_resource.is_empty() || data.usage_by_consumer.is_empty() {
+            let data_age_secs = SystemTime::now()
+                .duration_since(UNIX_EPOCH.checked_add(Duration::from_secs(*t_sec)).unwrap())
+                .map(|d| d.as_secs_f64())
+                .unwrap_or(0.0);
+
+            if data.energy_by_resource.is_empty()
+                || data.usage_by_consumer.is_empty()
+                || data_age_secs < self.metrics.sources_max_flush_interval.as_secs_f64()
+            {
                 true // keep this buffer a bit longer (wait for more data)
             } else {
                 // LIMITATION: only works at freq >= 1Hz and if hardware_usage_poll_interval matches the pol_interval of the hardware usage
@@ -102,7 +126,10 @@ impl Transform for EnergyAttributionTransform {
                         let consumer_usage_sec = consumer_usage * factor;
 
                         // compute fraction and attribute energy
-                        log::trace!("attributed_energy({consumer:?}) = {consumer_usage_sec} s / {dt} s / {}", self.nb_cores);
+                        log::trace!(
+                            "attributed_energy({consumer:?}) = {consumer_usage_sec} s / {dt} s / {}",
+                            self.nb_cores
+                        );
                         let consumer_usage_fraction = consumer_usage_sec / dt / (self.nb_cores as f64);
                         let attributed_energy = total_energy * consumer_usage_fraction;
 
@@ -117,10 +144,7 @@ impl Transform for EnergyAttributionTransform {
                     }
                 }
                 // remove this buffer if it's old enough, otherwise keep it a little bit in case more hardware usage arrives
-                let remove = SystemTime::now()
-                    .duration_since(UNIX_EPOCH.checked_add(Duration::from_secs(*t_sec)).unwrap())
-                    .map(|d| d.as_secs_f64() >= 2.0)
-                    .unwrap_or(false);
+                let remove = data_age_secs >= self.metrics.hardware_usage_poll_interval.as_secs_f64() + 1.0;
                 !remove
             }
         });

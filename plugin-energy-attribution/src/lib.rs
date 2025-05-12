@@ -29,6 +29,7 @@ struct Metrics {
     attributed_energy: TypedMetricId<f64>,
     filter_energy_attr: Option<(String, String)>,
     divide_usage_by_core_count: bool,
+    sources_max_flush_interval: Duration,
 }
 
 impl AlumetPlugin for EnergyAttributionPlugin {
@@ -37,13 +38,7 @@ impl AlumetPlugin for EnergyAttributionPlugin {
     }
 
     fn version() -> &'static str {
-        env!("CARGO_PKG_VERSION") // To attribute the CPU consumption to K8S pods or processes, we need three metrics:
-                                  // - overall consumed energy per pod
-                                  // - overall hardware usage per pod
-                                  // - energy attributed to a pod
-                                  //
-                                  // Their IDs are gathered in different phases of the plugin initialization,
-                                  // that is why they are Options.
+        env!("CARGO_PKG_VERSION")
     }
 
     fn default_config() -> anyhow::Result<Option<ConfigTable>> {
@@ -72,6 +67,7 @@ impl AlumetPlugin for EnergyAttributionPlugin {
         let filter_energy_attr = self.config.filter_energy_attr.clone();
         let hardware_usage_poll_interval = self.config.hardware_usage_poll_interval.clone();
         let divide_usage_by_core_count = self.config.divide_usage_by_core_count;
+        let sources_max_flush_interval = self.config.sources_max_flush_interval.clone();
 
         // Add the transform builder and its metrics
         alumet.add_transform_builder("transform", move |ctx| {
@@ -91,6 +87,7 @@ impl AlumetPlugin for EnergyAttributionPlugin {
                 attributed_energy,
                 filter_energy_attr,
                 divide_usage_by_core_count,
+                sources_max_flush_interval,
             };
 
             let transform = Box::new(EnergyAttributionTransform::new(metrics));
@@ -110,6 +107,8 @@ struct Config {
     hardware_usage: String,
     #[serde(with = "humantime_serde")]
     hardware_usage_poll_interval: Duration,
+    #[serde(with = "humantime_serde")]
+    sources_max_flush_interval: Duration,
     filter_energy_attr: Option<(String, String)>,
     divide_usage_by_core_count: bool,
 }
@@ -122,6 +121,7 @@ impl Default for Config {
             hardware_usage_poll_interval: Duration::from_secs(2),
             filter_energy_attr: Some((String::from("domain"), String::from("package"))),
             divide_usage_by_core_count: true,
+            sources_max_flush_interval: Duration::from_secs(4),
         }
     }
 }

@@ -284,7 +284,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             poll_interval: Duration::from_secs(1), // 1Hz
-            flush_interval: Duration::from_secs(5),
+            flush_interval: Duration::from_secs(1),
             no_perf_events: false, // prefer perf_events
         }
     }
