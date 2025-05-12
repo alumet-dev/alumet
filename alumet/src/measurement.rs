@@ -77,7 +77,7 @@ pub struct MeasurementPoint {
 ///
 /// This opaque type is currently a wrapper around [`SystemTime`],
 /// but this could change in the future.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd)]
 pub struct Timestamp(pub(crate) SystemTime);
 
 impl MeasurementPoint {

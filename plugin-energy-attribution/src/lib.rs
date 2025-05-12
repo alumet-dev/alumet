@@ -99,6 +99,18 @@ struct Config {
     hardware_usage_metric_filter: Option<HashMap<String, String>>,
 }
 
+struct AttributionConfig {
+    energy_metric: String,
+    hardware_usage_metric: String,
+    result_metric: String,
+}
+
+struct AttributionMetrics {
+    energy_metric: RawMetricId,
+    hardware_usage_metric: RawMetricId,
+    result_metric: TypedMetricId<f64>,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
