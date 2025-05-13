@@ -1,6 +1,6 @@
 [package]
 name = "alumet-agent"
-version = "0.8.1"
+version = "0.8.2"
 edition = "2021"
 rust-version = "1.78"
 description = "Agent that collects energy and performance metrics."
