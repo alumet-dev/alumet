@@ -1,6 +1,7 @@
 //! InfluxDB2 API.
 
 use alumet::measurement::Timestamp;
+use anyhow::Context;
 use reqwest::{header, Url};
 use std::{
     borrow::Cow,
@@ -45,7 +46,14 @@ impl Client {
             .body(data.0)
             .send()
             .await?;
-        res.error_for_status()?;
+        match res.error_for_status_ref() {
+            Ok(_) => (),
+            Err(err) => {
+                let response = res.text().await.context("failed to get a response from the server")?;
+                log::error!("InfluxDB2 client error: {err}\nServer response: {response}");
+                return Err(err.into());
+            }
+        }
         Ok(())
     }
 
