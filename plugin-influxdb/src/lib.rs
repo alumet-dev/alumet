@@ -3,7 +3,10 @@ use std::collections::HashSet;
 use alumet::{
     measurement::{AttributeValue, MeasurementBuffer, WrappedMeasurementValue},
     pipeline::{
-        elements::{error::WriteError, output::OutputContext},
+        elements::{
+            error::WriteError,
+            output::{error::WriteRetry, OutputContext},
+        },
         Output,
     },
     plugin::rust::{deserialize_config, serialize_config, AlumetPlugin},
@@ -156,7 +159,8 @@ impl Output for InfluxDbOutput {
         let handle = tokio::runtime::Handle::current();
         handle
             .block_on(self.client.write(&self.org, &self.bucket, data))
-            .context("failed to write measurements to InfluxDB")?;
+            .context("failed to write measurements to InfluxDB")
+            .retry_write()?;
         Ok(())
     }
 }
