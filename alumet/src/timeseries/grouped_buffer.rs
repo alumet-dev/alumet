@@ -1,8 +1,12 @@
-use std::{collections::HashMap, hash::Hash};
+use std::{collections::HashMap, hash::Hash, ops::RangeInclusive, time::SystemTime};
 
 use fxhash::{FxBuildHasher, FxHashMap, FxHasher};
 
-use crate::measurement::{MeasurementBuffer, MeasurementPoint};
+use crate::{
+    measurement::{MeasurementBuffer, MeasurementPoint, Timestamp},
+    metrics::RawMetricId,
+    resources::{Resource, ResourceConsumer},
+};
 
 use super::{interpolate::InterpolationReference, Timeseries};
 
@@ -20,35 +24,78 @@ impl<K: Key> GroupedBuffer<K> {
             let key = K::new(p);
             self.groups
                 .entry(key)
-                .or_insert_with(|| Timeseries { points: Vec::new() })
+                .or_insert_with(Default::default)
                 .points
                 .push(p.to_owned());
         }
+    }
+
+    pub fn push(&mut self, key: K, p: MeasurementPoint) {
+        self.groups.entry(key).or_insert_with(Default::default).points.push(p);
     }
 
     pub fn get(&self, key: &K) -> Option<&Timeseries> {
         self.groups.get(key)
     }
 
-    pub fn extract_common_range(&mut self, around_ref: &K) -> Option<i32> {
-        let mut indices: FxHashMap<K, usize> =
-            HashMap::with_capacity_and_hasher(self.groups.len(), FxBuildHasher::new());
-        // initialization: start at the end of each timeseries
-        for (k, v) in &self.groups {
-            if v.points.len() == 0 {
-                return None;
-            }
-            indices.insert(k.to_owned(), v.points.len() - 1);
+    pub fn extract_common_range(&mut self, temporal_reference_key: &K) -> Option<RangeInclusive<Timestamp>> {
+        let ref_series = self.groups.remove(temporal_reference_key).unwrap();
+        assert!(!self.groups.is_empty());
+        let inf = self
+            .groups
+            .values()
+            .map(|series| series.first().unwrap().timestamp)
+            .max()
+            .unwrap();
+        let sup = self
+            .groups
+            .values()
+            .map(|series| series.last().unwrap().timestamp)
+            .min()
+            .unwrap();
+        let ref_first = ref_series
+            .points
+            .iter()
+            .map(|p| p.timestamp)
+            .filter(|t| t >= &inf)
+            .next();
+        let ref_last = ref_series
+            .points
+            .iter()
+            .rev()
+            .map(|p| p.timestamp)
+            .filter(|t| t <= &sup)
+            .next();
+        self.groups.insert(temporal_reference_key.to_owned(), ref_series);
+        if let (Some(a), Some(b)) = (ref_first, ref_last) {
+            Some(RangeInclusive::new(a, b))
+        } else {
+            None
         }
+    }
+}
 
-        // start at the end of the reference timeseries
-        let mut ref_series = self.groups.get(around_ref).unwrap();
-        let mut ref_i = indices.get(around_ref).unwrap();
-        let mut ref_t = ref_series.points.get(*ref_i).unwrap().timestamp;
+// Standard possible keys (the trait can be implemented by external crate).
+impl Key for RawMetricId {
+    fn new(p: &MeasurementPoint) -> Self {
+        p.metric
+    }
+}
 
-        // adjust the reference point
-        // find positions in each non-ref timeseries where we have (t_a, t_b) with t_a <= t_ref <= t_b
+impl Key for Resource {
+    fn new(p: &MeasurementPoint) -> Self {
+        p.resource.clone()
+    }
+}
 
-        None
+impl Key for ResourceConsumer {
+    fn new(p: &MeasurementPoint) -> Self {
+        p.consumer.clone()
+    }
+}
+
+impl Key for (RawMetricId, ResourceConsumer) {
+    fn new(p: &MeasurementPoint) -> Self {
+        (p.metric, p.consumer.clone())
     }
 }

@@ -77,7 +77,7 @@ pub struct MeasurementPoint {
 ///
 /// This opaque type is currently a wrapper around [`SystemTime`],
 /// but this could change in the future.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Timestamp(pub(crate) SystemTime);
 
 impl MeasurementPoint {
@@ -178,6 +178,11 @@ impl Timestamp {
     pub fn to_unix_timestamp(&self) -> (u64, u32) {
         let t = self.0.duration_since(UNIX_EPOCH).unwrap();
         (t.as_secs(), t.subsec_nanos())
+    }
+
+    pub fn to_unix_timestamp_millis(&self) -> u128 {
+        let t = self.0.duration_since(UNIX_EPOCH).unwrap();
+        t.as_millis()
     }
 
     /// Returns the amount of time elapsed from an earlier point in time.
@@ -416,6 +421,15 @@ impl<'a> IntoIterator for &'a MeasurementBuffer {
 
     fn into_iter(self) -> Self::IntoIter {
         self.points.iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut MeasurementBuffer {
+    type Item = &'a mut MeasurementPoint;
+    type IntoIter = std::slice::IterMut<'a, MeasurementPoint>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.points.iter_mut()
     }
 }
 

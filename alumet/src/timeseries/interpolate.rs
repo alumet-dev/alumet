@@ -1,5 +1,3 @@
-use fxhash::FxHashMap;
-
 use super::{GroupKey, GroupedTimeseries, Timeseries};
 use crate::measurement::{MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementValue};
 
@@ -12,14 +10,14 @@ pub struct InterpolationReference {
 impl From<MeasurementBuffer> for Timeseries {
     fn from(value: MeasurementBuffer) -> Self {
         let mut points: Vec<MeasurementPoint> = value.into_iter().collect();
-        points.sort_by_key(|p| p.timestamp.to_unix_timestamp());
+        points.sort_by_key(|p| p.timestamp);
         Self { points }
     }
 }
 
 impl From<Vec<MeasurementPoint>> for Timeseries {
     fn from(mut points: Vec<MeasurementPoint>) -> Self {
-        points.sort_by_key(|p| p.timestamp.to_unix_timestamp());
+        points.sort_by_key(|p| p.timestamp);
         Self { points }
     }
 }
