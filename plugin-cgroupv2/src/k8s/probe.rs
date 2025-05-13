@@ -71,10 +71,7 @@ impl alumet::pipeline::Source for K8SProbe {
         }
 
         let mut buffer = String::new();
-        let metrics = gather_value(&mut self.cgroup_v2_metric_file, &mut buffer)
-            .context("Error get value")
-            .retry_poll()?;
-
+        let metrics = gather_value(&mut self.cgroup_v2_metric_file, &mut buffer)?;
         let diff_tot = self.time_tot.update(metrics.cpu_time_total).difference();
         let diff_usr = self.time_usr.update(metrics.cpu_time_user_mode).difference();
         let diff_sys = self.time_sys.update(metrics.cpu_time_system_mode).difference();
