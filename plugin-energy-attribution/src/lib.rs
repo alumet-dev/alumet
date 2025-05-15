@@ -20,16 +20,16 @@ pub struct EnergyAttributionPlugin {
 }
 
 struct Metrics {
-    // To attribute the CPU consumption to K8S pods, we need three metrics:
-    // - overall consumed energy per pod
-    // - overall hardware usage per pod
-    // - energy attributed to a pod
+    // To attribute a consumption to an entity, we need three metrics:
+    // - overall consumed energy per entity
+    // - overall hardware usage per entity
+    // - energy attributed to the entity
     //
     // Their IDs are gathered in different phases of the plugin initialization,
     // that is why they are Options.
     hardware_usage: RawMetricId,
     consumed_energy: RawMetricId,
-    pod_attributed_energy: TypedMetricId<f64>,
+    attributed_energy: TypedMetricId<f64>,
 }
 
 impl AlumetPlugin for EnergyAttributionPlugin {
@@ -54,13 +54,13 @@ impl AlumetPlugin for EnergyAttributionPlugin {
         // Create the energy attribution metric and add its id to the
         // transform builder's metrics list.
         let attribution_energy_metric = alumet.create_metric(
-            "pod_attributed_energy",
+            "attributed_energy",
             Unit::Joule,
-            "Energy consumption attributed to the pod",
+            "Energy consumption attributed to the entity",
         )?;
 
-        let consumed_energy = self.config.consumed_energy_rapl.clone();
-        let hardware_usage = self.config.hardware_usage_cgroup.clone();
+        let consumed_energy = self.config.consumed_energy_metric_name.clone();
+        let hardware_usage = self.config.hardware_usage_metric_name.clone();
 
         // Add the transform builder and its metrics
         alumet.add_transform_builder("transform", move |ctx| {
@@ -73,7 +73,7 @@ impl AlumetPlugin for EnergyAttributionPlugin {
                 .with_context(|| format!("Metric not found {}", hardware_usage))?
                 .0;
             let metrics = Metrics {
-                pod_attributed_energy: attribution_energy_metric,
+                attributed_energy: attribution_energy_metric,
                 consumed_energy: consumed_energy_metric,
                 hardware_usage: hardware_usage_metric,
             };
@@ -91,15 +91,15 @@ impl AlumetPlugin for EnergyAttributionPlugin {
 
 #[derive(Deserialize, Serialize)]
 struct Config {
-    consumed_energy_rapl: String,
-    hardware_usage_cgroup: String,
+    consumed_energy_metric_name: String,
+    hardware_usage_metric_name: String,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            consumed_energy_rapl: String::from("rapl_consumed_energy"),
-            hardware_usage_cgroup: String::from("cgroup_cpu_usage_user"),
+            consumed_energy_metric_name: String::from("rapl_consumed_energy"),
+            hardware_usage_metric_name: String::from("cgroup_cpu_usage_user"),
         }
     }
 }
