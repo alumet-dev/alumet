@@ -119,6 +119,7 @@ impl Cgroupv1Probe {
                         )))?,
                         cpu_time_delta_value,
                     )
+                    .with_attr("kind", "total")
                     .with_attr_vec(additional_attrs.clone()),
                 );
             }
@@ -139,6 +140,7 @@ impl Cgroupv1Probe {
                     )))?,
                     memory_usage_u64,
                 )
+                .with_attr("kind", "resident")
                 .with_attr_vec(additional_attrs.clone()),
             );
         }
