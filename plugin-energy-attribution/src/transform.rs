@@ -125,8 +125,22 @@ impl Transform for EnergyAttributionTransform {
                     // TODO: transform this part to be more generic.
                     Resource::CpuPackage { id: _ } => {
                         let id = SystemTime::from(m.timestamp).duration_since(UNIX_EPOCH)?.as_secs();
-
-                        self.consumed_energy_buffer.insert(id, m.clone());
+                        match self.consumed_energy_buffer.get_mut(&id) {
+                            Some(point) => {
+                                point.value = match (point.value.clone(), m.value.clone()) {
+                                    (WrappedMeasurementValue::F64(fx), WrappedMeasurementValue::F64(fy)) => {
+                                        WrappedMeasurementValue::F64(fx + fy)
+                                    }
+                                    (WrappedMeasurementValue::U64(ux), WrappedMeasurementValue::U64(uy)) => {
+                                        WrappedMeasurementValue::U64(ux + uy)
+                                    }
+                                    (_, _) => unreachable!("should not receive mixed U64 and F64 values"),
+                                };
+                            }
+                            None => {
+                                self.consumed_energy_buffer.insert(id, m.clone());
+                            }
+                        }
                     }
                     _ => continue,
                 }
