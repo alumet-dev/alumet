@@ -35,6 +35,7 @@ plugin-elasticsearch = { path = "../plugin-elasticsearch" }
 [target.'cfg(target_os = "linux")'.dependencies]
 plugin-cgroupv1 = { path = "../plugin-cgroupv1" }
 plugin-cgroupv2 = { path = "../plugin-cgroupv2" }
+plugin-grace-hopper = { path = "../plugin-grace-hopper" }
 plugin-nvidia-jetson = { path = "../plugin-nvidia-jetson" }
 plugin-nvidia-nvml = { path = "../plugin-nvidia-nvml" }
 plugin-perf = { path = "../plugin-perf" }
