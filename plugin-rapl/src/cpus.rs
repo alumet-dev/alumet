@@ -13,7 +13,7 @@ pub struct CpuId {
 }
 
 /// Cpu vendor that supports RAPL energy counters.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CpuVendor {
     Intel,
     Amd,
@@ -75,7 +75,7 @@ pub fn online_cpus() -> anyhow::Result<Vec<u32>> {
     parse_cpu_list(&list)
 }
 
-pub fn cpu_vendor() -> anyhow::Result<CpuVendor> {
+fn run_lscpu() -> anyhow::Result<String> {
     // run: LC_ALL=C lscpu
     let child = Command::new("lscpu")
         .env("LC_ALL", "C")
@@ -83,12 +83,14 @@ pub fn cpu_vendor() -> anyhow::Result<CpuVendor> {
         .spawn()
         .context("lscpu should be executable")?;
     let finished = child.wait_with_output()?;
-    let stdout = std::str::from_utf8(&finished.stdout)?;
+    Ok(std::str::from_utf8(&finished.stdout)?.to_string())
+}
 
+fn parse_cpu_vendor_from_lscpu(lscpu: &str) -> anyhow::Result<CpuVendor> {
     // find the Vendor ID
     let vendor_regex = regex::Regex::new(r"Vendor ID:\s+(\w+)")?;
     let group = vendor_regex
-        .captures(stdout)
+        .captures(lscpu)
         .context("vendor id not found in lscpu output")?
         .get(1)
         .unwrap();
@@ -102,9 +104,22 @@ pub fn cpu_vendor() -> anyhow::Result<CpuVendor> {
     }
 }
 
+pub fn cpu_vendor() -> anyhow::Result<CpuVendor> {
+    let lscpu_result = run_lscpu()?;
+    parse_cpu_vendor_from_lscpu(&lscpu_result)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{parse_cpu_and_socket_list, CpuId};
+    use super::*;
+
+    #[test]
+    fn test_parse_cpu_vendor_from_lscpu() -> anyhow::Result<()> {
+        let lscpu_result = "Vendor ID:                GenuineIntel";
+        let cpu_vendor = parse_cpu_vendor_from_lscpu(lscpu_result)?;
+        assert_eq!(cpu_vendor, CpuVendor::Intel);
+        Ok(())
+    }
 
     #[test]
     fn test_parse_cpumask() -> anyhow::Result<()> {
