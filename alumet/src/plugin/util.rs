@@ -31,6 +31,7 @@ pub struct CounterDiff {
 }
 
 /// Result of [`CounterDiff::update()`].
+#[derive(PartialEq, Debug)]
 pub enum CounterDiffUpdate {
     /// This is the first counter update, its value is not meaningful.
     FirstTime,
@@ -56,7 +57,7 @@ impl CounterDiff {
         let res = match self.previous_value {
             Some(prev) => {
                 if new_value < prev {
-                    let diff = new_value - prev + self.max_value;
+                    let diff = self.max_value - prev + new_value + 1;
                     CounterDiffUpdate::CorrectedDifference(diff)
                 } else {
                     let diff = new_value - prev;
@@ -83,5 +84,58 @@ impl CounterDiffUpdate {
 impl From<CounterDiffUpdate> for Option<u64> {
     fn from(diff: CounterDiffUpdate) -> Self {
         diff.difference()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_counter_diff_update_difference() {
+        let first = CounterDiffUpdate::FirstTime;
+        assert_eq!(first.difference(), None);
+        let diff = CounterDiffUpdate::Difference(10);
+        assert_eq!(diff.difference(), Some(10));
+        let corrected_diff = CounterDiffUpdate::CorrectedDifference(50);
+        assert_eq!(corrected_diff.difference(), Some(50));
+    }
+
+    #[test]
+    fn test_counter_diff_first() {
+        let mut counter = CounterDiff::with_max_value(255);
+        let diff = counter.update(12);
+        assert_eq!(diff, CounterDiffUpdate::FirstTime);
+    }
+
+    #[test]
+    fn test_counter_diff_update() {
+        let mut counter = CounterDiff::with_max_value(255);
+        let expectations = vec![
+            (10, CounterDiffUpdate::FirstTime),
+            (15, CounterDiffUpdate::Difference(5)),
+            (45, CounterDiffUpdate::Difference(30)),
+            (255, CounterDiffUpdate::Difference(210)),
+            (0, CounterDiffUpdate::CorrectedDifference(1)),
+            (10, CounterDiffUpdate::Difference(10)),
+            (3, CounterDiffUpdate::CorrectedDifference(249)),
+            (2, CounterDiffUpdate::CorrectedDifference(255)),
+            (2, CounterDiffUpdate::Difference(0)),
+        ];
+        for (idx, expectation) in expectations.iter().enumerate() {
+            let diff = counter.update(expectation.0);
+            assert_eq!(
+                diff, expectation.1,
+                "Failed at index {idx}: input={}, expected={:?}, got={:?}",
+                expectation.0, expectation.1, diff
+            );
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "No value can be greater than max_value!")]
+    fn test_counter_diff_over_max_value() {
+        let mut counter = CounterDiff::with_max_value(255);
+        let _ = counter.update(256);
     }
 }
