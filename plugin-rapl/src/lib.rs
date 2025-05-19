@@ -1,4 +1,4 @@
-use std::{path::PathBuf, time::Duration};
+use std::time::Duration;
 
 use alumet::{
     pipeline::elements::source::{trigger, Source},
@@ -9,23 +9,50 @@ use alumet::{
     units::Unit,
 };
 use anyhow::{anyhow, Context};
-use indoc::indoc;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    consistency::{check_domains_consistency, SafeSubset},
-    perf_event::PerfEventProbe,
-    powercap::PowercapProbe,
+    consistency::{get_available_domains, SafeSubset},
+    perf_event::{PerfEventProbe, PowerEvent},
+    powercap::{PowerZone, PowercapProbe},
 };
+
+#[cfg(test)]
+use std::path::PathBuf;
 
 mod consistency;
 mod cpus;
 mod domains;
-mod perf_event;
+pub mod perf_event;
 mod powercap;
+
+#[cfg(test)]
+pub mod tests_mock;
 
 pub struct RaplPlugin {
     config: Config,
+}
+
+impl RaplPlugin {
+    #[cfg(not(test))]
+    fn get_all_power_events(&self) -> anyhow::Result<Vec<PowerEvent>> {
+        perf_event::all_power_events()
+    }
+
+    #[cfg(test)]
+    fn get_all_power_events(&self) -> anyhow::Result<Vec<PowerEvent>> {
+        perf_event::all_power_events_from_path(&self.config.perf_event_test_path)
+    }
+
+    #[cfg(not(test))]
+    fn get_all_power_zones(&self) -> anyhow::Result<Vec<PowerZone>> {
+        Ok(powercap::all_power_zones()?.flat)
+    }
+
+    #[cfg(test)]
+    fn get_all_power_zones(&self) -> anyhow::Result<Vec<PowerZone>> {
+        Ok(powercap::all_power_zones_from_path(&self.config.powercap_test_path)?.flat)
+    }
 }
 
 impl AlumetPlugin for RaplPlugin {
@@ -72,57 +99,16 @@ impl AlumetPlugin for RaplPlugin {
         }
 
         // Discover RAPL domains available in perf_events and powercap. Beware, this can fail!
-        let try_perf_events = perf_event::all_power_events();
-        let try_power_zones = powercap::all_power_zones();
+        let try_perf_events = self.get_all_power_events();
+        let try_power_zones = self.get_all_power_zones();
 
-        let (available_domains, subset_indicator) = match (try_perf_events, try_power_zones) {
-            (Ok(perf_events), Ok(power_zones)) => {
-                if !check_consistency {
-                    (SafeSubset::from_powercap_only(power_zones), " (from powercap)")
-                } else {
-                    let mut safe_domains = check_domains_consistency(&perf_events, &power_zones);
-                    let mut domain_origin = "";
-                    if !safe_domains.is_whole {
-                        // If one of the domain set is smaller, it could be empty, which would prevent the plugin from measuring anything.
-                        // In that case, we fall back to the other interface, the one that reports a non-empty list of domains.
-                        if perf_events.is_empty() && !power_zones.top.is_empty() {
-                            log::warn!("perf_events returned an empty list of RAPL domains, I will disable perf_events and use powercap instead.");
-                            use_perf = false;
-                            safe_domains = SafeSubset::from_powercap_only(power_zones);
-                            domain_origin = " (from powercap)";
-                        } else if !perf_events.is_empty() && power_zones.top.is_empty() {
-                            log::warn!("perf_events returned an empty list of RAPL domains, I will disable powercap and use perf_events instead.");
-                            use_powercap = false;
-                            safe_domains = SafeSubset::from_perf_only(perf_events);
-                            domain_origin = " (from perf_events)";
-                        } else {
-                            domain_origin = " (\"safe subset\")";
-                        }
-                    }
-                    (safe_domains, domain_origin)
-                }
-            }
-            (Ok(perf_events), Err(powercap_err)) => {
-                log::error!(
-                    "Cannot read the list of RAPL domains available via the powercap interface: {powercap_err:?}."
-                );
-                log::warn!("The consistency of the RAPL domains reported by the different interfaces of the Linux kernel cannot be checked (this is useful to work around bugs in some kernel versions on some machines).");
-                (SafeSubset::from_perf_only(perf_events), " (from perf_events)")
-            }
-            (Err(perf_err), Ok(power_zones)) => {
-                log::warn!(
-                    "Cannot read the list of RAPL domains available via the perf_events interface: {perf_err:?}."
-                );
-                log::warn!("The consistency of the RAPL domains reported by the different interfaces of the Linux kernel cannot be checked (this is useful to work around bugs in some kernel versions on some machines).");
-                (SafeSubset::from_powercap_only(power_zones), " (from powercap)")
-            }
-            (Err(perf_err), Err(power_err)) => {
-                log::error!("I could use neither perf_events nor powercap.\nperf_events error: {perf_err:?}\npowercap error: {power_err:?}");
-                Err(anyhow!(
-                    "Both perf_events and powercap failed, unable to read RAPL counters: {perf_err}\n{power_err}"
-                ))?
-            }
-        };
+        let (available_domains, subset_indicator) = get_available_domains(
+            try_perf_events,
+            try_power_zones,
+            check_consistency,
+            &mut use_perf,
+            &mut use_powercap,
+        )?;
 
         // We have found a set of RAPL domains that we agree on (in the best case, perf_events and powercap both work, are accessible by the agent and report the same list of domains).
         log::info!(
@@ -145,13 +131,17 @@ impl AlumetPlugin for RaplPlugin {
             }
             (true, false) => {
                 // only use perf
-                setup_perf_events_probe(metric, &available_domains)
-                    .context("Failed to create RAPL probe based on perf_events")?
+                Box::new(
+                    PerfEventProbe::new(metric, &available_domains.perf_events)
+                        .context("Failed to create RAPL probe based on perf_events")?,
+                )
             }
             (false, true) => {
                 // only use powercap
-                setup_powercap_probe(metric, &available_domains)
-                    .context("Failed to create RAPL probe based on powercap")?
+                Box::new(
+                    PowercapProbe::new(metric, &available_domains.power_zones)
+                        .context("Failed to create RAPL probe based on powercap")?,
+                )
             }
             (false, false) => {
                 // error: no available interface!
@@ -180,104 +170,36 @@ fn setup_perf_events_probe_or_fallback(
     metric: alumet::metrics::TypedMetricId<f64>,
     available_domains: &SafeSubset,
 ) -> anyhow::Result<Box<dyn Source>> {
-    setup_perf_events_probe(metric, available_domains).or_else(|_| {
-        log::warn!("I will fallback to the powercap sysfs, but perf_events is more efficient (see https://hal.science/hal-04420527).");
-        setup_powercap_probe(metric, available_domains)
-    })
-}
-
-fn setup_perf_events_probe(
-    metric: alumet::metrics::TypedMetricId<f64>,
-    available_domains: &SafeSubset,
-) -> Result<Box<dyn Source>, anyhow::Error> {
-    fn resolve_application_path() -> std::io::Result<PathBuf> {
-        std::env::current_exe()?.canonicalize()
-    }
-
-    // Get cpu info (this can fail in some weird circumstances, let's be robust).
-    let all_cpus = cpus::online_cpus()?;
-    let socket_cpus = cpus::cpus_to_monitor_with_perf()
-        .context("I could not determine how to use perf_events to read RAPL energy counters. The Intel RAPL PMU module may not be enabled, is your Linux kernel too old?")?;
-
-    let n_sockets = socket_cpus.len();
-    let n_cpu_cores = all_cpus.len();
-    log::debug!("{n_sockets}/{n_cpu_cores} monitorable CPU (cores) found: {socket_cpus:?}");
-
-    // Build the right combination of perf events.
-    let mut events_on_cpus = Vec::new();
-    for event in &available_domains.perf_events {
-        for cpu in &socket_cpus {
-            events_on_cpus.push((event, cpu));
-        }
-    }
-    log::debug!("Events to read: {events_on_cpus:?}");
-
-    // Try to create the source
-    match PerfEventProbe::new(metric, &events_on_cpus) {
-        Ok(perf_event_probe) => Ok(Box::new(perf_event_probe)),
-        Err(e) => {
-            // perf_events failed, log an error and try powercap instead
-            log::warn!("I could not use perf_events to read RAPL energy counters: {e}");
-            let app_path = resolve_application_path()
-                .ok()
-                .and_then(|p| p.to_str().map(|s| s.to_owned()))
-                .unwrap_or(String::from("path/to/agent"));
-            let msg = indoc::formatdoc! {"
-                    I will fallback to the powercap sysfs, but perf_events is more efficient (see https://hal.science/hal-04420527).
-                    
-                    This warning is probably caused by insufficient privileges.
-                    To fix this, you have 3 possibilities:
-                    1. Grant the CAP_PERFMON (CAP_SYS_ADMIN on Linux < 5.8) capability to the agent binary.
-                         sudo setcap cap_perfmon=ep \"{app_path}\"
-                        
-                       Note: to grant multiple capabilities to the binary, you must put all the capabilities in the same command.
-                         sudo setcap \"cap_sys_nice+ep cap_perfmon=ep\" \"{app_path}\" 
-                    
-                    2. Change a kernel setting to allow every process to read the perf_events.
-                        sudo sysctl -w kernel.perf_event_paranoid=0
-                    
-                    3. Run the agent as root (not recommanded).
-                "};
-            log::warn!("{msg}");
-            Err(e)
-        }
-    }
-}
-
-fn setup_powercap_probe(
-    metric: alumet::metrics::TypedMetricId<f64>,
-    available_domains: &SafeSubset,
-) -> anyhow::Result<Box<dyn Source>> {
-    match PowercapProbe::new(metric, &available_domains.power_zones) {
-        Ok(powercap_probe) => Ok(Box::new(powercap_probe)),
-        Err(e) => {
-            let msg = indoc! {"
-                I could not use the powercap sysfs to read RAPL energy counters.
-                This is probably caused by insufficient privileges.
-                Please check that you have read access to everything in '/sys/devices/virtual/powercap/intel-rapl'.
-                    
-                A solution could be:
-                    sudo chmod a+r -R /sys/devices/virtual/powercap/intel-rapl
-            "};
-            log::error!("{msg}");
-            Err(e)
+    match PerfEventProbe::new(metric, &available_domains.perf_events) {
+        Ok(probe) => Ok(Box::new(probe)),
+        Err(_) => {
+            log::warn!(
+                "I will fallback to the powercap sysfs, but perf_events is more efficient (see https://hal.science/hal-04420527)."
+            );
+            let fallback = PowercapProbe::new(metric, &available_domains.power_zones)?;
+            Ok(Box::new(fallback))
         }
     }
 }
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct Config {
+pub struct Config {
     /// Initial interval between two RAPL measurements.
     #[serde(with = "humantime_serde")]
-    poll_interval: Duration,
+    pub poll_interval: Duration,
 
     /// Initial interval between two flushing of RAPL measurements.
     #[serde(with = "humantime_serde")]
-    flush_interval: Duration,
+    pub flush_interval: Duration,
 
     /// Set to true to disable perf_events and always use the powercap sysfs.
-    no_perf_events: bool,
+    pub no_perf_events: bool,
+
+    #[cfg(test)]
+    pub perf_event_test_path: PathBuf,
+    #[cfg(test)]
+    pub powercap_test_path: PathBuf,
 }
 
 impl Default for Config {
@@ -286,6 +208,206 @@ impl Default for Config {
             poll_interval: Duration::from_secs(1), // 1Hz
             flush_interval: Duration::from_secs(5),
             no_perf_events: false, // prefer perf_events
+
+            #[cfg(test)]
+            perf_event_test_path: PathBuf::from(""),
+            #[cfg(test)]
+            powercap_test_path: PathBuf::from(""),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+    use std::time::Duration;
+
+    use crate::tests_mock::{create_mock_layout, create_valid_powercap_mock, Entry, EntryType};
+    use crate::{Config, RaplPlugin};
+    use alumet::{
+        agent::{
+            self,
+            plugin::{PluginInfo, PluginSet},
+        },
+        measurement::{AttributeValue, WrappedMeasurementValue},
+        pipeline::naming::SourceName,
+        plugin::PluginMetadata,
+        test::{RuntimeExpectations, StartupExpectations},
+        units::Unit,
+    };
+    use tempfile::tempdir;
+
+    /// This test ensure the plugin startup correctly, with the expected source based on Powercap Mocks created during the test.
+    /// It also verifies the registered metrics and their units.
+    #[test]
+    fn test_startup_with_powercap() -> anyhow::Result<()> {
+        let mut plugins = PluginSet::new();
+
+        let base_path = create_valid_powercap_mock()?;
+
+        let source_config = Config {
+            poll_interval: Duration::from_secs(1),
+            flush_interval: Duration::from_secs(1),
+            no_perf_events: true,
+            perf_event_test_path: Path::new("").to_path_buf(),
+            powercap_test_path: base_path,
+        };
+        plugins.add_plugin(PluginInfo {
+            metadata: PluginMetadata::from_static::<RaplPlugin>(),
+            enabled: true,
+            config: Some(config_to_toml_table(&source_config)),
+        });
+
+        let startup_expectations = StartupExpectations::new()
+            .expect_metric::<f64>("rapl_consumed_energy", Unit::Joule)
+            .expect_source("rapl", "in");
+
+        let agent = agent::Builder::new(plugins)
+            .with_expectations(startup_expectations)
+            .build_and_start()
+            .unwrap();
+
+        agent.pipeline.control_handle().shutdown();
+        agent.wait_for_shutdown(Duration::from_secs(10)).unwrap();
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_runtime_with_powercap() -> anyhow::Result<()> {
+        let mut plugins = PluginSet::new();
+
+        let tmp = tempdir()?;
+        let base_path = tmp.keep();
+
+        use EntryType::*;
+
+        let entries = [
+            Entry {
+                path: "enabled",
+                entry_type: File("1"),
+            },
+            Entry {
+                path: "intel-rapl:0",
+                entry_type: Dir,
+            },
+            Entry {
+                path: "intel-rapl:0/name",
+                entry_type: File("package-0"),
+            },
+            Entry {
+                path: "intel-rapl:0/max_energy_range_uj",
+                entry_type: File("262143328850"),
+            },
+            Entry {
+                path: "intel-rapl:0/energy_uj",
+                entry_type: File("124599532281"),
+            },
+        ];
+
+        create_mock_layout(base_path.clone(), &entries)?;
+
+        let source_config = Config {
+            poll_interval: Duration::from_secs(1),
+            flush_interval: Duration::from_secs(1),
+            no_perf_events: true,
+            perf_event_test_path: Path::new("").to_path_buf(),
+            powercap_test_path: base_path.clone(),
+        };
+        plugins.add_plugin(PluginInfo {
+            metadata: PluginMetadata::from_static::<RaplPlugin>(),
+            enabled: true,
+            config: Some(config_to_toml_table(&source_config)),
+        });
+
+        let runtime_expectations = RuntimeExpectations::new()
+            .test_source(
+                SourceName::from_str("rapl", "in"),
+                || (),
+                |m| {
+                    //note: it's expected to have no measurement as at first call of poll, cause the counter diff will return a None value
+                    assert_eq!(m.len(), 0);
+                },
+            )
+            .test_source(
+                SourceName::from_str("rapl", "in"),
+                || (),
+                move |m| {
+                    //note: the mock created 1 domain so it's expected to have 1 measurements
+                    assert_eq!(m.len(), 1);
+                    let mut actual_domains = Vec::new();
+                    for measurement in m.iter() {
+                        let attributes: Vec<_> = measurement.attributes().collect();
+                        assert_eq!(attributes.len(), 1, "expected only one attribute 'domain'");
+                        let domain_attribute = attributes[0];
+                        assert_eq!(
+                            domain_attribute.0, "domain",
+                            "expected the attribute to have 'domain' key"
+                        );
+                        if let AttributeValue::String(domain) = domain_attribute.1 {
+                            actual_domains.push(domain.clone());
+                        } else {
+                            assert!(false, "domain attribute should be of string type");
+                        }
+                        // I expect all the value to be 0 since the mock didn't change between the two poll runs
+                        assert_eq!(measurement.value, WrappedMeasurementValue::F64(0.0));
+                    }
+                    let mut expected_domains = Vec::new();
+                    expected_domains.push("package".to_string());
+
+                    actual_domains.sort();
+                    expected_domains.sort();
+                    assert_eq!(actual_domains, expected_domains);
+
+                    // creating new mocks to make values change for next poll
+                    let entries = [
+                        Entry {
+                            path: "enabled",
+                            entry_type: File("1"),
+                        },
+                        Entry {
+                            path: "intel-rapl:0",
+                            entry_type: Dir,
+                        },
+                        Entry {
+                            path: "intel-rapl:0/name",
+                            entry_type: File("package-0"),
+                        },
+                        Entry {
+                            path: "intel-rapl:0/max_energy_range_uj",
+                            entry_type: File("262143328850"),
+                        },
+                        Entry {
+                            path: "intel-rapl:0/energy_uj",
+                            entry_type: File("154599532281"),
+                        },
+                    ];
+                    let _ = create_mock_layout(base_path.clone(), &entries);
+                },
+            )
+            .test_source(
+                SourceName::from_str("rapl", "in"),
+                || (),
+                |m| {
+                    assert_eq!(m.len(), 1);
+                    let measurement = m.iter().next().unwrap();
+
+                    // expect to have an increase of 30000.0 Joules between the last two polls
+                    assert_eq!(measurement.value, WrappedMeasurementValue::F64(30000.0));
+                },
+            );
+
+        let agent = agent::Builder::new(plugins)
+            .with_expectations(runtime_expectations)
+            .build_and_start()
+            .unwrap();
+
+        agent.wait_for_shutdown(Duration::from_secs(10)).unwrap();
+
+        Ok(())
+    }
+
+    fn config_to_toml_table(config: &Config) -> toml::Table {
+        toml::Value::try_from(config).unwrap().as_table().unwrap().clone()
     }
 }
