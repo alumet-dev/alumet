@@ -4,7 +4,7 @@ use std::{
 };
 
 use alumet::{
-    measurement::{MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue},
+    measurement::{AttributeValue, MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue},
     pipeline::{
         elements::{error::TransformError, transform::TransformContext},
         Transform,
@@ -14,16 +14,18 @@ use alumet::{
 
 pub struct EnergyAttributionTransform {
     pub metrics: super::Metrics,
-    buffer_pod: HashMap<u64, Vec<MeasurementPoint>>,
-    buffer_rapl: HashMap<u64, MeasurementPoint>,
+    consumed_energy_buffer: HashMap<u64, MeasurementPoint>,
+    hardware_usage_buffer: HashMap<u64, Vec<MeasurementPoint>>,
+    hardware_usage_metric_filter: HashMap<String, String>,
 }
 impl EnergyAttributionTransform {
     /// Instantiates a new EnergyAttributionTransform with its private fields initialized.
-    pub fn new(metrics: super::Metrics) -> Self {
+    pub fn new(metrics: super::Metrics, hardware_usage_metric_filter: HashMap<String, String>) -> Self {
         Self {
             metrics,
-            buffer_pod: HashMap::<u64, Vec<MeasurementPoint>>::new(),
-            buffer_rapl: HashMap::<u64, MeasurementPoint>::new(),
+            hardware_usage_buffer: HashMap::<u64, Vec<MeasurementPoint>>::new(),
+            consumed_energy_buffer: HashMap::<u64, MeasurementPoint>::new(),
+            hardware_usage_metric_filter: hardware_usage_metric_filter,
         }
     }
 
@@ -31,30 +33,30 @@ impl EnergyAttributionTransform {
     fn buffer_bouncer(&mut self, measurements: &mut alumet::measurement::MeasurementBuffer) {
         // Retrieving the metric_id of the energy attribution.
         // Using a nested scope to reduce the lock time.
-        let metric_id = self.metrics.pod_attributed_energy;
+        let metric_id = self.metrics.attributed_energy;
 
         // If the buffers do have enough (every) MeasurementPoints,
         // then we compute the energy attribution.
-        while self.buffer_rapl.len() >= 2 && self.buffer_pod.len() >= 2 {
-            // Get the smallest rapl id i.e. the oldest timestamp (key) present in the buffer.
-            let rapl_mini_id = self
-                .buffer_rapl
+        while self.consumed_energy_buffer.len() >= 2 && self.hardware_usage_buffer.len() >= 2 {
+            // Get the smallest consumed_energy id i.e. the oldest timestamp (key) present in the buffer.
+            let consumed_energy_mini_id = self
+                .consumed_energy_buffer
                 .keys()
                 .reduce(|x, y| if x < y { x } else { y })
                 .unwrap()
                 .clone();
 
-            // Check if the buffer_pod contains the key to prevent any panic/error bellow.
-            if !self.buffer_pod.contains_key(&rapl_mini_id) {
+            // Check if the hardware_usage_buffer contains the key to prevent any panic/error bellow.
+            if !self.hardware_usage_buffer.contains_key(&consumed_energy_mini_id) {
                 todo!("decide what to do in this case");
             }
 
-            let rapl_point = self.buffer_rapl.remove(&rapl_mini_id).unwrap();
+            let consumed_energy_point = self.consumed_energy_buffer.remove(&consumed_energy_mini_id).unwrap();
 
-            // Compute the sum of every `total_usage_usec` for the given timestamp: `rapl_mini_id`.
+            // Compute the sum of every `total_usage_usec` for the given timestamp: `consumed_energy_mini_id`.
             let tot_time_sum = self
-                .buffer_pod
-                .get(&rapl_mini_id)
+                .hardware_usage_buffer
+                .get(&consumed_energy_mini_id)
                 .unwrap()
                 .iter()
                 .map(|x| match x.value {
@@ -63,8 +65,13 @@ impl EnergyAttributionTransform {
                 })
                 .sum::<f64>();
 
-            // Then for every points in the buffer_pod at `rapl_mini_id`.
-            for point in self.buffer_pod.remove(&rapl_mini_id).unwrap().iter() {
+            // Then for every points in the hardware_usage_buffer at `consumed_energy_mini_id`.
+            for point in self
+                .hardware_usage_buffer
+                .remove(&consumed_energy_mini_id)
+                .unwrap()
+                .iter()
+            {
                 // We extract the current tot_time as f64.
                 let cur_tot_time_f64 = match point.value {
                     WrappedMeasurementValue::F64(fx) => fx,
@@ -80,11 +87,11 @@ impl EnergyAttributionTransform {
 
                 // We create the new MeasurementPoint for the energy attribution.
                 let new_m = MeasurementPoint::new(
-                    rapl_point.timestamp,
+                    consumed_energy_point.timestamp,
                     metric_id,
                     point.resource.clone(),
                     point.consumer.clone(),
-                    match rapl_point.value {
+                    match consumed_energy_point.value {
                         WrappedMeasurementValue::F64(fx) => cur_tot_time_f64 / tot_time_sum * fx,
                         WrappedMeasurementValue::U64(ux) => cur_tot_time_f64 / tot_time_sum * (ux as f64),
                     },
@@ -96,50 +103,98 @@ impl EnergyAttributionTransform {
             }
         }
     }
+
+    /// Add given measurement point to the consumed energy buffer.
+    fn add_to_energy_buffer(&mut self, m: MeasurementPoint) -> Result<(), TransformError> {
+        match m.resource {
+            // If the metric is rapl then we sum the cpu packages' value in the buffer.
+            // TODO: transform this part to be more generic.
+            Resource::CpuPackage { id: _ } => {
+                let id = SystemTime::from(m.timestamp).duration_since(UNIX_EPOCH)?.as_secs();
+                match self.consumed_energy_buffer.get_mut(&id) {
+                    Some(point) => {
+                        point.value = match (point.value.clone(), m.value.clone()) {
+                            (WrappedMeasurementValue::F64(fx), WrappedMeasurementValue::F64(fy)) => {
+                                WrappedMeasurementValue::F64(fx + fy)
+                            }
+                            (WrappedMeasurementValue::U64(ux), WrappedMeasurementValue::U64(uy)) => {
+                                WrappedMeasurementValue::U64(ux + uy)
+                            }
+                            (_, _) => unreachable!("should not receive mixed U64 and F64 values"),
+                        };
+                    }
+                    None => {
+                        self.consumed_energy_buffer.insert(id, m.clone());
+                    }
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Add given measurement point to the hardware usage buffer.
+    fn add_to_hardware_buffer(&mut self, m: MeasurementPoint) -> Result<(), TransformError> {
+        let m_attributes = HashMap::<&str, &AttributeValue>::from_iter(m.attributes());
+
+        // Ugly and temporary until cpu percentage is used in the calculation.
+        if let Some(uid) = m_attributes.get("uid") {
+            if ["besteffort", "burstable"].contains(&uid.to_string().as_str()) {
+                return Ok(());
+            }
+        }
+
+        // Filter the metric that we want to keep.
+        if self
+            .hardware_usage_metric_filter
+            .clone()
+            .iter()
+            .any(|(key, filter_value)| {
+                if let Some(attribute_value) = m_attributes.get(key.as_str()) {
+                    return attribute_value.to_string().as_str() != filter_value;
+                }
+                false
+            })
+        {
+            return Ok(());
+        }
+
+        let id = SystemTime::from(m.timestamp).duration_since(UNIX_EPOCH)?.as_secs();
+        match self.hardware_usage_buffer.get_mut(&id) {
+            Some(vec_points) => {
+                vec_points.push(m.clone());
+            }
+            None => {
+                // If the buffer does not have any value for the current id (timestamp)
+                // then we create the vec with its first value.
+                self.hardware_usage_buffer.insert(id, vec![m.clone()]);
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl Transform for EnergyAttributionTransform {
     /// Applies the transform on the measurements.
     fn apply(&mut self, measurements: &mut MeasurementBuffer, _ctx: &TransformContext) -> Result<(), TransformError> {
-        // Retrieve the pod_id and the rapl_id.
+        // Retrieve the hardware_usage_id and the consumed_energy_id.
         // Using a nested scope to reduce the lock time.
-        let (pod_id, rapl_id) = {
+        let (hardware_usage_id, consumed_energy_id) = {
             let metrics = &self.metrics;
 
-            let pod_id = metrics.hardware_usage.as_u64();
-            let rapl_id = metrics.consumed_energy.as_u64();
+            let hardware_usage_id = metrics.hardware_usage.as_u64();
+            let consumed_energy_id = metrics.consumed_energy.as_u64();
 
-            (pod_id, rapl_id)
+            (hardware_usage_id, consumed_energy_id)
         };
 
         // Filling the buffers.
         for m in measurements.clone().iter() {
-            if m.metric.as_u64() == rapl_id {
-                match m.resource {
-                    // If the metric is rapl then we insert only the cpu package one in the buffer.
-                    Resource::CpuPackage { id: _ } => {
-                        let id = SystemTime::from(m.timestamp).duration_since(UNIX_EPOCH)?.as_secs();
-
-                        self.buffer_rapl.insert(id, m.clone());
-                    }
-                    _ => continue,
-                }
-            } else if m.metric.as_u64() == pod_id {
-                // Else, if the metric is pod, then we keep only the ones that are prefixed with "pod"
-                // before inserting them in the buffer.
-                if m.attributes().any(|(_, value)| value.to_string().starts_with("pod")) {
-                    let id = SystemTime::from(m.timestamp).duration_since(UNIX_EPOCH)?.as_secs();
-                    match self.buffer_pod.get_mut(&id) {
-                        Some(vec_points) => {
-                            vec_points.push(m.clone());
-                        }
-                        None => {
-                            // If the buffer does not have any value for the current id (timestamp)
-                            // then we create the vec with its first value.
-                            self.buffer_pod.insert(id, vec![m.clone()]);
-                        }
-                    }
-                }
+            if m.metric.as_u64() == consumed_energy_id {
+                let _ = &self.add_to_energy_buffer(m.clone())?;
+            } else if m.metric.as_u64() == hardware_usage_id {
+                let _ = &self.add_to_hardware_buffer(m.clone())?;
             }
         }
 
