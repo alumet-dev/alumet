@@ -4,7 +4,7 @@ use std::{
 };
 
 use alumet::{
-    measurement::{MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue},
+    measurement::{AttributeValue, MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue},
     pipeline::{
         elements::{error::TransformError, transform::TransformContext},
         Transform,
@@ -101,6 +101,61 @@ impl EnergyAttributionTransform {
             }
         }
     }
+
+    /// Add given measurement point to the consumed energy buffer.
+    fn add_to_energy_buffer(&mut self, m: MeasurementPoint) -> Result<(), TransformError> {
+        match m.resource {
+            // If the metric is rapl then we sum the cpu packages' value in the buffer.
+            // TODO: transform this part to be more generic.
+            Resource::CpuPackage { id: _ } => {
+                let id = SystemTime::from(m.timestamp).duration_since(UNIX_EPOCH)?.as_secs();
+                match self.consumed_energy_buffer.get_mut(&id) {
+                    Some(point) => {
+                        point.value = match (point.value.clone(), m.value.clone()) {
+                            (WrappedMeasurementValue::F64(fx), WrappedMeasurementValue::F64(fy)) => {
+                                WrappedMeasurementValue::F64(fx + fy)
+                            }
+                            (WrappedMeasurementValue::U64(ux), WrappedMeasurementValue::U64(uy)) => {
+                                WrappedMeasurementValue::U64(ux + uy)
+                            }
+                            (_, _) => unreachable!("should not receive mixed U64 and F64 values"),
+                        };
+                    }
+                    None => {
+                        self.consumed_energy_buffer.insert(id, m.clone());
+                    }
+                }
+                Ok(())
+            }
+            _ => Ok(())
+        }
+    }
+
+    /// Add given measurement point to the hardware usage buffer.
+    fn add_to_hardware_buffer(&mut self, m: MeasurementPoint) -> Result<(), TransformError> {
+        let m_attributes = HashMap::<&str, &AttributeValue>::from_iter(m.attributes());
+
+        // Ugly and temporary until cpu percentage is used in the calculation.
+        if let Some(uid) = m_attributes.get("uid") {
+            if ["besteffort", "burstable"].contains(&uid.to_string().as_str()) {
+                return Ok(());
+            }
+        }
+
+        let id = SystemTime::from(m.timestamp).duration_since(UNIX_EPOCH)?.as_secs();
+        match self.hardware_usage_buffer.get_mut(&id) {
+            Some(vec_points) => {
+                vec_points.push(m.clone());
+            }
+            None => {
+                // If the buffer does not have any value for the current id (timestamp)
+                // then we create the vec with its first value.
+                self.hardware_usage_buffer.insert(id, vec![m.clone()]);
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl Transform for EnergyAttributionTransform {
@@ -120,50 +175,9 @@ impl Transform for EnergyAttributionTransform {
         // Filling the buffers.
         for m in measurements.clone().iter() {
             if m.metric.as_u64() == consumed_energy_id {
-                match m.resource {
-                    // If the metric is rapl then we sum the cpu packages' value in the buffer.
-                    // TODO: transform this part to be more generic.
-                    Resource::CpuPackage { id: _ } => {
-                        let id = SystemTime::from(m.timestamp).duration_since(UNIX_EPOCH)?.as_secs();
-                        match self.consumed_energy_buffer.get_mut(&id) {
-                            Some(point) => {
-                                point.value = match (point.value.clone(), m.value.clone()) {
-                                    (WrappedMeasurementValue::F64(fx), WrappedMeasurementValue::F64(fy)) => {
-                                        WrappedMeasurementValue::F64(fx + fy)
-                                    }
-                                    (WrappedMeasurementValue::U64(ux), WrappedMeasurementValue::U64(uy)) => {
-                                        WrappedMeasurementValue::U64(ux + uy)
-                                    }
-                                    (_, _) => unreachable!("should not receive mixed U64 and F64 values"),
-                                };
-                            }
-                            None => {
-                                self.consumed_energy_buffer.insert(id, m.clone());
-                            }
-                        }
-                    }
-                    _ => continue,
-                }
+                let _ = &self.add_to_energy_buffer(m.clone())?;
             } else if m.metric.as_u64() == hardware_usage_id {
-                // Else, if the metric is pod, then we keep only the ones that are prefixed with "pod"
-                // before inserting them in the buffer.
-                if !m
-                    .attributes()
-                    .any(|(_, value)| ["besteffort", "burstable"].contains(&value.to_string().as_str()))
-                // Ugly and temporary until cpu percentage is used in the calculation.
-                {
-                    let id = SystemTime::from(m.timestamp).duration_since(UNIX_EPOCH)?.as_secs();
-                    match self.hardware_usage_buffer.get_mut(&id) {
-                        Some(vec_points) => {
-                            vec_points.push(m.clone());
-                        }
-                        None => {
-                            // If the buffer does not have any value for the current id (timestamp)
-                            // then we create the vec with its first value.
-                            self.hardware_usage_buffer.insert(id, vec![m.clone()]);
-                        }
-                    }
-                }
+                let _ = &self.add_to_hardware_buffer(m.clone())?;
             }
         }
 
