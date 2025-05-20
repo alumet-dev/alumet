@@ -14,16 +14,18 @@ use alumet::{
 
 pub struct EnergyAttributionTransform {
     pub metrics: super::Metrics,
-    hardware_usage_buffer: HashMap<u64, Vec<MeasurementPoint>>,
     consumed_energy_buffer: HashMap<u64, MeasurementPoint>,
+    hardware_usage_buffer: HashMap<u64, Vec<MeasurementPoint>>,
+    hardware_usage_metric_filter: HashMap<String, String>,
 }
 impl EnergyAttributionTransform {
     /// Instantiates a new EnergyAttributionTransform with its private fields initialized.
-    pub fn new(metrics: super::Metrics) -> Self {
+    pub fn new(metrics: super::Metrics, hardware_usage_metric_filter: HashMap<String, String>) -> Self {
         Self {
             metrics,
             hardware_usage_buffer: HashMap::<u64, Vec<MeasurementPoint>>::new(),
             consumed_energy_buffer: HashMap::<u64, MeasurementPoint>::new(),
+            hardware_usage_metric_filter: hardware_usage_metric_filter,
         }
     }
 
@@ -127,7 +129,7 @@ impl EnergyAttributionTransform {
                 }
                 Ok(())
             }
-            _ => Ok(())
+            _ => Ok(()),
         }
     }
 
@@ -140,6 +142,21 @@ impl EnergyAttributionTransform {
             if ["besteffort", "burstable"].contains(&uid.to_string().as_str()) {
                 return Ok(());
             }
+        }
+
+        // Filter the metric that we want to keep.
+        if self
+            .hardware_usage_metric_filter
+            .clone()
+            .iter()
+            .any(|(key, filter_value)| {
+                if let Some(attribute_value) = m_attributes.get(key.as_str()) {
+                    return attribute_value.to_string().as_str() != filter_value;
+                }
+                false
+            })
+        {
+            return Ok(());
         }
 
         let id = SystemTime::from(m.timestamp).duration_since(UNIX_EPOCH)?.as_secs();

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use alumet::{
     metrics::{RawMetricId, TypedMetricId},
     plugin::{
@@ -61,6 +63,7 @@ impl AlumetPlugin for EnergyAttributionPlugin {
 
         let consumed_energy = self.config.consumed_energy_metric_name.clone();
         let hardware_usage = self.config.hardware_usage_metric_name.clone();
+        let hardware_metric_filter = self.config.hardware_usage_metric_filter.clone().unwrap_or_default();
 
         // Add the transform builder and its metrics
         alumet.add_transform_builder("transform", move |ctx| {
@@ -78,7 +81,7 @@ impl AlumetPlugin for EnergyAttributionPlugin {
                 hardware_usage: hardware_usage_metric,
             };
 
-            let transform = Box::new(EnergyAttributionTransform::new(metrics));
+            let transform = Box::new(EnergyAttributionTransform::new(metrics, hardware_metric_filter));
             Ok(transform)
         })?;
         Ok(())
@@ -93,6 +96,7 @@ impl AlumetPlugin for EnergyAttributionPlugin {
 struct Config {
     consumed_energy_metric_name: String,
     hardware_usage_metric_name: String,
+    hardware_usage_metric_filter: Option<HashMap<String, String>>,
 }
 
 impl Default for Config {
@@ -100,6 +104,7 @@ impl Default for Config {
         Self {
             consumed_energy_metric_name: String::from("rapl_consumed_energy"),
             hardware_usage_metric_name: String::from("cgroup_cpu_usage_user"),
+            hardware_usage_metric_filter: None,
         }
     }
 }
