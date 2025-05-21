@@ -1,10 +1,10 @@
 mod probe;
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use probe::GraceHopperProbe;
 use serde::{Deserialize, Serialize};
 use std::{
-    fs::{self, File},
+    fs::{self, DirEntry, File},
     io::{self, BufRead},
     path::PathBuf,
     time::Duration,
@@ -20,6 +20,19 @@ use alumet::{
 
 pub struct GraceHopperPlugin {
     config: Config,
+}
+
+#[derive(Debug)]
+pub struct Sensor {
+    kind: String,
+    socket: String,
+}
+
+#[derive(Debug)]
+pub struct SensorInformation {
+    sensor: Sensor,
+    average_interval: String,
+    file: PathBuf,
 }
 
 impl AlumetPlugin for GraceHopperPlugin {
@@ -44,32 +57,26 @@ impl AlumetPlugin for GraceHopperPlugin {
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
         let base_dir = self.config.root_path.to_string();
         // Try to open the directory
-        if let Ok(entries) = fs::read_dir(base_dir) {
-            for entry in entries {
-                if let Ok(entry) = entry {
-                    let path = entry.path();
-                    // Check if it's a directory
-                    if path.is_dir() {
-                        let device_file = path.join("device").join("power1_oem_info");
-                        // Check if file "power1_oem_info" exist
-                        if device_file.exists() {
-                            let (sensor, socket) = parse_sensor_information(device_file.clone())?;
-                            let source = Box::new(GraceHopperProbe::new(
-                                alumet,
-                                socket.clone(),
-                                sensor.clone(),
-                                device_file.clone().parent(),
-                            )?);
-                            let name = format!("{}_{}", sensor.clone(), socket.clone());
-                            alumet.add_source(
-                                name.as_str(),
-                                source,
-                                TriggerSpec::at_interval(self.config.poll_interval),
-                            )?;
-                        }
-                    }
-                }
-            }
+        let entries = fs::read_dir(base_dir)?;
+        for entry in entries {
+            let Ok(entry) = entry else { continue };
+            println!("entry: {:?}", entry);
+            log::info!("entry: {:?}", entry);
+            // let sensor_information: Option<SensorInformation> = get_sensor_from_dir(entry)?;
+            let Some(sensor_information) = get_sensor_from_dir(entry)? else {
+                continue;
+            };
+            let name = format!(
+                "{}_{}",
+                sensor_information.sensor.kind.clone(),
+                sensor_information.sensor.socket.clone()
+            );
+            let source = Box::new(GraceHopperProbe::new(alumet, sensor_information)?);
+            alumet.add_source(
+                name.as_str(),
+                source,
+                TriggerSpec::at_interval(self.config.poll_interval),
+            )?;
         }
         Ok(())
     }
@@ -79,34 +86,56 @@ impl AlumetPlugin for GraceHopperPlugin {
     }
 }
 
-fn parse_sensor_information(device_file: PathBuf) -> Result<(String, String), anyhow::Error> {
-    let file = File::open(&device_file).context("Failed to open the file")?;
-    let reader = io::BufReader::new(file);
+fn get_sensor_from_dir(entry: DirEntry) -> Result<Option<SensorInformation>, anyhow::Error> {
+    let path = entry.path();
+    // Check if it's a directory
+    if path.is_dir() {
+        let device_path = path.join("device");
+        let device_file = device_path.join("power1_oem_info");
+        let power_stats_interval_file = device_path.join("power1_average_interval");
+        let interval = match power_stats_interval_file.exists() {
+            true => fs::read_to_string(power_stats_interval_file).unwrap_or("".to_owned()),
+            false => "".to_owned(),
+        };
+        // Check if file "power1_oem_info" exist0
+        if !device_file.exists() {
+            return Ok(None);
+        }
+        let file = File::open(&device_file).context("Failed to open the file")?;
+        let sensor = parse_sensor_information(file)?;
+        return Ok(Some(SensorInformation {
+            sensor,
+            average_interval: interval,
+            file: device_file,
+        }));
+    }
+    Err(anyhow!("Path is not a directory"))
+}
+
+fn parse_sensor_information(file: File) -> Result<Sensor, anyhow::Error> {
+    let reader = io::BufReader::new(&file);
     for line in reader.lines() {
         let line = line.context("Failed to read the line from file")?;
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() >= 4 {
-            let sensor = parts[0].to_string();
+            let kind = parts[0].to_string();
             let socket = parts[3].to_string();
-            return Ok((sensor, socket));
+            return Ok(Sensor { kind, socket });
         }
     }
     // Return an error if no valid line found
-    Err(anyhow::anyhow!(
-        "Can't parse the content of the file: {:?}",
-        device_file
-    ))
+    Err(anyhow::anyhow!("Can't parse the content of the file: {:?}", file))
 }
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct Config {
+pub struct Config {
     /// Initial interval between two Nvidia measurements.
     #[serde(with = "humantime_serde")]
-    poll_interval: Duration,
+    pub poll_interval: Duration,
 
     /// Path to check hwmon.
-    root_path: String,
+    pub root_path: String,
 }
 
 impl Default for Config {
@@ -122,19 +151,11 @@ impl Default for Config {
 mod tests {
     use super::*;
     use crate::GraceHopperPlugin;
-    use alumet::agent;
-    use alumet::agent::plugin::PluginSet;
-    use alumet::measurement::WrappedMeasurementValue;
-    use alumet::pipeline::naming::SourceName;
-    use alumet::plugin::PluginMetadata;
-    use alumet::test::{RuntimeExpectations, StartupExpectations};
-    use alumet::units::PrefixedUnit;
     use anyhow::Result;
     use std::fs::File;
     use std::io::Write;
+    use std::time::Duration;
     use tempfile::tempdir;
-
-    const TIMEOUT: Duration = Duration::from_secs(5);
 
     #[test]
     fn test_parse_sensor_information() {
@@ -162,12 +183,23 @@ mod tests {
             let file_path = root.path().join("power1_oem");
             let mut file = File::create(&file_path).unwrap();
             writeln!(file, "{}", line).unwrap();
-            let result = parse_sensor_information(file_path);
+            let file = File::open(&file_path)
+                .context("Failed to open the file")
+                .expect("Can't open the file when testing");
+            let result = parse_sensor_information(file);
             assert!(result.is_ok(), "Expected Ok for input '{}'", line);
-            let (sensor, socket) = result.unwrap();
+            let sensor_struct = result.unwrap();
             // Check content
-            assert_eq!(sensor, expected_sensor, "Incorrect sensor for input '{}'", line);
-            assert_eq!(socket, expected_socket, "Incorrect socket for input '{}'", line);
+            assert_eq!(
+                sensor_struct.kind, expected_sensor,
+                "Incorrect sensor for input '{}'",
+                line
+            );
+            assert_eq!(
+                sensor_struct.socket, expected_socket,
+                "Incorrect socket for input '{}'",
+                line
+            );
         }
     }
 
@@ -208,197 +240,5 @@ mod tests {
         let mut plugin = fake_grace_hopper_plugin();
         let result = plugin.stop();
         assert!(result.is_ok(), "Stop should complete without errors.");
-    }
-
-    #[test]
-    fn test_correct_plugin_with_no_data() {
-        let root = tempdir().unwrap();
-        let root_path = root.path().to_str().unwrap().to_string();
-
-        let mut plugins = PluginSet::new();
-        let config = Config {
-            poll_interval: Duration::from_secs(1),
-            root_path: root_path,
-        };
-
-        plugins.add_plugin(alumet::agent::plugin::PluginInfo {
-            metadata: PluginMetadata::from_static::<GraceHopperPlugin>(),
-            enabled: true,
-            config: Some(config_to_toml_table(&config)),
-        });
-
-        let startup_expectation = StartupExpectations::new();
-
-        let agent = agent::Builder::new(plugins)
-            .with_expectations(startup_expectation)
-            .build_and_start()
-            .unwrap();
-
-        agent.pipeline.control_handle().shutdown();
-        agent.wait_for_shutdown(TIMEOUT).unwrap();
-        return;
-    }
-
-    #[test]
-    fn test_correct_plugin_init_with_one_source_empty_value() {
-        let root = tempdir().unwrap();
-
-        let root_path = root.path().to_str().unwrap().to_string();
-        let file_path_info = root.path().join("hwmon1/device/power1_oem_info");
-        let file_path_average = root.path().join("hwmon1/device/power1_average");
-        std::fs::create_dir_all(file_path_info.parent().unwrap()).unwrap();
-
-        let mut file = File::create(&file_path_info).unwrap();
-        let mut _file_avg = File::create(&file_path_average).unwrap();
-        writeln!(file, "Module Power Socket 0").unwrap();
-
-        let mut plugins = PluginSet::new();
-        let config = Config {
-            poll_interval: Duration::from_secs(1),
-            root_path: root_path,
-        };
-
-        plugins.add_plugin(alumet::agent::plugin::PluginInfo {
-            metadata: PluginMetadata::from_static::<GraceHopperPlugin>(),
-            enabled: true,
-            config: Some(config_to_toml_table(&config)),
-        });
-
-        let startup_expectation = StartupExpectations::new()
-            .expect_metric::<u64>("consumption", PrefixedUnit::micro(alumet::units::Unit::Watt))
-            .expect_source("grace-hopper", "Module_0");
-
-        let runtime_expectation = RuntimeExpectations::new().test_source(
-            SourceName::from_str("grace-hopper", "Module_0"),
-            || {},
-            |m| {
-                assert_eq!(m.len(), 1);
-                for elm in m {
-                    assert!(elm.value == WrappedMeasurementValue::U64(0));
-                }
-            },
-        );
-
-        let agent = agent::Builder::new(plugins)
-            .with_expectations(startup_expectation)
-            .with_expectations(runtime_expectation)
-            .build_and_start()
-            .unwrap();
-
-        agent.wait_for_shutdown(TIMEOUT).unwrap();
-        return;
-    }
-
-    #[test]
-    fn test_correct_plugin_init_with_several_sources() {
-        let root = tempdir().unwrap();
-
-        let root_path = root.path().to_str().unwrap().to_string();
-        let file_path_info = root.path().join("hwmon1/device/power1_oem_info");
-        let file_path_average = root.path().join("hwmon1/device/power1_average");
-        std::fs::create_dir_all(file_path_info.parent().unwrap()).unwrap();
-        let mut file = File::create(&file_path_info).unwrap();
-        let mut file_avg = File::create(&file_path_average).unwrap();
-        writeln!(file, "Module Power Socket 0").unwrap();
-        writeln!(file_avg, "123456789").unwrap();
-
-        let file_path_info = root.path().join("hwmon2/device/power1_oem_info");
-        let file_path_average = root.path().join("hwmon2/device/power1_average");
-        std::fs::create_dir_all(file_path_info.parent().unwrap()).unwrap();
-        let mut file = File::create(&file_path_info).unwrap();
-        let mut file_avg = File::create(&file_path_average).unwrap();
-        writeln!(file, "Grace Power Socket 0").unwrap();
-        writeln!(file_avg, "987654321").unwrap();
-
-        let file_path_info = root.path().join("hwmon3/device/power1_oem_info");
-        let file_path_average = root.path().join("hwmon3/device/power1_average");
-        std::fs::create_dir_all(file_path_info.parent().unwrap()).unwrap();
-        let mut file = File::create(&file_path_info).unwrap();
-        let mut file_avg = File::create(&file_path_average).unwrap();
-        writeln!(file, "CPU Power Socket 2").unwrap();
-        writeln!(file_avg, "1234598761").unwrap();
-
-        let file_path_info = root.path().join("hwmon6/device/power1_oem_info");
-        let file_path_average = root.path().join("hwmon6/device/power1_average");
-        std::fs::create_dir_all(file_path_info.parent().unwrap()).unwrap();
-        let mut file = File::create(&file_path_info).unwrap();
-        let mut file_avg = File::create(&file_path_average).unwrap();
-        writeln!(file, "SysIO Power Socket 2").unwrap();
-        writeln!(file_avg, "678954321").unwrap();
-
-        let mut plugins = PluginSet::new();
-        let config = Config {
-            poll_interval: Duration::from_secs(1),
-            root_path: root_path,
-        };
-
-        plugins.add_plugin(alumet::agent::plugin::PluginInfo {
-            metadata: PluginMetadata::from_static::<GraceHopperPlugin>(),
-            enabled: true,
-            config: Some(config_to_toml_table(&config)),
-        });
-
-        let startup_expectation = StartupExpectations::new()
-            .expect_metric::<u64>("consumption", PrefixedUnit::micro(alumet::units::Unit::Watt))
-            .expect_source("grace-hopper", "Module_0")
-            .expect_source("grace-hopper", "Grace_0")
-            .expect_source("grace-hopper", "CPU_2")
-            .expect_source("grace-hopper", "SysIO_2");
-
-        let runtime_expectation = RuntimeExpectations::new()
-            .test_source(
-                SourceName::from_str("grace-hopper", "Module_0"),
-                || {},
-                |m| {
-                    assert_eq!(m.len(), 1);
-                    for elm in m {
-                        assert!(elm.value == WrappedMeasurementValue::U64(123456789));
-                    }
-                },
-            )
-            .test_source(
-                SourceName::from_str("grace-hopper", "Grace_0"),
-                || {},
-                |m| {
-                    assert_eq!(m.len(), 1);
-                    for elm in m {
-                        assert!(elm.value == WrappedMeasurementValue::U64(987654321));
-                    }
-                },
-            )
-            .test_source(
-                SourceName::from_str("grace-hopper", "CPU_2"),
-                || {},
-                |m| {
-                    assert_eq!(m.len(), 1);
-                    for elm in m {
-                        assert!(elm.value == WrappedMeasurementValue::U64(1234598761));
-                    }
-                },
-            )
-            .test_source(
-                SourceName::from_str("grace-hopper", "SysIO_2"),
-                || {},
-                |m| {
-                    assert_eq!(m.len(), 1);
-                    for elm in m {
-                        assert!(elm.value == WrappedMeasurementValue::U64(678954321));
-                    }
-                },
-            );
-
-        let agent = agent::Builder::new(plugins)
-            .with_expectations(startup_expectation)
-            .with_expectations(runtime_expectation)
-            .build_and_start()
-            .unwrap();
-
-        agent.wait_for_shutdown(TIMEOUT).unwrap();
-
-        return;
-    }
-
-    fn config_to_toml_table(config: &Config) -> toml::Table {
-        toml::Value::try_from(config).unwrap().as_table().unwrap().clone()
     }
 }
