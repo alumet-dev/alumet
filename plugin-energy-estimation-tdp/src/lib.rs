@@ -104,7 +104,7 @@ impl Default for Config {
             tdp: 100.0,
             nb_vcpu: 1.0,
             nb_cpu: 1.0,
-            cpu_usage_per_pod: String::from("cgroup_cpu_usage_total"),
+            cpu_usage_per_pod: String::from("cpu_time_delta"),
         }
     }
 }
