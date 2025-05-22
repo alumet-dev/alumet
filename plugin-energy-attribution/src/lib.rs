@@ -103,7 +103,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             consumed_energy_metric_name: String::from("rapl_consumed_energy"),
-            hardware_usage_metric_name: String::from("cgroup_cpu_usage_user"),
+            hardware_usage_metric_name: String::from("cpu_time_delta"),
             hardware_usage_metric_filter: None,
         }
     }
