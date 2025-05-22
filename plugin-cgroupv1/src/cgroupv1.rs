@@ -11,7 +11,6 @@ use alumet::{
 };
 use anyhow::anyhow;
 use std::{
-    collections::HashMap,
     fs::File,
     io::{Read, Seek},
     result::Result::Ok,
@@ -92,10 +91,7 @@ impl Cgroupv1Probe {
         let mut buffer = String::new();
 
         if let Some(cpu_time_delta_file) = &mut self.cpu_time_delta_file {
-            buffer.clear();
-            cpu_time_delta_file.rewind()?;
-            cpu_time_delta_file.read_to_string(&mut buffer)?;
-            let cpu_time_total = buffer.trim().parse::<u64>()?;
+            let cpu_time_total = collect_cpuacct_usage(&mut buffer, cpu_time_delta_file)?;
             let cpu_time_delta = match self
                 .cpu_time_delta_counter_diff
                 .as_mut()
@@ -126,18 +122,13 @@ impl Cgroupv1Probe {
         }
 
         if let Some(memory_usage_file) = &mut self.memory_usage_file {
-            buffer.clear();
-            memory_usage_file.rewind()?;
-            memory_usage_file.read_to_string(&mut buffer)?;
-            let memory_usage_u64 = buffer.trim().parse::<u64>()?;
+            let memory_usage_u64 = collect_memory_usage(&mut buffer, memory_usage_file)?;
             measurement_points.push(
                 MeasurementPoint::new(
                     timestamp,
                     self.metrics.memory_usage,
                     Resource::LocalMachine,
-                    self.memory_usage_consumer.clone().ok_or(PollError::Fatal(anyhow!(
-                        "memory_usage_consumer shouldn't be None when memory_usage_file is valid"
-                    )))?,
+                    self.memory_usage_consumer.clone().unwrap(),
                     memory_usage_u64,
                 )
                 .with_attr("kind", "resident")
@@ -146,5 +137,52 @@ impl Cgroupv1Probe {
         }
 
         Ok(measurement_points)
+    }
+}
+
+fn collect_memory_usage(buffer: &mut String, file: &mut File) -> Result<u64, anyhow::Error> {
+    collect_file_single_measurement(buffer, file)
+}
+
+fn collect_cpuacct_usage(buffer: &mut String, file: &mut File) -> Result<u64, anyhow::Error> {
+    collect_file_single_measurement(buffer, file)
+}
+
+fn collect_file_single_measurement(buffer: &mut String, file: &mut File) -> Result<u64, anyhow::Error> {
+    buffer.clear();
+    file.rewind()?;
+    file.read_to_string(buffer)?;
+    let measurement = buffer.trim().parse::<u64>()?;
+    Ok(measurement)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_collect_memory_usage() {
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        writeln!(temp_file, "123456").expect("Failed to write to temp file");
+        let mut file = temp_file.reopen().expect("Failed to reopen temp file");
+        let mut buffer = String::new();
+
+        let result = collect_memory_usage(&mut buffer, &mut file).expect("Failed to collect memory usage");
+
+        assert_eq!(result, 123456);
+    }
+
+    #[test]
+    fn test_collect_cpuacct_usage() {
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        writeln!(temp_file, "789012").expect("Failed to write to temp file");
+        let mut file = temp_file.reopen().expect("Failed to reopen temp file");
+        let mut buffer = String::new();
+
+        let result = collect_cpuacct_usage(&mut buffer, &mut file).expect("Failed to collect CPU usage");
+
+        assert_eq!(result, 789012);
     }
 }

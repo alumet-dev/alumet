@@ -18,7 +18,7 @@ use std::{
 
 use crate::cgroupv1::Metrics;
 
-use super::probe::OAR2Probe;
+use super::probe::Oar2Probe;
 
 #[derive(Debug)]
 pub struct Oar2Plugin {
@@ -31,10 +31,10 @@ pub struct Oar2Plugin {
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
-struct Config {
-    path: PathBuf,
+pub struct Config {
+    pub path: PathBuf,
     #[serde(with = "humantime_serde")]
-    poll_interval: Duration,
+    pub poll_interval: Duration,
 }
 
 impl AlumetPlugin for Oar2Plugin {
@@ -144,7 +144,7 @@ impl Oar2Plugin {
         metrics: Metrics,
         cpuacct_controller_path: &Path,
         memory_controller_path: &Path,
-    ) -> Result<Box<OAR2Probe>, anyhow::Error> {
+    ) -> Result<Box<Oar2Probe>, anyhow::Error> {
         let job_id = Self::job_id_from_name(job_name)?;
 
         let cpuacct_controller_job_path = cpuacct_controller_path.join(job_name);
@@ -163,7 +163,7 @@ impl Oar2Plugin {
             .unwrap()
             .to_string();
 
-        Ok(Box::new(OAR2Probe::new(
+        Ok(Box::new(Oar2Probe::new(
             job_id,
             metrics,
             Some(cpuacct_usage_filepath),
@@ -183,7 +183,10 @@ struct JobDetector {
 
 impl EventHandler for JobDetector {
     fn handle_event(&mut self, event: Result<Event, notify::Error>) {
-        fn handle_event_on_path(job_detect: &mut JobDetector, path: PathBuf) -> anyhow::Result<()> {
+        fn new_source_on_path(
+            job_detect: &mut JobDetector,
+            path: PathBuf,
+        ) -> anyhow::Result<Option<(String, Box<Oar2Probe>)>> {
             if let Some(job_name) = path.file_name() {
                 let job_name = job_name.to_str().unwrap().to_string();
 
@@ -195,38 +198,46 @@ impl EventHandler for JobDetector {
                         &job_detect.memory_controller_path,
                     )?;
 
-                    let source_name = job_name;
-                    let new_job_source =
-                        request::create_one().add_source(&source_name, source, job_detect.trigger.clone());
-
-                    job_detect
-                        .rt
-                        .block_on(
-                            job_detect
-                                .control_handle
-                                .dispatch(new_job_source, Duration::from_millis(500)),
-                        )
-                        .with_context(|| format!("failed to add source {source_name}"))?;
+                    return Ok(Some((job_name.clone(), source)));
                 }
             }
-            Ok(())
+            Ok(None)
         }
 
         log::debug!("Handle event function");
-        if let Ok(Event {
-            kind: EventKind::Create(_),
-            paths,
-            ..
-        }) = event
-        {
-            log::debug!("Paths: {paths:?}");
-            for path in paths {
-                if let Err(e) = handle_event_on_path(self, path.clone()) {
-                    log::error!("Unable to handle event on {}: {}", path.display(), e);
+        match event {
+            Ok(Event {
+                kind: EventKind::Create(_),
+                paths,
+                ..
+            }) => {
+                log::debug!("Paths: {paths:?}");
+                let mut request_builder = request::create_many();
+                let trigger = self.trigger.clone();
+                for path in paths {
+                    match new_source_on_path(self, path.clone()) {
+                        Ok(Some((source_name, source))) => {
+                            request_builder.add_source(&source_name, source, trigger.clone());
+                            ()
+                        }
+                        Ok(_) => (),
+                        Err(e) => log::error!("Error while creating new source on path {} : {}", path.display(), e),
+                    }
+                }
+                let request_result = self
+                    .rt
+                    .block_on(
+                        self.control_handle
+                            .dispatch(request_builder.build(), Duration::from_millis(500)),
+                    )
+                    .context("Failed to dispatch request to add new sources");
+                match request_result {
+                    Ok(_) => (),
+                    Err(e) => log::error!("Dispatch failed: {e:?}"),
                 }
             }
-        } else if let Err(e) = event {
-            log::error!("watch error: {:?}", e);
+            Ok(_) => (),
+            Err(e) => log::error!("watch error: {:?}", e),
         }
     }
 }
