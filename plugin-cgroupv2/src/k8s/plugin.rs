@@ -5,27 +5,21 @@ use alumet::{
     },
     plugin::{
         rust::{deserialize_config, serialize_config, AlumetPlugin},
-        util::CounterDiff,
         AlumetPluginStart, AlumetPostStart, ConfigTable,
     },
-    resources::ResourceConsumer,
 };
 use anyhow::{anyhow, Context};
 use gethostname::gethostname;
 use notify::{Event, EventHandler, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-use std::{fs::File, path::PathBuf, time::Duration};
+use std::{path::PathBuf, time::Duration};
 
-use crate::{
-    cgroupv2::{Metrics, CGROUP_MAX_TIME_COUNTER},
-    is_accessible_dir,
-    k8s::utils::get_pod_name,
-};
+use crate::{cgroupv2::Metrics, is_accessible_dir};
 
 use super::{
-    probe::K8SProbe,
+    pod::{get_pod_infos, get_uid_from_cgroup_dir, is_cgroup_pod_dir},
+    probe::{get_all_pod_probes, get_pod_probe, K8SPodProbe},
     token::{Token, TokenRetrieval},
-    utils::{self, CgroupV2MetricFile},
 };
 
 pub struct K8sPlugin {
@@ -77,43 +71,33 @@ impl AlumetPlugin for K8sPlugin {
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         let v2_used = is_accessible_dir(&PathBuf::from("/sys/fs/cgroup/"))?;
         if !v2_used {
-            return Err(anyhow!("Cgroups v2 are not being used!"));
+            return Err(anyhow!(
+                "Cgroups v2 are not being used (/sys/fs/cgroup/ is not accessible)"
+            ));
         }
         self.metrics = Some(Metrics::new(alumet)?);
 
         if self.config.hostname.is_empty() {
             let hostname_ostring = gethostname();
-            let hostname = hostname_ostring
+            self.config.hostname = hostname_ostring
                 .to_str()
                 .with_context(|| format!("Invalid UTF-8 in hostname: {hostname_ostring:?}"))?
                 .to_string();
-            self.config.hostname = hostname;
         }
 
-        let final_list_metric_file: Vec<CgroupV2MetricFile> = utils::list_all_k8s_pods_file(
+        let pod_probes: Vec<K8SPodProbe> = get_all_pod_probes(
             &self.config.path,
             self.config.hostname.clone(),
             self.config.kubernetes_api_url.clone(),
             &Token::new(self.config.token_retrieval.clone()),
+            self.metrics.clone().unwrap(),
         )?;
 
         // Add as a source each pod already present
-        for metric_file in final_list_metric_file {
-            let counter_tmp_tot = CounterDiff::with_max_value(crate::cgroupv2::CGROUP_MAX_TIME_COUNTER);
-            let counter_tmp_usr = CounterDiff::with_max_value(crate::cgroupv2::CGROUP_MAX_TIME_COUNTER);
-            let counter_tmp_sys = CounterDiff::with_max_value(crate::cgroupv2::CGROUP_MAX_TIME_COUNTER);
-
-            let source_name = format!("pod:{}_{}_{}", metric_file.namespace, metric_file.name, metric_file.uid);
-            let probe = K8SProbe::new(
-                self.metrics.as_ref().expect("Metrics is not available").clone(),
-                metric_file,
-                counter_tmp_tot,
-                counter_tmp_sys,
-                counter_tmp_usr,
-            )?;
+        for probe in pod_probes {
             alumet
                 .add_source(
-                    &source_name,
+                    &probe.source_name(),
                     Box::new(probe),
                     TriggerSpec::at_interval(self.config.poll_interval),
                 )
@@ -131,166 +115,6 @@ impl AlumetPlugin for K8sPlugin {
         let kubernetes_api_url = self.config.kubernetes_api_url.clone();
         let hostname = self.config.hostname.to_owned();
         let token_retrieval = self.config.token_retrieval.clone();
-
-        struct PodDetector {
-            metrics: Metrics,
-            control_handle: PluginControlHandle,
-            poll_interval: Duration,
-            kubernetes_api_url: String,
-            hostname: String,
-            token: Token,
-            rt: tokio::runtime::Runtime,
-        }
-
-        impl EventHandler for PodDetector {
-            fn handle_event(&mut self, event: Result<Event, notify::Error>) {
-                fn try_handle(
-                    detector: &mut PodDetector,
-                    event: Result<Event, notify::Error>,
-                ) -> Result<(), anyhow::Error> {
-                    // The events look like the following
-                    // Handle_Event: Ok(Event { kind: Create(Folder), paths: ["/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/TESTTTTT"], attr:tracker: None, attr:flag: None, attr:info: None, attr:source: None })
-                    // Handle_Event: Ok(Event { kind: Remove(Folder), paths: ["/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/TESTTTTT"], attr:tracker: None, attr:flag: None, attr:info: None, attr:source: None })
-                    if let Ok(Event {
-                        kind: EventKind::Create(notify::event::CreateKind::Folder),
-                        paths,
-                        ..
-                    }) = event
-                    {
-                        for path in paths {
-                            match path.extension() {
-                                None => {
-                                    // Case of no extension found --> I will not find cpu.stat or memory.stat file
-                                    return Ok(());
-                                }
-                                Some(os_str) => match os_str.to_str() {
-                                    Some("slice") => {
-                                        // Case of .slice found --> I will find cpu.stat or memory.stat file
-                                        log::debug!(".slice extension found, will continue");
-                                    }
-                                    _ => {
-                                        // Case of an other extension than .slice is found --> I will not find cpu.stat or memory.stat file
-                                        return Ok(());
-                                    }
-                                },
-                            };
-
-                            if let Some(pod_uid) = path.file_name() {
-                                let pod_uid = pod_uid.to_str().expect("Can't retrieve the pod uid value");
-
-                                // We open a File Descriptor to the newly created file
-                                let mut path_cpu = path.clone();
-                                let mut path_memory_stat = path.clone();
-                                let mut path_memory_current = path.clone();
-                                let full_name_to_seek = pod_uid.strip_suffix(".slice").unwrap_or(pod_uid);
-                                let parts: Vec<&str> = full_name_to_seek.split("pod").collect();
-                                let name_to_seek_raw = *(parts.last().unwrap_or(&full_name_to_seek));
-                                let uid_raw = parts.last().unwrap_or(&"No UID found");
-                                let uid = format!("pod{}", uid_raw);
-                                let name_to_seek = name_to_seek_raw.replace('_', "-");
-
-                                let rt = tokio::runtime::Builder::new_current_thread()
-                                    .enable_all()
-                                    .build()
-                                    .context("failed to create local tokio runtime")?;
-                                let (name, namespace, node) = rt
-                                    .block_on(async {
-                                        get_pod_name(
-                                            &name_to_seek,
-                                            &detector.hostname,
-                                            &detector.kubernetes_api_url,
-                                            &detector.token,
-                                        )
-                                        .await
-                                    })
-                                    .with_context(|| "Block on failed returned an error")?;
-
-                                path_cpu.push("cpu.stat");
-                                let file_cpu = File::open(&path_cpu)
-                                    .with_context(|| format!("failed to open file {}", path_cpu.display()))?;
-
-                                path_memory_stat.push("memory.stat");
-                                let file_memory_stat = File::open(&path_memory_stat)
-                                    .with_context(|| format!("failed to open file {}", path_memory_stat.display()))?;
-
-                                path_memory_current.push("memory.current");
-                                let file_memory_current = File::open(&path_memory_current).with_context(|| {
-                                    format!("failed to open file {}", path_memory_current.display())
-                                })?;
-
-                                // CPU resource consumer for cpu.stat file in cgroup
-                                let consumer_cpu = ResourceConsumer::ControlGroup {
-                                    path: path_cpu
-                                        .to_str()
-                                        .expect("Path to 'cpu.stat' must be valid UTF8")
-                                        .to_string()
-                                        .into(),
-                                };
-                                // Memory resource consumer for memory.stat file in cgroup
-                                let consumer_memory_stat = ResourceConsumer::ControlGroup {
-                                    path: path_memory_stat
-                                        .to_str()
-                                        .expect("Path to 'memory.stat' must to be valid UTF8")
-                                        .to_string()
-                                        .into(),
-                                };
-                                // Memory current resource consumer for memory.current file in cgroup
-                                let consumer_memory_current = ResourceConsumer::ControlGroup {
-                                    path: path_memory_current
-                                        .to_str()
-                                        .expect("Path to 'memory.current' must to be valid UTF8")
-                                        .to_string()
-                                        .into(),
-                                };
-
-                                let metric_file = CgroupV2MetricFile {
-                                    name: name.to_owned(),
-                                    consumer_cpu,
-                                    file_cpu,
-                                    consumer_memory_stat,
-                                    file_memory_stat,
-                                    consumer_memory_current,
-                                    file_memory_current,
-                                    uid: uid.to_owned(),
-                                    namespace: namespace.to_owned(),
-                                    node: node.to_owned(),
-                                };
-
-                                let counter_tmp_tot = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
-                                let counter_tmp_usr = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
-                                let counter_tmp_sys = CounterDiff::with_max_value(CGROUP_MAX_TIME_COUNTER);
-
-                                let probe = K8SProbe::new(
-                                    detector.metrics.clone(),
-                                    metric_file,
-                                    counter_tmp_tot,
-                                    counter_tmp_sys,
-                                    counter_tmp_usr,
-                                )?;
-
-                                // Add the probe to the sources
-                                let create_source = request::create_one().add_source(
-                                    pod_uid,
-                                    Box::new(probe),
-                                    TriggerSpec::at_interval(detector.poll_interval),
-                                );
-                                detector
-                                    .rt
-                                    .block_on(detector.control_handle.dispatch(create_source, Duration::from_secs(1)))
-                                    .with_context(|| format!("failed to add source for pod {pod_uid}"))?;
-                            }
-                        }
-                        Ok(())
-                    } else {
-                        Ok(())
-                    }
-                }
-
-                if let Err(e) = try_handle(self, event) {
-                    log::error!("Error try_handle: {}", e);
-                }
-            }
-        }
 
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_time()
@@ -312,6 +136,75 @@ impl AlumetPlugin for K8sPlugin {
 
         self.watcher = Some(watcher);
 
+        Ok(())
+    }
+}
+
+struct PodDetector {
+    metrics: Metrics,
+    control_handle: PluginControlHandle,
+    poll_interval: Duration,
+    kubernetes_api_url: String,
+    hostname: String,
+    token: Token,
+    rt: tokio::runtime::Runtime,
+}
+
+impl EventHandler for PodDetector {
+    fn handle_event(&mut self, event: Result<Event, notify::Error>) {
+        if let Ok(Event {
+            kind: EventKind::Create(notify::event::CreateKind::Folder),
+            paths,
+            ..
+        }) = event
+        {
+            for path in paths {
+                if let Err(e) = self.handle_event_on_path(path.clone()) {
+                    log::error!("Unable to handle event on {}: {}", path.display(), e);
+                }
+            }
+        } else if let Err(e) = event {
+            log::error!("watch error: {:?}", e);
+        }
+    }
+}
+
+impl PodDetector {
+    fn handle_event_on_path(&self, path: PathBuf) -> anyhow::Result<()> {
+        // The events look like the following
+        // Handle_Event: Ok(Event { kind: Create(Folder), paths: ["/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/TESTTTTT"], attr:tracker: None, attr:flag: None, attr:info: None, attr:source: None })
+        // Handle_Event: Ok(Event { kind: Remove(Folder), paths: ["/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/TESTTTTT"], attr:tracker: None, attr:flag: None, attr:info: None, attr:source: None })
+        if is_cgroup_pod_dir(&path) {
+            let pod_uid = get_uid_from_cgroup_dir(&path)?;
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .context("failed to create local tokio runtime")?;
+            let pod_infos = rt
+                .block_on(async {
+                    get_pod_infos(&pod_uid, &self.hostname, &self.kubernetes_api_url, &self.token).await
+                })
+                .with_context(|| "Block on failed returned an error")?;
+
+            let probe = get_pod_probe(
+                path.clone(),
+                self.metrics.clone(),
+                pod_uid.clone(),
+                pod_infos.name.clone(),
+                pod_infos.namespace.clone(),
+                pod_infos.node.clone(),
+            )?;
+
+            // Add the probe to the sources
+            let source = request::create_one().add_source(
+                &probe.source_name(),
+                Box::new(probe),
+                TriggerSpec::at_interval(self.poll_interval),
+            );
+            self.rt
+                .block_on(self.control_handle.dispatch(source, Duration::from_secs(1)))
+                .with_context(|| format!("failed to add source for pod {pod_uid}"))?;
+        }
         Ok(())
     }
 }

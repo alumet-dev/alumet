@@ -1,185 +1,58 @@
 use alumet::{
-    measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp},
-    metrics::TypedMetricId,
-    pipeline::elements::error::PollError,
-    plugin::util::{CounterDiff, CounterDiffUpdate},
-    resources::{Resource, ResourceConsumer},
+    measurement::{AttributeValue, MeasurementAccumulator, Timestamp},
+    pipeline::{elements::error::PollError, Source},
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 
-use super::utils::{gather_value, CgroupV2MetricFile};
-use crate::cgroupv2::{CgroupMeasurements, Metrics};
+use crate::cgroupv2::{Cgroupv2Probe, Metrics};
+use std::path::{Path, PathBuf};
+use walkdir::WalkDir;
 
-pub struct CgroupV2prob {
-    pub cgroup_v2_metric_file: CgroupV2MetricFile,
-    pub time_tot: CounterDiff,
-    pub time_usr: CounterDiff,
-    pub time_sys: CounterDiff,
-    pub cpu_time_delta: TypedMetricId<u64>,
-    pub memory_usage: TypedMetricId<u64>,
-    pub memory_anon: TypedMetricId<u64>,
-    pub memory_file: TypedMetricId<u64>,
-    pub memory_kernel: TypedMetricId<u64>,
-    pub memory_pagetables: TypedMetricId<u64>,
+pub struct OAR3JobProbe {
+    cgroupv2: Cgroupv2Probe,
+    name: String,
 }
 
-impl CgroupV2prob {
-    pub fn new(
-        metric: Metrics,
-        metric_file: CgroupV2MetricFile,
-        counter_tot: CounterDiff,
-        counter_sys: CounterDiff,
-        counter_usr: CounterDiff,
-    ) -> anyhow::Result<CgroupV2prob> {
-        Ok(CgroupV2prob {
-            cgroup_v2_metric_file: metric_file,
-            time_tot: counter_tot,
-            time_usr: counter_usr,
-            time_sys: counter_sys,
-            cpu_time_delta: metric.cpu_time_delta,
-            memory_usage: metric.memory_usage,
-            memory_anon: metric.memory_anonymous,
-            memory_file: metric.memory_file,
-            memory_kernel: metric.memory_kernel,
-            memory_pagetables: metric.memory_pagetables,
-        })
+impl OAR3JobProbe {
+    pub fn new(cgroupv2: Cgroupv2Probe, name: String) -> Result<Self, anyhow::Error> {
+        Ok(Self { cgroupv2, name })
+    }
+
+    pub fn source_name(&self) -> String {
+        format!("job:{}", self.name)
     }
 }
 
-impl alumet::pipeline::Source for CgroupV2prob {
+impl Source for OAR3JobProbe {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
-        /// Create a measurement point with given value,
-        /// the `LocalMachine` resource and some attributes related to the pod.
-        fn create_measurement_point(
-            timestamp: Timestamp,
-            metric_id: TypedMetricId<u64>,
-            resource_consumer: ResourceConsumer,
-            value_measured: u64,
-            metrics_param: &CgroupMeasurements,
-        ) -> MeasurementPoint {
-            MeasurementPoint::new(
-                timestamp,
-                metric_id,
-                Resource::LocalMachine,
-                resource_consumer,
-                value_measured,
-            )
-            .with_attr("name", AttributeValue::String(metrics_param.pod_name.clone()))
-        }
-
-        let mut buffer = String::new();
-        let metrics: CgroupMeasurements = gather_value(&mut self.cgroup_v2_metric_file, &mut buffer)?;
-
-        let diff_tot = match self.time_tot.update(metrics.cpu_time_total) {
-            CounterDiffUpdate::FirstTime => None,
-            CounterDiffUpdate::Difference(diff) | CounterDiffUpdate::CorrectedDifference(diff) => Some(diff),
-        };
-        let diff_usr = match self.time_usr.update(metrics.cpu_time_user_mode) {
-            CounterDiffUpdate::FirstTime => None,
-            CounterDiffUpdate::Difference(diff) => Some(diff),
-            CounterDiffUpdate::CorrectedDifference(diff) => Some(diff),
-        };
-        let diff_sys = match self.time_sys.update(metrics.cpu_time_system_mode) {
-            CounterDiffUpdate::FirstTime => None,
-            CounterDiffUpdate::Difference(diff) => Some(diff),
-            CounterDiffUpdate::CorrectedDifference(diff) => Some(diff),
-        };
-
-        // Push cpu total usage measure for user and system
-        if let Some(value_tot) = diff_tot {
-            let p_tot = create_measurement_point(
-                timestamp,
-                self.cpu_time_delta,
-                self.cgroup_v2_metric_file.consumer_cpu.clone(),
-                value_tot,
-                &metrics,
-            )
-            .with_attr("kind", "total");
-            measurements.push(p_tot);
-        }
-
-        // Push cpu usage measure for user
-        if let Some(value_usr) = diff_usr {
-            let p_usr = create_measurement_point(
-                timestamp,
-                self.cpu_time_delta,
-                self.cgroup_v2_metric_file.consumer_cpu.clone(),
-                value_usr,
-                &metrics,
-            )
-            .with_attr("kind", "user");
-            measurements.push(p_usr);
-        }
-
-        // Push cpu usage measure for system
-        if let Some(value_sys) = diff_sys {
-            let p_sys = create_measurement_point(
-                timestamp,
-                self.cpu_time_delta,
-                self.cgroup_v2_metric_file.consumer_cpu.clone(),
-                value_sys,
-                &metrics,
-            )
-            .with_attr("kind", "system");
-            measurements.push(p_sys);
-        }
-
-        // Push resident memory usage corresponding to running process
-        let mem_usage_value = metrics.memory_usage_resident;
-        let m_usage_resident = create_measurement_point(
-            timestamp,
-            self.memory_usage,
-            self.cgroup_v2_metric_file.consumer_memory_current.clone(),
-            mem_usage_value,
-            &metrics,
-        )
-        .with_attr("kind", "resident");
-        measurements.push(m_usage_resident);
-
-        // Push anonymous used memory measure corresponding to running process and various allocated memory
-        let mem_anon_value = metrics.memory_anonymous;
-        let m_anon = create_measurement_point(
-            timestamp,
-            self.memory_anon,
-            self.cgroup_v2_metric_file.consumer_memory_stat.clone(),
-            mem_anon_value,
-            &metrics,
-        );
-        measurements.push(m_anon);
-
-        // Push files memory measure, corresponding to open files and descriptors
-        let mem_file_value = metrics.memory_file;
-        let m_file = create_measurement_point(
-            timestamp,
-            self.memory_file,
-            self.cgroup_v2_metric_file.consumer_memory_stat.clone(),
-            mem_file_value,
-            &metrics,
-        );
-        measurements.push(m_file);
-
-        // Push kernel memory measure
-        let mem_kernel_value = metrics.memory_kernel;
-        let m_ker = create_measurement_point(
-            timestamp,
-            self.memory_kernel,
-            self.cgroup_v2_metric_file.consumer_memory_stat.clone(),
-            mem_kernel_value,
-            &metrics,
-        );
-        measurements.push(m_ker);
-
-        // Push pagetables memory measure
-        let mem_pagetables_value = metrics.memory_pagetables;
-        let m_pgt = create_measurement_point(
-            timestamp,
-            self.memory_pagetables,
-            self.cgroup_v2_metric_file.consumer_memory_stat.clone(),
-            mem_pagetables_value,
-            &metrics,
-        );
-        measurements.push(m_pgt);
-
+        self.cgroupv2.collect_measurements(timestamp, measurements)?;
         Ok(())
     }
+}
+
+pub fn get_all_job_probes(root_directory_path: &Path, metrics: Metrics) -> Result<Vec<OAR3JobProbe>> {
+    let mut probes: Vec<OAR3JobProbe> = Vec::new();
+
+    for entry in WalkDir::new(root_directory_path)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_dir())
+    {
+        let path = entry.path();
+        let job_name = path
+            .file_name()
+            .ok_or_else(|| anyhow::anyhow!("No file name found"))?
+            .to_str()
+            .context("Filename is not valid UTF-8")?
+            .to_string();
+        probes.push(get_job_probe(path.to_path_buf(), metrics.clone(), job_name)?);
+    }
+    Ok(probes)
+}
+
+pub fn get_job_probe(path: PathBuf, metrics: Metrics, job_name: String) -> Result<OAR3JobProbe> {
+    let base_attrs = vec![("job_name".to_string(), AttributeValue::String(job_name.clone()))];
+    let mut cgroup_probe = Cgroupv2Probe::new_from_cgroup_dir(path, metrics)?;
+    cgroup_probe.add_additional_attrs(base_attrs);
+    OAR3JobProbe::new(cgroup_probe, job_name)
 }
