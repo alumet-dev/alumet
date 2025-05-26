@@ -1,6 +1,7 @@
 mod probe;
 
 use anyhow::{anyhow, Context};
+use humantime_serde::re::humantime::parse_duration;
 use probe::GraceHopperProbe;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -24,14 +25,9 @@ pub struct GraceHopperPlugin {
 
 #[derive(Debug)]
 pub struct Sensor {
-    kind: String,
+    sensor: String,
     socket: String,
-}
-
-#[derive(Debug)]
-pub struct SensorInformation {
-    sensor: Sensor,
-    average_interval: String,
+    average_interval: Duration,
     file: PathBuf,
 }
 
@@ -60,16 +56,13 @@ impl AlumetPlugin for GraceHopperPlugin {
         let entries = fs::read_dir(base_dir)?;
         for entry in entries {
             let Ok(entry) = entry else { continue };
-            println!("entry: {:?}", entry);
-            log::info!("entry: {:?}", entry);
-            // let sensor_information: Option<SensorInformation> = get_sensor_from_dir(entry)?;
-            let Some(sensor_information) = get_sensor_from_dir(entry)? else {
+            let Some(sensor_information) = get_sensor_information_from_dir(entry)? else {
                 continue;
             };
             let name = format!(
                 "{}_{}",
-                sensor_information.sensor.kind.clone(),
-                sensor_information.sensor.socket.clone()
+                sensor_information.sensor.clone(),
+                sensor_information.socket.clone()
             );
             let source = Box::new(GraceHopperProbe::new(alumet, sensor_information)?);
             alumet.add_source(
@@ -86,33 +79,48 @@ impl AlumetPlugin for GraceHopperPlugin {
     }
 }
 
-fn get_sensor_from_dir(entry: DirEntry) -> Result<Option<SensorInformation>, anyhow::Error> {
+fn get_sensor_information_from_dir(entry: DirEntry) -> Result<Option<Sensor>, anyhow::Error> {
     let path = entry.path();
     // Check if it's a directory
-    if path.is_dir() {
-        let device_path = path.join("device");
-        let device_file = device_path.join("power1_oem_info");
-        let power_stats_interval_file = device_path.join("power1_average_interval");
-        let interval = match power_stats_interval_file.exists() {
-            true => fs::read_to_string(power_stats_interval_file).unwrap_or("".to_owned()),
-            false => "".to_owned(),
-        };
-        // Check if file "power1_oem_info" exist0
-        if !device_file.exists() {
-            return Ok(None);
-        }
-        let file = File::open(&device_file).context("Failed to open the file")?;
-        let sensor = parse_sensor_information(file)?;
-        return Ok(Some(SensorInformation {
-            sensor,
-            average_interval: interval,
-            file: device_file,
-        }));
+    if !path.is_dir() {
+        return Err(anyhow!("Path is not a directory"));
     }
-    Err(anyhow!("Path is not a directory"))
+    let device_path = path.join("device");
+    let device_file = device_path.join("power1_oem_info");
+    let power_stats_interval_file = device_path.join("power1_average_interval");
+    let interval = match power_stats_interval_file.exists() {
+        true => {
+            let content_file = fs::read_to_string(&power_stats_interval_file).unwrap_or("".to_owned());
+            match parse_duration(&content_file) {
+                Ok(duration) => duration,
+                Err(e) => {
+                    log::error!(
+                        "Cannot parse the duration for {:?}, content: {:?}. Error is: {:?}",
+                        power_stats_interval_file,
+                        content_file,
+                        e
+                    );
+                    Duration::from_millis(50)
+                }
+            }
+        }
+        false => Duration::from_millis(50),
+    };
+    // Check if file "power1_oem_info" exist0
+    if !device_file.exists() {
+        return Ok(None);
+    }
+    let file = File::open(&device_file).context("Failed to open the file")?;
+    let (sensor, socket) = get_sensor_from_file(file)?;
+    Ok(Some(Sensor {
+        sensor,
+        socket,
+        average_interval: interval,
+        file: device_file,
+    }))
 }
 
-fn parse_sensor_information(file: File) -> Result<Sensor, anyhow::Error> {
+fn get_sensor_from_file(file: File) -> Result<(String, String), anyhow::Error> {
     let reader = io::BufReader::new(&file);
     for line in reader.lines() {
         let line = line.context("Failed to read the line from file")?;
@@ -120,7 +128,7 @@ fn parse_sensor_information(file: File) -> Result<Sensor, anyhow::Error> {
         if parts.len() >= 4 {
             let kind = parts[0].to_string();
             let socket = parts[3].to_string();
-            return Ok(Sensor { kind, socket });
+            return Ok((kind, socket));
         }
     }
     // Return an error if no valid line found
@@ -186,17 +194,17 @@ mod tests {
             let file = File::open(&file_path)
                 .context("Failed to open the file")
                 .expect("Can't open the file when testing");
-            let result = parse_sensor_information(file);
+            let result = get_sensor_from_file(file);
             assert!(result.is_ok(), "Expected Ok for input '{}'", line);
             let sensor_struct = result.unwrap();
             // Check content
             assert_eq!(
-                sensor_struct.kind, expected_sensor,
+                sensor_struct.0, expected_sensor,
                 "Incorrect sensor for input '{}'",
                 line
             );
             assert_eq!(
-                sensor_struct.socket, expected_socket,
+                sensor_struct.1, expected_socket,
                 "Incorrect socket for input '{}'",
                 line
             );

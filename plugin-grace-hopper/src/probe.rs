@@ -1,20 +1,21 @@
 use std::{
     fs::File,
     io::{Read, Seek},
+    time::Duration,
 };
 
 use anyhow::anyhow;
 
 use alumet::{
-    measurement::MeasurementPoint,
+    measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
-    pipeline::Source,
+    pipeline::{elements::error::PollError, Source},
     plugin::AlumetPluginStart,
     resources::{Resource, ResourceConsumer},
     units::{PrefixedUnit, Unit},
 };
 
-use crate::SensorInformation;
+use crate::Sensor;
 
 pub struct GraceHopperProbe {
     socket: String,
@@ -22,11 +23,11 @@ pub struct GraceHopperProbe {
     file: File,
     consumer: ResourceConsumer,
     metric: Option<TypedMetricId<u64>>,
-    _power_stats_interval: String,
+    _power_stats_interval: Duration,
 }
 
 impl GraceHopperProbe {
-    pub fn new(alumet: &mut AlumetPluginStart, sensor_info: SensorInformation) -> Result<Self, anyhow::Error> {
+    pub fn new(alumet: &mut AlumetPluginStart, sensor_info: Sensor) -> Result<Self, anyhow::Error> {
         let metric = alumet
             .create_metric::<u64>(
                 "consumption",
@@ -49,8 +50,8 @@ impl GraceHopperProbe {
                 .join("power1_average"),
         )?;
         let probe: GraceHopperProbe = GraceHopperProbe {
-            socket: sensor_info.sensor.socket,
-            kind: sensor_info.sensor.kind.to_lowercase(),
+            socket: sensor_info.socket,
+            kind: sensor_info.sensor.to_lowercase(),
             file,
             metric,
             consumer: ResourceConsumer::LocalMachine,
@@ -61,12 +62,9 @@ impl GraceHopperProbe {
 }
 
 impl Source for GraceHopperProbe {
-    fn poll(
-        &mut self,
-        measurements: &mut alumet::measurement::MeasurementAccumulator,
-        timestamp: alumet::measurement::Timestamp,
-    ) -> Result<(), alumet::pipeline::elements::error::PollError> {
-        let power = read_power_value(&mut self.file);
+    fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
+        let mut buffer = String::new();
+        let power = read_power_value(&mut buffer, &mut self.file);
         measurements.push(
             MeasurementPoint::new(
                 timestamp,
@@ -83,11 +81,10 @@ impl Source for GraceHopperProbe {
     }
 }
 
-pub fn read_power_value(file: &mut File) -> Result<u64, anyhow::Error> {
-    let mut buffer = String::new();
+pub fn read_power_value(buffer: &mut String, file: &mut File) -> Result<u64, anyhow::Error> {
     buffer.clear();
     file.rewind()?;
-    file.read_to_string(&mut buffer)?;
+    file.read_to_string(buffer)?;
 
     let power_consumption = match buffer.trim().parse::<u64>() {
         Ok(value) => value,
@@ -126,7 +123,8 @@ mod tests {
             let mut file = File::open(&file_path)
                 .context("Failed to open the file")
                 .expect("Can't open the file when testing read_power_value function");
-            let result = read_power_value(&mut file);
+            let mut buffer = String::new();
+            let result = read_power_value(&mut buffer, &mut file);
             assert!(result.is_ok(), "Expected Ok for input '{}'", line);
             let power = result.unwrap();
             // Check content
