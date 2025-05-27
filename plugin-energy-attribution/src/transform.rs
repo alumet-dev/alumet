@@ -1,6 +1,5 @@
 use std::{
-    collections::HashMap,
-    time::{SystemTime, UNIX_EPOCH},
+    collections::HashMap, time::{SystemTime, UNIX_EPOCH},
 };
 
 use alumet::{
@@ -14,17 +13,18 @@ use alumet::{
 
 pub struct EnergyAttributionTransform {
     pub metrics: super::Metrics,
-    consumed_energy_buffer: HashMap<u64, MeasurementPoint>,
-    hardware_usage_buffer: HashMap<u64, Vec<MeasurementPoint>>,
+    consumed_energy_buffer: HashMap<u128, MeasurementPoint>,
+    hardware_usage_buffer: HashMap<u128, Vec<MeasurementPoint>>,
     hardware_usage_metric_filter: HashMap<String, String>,
 }
+
 impl EnergyAttributionTransform {
     /// Instantiates a new EnergyAttributionTransform with its private fields initialized.
     pub fn new(metrics: super::Metrics, hardware_usage_metric_filter: HashMap<String, String>) -> Self {
         Self {
             metrics,
-            hardware_usage_buffer: HashMap::<u64, Vec<MeasurementPoint>>::new(),
-            consumed_energy_buffer: HashMap::<u64, MeasurementPoint>::new(),
+            hardware_usage_buffer: HashMap::<u128, Vec<MeasurementPoint>>::new(),
+            consumed_energy_buffer: HashMap::<u128, MeasurementPoint>::new(),
             hardware_usage_metric_filter: hardware_usage_metric_filter,
         }
     }
@@ -110,7 +110,7 @@ impl EnergyAttributionTransform {
             // If the metric is rapl then we sum the cpu packages' value in the buffer.
             // TODO: transform this part to be more generic.
             Resource::CpuPackage { id: _ } => {
-                let id = SystemTime::from(m.timestamp).duration_since(UNIX_EPOCH)?.as_secs();
+                let id = SystemTime::from(m.timestamp).duration_since(UNIX_EPOCH)?.as_nanos();
                 match self.consumed_energy_buffer.get_mut(&id) {
                     Some(point) => {
                         point.value = match (point.value.clone(), m.value.clone()) {
@@ -159,7 +159,7 @@ impl EnergyAttributionTransform {
             return Ok(());
         }
 
-        let id = SystemTime::from(m.timestamp).duration_since(UNIX_EPOCH)?.as_secs();
+        let id = SystemTime::from(m.timestamp).duration_since(UNIX_EPOCH)?.as_nanos();
         match self.hardware_usage_buffer.get_mut(&id) {
             Some(vec_points) => {
                 vec_points.push(m.clone());
