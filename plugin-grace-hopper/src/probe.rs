@@ -27,7 +27,7 @@ pub struct GraceHopperProbe {
 }
 
 impl GraceHopperProbe {
-    pub fn new(alumet: &mut AlumetPluginStart, sensor_info: Sensor) -> Result<Self, anyhow::Error> {
+    pub fn new(alumet: &mut AlumetPluginStart, sensor: Sensor) -> Result<Self, anyhow::Error> {
         let metric = alumet
             .create_metric::<u64>(
                 "consumption",
@@ -36,26 +36,23 @@ impl GraceHopperProbe {
             )
             .ok();
 
-        if !sensor_info.file.exists() {
-            return Err(anyhow!(
-                "Can't find the file: {:?} so no probe created",
-                sensor_info.file
-            ));
+        if !sensor.file.exists() {
+            return Err(anyhow!("can't find the file: {:?} so no probe created", sensor.file));
         };
         let file = File::open(
-            sensor_info
+            sensor
                 .file
                 .parent()
                 .expect("power1_average file should exist")
                 .join("power1_average"),
         )?;
         let probe: GraceHopperProbe = GraceHopperProbe {
-            socket: sensor_info.socket,
-            kind: sensor_info.sensor.to_lowercase(),
+            socket: sensor.socket,
+            kind: sensor.sensor.to_lowercase(),
             file,
             metric,
             consumer: ResourceConsumer::LocalMachine,
-            _power_stats_interval: sensor_info.average_interval,
+            _power_stats_interval: sensor.average_interval,
         };
         Ok(probe)
     }
@@ -69,7 +66,7 @@ impl Source for GraceHopperProbe {
             MeasurementPoint::new(
                 timestamp,
                 self.metric
-                    .expect("Can't push to the MeasurementAccumulator because can't retrieve the metric"),
+                    .expect("can't push to the MeasurementAccumulator because can't retrieve the metric"),
                 Resource::CpuPackage { id: self.socket },
                 self.consumer.clone(),
                 power,
@@ -83,24 +80,11 @@ impl Source for GraceHopperProbe {
 
 /// Reads and returns a power consumption value from a file.
 ///
-/// This function clears the provided `buffer`, rewinds the file to the beginning,
+/// This function clears the provided `buffer`, rewinds the `file` to the beginning,
 /// reads its entire content into the buffer, and attempts to parse it as an
 /// unsigned 64-bit integer (`u64`).
 ///
-/// # Arguments
-///
-/// * `buffer` - A mutable string buffer that will temporarily store the file's contents.
-///              It will be cleared at the start of the function.
-/// * `file` - A mutable [`File`] reference representing the file to read from. The
-///            file's cursor will be rewound to the beginning before reading.
-///
-/// # Returns
-///
-/// Returns a [`Result`] containing the parsed `u64` power consumption value on success,
-/// or an [`anyhow::Error`] if an I/O error occurs during reading or rewinding.
-///
-/// If the file's content cannot be parsed into a `u64`, an error will be logged using
-/// the [`log`] crate, and the function will return `0` as a fallback value.
+/// Returns the power consumption value on success
 pub fn read_power_value(buffer: &mut String, file: &mut File) -> Result<u64, anyhow::Error> {
     buffer.clear();
     file.rewind()?;
@@ -109,7 +93,7 @@ pub fn read_power_value(buffer: &mut String, file: &mut File) -> Result<u64, any
     let power_consumption = match buffer.trim().parse::<u64>() {
         Ok(value) => value,
         Err(_) => {
-            log::error!("Can't parse the content of file {:?}, read: {:?}", file, buffer);
+            log::error!("can't parse the content of file {:?}, read: {:?}", file, buffer);
             0
         }
     };

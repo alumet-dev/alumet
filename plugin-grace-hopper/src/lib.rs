@@ -55,15 +55,11 @@ impl AlumetPlugin for GraceHopperPlugin {
         let entries = fs::read_dir(base_dir)?;
         for entry in entries {
             let Ok(entry) = entry else { continue };
-            let Some(sensor_information) = get_sensor_information_from_dir(entry)? else {
+            let Some(sensor) = get_sensor_from_dir(entry)? else {
                 continue;
             };
-            let name = format!(
-                "{}_{}",
-                sensor_information.sensor.clone(),
-                sensor_information.socket.clone()
-            );
-            let source = Box::new(GraceHopperProbe::new(alumet, sensor_information)?);
+            let name = format!("{}_{}", sensor.sensor.clone(), sensor.socket.clone());
+            let source = Box::new(GraceHopperProbe::new(alumet, sensor)?);
             alumet.add_source(
                 name.as_str(),
                 source,
@@ -78,25 +74,19 @@ impl AlumetPlugin for GraceHopperPlugin {
     }
 }
 
-/// Attempts to parse and return a [Sensor] from a given directory entry.
-///
-/// ## Input
-///
-/// This function takes a [DirEntry] as input. It first checks whether the entry
-/// is a directory, and then verifies the presence of all required files within it.
+/// Attempts to parse and return a [Sensor] from a given directory `entry`.
+/// It first checks whether the entry is a directory, and then verifies the presence
+/// of all required files within it.
 ///
 /// During processing, it performs various parsing operations and notably makes use
-/// of the [get_sensor_from_file] function to extract sensor data.
+/// of the [get_sensor_information_from_file()] function to extract sensor data.
 ///
-/// ## Return
-///
-/// Returns a [Sensor] structure wrapped in an [Option], or an [anyhow::Error] if
-/// an error occurs during the process (e.g., file not found, read failure, or parsing error).
-fn get_sensor_information_from_dir(entry: DirEntry) -> Result<Option<Sensor>, anyhow::Error> {
+/// Returns a [Sensor] structure wrapped
+fn get_sensor_from_dir(entry: DirEntry) -> Result<Option<Sensor>, anyhow::Error> {
     let path = entry.path();
     // Check if it's a directory
     if !path.is_dir() {
-        return Err(anyhow!("Path is not a directory"));
+        return Err(anyhow!("path is not a directory"));
     }
     let device_path = path.join("device");
     let device_file = device_path.join("power1_oem_info");
@@ -108,7 +98,7 @@ fn get_sensor_information_from_dir(entry: DirEntry) -> Result<Option<Sensor>, an
                 Ok(ms) => Duration::from_millis(ms),
                 Err(e) => {
                     log::error!(
-                        "Cannot parse the duration (in ms) for {:?}, content: {:?}. Error is: {:?}",
+                        "cannot parse the duration (in ms) for {:?}, content: {:?}. Error is: {:?}",
                         power_stats_interval_file,
                         content_file,
                         e
@@ -123,8 +113,8 @@ fn get_sensor_information_from_dir(entry: DirEntry) -> Result<Option<Sensor>, an
     if !device_file.exists() {
         return Ok(None);
     }
-    let file = File::open(&device_file).context("Failed to open the file")?;
-    let (sensor, socket) = get_sensor_from_file(file)?;
+    let file = File::open(&device_file).context("failed to open the file")?;
+    let (sensor, socket) = get_sensor_information_from_file(file)?;
     Ok(Some(Sensor {
         sensor,
         socket,
@@ -133,40 +123,35 @@ fn get_sensor_information_from_dir(entry: DirEntry) -> Result<Option<Sensor>, an
     }))
 }
 
-/// Parses sensor information from a given file.
-///
-/// ## Input
-///
-/// This function takes a [File] as input. It reads the entire content of the provided
+/// Parses sensor information from a given `file`.
+/// It reads the entire content of the provided
 /// file, then parses the data to extract relevant information such as the type of sensor
 /// and the associated socket number.
 ///
-/// ## Return
-///
-/// Returns a [Result] containing a tuple `(String, u32)` on success, or an [anyhow::Error]
-/// if reading or parsing the file fails.
-///
-/// - The first element of the tuple (`String`) represents the sensor type (e.g., "core", "package").
+/// Returns a [Result] containing a tuple `(String, u32)` on success
+/// - The first element of the tuple (`String`) represents the sensor type (e.g., "grace", "cpu").
 /// - The second element (`u32`) represents the associated socket number.
-fn get_sensor_from_file(file: File) -> Result<(String, u32), anyhow::Error> {
+fn get_sensor_information_from_file(file: File) -> Result<(String, u32), anyhow::Error> {
     let reader = io::BufReader::new(&file);
     for line in reader.lines() {
-        let line = line.context("Failed to read the line from file")?;
+        let line = line.context("failed to read the line from file")?;
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() >= 4 {
             let kind = parts[0].to_string();
-            let socket = parts[3].parse::<u32>().context("Can't parse the socket to u32")?;
+            let socket = parts[3]
+                .parse::<u32>()
+                .context(format!("can't parse the socket to u32, content is: {:?}", parts[3]))?;
             return Ok((kind, socket));
         }
     }
     // Return an error if no valid line found
-    Err(anyhow::anyhow!("Can't parse the content of the file: {:?}", file))
+    Err(anyhow::anyhow!("can't parse the content of the file: {:?}", file))
 }
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    /// Initial interval between two Nvidia measurements.
+    /// Initial interval between two measurements.
     #[serde(with = "humantime_serde")]
     pub poll_interval: Duration,
 
@@ -222,7 +207,7 @@ mod tests {
             let file = File::open(&file_path)
                 .context("Failed to open the file")
                 .expect("Can't open the file when testing");
-            let result = get_sensor_from_file(file);
+            let result = get_sensor_information_from_file(file);
             assert!(result.is_ok(), "Expected Ok for input '{}'", line);
             let sensor_struct = result.unwrap();
             // Check content
