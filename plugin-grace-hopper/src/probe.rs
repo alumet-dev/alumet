@@ -18,7 +18,7 @@ use alumet::{
 use crate::Sensor;
 
 pub struct GraceHopperProbe {
-    socket: String,
+    socket: u32,
     kind: String,
     file: File,
     consumer: ResourceConsumer,
@@ -64,23 +64,43 @@ impl GraceHopperProbe {
 impl Source for GraceHopperProbe {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         let mut buffer = String::new();
-        let power = read_power_value(&mut buffer, &mut self.file);
+        let power = read_power_value(&mut buffer, &mut self.file)?;
         measurements.push(
             MeasurementPoint::new(
                 timestamp,
-                self.metric.unwrap(),
-                Resource::LocalMachine,
+                self.metric
+                    .expect("Can't push to the MeasurementAccumulator because can't retrieve the metric"),
+                Resource::CpuPackage { id: self.socket },
                 self.consumer.clone(),
-                power.unwrap(),
+                power,
             )
-            .with_attr("sensor", self.kind.clone())
-            .with_attr("socket", self.socket.clone()),
+            .with_attr("sensor", self.kind.clone()),
         );
 
         Ok(())
     }
 }
 
+/// Reads and returns a power consumption value from a file.
+///
+/// This function clears the provided `buffer`, rewinds the file to the beginning,
+/// reads its entire content into the buffer, and attempts to parse it as an
+/// unsigned 64-bit integer (`u64`).
+///
+/// # Arguments
+///
+/// * `buffer` - A mutable string buffer that will temporarily store the file's contents.
+///              It will be cleared at the start of the function.
+/// * `file` - A mutable [`File`] reference representing the file to read from. The
+///            file's cursor will be rewound to the beginning before reading.
+///
+/// # Returns
+///
+/// Returns a [`Result`] containing the parsed `u64` power consumption value on success,
+/// or an [`anyhow::Error`] if an I/O error occurs during reading or rewinding.
+///
+/// If the file's content cannot be parsed into a `u64`, an error will be logged using
+/// the [`log`] crate, and the function will return `0` as a fallback value.
 pub fn read_power_value(buffer: &mut String, file: &mut File) -> Result<u64, anyhow::Error> {
     buffer.clear();
     file.rewind()?;
