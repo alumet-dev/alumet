@@ -1,6 +1,6 @@
 [package]
 name = "plugin-socket-control"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -15,8 +15,10 @@ tokio-util = "0.7.12"
 serde = { version = "1.0.210", features = ["derive"] }
 
 [dev-dependencies]
+env_logger = "0.11.8"
 pretty_assertions = "1.4.0"
 regex = "1.11.1"
+tempfile = "3.20.0"
 
 [lints]
 workspace = true
