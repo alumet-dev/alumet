@@ -1,7 +1,6 @@
 mod probe;
 
 use anyhow::{anyhow, Context};
-use humantime_serde::re::humantime::parse_duration;
 use probe::GraceHopperProbe;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -26,7 +25,7 @@ pub struct GraceHopperPlugin {
 #[derive(Debug)]
 pub struct Sensor {
     sensor: String,
-    socket: String,
+    socket: u32,
     average_interval: Duration,
     file: PathBuf,
 }
@@ -79,6 +78,20 @@ impl AlumetPlugin for GraceHopperPlugin {
     }
 }
 
+/// Attempts to parse and return a [Sensor] from a given directory entry.
+///
+/// ## Input
+///
+/// This function takes a [DirEntry] as input. It first checks whether the entry
+/// is a directory, and then verifies the presence of all required files within it.
+///
+/// During processing, it performs various parsing operations and notably makes use
+/// of the [get_sensor_from_file] function to extract sensor data.
+///
+/// ## Return
+///
+/// Returns a [Sensor] structure wrapped in an [Option], or an [anyhow::Error] if
+/// an error occurs during the process (e.g., file not found, read failure, or parsing error).
 fn get_sensor_information_from_dir(entry: DirEntry) -> Result<Option<Sensor>, anyhow::Error> {
     let path = entry.path();
     // Check if it's a directory
@@ -91,11 +104,11 @@ fn get_sensor_information_from_dir(entry: DirEntry) -> Result<Option<Sensor>, an
     let interval = match power_stats_interval_file.exists() {
         true => {
             let content_file = fs::read_to_string(&power_stats_interval_file).unwrap_or("".to_owned());
-            match parse_duration(&content_file) {
-                Ok(duration) => duration,
+            match content_file.trim().parse::<u64>() {
+                Ok(ms) => Duration::from_millis(ms),
                 Err(e) => {
                     log::error!(
-                        "Cannot parse the duration for {:?}, content: {:?}. Error is: {:?}",
+                        "Cannot parse the duration (in ms) for {:?}, content: {:?}. Error is: {:?}",
                         power_stats_interval_file,
                         content_file,
                         e
@@ -120,14 +133,29 @@ fn get_sensor_information_from_dir(entry: DirEntry) -> Result<Option<Sensor>, an
     }))
 }
 
-fn get_sensor_from_file(file: File) -> Result<(String, String), anyhow::Error> {
+/// Parses sensor information from a given file.
+///
+/// ## Input
+///
+/// This function takes a [File] as input. It reads the entire content of the provided
+/// file, then parses the data to extract relevant information such as the type of sensor
+/// and the associated socket number.
+///
+/// ## Return
+///
+/// Returns a [Result] containing a tuple `(String, u32)` on success, or an [anyhow::Error]
+/// if reading or parsing the file fails.
+///
+/// - The first element of the tuple (`String`) represents the sensor type (e.g., "core", "package").
+/// - The second element (`u32`) represents the associated socket number.
+fn get_sensor_from_file(file: File) -> Result<(String, u32), anyhow::Error> {
     let reader = io::BufReader::new(&file);
     for line in reader.lines() {
         let line = line.context("Failed to read the line from file")?;
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() >= 4 {
             let kind = parts[0].to_string();
-            let socket = parts[3].to_string();
+            let socket = parts[3].parse::<u32>().context("Can't parse the socket to u32")?;
             return Ok((kind, socket));
         }
     }
@@ -168,22 +196,22 @@ mod tests {
     #[test]
     fn test_parse_sensor_information() {
         let test_cases = vec![
-            ("Module Power Socket 2", "Module", "2"),
-            ("Grace Power Socket 2", "Grace", "2"),
-            ("CPU Power Socket 2", "CPU", "2"),
-            ("SysIO Power Socket 2", "SysIO", "2"),
-            ("Module Power Socket 3", "Module", "3"),
-            ("Grace Power Socket 3", "Grace", "3"),
-            ("CPU Power Socket 3", "CPU", "3"),
-            ("SysIO Power Socket 3", "SysIO", "3"),
-            ("Module Power Socket 0", "Module", "0"),
-            ("Grace Power Socket 0", "Grace", "0"),
-            ("CPU Power Socket 0", "CPU", "0"),
-            ("SysIO Power Socket 0", "SysIO", "0"),
-            ("Module Power Socket 1", "Module", "1"),
-            ("Grace Power Socket 1", "Grace", "1"),
-            ("CPU Power Socket 1", "CPU", "1"),
-            ("SysIO Power Socket 1", "SysIO", "1"),
+            ("Module Power Socket 2", "Module", 2),
+            ("Grace Power Socket 2", "Grace", 2),
+            ("CPU Power Socket 2", "CPU", 2),
+            ("SysIO Power Socket 2", "SysIO", 2),
+            ("Module Power Socket 3", "Module", 3),
+            ("Grace Power Socket 3", "Grace", 3),
+            ("CPU Power Socket 3", "CPU", 3),
+            ("SysIO Power Socket 3", "SysIO", 3),
+            ("Module Power Socket 0", "Module", 0),
+            ("Grace Power Socket 0", "Grace", 0),
+            ("CPU Power Socket 0", "CPU", 0),
+            ("SysIO Power Socket 0", "SysIO", 0),
+            ("Module Power Socket 1", "Module", 1),
+            ("Grace Power Socket 1", "Grace", 1),
+            ("CPU Power Socket 1", "CPU", 1),
+            ("SysIO Power Socket 1", "SysIO", 1),
         ];
 
         for (line, expected_sensor, expected_socket) in test_cases {
