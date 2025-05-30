@@ -1,0 +1,19 @@
+[package]
+name = "plugin-grace-hopper"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alumet = { path = "../alumet" }
+anyhow = "1.0.88"
+humantime-serde = "1.1.1"
+log = "0.4.22"
+serde = { version = "1.0.219", features = ["derive"] }
+
+[dev-dependencies]
+alumet = {path = "../alumet", features = ["test"]}
+tempfile = "3.5"
+toml = "0.8.22"
+
+[lints]
+workspace = true

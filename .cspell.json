@@ -17,7 +17,8 @@
         ".circleci/",
         "Cargo.lock",
         "**/**.yaml",
-        ".circleci/"
+        ".circleci/",
+        ".cspell.json"
     ],
     "import": [
         "@cspell/dict-rust/cspell-ext.json"
@@ -97,7 +98,7 @@
         },
         {
             "name": "markdown_code_block",
-            "pattern": "^```[\\s\\S]*?^\\s*```/gm"
+            "pattern": "/^\\s*```[\\s\\S]*?^\\s*```/gm"
         },
         {
             // Markdown code block in Rust documentation.
@@ -108,7 +109,7 @@
         {
             // path::to::item
             "name": "rust_item_path",
-            "pattern": "([A-Za-z0-9_]+(::)?)+"
+            "pattern": "([A-Za-z0-9_]+(:){2})([A-Za-z0-9_]+(::)?)+"
         },
         {
             // .expect("this") or .context("this")
