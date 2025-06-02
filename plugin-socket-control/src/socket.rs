@@ -30,7 +30,7 @@ impl SocketControl {
         // create single-threaded runtime
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
-            .enable_io()
+            .enable_all()
             .build()?;
         let rt_handle = rt.handle().clone();
 

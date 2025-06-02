@@ -9,7 +9,7 @@ use socket::SocketControl;
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    socket_path: String,
+    pub socket_path: String,
 }
 
 pub struct SocketControlPlugin {
