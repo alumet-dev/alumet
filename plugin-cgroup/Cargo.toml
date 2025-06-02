@@ -1,0 +1,16 @@
+[package]
+name = "plugin-cgroup"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+alumet = { path = "../alumet" }
+anyhow = "1.0.98"
+log = "0.4.27"
+notify = "8.0.0"
+rustc-hash = "2.1.1"
+thiserror = "2.0.12"
+walkdir = "2.5.0"
+
+[lints]
+workspace = true
