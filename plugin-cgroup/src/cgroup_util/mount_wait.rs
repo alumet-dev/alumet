@@ -15,7 +15,7 @@ use std::{
 use anyhow::Context;
 use mio::{Events, Interest, Poll, Token, unix::SourceFd};
 
-use crate::{
+use super::{
     hierarchy::CgroupHierarchy,
     mount::{Mount, parse_proc_mounts},
 };
@@ -198,8 +198,8 @@ mod tests {
     use pretty_assertions::assert_eq;
     use std::io;
 
+    use super::super::{hierarchy::CgroupVersion, mount::Mount};
     use super::extract_cgroup_hierarchies;
-    use crate::{hierarchy::CgroupVersion, mount::Mount};
 
     fn vec_str(values: &[&str]) -> Vec<String> {
         values.into_iter().map(|s| s.to_string()).collect()

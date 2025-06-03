@@ -13,7 +13,7 @@ use notify::{
 use rustc_hash::{FxBuildHasher, FxHashSet};
 use walkdir::WalkDir;
 
-use crate::hierarchy::{Cgroup, CgroupHierarchy, CgroupVersion};
+use super::hierarchy::{Cgroup, CgroupHierarchy, CgroupVersion};
 
 /// Detects the creation of Linux control groups.
 ///
@@ -260,8 +260,8 @@ impl notify::poll::ScanEventHandler for EventHandler {
 mod tests {
     use std::time::Duration;
 
+    use super::super::{detect::callback, hierarchy::CgroupHierarchy};
     use super::CgroupDetector;
-    use crate::{detect::callback, hierarchy::CgroupHierarchy};
 
     #[test]
     fn test_new() -> anyhow::Result<()> {

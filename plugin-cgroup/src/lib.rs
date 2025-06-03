@@ -1,13 +1,5 @@
-pub mod detect;
-pub mod hierarchy;
-pub mod mount;
-pub mod mount_wait;
-
-// re-exports
-pub use detect::CgroupDetector;
-pub use hierarchy::Cgroup;
-pub use mount_wait::MountWait;
-
 // Prevent compiling outside of Linux: cgroups only exist on Linux, and we rely on Linux mechanisms like /proc/mounts, inotify and epoll.
 #[cfg(not(target_os = "linux"))]
 compile_error!("only Linux is supported");
+
+mod cgroup_util;

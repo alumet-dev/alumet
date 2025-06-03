@@ -7,7 +7,7 @@ use std::{
 use anyhow::{Context, anyhow};
 use thiserror::Error;
 
-use crate::mount::{Mount, read_proc_mounts};
+use super::mount::{Mount, read_proc_mounts};
 
 /// A control group, v1 or v2.
 #[derive(Debug, Clone)]
