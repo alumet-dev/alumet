@@ -2,8 +2,8 @@
 
 use std::{
     error::Error,
-    path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard},
+    path::PathBuf,
+    sync::{Arc, Mutex},
 };
 
 use notify::{Watcher, event::CreateKind};

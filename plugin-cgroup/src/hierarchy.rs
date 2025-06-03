@@ -4,6 +4,9 @@ use std::{
 };
 
 use anyhow::anyhow;
+use thiserror::Error;
+
+use crate::mount_wait::Mount;
 
 pub struct Cgroup<'h> {
     /// Full path to the cgroup.
@@ -29,6 +32,30 @@ pub enum CgroupVersion {
 }
 
 impl CgroupHierarchy {
+    pub(crate) fn from_mount(m: &Mount) -> anyhow::Result<Self> {
+        match m.fs_type.as_str() {
+            "cgroup2" => {
+                let root = PathBuf::from(m.mount_point.clone());
+                let available_controllers = parse_v2_controllers(&root)?;
+                Ok(Self {
+                    root,
+                    version: CgroupVersion::V2,
+                    available_controllers,
+                })
+            }
+            "cgroup" => {
+                let root = PathBuf::from(m.mount_point.clone());
+                let available_controllers = m.mount_options.clone();
+                Ok(Self {
+                    root,
+                    version: CgroupVersion::V1,
+                    available_controllers,
+                })
+            }
+            _ => Err(anyhow!("todo")),
+        }
+    }
+
     pub fn new_at(path: impl Into<PathBuf>) -> anyhow::Result<Self> {
         let path: PathBuf = path.into();
         let (version, available_controllers) = match parse_v2_controllers(&path) {
@@ -38,7 +65,7 @@ impl CgroupHierarchy {
             }
             Err(ParseError::WrongVersion) => {
                 // cgroups v1
-                match parse_v1_controllers(&path) {
+                match guess_v1_controllers(&path) {
                     Ok(controllers) => (CgroupVersion::V1, controllers),
                     Err(ParseError::WrongVersion) => {
                         return Err(anyhow!("{path:?} is neither a cgroup v1 nor cgroup v2 hierarchy"));
@@ -75,6 +102,10 @@ impl CgroupHierarchy {
     /// The version of cgroups.
     pub fn version(&self) -> CgroupVersion {
         self.version
+    }
+
+    pub fn available_controllers(&self) -> &[String] {
+        &self.available_controllers
     }
 }
 
@@ -115,7 +146,7 @@ fn parse_v2_controllers(cgroup_root: &Path) -> Result<Vec<String>, ParseError> {
     }
 }
 
-fn parse_v1_controllers(cgroup_root: &Path) -> Result<Vec<String>, ParseError> {
+fn guess_v1_controllers(cgroup_root: &Path) -> Result<Vec<String>, ParseError> {
     if !cgroup_root
         .join("release_agent")
         .try_exists()
@@ -136,6 +167,8 @@ fn parse_v1_controllers(cgroup_root: &Path) -> Result<Vec<String>, ParseError> {
         .collect())
 }
 
+#[derive(Debug, Error)]
+#[error("failed to parse cgroup controllers")]
 enum ParseError {
     WrongVersion,
     Other(std::io::Error),
