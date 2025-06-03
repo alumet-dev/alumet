@@ -50,6 +50,7 @@ fn load_plugins_metadata() -> Vec<PluginMetadata> {
             plugin_perf::PerfPlugin,
             plugin_procfs::ProcfsPlugin,
             plugin_nvidia_nvml::NvmlPlugin,
+            plugin_process_to_cgroup_bridge::ProcessToCgroupBridgePlugin,
             plugin_nvidia_jetson::JetsonPlugin,
         ]);
     }

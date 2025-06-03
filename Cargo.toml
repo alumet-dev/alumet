@@ -18,12 +18,12 @@ members = [
     "plugin-nvidia-nvml",
     "plugin-nvidia-jetson",
     "plugin-perf",
+    "plugin-process-to-cgroup-bridge",
     "plugin-procfs",
     "plugin-prometheus-exporter",
     "plugin-rapl",
     "plugin-relay",
     "plugin-socket-control",
-    "plugin-mongodb",
     "test-dynamic-plugins", 
 ]
 

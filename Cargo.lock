@@ -92,6 +92,7 @@ dependencies = [
  "plugin-nvidia-nvml",
  "plugin-opentelemetry",
  "plugin-perf",
+ "plugin-process-to-cgroup-bridge",
  "plugin-procfs",
  "plugin-prometheus-exporter",
  "plugin-rapl",
@@ -2681,6 +2682,19 @@ dependencies = [
  "log",
  "perf-event2",
  "serde",
+]
+
+[[package]]
+name = "plugin-process-to-cgroup-bridge"
+version = "0.1.0"
+dependencies = [
+ "alumet",
+ "anyhow",
+ "lazy_static",
+ "log",
+ "serde",
+ "tempfile",
+ "toml",
 ]
 
 [[package]]

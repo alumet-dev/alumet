@@ -39,6 +39,7 @@ plugin-cgroupv2 = { path = "../plugin-cgroupv2" }
 plugin-grace-hopper = { path = "../plugin-grace-hopper" }
 plugin-nvidia-jetson = { path = "../plugin-nvidia-jetson" }
 plugin-nvidia-nvml = { path = "../plugin-nvidia-nvml" }
+plugin-process-to-cgroup-bridge = { path = "../plugin-process-to-cgroup-bridge" }
 plugin-perf = { path = "../plugin-perf" }
 plugin-procfs = { path = "../plugin-procfs" }
 plugin-rapl = { path = "../plugin-rapl" }
