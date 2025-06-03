@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use plugin_cgroup::{
-    detect::{CgroupCallback, CgroupDetector},
+    detect::{Callback, CgroupDetector},
     hierarchy::CgroupHierarchy,
     mount_wait::{self, MountWait},
 };

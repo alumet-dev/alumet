@@ -1,3 +1,5 @@
+#[cfg(test)]
+use std::path::Path;
 use std::{
     fs::File,
     io::{ErrorKind, Read},
@@ -12,19 +14,40 @@ use std::{
 
 use anyhow::Context;
 use mio::{Events, Interest, Poll, Token, unix::SourceFd};
-use thiserror::Error;
 
-use crate::hierarchy::CgroupHierarchy;
+use crate::{
+    hierarchy::CgroupHierarchy,
+    mount::{Mount, parse_proc_mounts},
+};
 
+/// `MountWait` represents a handle to a background thread that waits for a cgroup filesystem to be mounted.
+///
+/// When the `MountWait` is dropped, the background thread is stopped.
+/// You can also call [`stop`](Self::stop).
 pub struct MountWait {
     thread_handle: Option<JoinHandle<()>>,
     stop_flag: Arc<AtomicBool>,
 }
 
-const SINGLE_TOKEN: Token = Token(0);
-const POLL_TIMEOUT: Duration = Duration::from_secs(5);
-
 impl MountWait {
+    /// Waits for a cgroupfs to be mounted and executes the given `callback` when it occurs.
+    #[cfg(not(test))]
+    pub fn new(
+        callback: impl FnMut(Vec<CgroupHierarchy>) -> anyhow::Result<()> + Send + 'static,
+    ) -> anyhow::Result<Self> {
+        wait_for_cgroupfs(callback, "/proc/mounts", Interest::PRIORITY)
+    }
+
+    /// Waits for a cgroupfs to be mounted and executes the given `callback` when it occurs.
+    #[cfg(test)]
+    pub fn new(
+        callback: impl FnMut(Vec<CgroupHierarchy>) -> anyhow::Result<()> + Send + 'static,
+        proc_mounts_path: &Path,
+    ) -> anyhow::Result<Self> {
+        let proc_mounts_path = proc_mounts_path.to_str().unwrap();
+        wait_for_cgroupfs(callback, proc_mounts_path, Interest::READABLE)
+    }
+
     /// Stops the waiting thread and wait for it to terminate.
     ///
     /// # Errors
@@ -43,19 +66,32 @@ impl Drop for MountWait {
     }
 }
 
-pub fn wait_for_cgroupfs(
+const SINGLE_TOKEN: Token = Token(0);
+const POLL_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Starts a background thread that uses [`mio::poll`] (backed by `epoll`) to detect changes to the mounted filesystem.
+///
+/// # Interests
+/// According to `man proc_mounts`,  a filesystem mount or unmount causes
+/// `poll` and `epoll_wait` to mark the file as having a PRIORITY event.
+///
+/// For testing purposes, the interest set can be changed, for instance to READ.
+/// Note that epoll does not work for regular files, but it does work for a socket.
+fn wait_for_cgroupfs(
     mut callback: impl FnMut(Vec<CgroupHierarchy>) -> anyhow::Result<()> + Send + 'static,
+    proc_mounts_path: &str,
+    interests: Interest,
 ) -> anyhow::Result<MountWait> {
     // Open the file that contains info about the mounted filesystems.
-    let file = File::open("/proc/mounts").context("failed to open /proc/mounts")?;
+    let file = File::open(proc_mounts_path).with_context(|| format!("failed to open {proc_mounts_path}"))?;
     let fd = file.as_raw_fd();
     let mut fd = SourceFd(&fd);
 
     // Prepare epoll.
-    // According to `man proc mounts`,  a filesystem mount or unmount causes and poll
-    // and epoll_wait to mark the file as having a PRIORITY event.
-    let mut poll = Poll::new()?;
-    poll.registry().register(&mut fd, SINGLE_TOKEN, Interest::PRIORITY)?;
+    let mut poll = Poll::new().context("poll init failed")?;
+    poll.registry()
+        .register(&mut fd, SINGLE_TOKEN, interests)
+        .with_context(|| format!("poll registration of {proc_mounts_path:?} failed"))?;
 
     // Keep a boolean to stop the thread from the outside.
     let stop_flag = Arc::new(AtomicBool::new(false));
@@ -72,7 +108,7 @@ pub fn wait_for_cgroupfs(
 
         // While we were setting up epoll, the cgroupfs may have been mounted.
         // Check that here to avoid any miss.
-        if let Some(cgroups) = finder.find_cgroupfs_in_mounts()? {
+        if let Some(cgroups) = finder.find_cgroupfs_in_mounts().context("mount analysis failed")? {
             callback(cgroups).context("error in callback")?;
         }
 
@@ -145,53 +181,16 @@ impl CgroupMountFinder {
 fn extract_cgroup_hierarchies(mounts: &[Mount]) -> Vec<CgroupHierarchy> {
     mounts
         .iter()
-        .filter_map(|m| CgroupHierarchy::from_mount(m).ok())
-        .collect()
-}
-
-/// A mounted filesystem.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Mount {
-    pub spec: String,
-    pub mount_point: String,
-    pub fs_type: String,
-    pub mount_options: Vec<String>,
-    // we don't need the other fields
-}
-
-#[derive(Debug, Error)]
-#[error("invalid mount line: {input}")]
-pub struct ParseError {
-    input: String,
-}
-
-impl Mount {
-    /// Attempts to parse a line of `/proc/mounts`.
-    /// Returns `None` if it fails.
-    fn parse(line: &str) -> Option<Self> {
-        let mut fields = line.split_ascii_whitespace().into_iter();
-        let spec = fields.next()?.to_string();
-        let mount_point = fields.next()?.to_string();
-        let fs_type = fields.next()?.to_string();
-        let mount_options = fields.next()?.split(',').map(ToOwned::to_owned).collect();
-        Some(Self {
-            spec,
-            mount_point,
-            fs_type,
-            mount_options,
+        .filter_map(|m| match CgroupHierarchy::from_mount(m) {
+            Ok(h) => Some(h),
+            Err(e) => {
+                log::warn!(
+                    "{m:?} appears to be a cgroup, but I could not construct a CgroupHierarchy structure from it: {e:#}"
+                );
+                None
+            }
         })
-    }
-}
-
-fn parse_proc_mounts(content: &str, buf: &mut Vec<Mount>) -> Result<(), ParseError> {
-    for line in content.lines() {
-        let line = line.trim_ascii_start();
-        if !line.is_empty() && !line.starts_with('#') {
-            let m = Mount::parse(line).ok_or_else(|| ParseError { input: line.to_owned() })?;
-            buf.push(m);
-        }
-    }
-    Ok(())
+        .collect()
 }
 
 #[cfg(test)]
@@ -199,80 +198,11 @@ mod tests {
     use pretty_assertions::assert_eq;
     use std::io;
 
-    use super::{Mount, extract_cgroup_hierarchies, parse_proc_mounts};
-    use crate::hierarchy::CgroupVersion;
+    use super::extract_cgroup_hierarchies;
+    use crate::{hierarchy::CgroupVersion, mount::Mount};
 
     fn vec_str(values: &[&str]) -> Vec<String> {
         values.into_iter().map(|s| s.to_string()).collect()
-    }
-
-    #[test]
-    fn parsing() {
-        let content = "
-sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0
-tmpfs /run tmpfs rw,nosuid,nodev,noexec,relatime,size=1599352k,mode=755,inode64 0 0
-cgroup2 /sys/fs/cgroup cgroup2 rw,nosuid,nodev,noexec,relatime,nsdelegate,memory_recursiveprot 0 0
-/dev/nvme0n1p1 /boot/efi vfat rw,relatime,errors=remount-ro 0 0";
-        let mut mounts = Vec::new();
-        parse_proc_mounts(&content, &mut mounts).unwrap();
-
-        let expected = vec![
-            Mount {
-                spec: String::from("sysfs"),
-                mount_point: String::from("/sys"),
-                fs_type: String::from("sysfs"),
-                mount_options: vec_str(&["rw", "nosuid", "nodev", "noexec", "relatime"]),
-            },
-            Mount {
-                spec: String::from("tmpfs"),
-                mount_point: String::from("/run"),
-                fs_type: String::from("tmpfs"),
-                mount_options: vec_str(&[
-                    "rw",
-                    "nosuid",
-                    "nodev",
-                    "noexec",
-                    "relatime",
-                    "size=1599352k",
-                    "mode=755",
-                    "inode64",
-                ]),
-            },
-            Mount {
-                spec: String::from("cgroup2"),
-                mount_point: String::from("/sys/fs/cgroup"),
-                fs_type: String::from("cgroup2"),
-                mount_options: vec_str(&[
-                    "rw",
-                    "nosuid",
-                    "nodev",
-                    "noexec",
-                    "relatime",
-                    "nsdelegate",
-                    "memory_recursiveprot",
-                ]),
-            },
-            Mount {
-                spec: String::from("/dev/nvme0n1p1"),
-                mount_point: String::from("/boot/efi"),
-                fs_type: String::from("vfat"),
-                mount_options: vec_str(&["rw", "relatime", "errors=remount-ro"]),
-            },
-        ];
-        assert_eq!(expected, mounts);
-    }
-
-    #[test]
-    fn parsing_error() {
-        let mut mounts = Vec::new();
-        parse_proc_mounts("badbad", &mut mounts).unwrap_err();
-        parse_proc_mounts("croup2 /sys/fs/cgroup", &mut mounts).unwrap_err();
-    }
-
-    #[test]
-    fn parsing_comments() {
-        let mut mounts = Vec::new();
-        parse_proc_mounts("\n# badbad\n", &mut mounts).unwrap();
     }
 
     #[test]
