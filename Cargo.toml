@@ -23,6 +23,7 @@ members = [
     "plugin-socket-control",
     "plugin-mongodb",
     "plugin-elasticsearch",
+    "plugin-process-to-cgroup-bridge",
     "test-dynamic-plugins",
 ]
 
