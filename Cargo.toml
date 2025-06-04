@@ -25,7 +25,10 @@ members = [
     "plugin-rapl",
     "plugin-relay",
     "plugin-socket-control",
-    "test-dynamic-plugins", 
+    "plugin-mongodb",
+    "plugin-elasticsearch",
+    "test-dynamic-plugins",
+    "util-cgroups",
 ]
 
 # To apply the following lint settings to a workspace member,

@@ -242,7 +242,7 @@ impl notify::EventHandler for EventHandler {
 impl notify::poll::ScanEventHandler for EventHandler {
     fn handle_event(&mut self, event: notify::poll::ScanEvent) {
         // TODO optimize: collect the paths first and then handle them all at once
-        // But this is only used with cgroup v1 so it's fine for now…
+        // But this is only used with cgroup v1 so it's fine for now…
         match event {
             Ok(path) => {
                 if path.is_dir() {
