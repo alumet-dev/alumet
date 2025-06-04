@@ -1,0 +1,21 @@
+[package]
+name = "util-cgroups"
+version = "0.1.0"
+edition = "2021"
+description = "Utilities to use control groups, v1 and v2."
+
+[dependencies]
+anyhow = "1.0.98"
+log = "0.4.27"
+mio = { version = "1.0.4", features = ["os-poll", "os-ext"] }
+notify = "8.0.0"
+rustc-hash = "2.1.1"
+thiserror = "2.0.12"
+walkdir = "2.5.0"
+
+[dev-dependencies]
+pretty_assertions = "1.4.1"
+tempfile = "3.20.0"
+
+[lints]
+workspace = true

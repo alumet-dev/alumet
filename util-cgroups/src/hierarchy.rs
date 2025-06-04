@@ -18,9 +18,7 @@ use std::{
 
 use thiserror::Error;
 
-use crate::cgroup_util::mount;
-
-use super::mount::{read_proc_mounts, Mount};
+use super::mount::{self, read_proc_mounts, Mount};
 
 /// A control group, v1 or v2.
 #[derive(Debug, Clone)]
@@ -313,7 +311,7 @@ pub enum HierarchyError {
 mod tests {
     use std::path::PathBuf;
 
-    use crate::cgroup_util::{
+    use crate::{
         hierarchy::{CgroupHierarchy, CgroupVersion, HierarchyError},
         mount::Mount,
         Cgroup,
