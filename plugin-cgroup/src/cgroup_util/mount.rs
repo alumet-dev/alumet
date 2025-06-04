@@ -1,4 +1,5 @@
-use anyhow::Context;
+//! Parse /proc/mounts.
+
 use thiserror::Error;
 
 pub const PROC_MOUNTS_PATH: &str = "/proc/mounts";

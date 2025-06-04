@@ -1,5 +1,8 @@
+//! Wait for the cgroupfs to be mounted.
+
 #[cfg(test)]
 use std::path::Path;
+
 use std::{
     fs::File,
     io::{ErrorKind, Read},
@@ -24,6 +27,19 @@ use super::{
 ///
 /// When the `MountWait` is dropped, the background thread is stopped.
 /// You can also call [`stop`](Self::stop).
+///
+/// # Example
+///
+/// ```
+/// use plugin_cgroup::cgroup_util::mount_wait::MountWait;
+///
+/// let wait = MountWait::new(|hierarchies| {
+///     for h in hierarchies {
+///         todo!()
+///     }
+///     Ok(())
+/// });
+/// ```
 pub struct MountWait {
     thread_handle: Option<JoinHandle<()>>,
     stop_flag: Arc<AtomicBool>,
@@ -31,7 +47,6 @@ pub struct MountWait {
 
 impl MountWait {
     /// Waits for a cgroupfs to be mounted and executes the given `callback` when it occurs.
-    #[cfg(not(test))]
     pub fn new(
         callback: impl FnMut(Vec<CgroupHierarchy>) -> anyhow::Result<()> + Send + 'static,
     ) -> anyhow::Result<Self> {
@@ -40,9 +55,9 @@ impl MountWait {
 
     /// Waits for a cgroupfs to be mounted and executes the given `callback` when it occurs.
     #[cfg(test)]
-    pub fn new(
-        callback: impl FnMut(Vec<CgroupHierarchy>) -> anyhow::Result<()> + Send + 'static,
+    pub fn with_custom_procmounts(
         proc_mounts_path: &Path,
+        callback: impl FnMut(Vec<CgroupHierarchy>) -> anyhow::Result<()> + Send + 'static,
     ) -> anyhow::Result<Self> {
         let proc_mounts_path = proc_mounts_path.to_str().unwrap();
         wait_for_cgroupfs(callback, proc_mounts_path, Interest::READABLE)
