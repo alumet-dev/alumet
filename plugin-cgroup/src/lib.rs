@@ -2,4 +2,4 @@
 #[cfg(not(target_os = "linux"))]
 compile_error!("only Linux is supported");
 
-mod cgroup_util;
+pub mod cgroup_util;

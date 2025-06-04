@@ -4,8 +4,9 @@ pub mod detect;
 pub mod hierarchy;
 pub mod mount;
 pub mod mount_wait;
+pub mod measure_v1;
 
 // re-exports
 pub use detect::CgroupDetector;
-pub use hierarchy::Cgroup;
+pub use hierarchy::{Cgroup, CgroupHierarchy};
 pub use mount_wait::MountWait;
