@@ -137,27 +137,29 @@ fn get_sensor_from_dir(entry: DirEntry) -> Result<Option<Sensor>, anyhow::Error>
 /// - The second element (`u32`) represents the associated socket number.
 fn get_sensor_information_from_file(file: File) -> Result<(String, u32), anyhow::Error> {
     let reader = io::BufReader::new(&file);
-    let mut iterat = reader.lines();
-    let first_line = iterat.next();
-    let second_line = iterat.next();
-    if first_line.is_some() && second_line.is_some() {
-        // Too much entry for the file
+    let mut lines = reader.lines();
+    let kind: String;
+    let socket: u32;
+    if let Some(line) = lines.next() {
+        let line = line?;
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 4 {
+            return Err(anyhow::anyhow!("can't parse the content of the file: {:?}", file));
+        }
+        kind = parts[0].to_string();
+        socket = parts[3]
+            .parse::<u32>()
+            .context(format!("can't parse the socket to u32, content is: {:?}", parts[3]))?;
+    } else {
+        return Err(anyhow::anyhow!("failed to read the line from file"));
+    };
+    if lines.next().is_some() {
         return Err(anyhow::anyhow!(
             "can't parse the content of the file: {:?}, there is at least one line too many",
             file
         ));
     }
-    let line = first_line.expect("failed to read the line from file")?;
-    let parts: Vec<&str> = line.split_whitespace().collect();
-    if parts.len() >= 4 {
-        let kind = parts[0].to_string();
-        let socket = parts[3]
-            .parse::<u32>()
-            .context(format!("can't parse the socket to u32, content is: {:?}", parts[3]))?;
-        return Ok((kind, socket));
-    }
-    // Return an error if no valid line found
-    Err(anyhow::anyhow!("can't parse the content of the file: {:?}", file))
+    Ok((kind, socket))
 }
 
 #[derive(Deserialize, Serialize)]
