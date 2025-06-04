@@ -4238,6 +4238,7 @@ dependencies = [
  "rustc-hash",
  "tempfile",
  "thiserror 2.0.12",
+ "util-cgroups",
  "walkdir",
 ]
 

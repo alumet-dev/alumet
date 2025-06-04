@@ -1,12 +1,12 @@
 //! Represents cgroup hierarchies.
-//! 
+//!
 //! # Differences between cgroup v1 and cgroup v2
-//! 
+//!
 //! In cgroup v1, each controller can get a separate hierachy.
 //! In addition, one can create "named hierarchies" that have no controller.
-//! 
+//!
 //! In cgroup v2, there is a single, unified hierarchy for the whole system.
-//! 
+//!
 //! See `man cgroup` for more information.
 
 use std::{
@@ -146,6 +146,40 @@ impl CgroupHierarchy {
             available_controllers,
             v1_name,
         })
+    }
+
+    /// Creates a hierarchy structure from manual values.
+    ///
+    /// # Unchecked
+    /// The hierarchy parameters are not checked, and it probably does not exist.
+    /// This is intended for testing purposes only.
+    #[cfg(feature = "manually")]
+    pub fn manually_unchecked(
+        root: impl Into<PathBuf>,
+        version: CgroupVersion,
+        available_controllers: Vec<String>,
+    ) -> Self {
+        Self {
+            root: root.into(),
+            version,
+            available_controllers,
+            v1_name: None,
+        }
+    }
+
+    /// Creates a "named" cgroup v1 hierarchy structure from manual values.
+    ///
+    /// # Unchecked
+    /// The hierarchy parameters are not checked, and it probably does not exist.
+    /// This is intended for testing purposes only.
+    #[cfg(feature = "manually")]
+    pub fn manually_unchecked_v1_named(root: impl Into<PathBuf>, name: String) -> Self {
+        Self {
+            root: root.into(),
+            version: CgroupVersion::V1,
+            available_controllers: Vec::new(),
+            v1_name: Some(name),
+        }
     }
 
     /// The root path of this hierarchy.
