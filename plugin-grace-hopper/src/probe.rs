@@ -48,7 +48,7 @@ impl GraceHopperProbe {
         )?;
         let probe: GraceHopperProbe = GraceHopperProbe {
             socket: sensor.socket,
-            kind: sensor.sensor.to_lowercase(),
+            kind: sensor.kind.to_lowercase(),
             file,
             metric,
             consumer: ResourceConsumer::LocalMachine,

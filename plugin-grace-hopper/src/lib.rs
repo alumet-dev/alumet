@@ -24,9 +24,13 @@ pub struct GraceHopperPlugin {
 
 #[derive(Debug)]
 pub struct Sensor {
-    sensor: String,
+    /// Kind of sensor, could be either: Module, Grace, CPU, SysIO
+    kind: String,
+    /// Socket associated to the sensor
     socket: u32,
+    /// How often value are updated
     average_interval: Duration,
+    /// PathBuf to the file which contain values
     file: PathBuf,
 }
 
@@ -58,7 +62,7 @@ impl AlumetPlugin for GraceHopperPlugin {
             let Some(sensor) = get_sensor_from_dir(entry)? else {
                 continue;
             };
-            let name = format!("{}_{}", sensor.sensor.clone(), sensor.socket.clone());
+            let name = format!("{}_{}", sensor.kind.clone(), sensor.socket.clone());
             let source = Box::new(GraceHopperProbe::new(alumet, sensor)?);
             alumet.add_source(
                 name.as_str(),
@@ -114,9 +118,9 @@ fn get_sensor_from_dir(entry: DirEntry) -> Result<Option<Sensor>, anyhow::Error>
         return Ok(None);
     }
     let file = File::open(&device_file).context("failed to open the file")?;
-    let (sensor, socket) = get_sensor_information_from_file(file)?;
+    let (kind, socket) = get_sensor_information_from_file(file)?;
     Ok(Some(Sensor {
-        sensor,
+        kind,
         socket,
         average_interval: interval,
         file: device_file,
@@ -133,16 +137,24 @@ fn get_sensor_from_dir(entry: DirEntry) -> Result<Option<Sensor>, anyhow::Error>
 /// - The second element (`u32`) represents the associated socket number.
 fn get_sensor_information_from_file(file: File) -> Result<(String, u32), anyhow::Error> {
     let reader = io::BufReader::new(&file);
-    for line in reader.lines() {
-        let line = line.context("failed to read the line from file")?;
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() >= 4 {
-            let kind = parts[0].to_string();
-            let socket = parts[3]
-                .parse::<u32>()
-                .context(format!("can't parse the socket to u32, content is: {:?}", parts[3]))?;
-            return Ok((kind, socket));
-        }
+    let mut iterat = reader.lines();
+    let first_line = iterat.next();
+    let second_line = iterat.next();
+    if first_line.is_some() && second_line.is_some() {
+        // Too much entry for the file
+        return Err(anyhow::anyhow!(
+            "can't parse the content of the file: {:?}, there is at least one line too many",
+            file
+        ));
+    }
+    let line = first_line.expect("failed to read the line from file")?;
+    let parts: Vec<&str> = line.split_whitespace().collect();
+    if parts.len() >= 4 {
+        let kind = parts[0].to_string();
+        let socket = parts[3]
+            .parse::<u32>()
+            .context(format!("can't parse the socket to u32, content is: {:?}", parts[3]))?;
+        return Ok((kind, socket));
     }
     // Return an error if no valid line found
     Err(anyhow::anyhow!("can't parse the content of the file: {:?}", file))
