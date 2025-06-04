@@ -23,7 +23,7 @@ use super::hierarchy::{Cgroup, CgroupHierarchy, CgroupVersion};
 /// # Example
 ///
 /// ```no_run
-/// use plugin_cgroup::{
+/// use util_cgroups::{
 ///     detect::{callback, CgroupDetector},
 ///     hierarchy::CgroupHierarchy
 /// };
@@ -263,22 +263,28 @@ mod tests {
     use super::super::{detect::callback, hierarchy::CgroupHierarchy};
     use super::CgroupDetector;
 
-    #[test]
-    fn test_new() -> anyhow::Result<()> {
-        println!("starting");
+    // Manual cgroup testing.
+    // TODO: add automatic test, by:
+    // - finding a cgroup that we have the right to modify as the current user
+    // - creating new child cgroups in this cgroup
+    // - checking that they are detected
 
-        let hierarchy = CgroupHierarchy::from_root_path("/sys/fs/cgroup")?;
-        println!("hierarchy: {hierarchy:?}");
+    // #[test]
+    // fn test_new() -> anyhow::Result<()> {
+    //     println!("starting");
 
-        let f = callback(|cgroups| {
-            println!("new cgroups detected: {cgroups:?}");
-            Ok(())
-        });
-        let _detector = CgroupDetector::new(hierarchy, f)?;
-        println!("detector ready");
+    //     let hierarchy = CgroupHierarchy::from_root_path("/sys/fs/cgroup")?;
+    //     println!("hierarchy: {hierarchy:?}");
 
-        std::thread::sleep(Duration::from_secs(10));
-        println!("done");
-        Ok(())
-    }
+    //     let f = callback(|cgroups| {
+    //         println!("new cgroups detected: {cgroups:?}");
+    //         Ok(())
+    //     });
+    //     let _detector = CgroupDetector::new(hierarchy, f)?;
+    //     println!("detector ready");
+
+    //     std::thread::sleep(Duration::from_secs(10));
+    //     println!("done");
+    //     Ok(())
+    // }
 }
