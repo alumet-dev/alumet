@@ -27,12 +27,12 @@ use super::{
 ///
 /// When the `MountWait` is dropped, the background thread is stopped.
 /// You can also call [`stop`](Self::stop).
-/// 
+///
 /// # Example
-/// 
+///
 /// ```
 /// use util_cgroups::mount_wait::MountWait;
-/// 
+///
 /// let wait = MountWait::new(|hierarchies| {
 ///     for h in hierarchies {
 ///         todo!()
