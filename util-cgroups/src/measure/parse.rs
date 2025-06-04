@@ -159,4 +159,17 @@ impl SelectiveStatFile {
         read_fully(&mut self.file, io_buf)?;
         unsafe { parse_space_kv_at_lines(io_buf, &self.cached_indices, on_kv) }
     }
+    /*
+    TODO I think that we can do even better, by using the line index to directly store the value in a struct of u64 fields.
+
+    A derive macro would work on a struct with:
+    - one field per stat field we're interested in
+    - u64 values everywhere
+    - field names that match the key in the stat file (or are given the proper key with an annotation)
+
+    The derive macro would generate:
+    - A map name -> field offset
+    - A function set(offset)
+    - A helper line index -> field offset (?)
+    */
 }
