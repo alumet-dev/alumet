@@ -23,7 +23,7 @@ members = [
     "plugin-socket-control",
     "plugin-mongodb",
     "plugin-elasticsearch",
-    "test-dynamic-plugins",
+    "test-dynamic-plugins", "util-cgroups",
 ]
 
 # To apply the following lint settings to a workspace member,
