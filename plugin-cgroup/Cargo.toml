@@ -7,7 +7,7 @@ edition = "2021"
 alumet = { path = "../alumet" }
 log = "0.4.27"
 thiserror = "2.0.12"
-util-cgroups = { path = "../util-cgroups" }
+util-cgroups = { path = "../util-cgroups", features = ["manually"]}
 
 [dev-dependencies]
 tempfile = "3.20.0"

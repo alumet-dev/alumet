@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 description = "Utilities to use control groups, v1 and v2."
 
+[features]
+manually = []
+
 [dependencies]
 anyhow = "1.0.98"
 log = "0.4.27"
@@ -16,6 +19,7 @@ walkdir = "2.5.0"
 [dev-dependencies]
 pretty_assertions = "1.4.1"
 tempfile = "3.20.0"
+util-cgroups = { path = ".", features = ["manually"] }
 
 [lints]
 workspace = true

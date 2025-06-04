@@ -31,7 +31,7 @@ use super::{
 /// # Example
 ///
 /// ```
-/// use plugin_cgroup::cgroup_util::mount_wait::MountWait;
+/// use util_cgroups::mount_wait::MountWait;
 ///
 /// let wait = MountWait::new(|hierarchies| {
 ///     for h in hierarchies {
