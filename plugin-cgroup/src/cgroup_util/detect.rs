@@ -137,8 +137,8 @@ impl CgroupDetector {
     /// `cgroup_path` is the full path of the cgroup in the sysfs,
     /// for example `/sys/fs/cgroup/user.slice/mygroup`.
     pub fn is_known_by_path(&self, cgroup_path: &Path) -> bool {
-        match self.hierarchy.cgroup_relative_path(cgroup_path) {
-            Some(cgroup) => self.is_known(cgroup),
+        match self.hierarchy.cgroup_path(cgroup_path) {
+            Some(cgroup) => self.is_known(&cgroup),
             None => false,
         }
     }
