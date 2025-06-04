@@ -9,5 +9,5 @@ pub mod mount_wait;
 
 // re-exports
 pub use detect::CgroupDetector;
-pub use hierarchy::{Cgroup, CgroupHierarchy};
+pub use hierarchy::{Cgroup, CgroupHierarchy, CgroupVersion};
 pub use mount_wait::MountWait;

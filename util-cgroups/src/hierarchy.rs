@@ -103,7 +103,7 @@ impl CgroupHierarchy {
     /// # Example
     ///
     /// ```no_run
-    /// use plugin_cgroup::cgroup_util::CgroupHierarchy;
+    /// use util_cgroups::CgroupHierarchy;
     ///
     /// let h = CgroupHierarchy::from_root_path("/sys/fs/cgroup").unwrap();
     /// let cgroup_version = h.version();
@@ -148,6 +148,52 @@ impl CgroupHierarchy {
         })
     }
 
+    /// Creates a hierarchy structure from manual values.
+    ///
+    /// # Unchecked
+    /// The hierarchy parameters are not checked, and it probably does not exist.
+    /// This is intended for testing purposes only.
+    ///
+    /// # Example
+    /// ```
+    /// use util_cgroups::{CgroupHierarchy, CgroupVersion};
+    ///
+    /// let test_dir_path = "/tmp/test/cgroup";
+    /// let hierarchy = CgroupHierarchy::manually_unchecked(test_dir_path, CgroupVersion::V2, vec!["cpu", "memory"]);
+    /// assert_eq!(hierarchy.root().to_str().unwrap(), test_dir_path);
+    /// ```
+    #[cfg(feature = "manually")]
+    pub fn manually_unchecked<S: AsRef<str>>(
+        root: impl Into<PathBuf>,
+        version: CgroupVersion,
+        available_controllers: Vec<S>,
+    ) -> Self {
+        Self {
+            root: root.into(),
+            version,
+            available_controllers: available_controllers
+                .into_iter()
+                .map(|s| s.as_ref().to_owned())
+                .collect(),
+            v1_name: None,
+        }
+    }
+
+    /// Creates a "named" cgroup v1 hierarchy structure from manual values.
+    ///
+    /// # Unchecked
+    /// The hierarchy parameters are not checked, and it probably does not exist.
+    /// This is intended for testing purposes only.
+    #[cfg(feature = "manually")]
+    pub fn manually_unchecked_v1_named(root: impl Into<PathBuf>, name: String) -> Self {
+        Self {
+            root: root.into(),
+            version: CgroupVersion::V1,
+            available_controllers: Vec::new(),
+            v1_name: Some(name),
+        }
+    }
+
     /// The root path of this hierarchy.
     ///
     /// ## Differences between cgroups v1 and v2
@@ -189,10 +235,13 @@ impl CgroupHierarchy {
     /// # Example
     ///
     /// ```no_run
-    /// # let hierarchy: CgroupHierarchy = todo!();
+    /// use util_cgroups::CgroupHierarchy;
+    /// use std::path::PathBuf;
+    ///
+    /// let hierarchy: CgroupHierarchy = todo!();
     /// let cgroup_path = PathBuf::from("/sys/fs/cgroup/system.slice/bluetooth.service");
-    /// let relative = hierarchy.cgroup_relative_path(&cgroup_path);
-    /// assert_eq!(relative, Some("/system.slice/bluetooth.service"))
+    /// let relative = hierarchy.cgroup_path(&cgroup_path);
+    /// assert_eq!(relative, Some(String::from("/system.slice/bluetooth.service")))
     /// ```
     pub fn cgroup_path(&self, sysfs_path: &Path) -> Option<String> {
         let relative = sysfs_path.strip_prefix(&self.root).ok()?.to_str().unwrap();
