@@ -1,6 +1,5 @@
-use nvml_wrapper::{
-    enum_wrappers::device::TemperatureSensor, error::NvmlError, struct_wrappers::device::ProcessInfo, Device,
-};
+use nvml_wrapper::{enum_wrappers::device::TemperatureSensor, error::NvmlError};
+use std::time::SystemTime;
 
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
@@ -23,6 +22,9 @@ pub struct NvmlSource {
     metrics: Metrics,
     /// Alumet resource ID.
     resource: Resource,
+
+    /// Last poll timestamp
+    last_poll_timestamp: Option<Timestamp>,
 }
 
 // The pointer `nvmlDevice_t` returned by NVML can be sent between threads.
@@ -37,6 +39,7 @@ impl NvmlSource {
             device,
             metrics,
             resource: Resource::Gpu { bus_id },
+            last_poll_timestamp: None,
         })
     }
 }
@@ -176,93 +179,53 @@ impl alumet::pipeline::Source for NvmlSource {
             ));
         }
 
-        /// Gathers utilization measurements for a specific process (graphic or compute)
-        /// and pushes them to the `measurements` buffer.
-        fn process_utilization_metrics(
-            device: &Device,
-            processes: &[ProcessInfo],
-            measurements: &mut MeasurementAccumulator,
-            timestamp: Timestamp,
-            resource: Resource,
-            metrics: &Metrics,
-        ) -> Result<(), PollError> {
-            // Gets information about processes with a compute context running on this Device
-            for process in processes {
-                let pid = process.pid;
-                let consumer = ResourceConsumer::Process { pid };
+        // Collection of the device processes-scoped measurements
+        if features.process_utilization_stats {
+            if let Some(last_poll_timestamp) = self.last_poll_timestamp {
+                let unix_ts = last_poll_timestamp
+                    .duration_since(SystemTime::UNIX_EPOCH.into())?
+                    .as_secs();
 
-                for sm in device.process_utilization_stats(pid as u64)? {
-                    // SM 3D compute utilization : Refers to the percentage of time that the Streaming Multiprocessors (SMs) of a GPU
+                let processes_samples = device.process_utilization_stats(unix_ts)?;
+
+                for process_sample in processes_samples {
+                    let consumer = ResourceConsumer::Process {
+                        pid: process_sample.pid,
+                    };
                     measurements.push(MeasurementPoint::new(
                         timestamp,
-                        metrics.sm_utilization,
-                        resource.clone(),
+                        self.metrics.sm_utilization,
+                        self.resource.clone(),
                         consumer.clone(),
-                        sm.sm_util as u64,
+                        process_sample.sm_util as u64,
                     ));
                     // Frame buffer memory utilization
                     measurements.push(MeasurementPoint::new(
                         timestamp,
-                        metrics.major_utilization_memory,
-                        resource.clone(),
+                        self.metrics.major_utilization_memory,
+                        self.resource.clone(),
                         consumer.clone(),
-                        sm.mem_util as u64,
+                        process_sample.mem_util as u64,
                     ));
                     // Encoder utilization
                     measurements.push(MeasurementPoint::new(
                         timestamp,
-                        metrics.encoder_utilization,
-                        resource.clone(),
+                        self.metrics.encoder_utilization,
+                        self.resource.clone(),
                         consumer.clone(),
-                        sm.enc_util as u64,
+                        process_sample.enc_util as u64,
                     ));
                     // Decoder utilization
                     measurements.push(MeasurementPoint::new(
                         timestamp,
-                        metrics.decoder_utilization,
-                        resource.clone(),
+                        self.metrics.decoder_utilization,
+                        self.resource.clone(),
                         consumer.clone(),
-                        sm.dec_util as u64,
+                        process_sample.dec_util as u64,
                     ));
                 }
             }
-            Ok(())
-        }
-
-        // Gets utilization stats for relevant currently running computing processes
-        let sm_compute_processes = match features.running_compute_processes {
-            AvailableVersion::Latest => Some(device.running_compute_processes()?),
-            AvailableVersion::V2 => Some(device.running_compute_processes_v2()?),
-            AvailableVersion::None => None,
-        };
-
-        if let Some(processes) = sm_compute_processes {
-            process_utilization_metrics(
-                &device,
-                &processes,
-                measurements,
-                timestamp,
-                self.resource.clone(),
-                &self.metrics,
-            )?;
-        }
-
-        // Gets utilization stats for relevant currently running graphical processes
-        let sm_graphic_processes = match features.running_graphics_processes {
-            AvailableVersion::Latest => Some(device.running_graphics_processes()?),
-            AvailableVersion::V2 => Some(device.running_graphics_processes_v2()?),
-            AvailableVersion::None => None,
-        };
-
-        if let Some(processes) = sm_graphic_processes {
-            process_utilization_metrics(
-                &device,
-                &processes,
-                measurements,
-                timestamp,
-                self.resource.clone(),
-                &self.metrics,
-            )?;
+            self.last_poll_timestamp = Some(timestamp);
         }
 
         Ok(())

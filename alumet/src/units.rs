@@ -53,6 +53,9 @@ pub enum Unit {
     /// Amount of information (1 byte = 8 bits).
     Byte,
 
+    /// Percent, between 0% and 100%. (note: actual value is between 0 and 100 - eg: 5% would be 5, not 0.05)
+    Percent,
+
     /// A custom unit
     Custom {
         /// The unique name (case sensitive) of the unit, as specified by the UCUM.
@@ -105,6 +108,7 @@ impl Unit {
             Unit::DegreeFahrenheit => "[degF]",
             Unit::WattHour => "W.h",
             Unit::Byte => "By",
+            Unit::Percent => "%",
             Unit::Custom {
                 unique_name,
                 display_name: _,
@@ -128,6 +132,7 @@ impl Unit {
             Unit::DegreeFahrenheit => "°F",
             Unit::WattHour => "Wh",
             Unit::Byte => "B",
+            Unit::Percent => "%",
             Unit::Custom {
                 unique_name: _,
                 display_name,
@@ -166,6 +171,7 @@ impl FromStr for Unit {
             "[degF]" => Unit::DegreeFahrenheit,
             "W.h" => Unit::WattHour,
             "By" => Unit::Byte,
+            "%" => Unit::Percent,
             _ => return Err(anyhow!("Unknown or non standard Unit {s}")),
         };
         Ok(res)
@@ -311,6 +317,7 @@ mod tests {
         assert_eq!(parse_self(Unit::DegreeFahrenheit), Unit::DegreeFahrenheit);
         assert_eq!(parse_self(Unit::WattHour), Unit::WattHour);
         assert_eq!(parse_self(Unit::Byte), Unit::Byte);
+        assert_eq!(parse_self(Unit::Percent), Unit::Percent);
     }
 
     #[test]
