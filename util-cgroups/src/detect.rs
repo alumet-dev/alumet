@@ -137,7 +137,7 @@ impl CgroupDetector {
     /// `cgroup_path` is the full path of the cgroup in the sysfs,
     /// for example `/sys/fs/cgroup/user.slice/mygroup`.
     pub fn is_known_by_path(&self, cgroup_path: &Path) -> bool {
-        match self.hierarchy.cgroup_path(cgroup_path) {
+        match self.hierarchy.cgroup_path_from_fs(cgroup_path) {
             Some(cgroup) => self.is_known(&cgroup),
             None => false,
         }
@@ -185,8 +185,8 @@ impl EventHandler {
             let mut state = self.state.lock().unwrap();
             let mut new_cgroups = Vec::with_capacity(paths.len());
             for path in paths {
-                let cgroup = Cgroup::new(&self.hierarchy, path);
-                if state.known_cgroups.insert(cgroup.cgroup_path().to_owned()) {
+                let cgroup = Cgroup::from_fs_path(&self.hierarchy, path);
+                if state.known_cgroups.insert(cgroup.canonical_path().to_owned()) {
                     // the set did not contain the value: this is a new cgroup
                     new_cgroups.push(cgroup);
                 }
@@ -202,8 +202,8 @@ impl EventHandler {
     fn forget_cgroups(&mut self, paths: Vec<PathBuf>) {
         let mut state = self.state.lock().unwrap();
         for path in paths {
-            let cgroup = Cgroup::new(&self.hierarchy, path);
-            if !state.known_cgroups.remove(cgroup.cgroup_path()) {
+            let cgroup = Cgroup::from_fs_path(&self.hierarchy, path);
+            if !state.known_cgroups.remove(cgroup.canonical_path()) {
                 // the set did not contain the value: weird
                 log::warn!("tried to forget cgroup {cgroup} but it was not in the map");
             }
