@@ -228,7 +228,7 @@ impl CgroupHierarchy {
         self.v1_name.as_deref()
     }
 
-    /// Computes the path of the cgroup in its hierarchy, that is, relative to the hierarchy root, with a leading slash `/`.
+    /// Computes the canonical path of the cgroup in its hierarchy, that is, relative to the hierarchy root, with a leading slash `/`.
     ///
     /// Returns `None` if `sysfs_path` is not in the hierarchy root.
     ///
@@ -240,18 +240,49 @@ impl CgroupHierarchy {
     ///
     /// let hierarchy: CgroupHierarchy = todo!();
     /// let cgroup_path = PathBuf::from("/sys/fs/cgroup/system.slice/bluetooth.service");
-    /// let relative = hierarchy.cgroup_path(&cgroup_path);
+    /// let relative = hierarchy.cgroup_path_from_fs(&cgroup_path);
     /// assert_eq!(relative, Some(String::from("/system.slice/bluetooth.service")))
     /// ```
-    pub fn cgroup_path(&self, sysfs_path: &Path) -> Option<String> {
+    pub fn cgroup_path_from_fs(&self, sysfs_path: &Path) -> Option<String> {
         let relative = sysfs_path.strip_prefix(&self.root).ok()?.to_str().unwrap();
         Some(format!("/{relative}"))
+    }
+
+    /// Computes the filesystem path to the cgroup in this hierarchy.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use util_cgroups::CgroupHierarchy;
+    /// use std::path::PathBuf;
+    ///
+    /// let hierarchy: CgroupHierarchy = todo!();
+    /// let cgroup_path = "/system.slice/bluetooth.service";
+    /// let sysfs = hierarchy.cgroup_fs_path(&cgroup_path);
+    /// assert_eq!(relative, PathBuf::from("/sys/fs/cgroup/system.slice/bluetooth.service"))
+    /// ```
+    pub fn cgroup_fs_path(&self, canonical_path: &str) -> PathBuf {
+        let relative_path = if let Some(relative) = canonical_path.strip_prefix("/") {
+            relative
+        } else {
+            &canonical_path
+        };
+        self.root.join(relative_path)
     }
 }
 
 impl<'h> Cgroup<'h> {
-    pub fn new(hierarchy: &'h CgroupHierarchy, sysfs_path: PathBuf) -> Self {
-        let cgroup_path = hierarchy.cgroup_path(&sysfs_path).unwrap().to_owned();
+    pub fn from_fs_path(hierarchy: &'h CgroupHierarchy, sysfs_path: PathBuf) -> Self {
+        let cgroup_path = hierarchy.cgroup_path_from_fs(&sysfs_path).unwrap().to_owned();
+        Self {
+            sysfs_path,
+            cgroup_path,
+            hierarchy,
+        }
+    }
+
+    pub fn from_cgroup_path(hierarchy: &'h CgroupHierarchy, cgroup_path: String) -> Self {
+        let sysfs_path = hierarchy.cgroup_fs_path(&cgroup_path);
         Self {
             sysfs_path,
             cgroup_path,
@@ -266,17 +297,19 @@ impl<'h> Cgroup<'h> {
         self.sysfs_path.as_path()
     }
 
-    /// The path of the cgroup in its hierarchy.
+    /// The canonical path of the cgroup in its hierarchy.
     ///
     /// For example, `/user.slice/me`.
-    pub fn cgroup_path(&self) -> &str {
+    pub fn canonical_path(&self) -> &str {
         &self.cgroup_path
     }
 
     /// Returns the unique name of the cgroup.
     ///
+    /// This name is unique across all cgroup hierarchies.
+    ///
     /// - In cgroup v1, this is a string of the form `cpu,cpuacct:/user.slice/me`.
-    /// - In cgroup v2, the string does not depend on the controllers and is equal to the [`cgroup_path`](Self::cgroup_path).
+    /// - In cgroup v2, the string does not depend on the controllers and there is only one hierarchy, hence it is equal to the [`canonical_path`](Self::canonical_path).
     pub fn unique_name(&self) -> Cow<str> {
         match self.hierarchy.version() {
             CgroupVersion::V1 => {
@@ -374,14 +407,14 @@ mod tests {
             available_controllers: vec![String::from("cpu"), String::from("cpuacct")],
             v1_name: None,
         };
-        assert_eq!(h.cgroup_path(&PathBuf::from("/some/root")).unwrap(), "/");
-        assert_eq!(h.cgroup_path(&PathBuf::from("/some/root/")).unwrap(), "/");
-        assert_eq!(h.cgroup_path(&PathBuf::from("/a/b")), None);
+        assert_eq!(h.cgroup_path_from_fs(&PathBuf::from("/some/root")).unwrap(), "/");
+        assert_eq!(h.cgroup_path_from_fs(&PathBuf::from("/some/root/")).unwrap(), "/");
+        assert_eq!(h.cgroup_path_from_fs(&PathBuf::from("/a/b")), None);
 
         let sysfs_path = PathBuf::from("/some/root/a.slice/me");
-        let cgroup = Cgroup::new(&h, sysfs_path.clone());
+        let cgroup = Cgroup::from_fs_path(&h, sysfs_path.clone());
         assert_eq!(cgroup.fs_path(), sysfs_path);
-        assert_eq!(cgroup.cgroup_path(), "/a.slice/me");
+        assert_eq!(cgroup.canonical_path(), "/a.slice/me");
         assert_eq!(cgroup.unique_name(), "cpu,cpuacct:/a.slice/me");
         assert_eq!(cgroup.hierarchy().version(), CgroupVersion::V1);
     }
@@ -394,16 +427,33 @@ mod tests {
             available_controllers: vec![String::from("cpu"), String::from("cpuacct")],
             v1_name: None,
         };
-        assert_eq!(h.cgroup_path(&PathBuf::from("/some/root")).unwrap(), "/");
-        assert_eq!(h.cgroup_path(&PathBuf::from("/some/root/")).unwrap(), "/");
-        assert_eq!(h.cgroup_path(&PathBuf::from("/a/b")), None);
+        assert_eq!(h.cgroup_path_from_fs(&PathBuf::from("/some/root")).unwrap(), "/");
+        assert_eq!(h.cgroup_path_from_fs(&PathBuf::from("/some/root/")).unwrap(), "/");
+        assert_eq!(h.cgroup_path_from_fs(&PathBuf::from("/a/b")), None);
 
         let sysfs_path = PathBuf::from("/some/root/a.slice/me");
-        let cgroup = Cgroup::new(&h, sysfs_path.clone());
+        let cgroup = Cgroup::from_fs_path(&h, sysfs_path.clone());
         assert_eq!(cgroup.fs_path(), sysfs_path);
-        assert_eq!(cgroup.cgroup_path(), "/a.slice/me");
+        assert_eq!(cgroup.canonical_path(), "/a.slice/me");
         assert_eq!(cgroup.unique_name(), "/a.slice/me");
         assert_eq!(cgroup.hierarchy().version(), CgroupVersion::V2);
+    }
+
+    #[test]
+    fn hierarchy_path_helpers() {
+        let h = CgroupHierarchy::manually_unchecked("/somewhere/cgroup", CgroupVersion::V2, vec!["cpu"]);
+        assert_eq!(
+            h.cgroup_fs_path("/system.slice/bluetooth.service"),
+            PathBuf::from("/somewhere/cgroup/system.slice/bluetooth.service")
+        );
+        assert_eq!(
+            h.cgroup_fs_path("system.slice/bluetooth.service"),
+            PathBuf::from("/somewhere/cgroup/system.slice/bluetooth.service")
+        );
+        assert_eq!(
+            h.cgroup_path_from_fs(&PathBuf::from("/somewhere/cgroup/system.slice/bluetooth.service")),
+            Some(String::from("/system.slice/bluetooth.service"))
+        );
     }
 
     #[test]
