@@ -1,8 +1,5 @@
 //! Wait for the cgroupfs to be mounted.
 
-#[cfg(test)]
-use std::path::Path;
-
 use std::{
     fs::File,
     io::{ErrorKind, Read},
@@ -50,18 +47,12 @@ impl MountWait {
     pub fn new(
         callback: impl FnMut(Vec<CgroupHierarchy>) -> anyhow::Result<()> + Send + 'static,
     ) -> anyhow::Result<Self> {
-        wait_for_cgroupfs(callback, "/proc/mounts", Interest::PRIORITY)
+        wait_for_cgroupfs(callback)
     }
 
-    /// Waits for a cgroupfs to be mounted and executes the given `callback` when it occurs.
-    #[cfg(test)]
-    pub fn with_custom_procmounts(
-        proc_mounts_path: &Path,
-        callback: impl FnMut(Vec<CgroupHierarchy>) -> anyhow::Result<()> + Send + 'static,
-    ) -> anyhow::Result<Self> {
-        let proc_mounts_path = proc_mounts_path.to_str().unwrap();
-        wait_for_cgroupfs(callback, proc_mounts_path, Interest::READABLE)
-    }
+    // TODO add a "manual" constructor that uses a socket to trigger epoll?
+    // Some additional modifications are needed, because File::open won't work on a socket.
+    // TODO add a delay for cgroup v1 to trigger the callback with all the cgroups at once?
 
     /// Stops the waiting thread and wait for it to terminate.
     ///
@@ -83,30 +74,24 @@ impl Drop for MountWait {
 
 const SINGLE_TOKEN: Token = Token(0);
 const POLL_TIMEOUT: Duration = Duration::from_secs(5);
+const PROC_MOUNTS_PATH: &str = "/proc/mounts";
 
 /// Starts a background thread that uses [`mio::poll`] (backed by `epoll`) to detect changes to the mounted filesystem.
-///
-/// # Interests
-/// According to `man proc_mounts`,  a filesystem mount or unmount causes
-/// `poll` and `epoll_wait` to mark the file as having a PRIORITY event.
-///
-/// For testing purposes, the interest set can be changed, for instance to READ.
-/// Note that epoll does not work for regular files, but it does work for a socket.
 fn wait_for_cgroupfs(
     mut callback: impl FnMut(Vec<CgroupHierarchy>) -> anyhow::Result<()> + Send + 'static,
-    proc_mounts_path: &str,
-    interests: Interest,
 ) -> anyhow::Result<MountWait> {
     // Open the file that contains info about the mounted filesystems.
-    let file = File::open(proc_mounts_path).with_context(|| format!("failed to open {proc_mounts_path}"))?;
+    let file = File::open(PROC_MOUNTS_PATH).with_context(|| format!("failed to open {PROC_MOUNTS_PATH}"))?;
     let fd = file.as_raw_fd();
     let mut fd = SourceFd(&fd);
 
     // Prepare epoll.
+    // According to `man proc_mounts`,  a filesystem mount or unmount causes
+    // `poll` and `epoll_wait` to mark the file as having a PRIORITY event.
     let mut poll = Poll::new().context("poll init failed")?;
     poll.registry()
-        .register(&mut fd, SINGLE_TOKEN, interests)
-        .with_context(|| format!("poll registration of {proc_mounts_path:?} failed"))?;
+        .register(&mut fd, SINGLE_TOKEN, Interest::PRIORITY)
+        .with_context(|| format!("poll registration of {PROC_MOUNTS_PATH:?} failed"))?;
 
     // Keep a boolean to stop the thread from the outside.
     let stop_flag = Arc::new(AtomicBool::new(false));

@@ -1,7 +1,10 @@
 use std::{
     fs::File,
     io::{self, BufRead, Read, Seek},
+    path::Path,
 };
+
+use rustc_hash::{FxBuildHasher, FxHashMap};
 
 use crate::measure::bitset::BitSet64;
 
@@ -30,7 +33,7 @@ pub unsafe fn parse_single_u64(io_buf: &[u8]) -> io::Result<u64> {
 
 /// Parses a list of key-values from `io_buf`.
 ///
-/// Calls `on_kv` for every key-value pair found, with `(line_index, key, value)`.
+/// Calls `on_ikv` for every key-value pair found, with `(line_index, key, value)`.
 /// Empty lines and lines that do not contain a key and value, separated by a space, are ignored.
 ///
 /// # Input format
@@ -55,7 +58,7 @@ pub unsafe fn parse_space_kv(io_buf: &[u8], mut on_ikv: impl FnMut(usize, &str, 
 /// Parses a list of key-values from `io_buf`, but only consider the lines
 /// whose number is contained in `indices`.
 ///
-/// Calls `on_kv` for every key-value pair found.
+/// Calls `on_ikv` for every key-value pair found, with `(line_index, key, value)`.
 /// Empty lines and lines that do not contain a key and value, separated by a space, are ignored.
 ///
 /// # Input format
@@ -69,14 +72,14 @@ pub unsafe fn parse_space_kv(io_buf: &[u8], mut on_ikv: impl FnMut(usize, &str, 
 pub unsafe fn parse_space_kv_at_lines(
     io_buf: &[u8],
     indices: &BitSet64,
-    mut on_kv: impl FnMut(&str, u64),
+    mut on_ikv: impl FnMut(usize, &str, u64),
 ) -> io::Result<()> {
     let content = unsafe { std::str::from_utf8_unchecked(io_buf) };
     for (i, line) in content.split('\n').enumerate() {
         if indices.contains(i) {
             if let Some((key, value)) = line.split_once(' ') {
                 let value: u64 = value.parse().map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
-                on_kv(key, value)
+                on_ikv(i, key, value)
             }
         }
     }
@@ -89,6 +92,16 @@ pub struct U64File {
 }
 
 impl U64File {
+    pub fn new(file: File) -> Self {
+        Self { file }
+    }
+
+    pub fn open(path: impl AsRef<Path>) -> io::Result<Self> {
+        Ok(Self {
+            file: File::open(path)?,
+        })
+    }
+
     /// Reads the file into `io_buf` and parses its content.
     pub fn read(&mut self, io_buf: &mut Vec<u8>) -> io::Result<u64> {
         // SAFETY: the file comes from the kernel (it's not an actual file) and its content is always valid ASCII (hence valid UTF-8)
@@ -101,6 +114,10 @@ impl U64File {
 pub struct SelectiveStatFile {
     file: File,
     cached_indices: BitSet64,
+}
+
+pub struct SelectiveStatMapping {
+    key_to_line: FxHashMap<String, u8>,
 }
 
 /// Builder for [`SelectiveStatFile`].
@@ -121,7 +138,7 @@ impl StatFileBuilder {
     /// Reads the file and finds the position of the lines that must be read to obtain the keys we want.
     ///
     /// This makes [`SelectiveStatFile::read`] faster (compared to a non-cached version, which is not provided).
-    pub fn cache_line_indices(mut self, io_buf: &mut Vec<u8>) -> io::Result<SelectiveStatFile> {
+    pub fn cache_line_indices(mut self, io_buf: &mut Vec<u8>) -> io::Result<(SelectiveStatFile, SelectiveStatMapping)> {
         // read the file into the buffer
         read_fully(&mut self.file, io_buf)?;
 
@@ -133,18 +150,21 @@ impl StatFileBuilder {
 
         // find the line numbers that correspond to the keys we want, to avoid comparing the keys in subsequent reads
         let mut cached_indices = BitSet64::default();
+        let mut key_to_line = FxHashMap::with_capacity_and_hasher(self.keys_to_get.len(), FxBuildHasher);
         unsafe {
             parse_space_kv(&io_buf, |i, k, _| {
                 if self.keys_to_get.iter().any(|key| key == k) {
                     cached_indices.add(i);
+                    key_to_line.insert(k.to_owned(), i as u8);
                 };
             })
         }?;
-
-        Ok(SelectiveStatFile {
+        let file = SelectiveStatFile {
             file: self.file,
             cached_indices,
-        })
+        };
+        let mapping = SelectiveStatMapping { key_to_line };
+        Ok((file, mapping))
     }
 }
 
@@ -153,12 +173,13 @@ impl SelectiveStatFile {
     /// that we are interested in.
     ///
     /// Only the keys that were given to [`StatFileBuilder::new`] are returned.
-    pub fn read(&mut self, io_buf: &mut Vec<u8>, on_kv: impl FnMut(&str, u64)) -> io::Result<()> {
+    pub fn read(&mut self, io_buf: &mut Vec<u8>, on_ikv: impl FnMut(usize, &str, u64)) -> io::Result<()> {
         // SAFETY: the file comes from the kernel (it's not an actual file) and its content is always valid ASCII (hence valid UTF-8).
         // Furthermore, this is asserted in `cache_line_indices`.
         read_fully(&mut self.file, io_buf)?;
-        unsafe { parse_space_kv_at_lines(io_buf, &self.cached_indices, on_kv) }
+        unsafe { parse_space_kv_at_lines(io_buf, &self.cached_indices, on_ikv) }
     }
+
     /*
     TODO I think that we can do even better, by using the line index to directly store the value in a struct of u64 fields.
 
@@ -172,4 +193,10 @@ impl SelectiveStatFile {
     - A function set(offset)
     - A helper line index -> field offset (?)
     */
+}
+
+impl SelectiveStatMapping {
+    pub fn line_index(&self, key: &str) -> Option<u8> {
+        self.key_to_line.get(key).cloned()
+    }
 }
