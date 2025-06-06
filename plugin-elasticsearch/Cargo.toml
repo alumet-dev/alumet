@@ -34,3 +34,4 @@ workspace = true
 
 [dev-dependencies]
 toml = "0.8.20"
+time = { version = "0.3", features = ["parsing", "std"]}
