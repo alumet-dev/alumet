@@ -1,7 +1,7 @@
 //! Implementation of a small subset of the REST API of OpenSearch/ElasticSearch.
 
 use alumet::{
-    measurement::{MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue},
+    measurement::{AttributeValue, MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue},
     pipeline::elements::output::OutputContext,
 };
 
@@ -120,6 +120,17 @@ impl Serialize for DocMeasurement<'_> {
             WrappedMeasurementValue::F64(v) => map.serialize_entry("value", &v)?,
             WrappedMeasurementValue::U64(v) => map.serialize_entry("value", &v)?,
         };
+
+        for (key, value) in self.measurement.attributes() {
+            match value {
+                AttributeValue::Bool(v) => map.serialize_entry(key, &v)?,
+                AttributeValue::F64(v) => map.serialize_entry(key, &v)?,
+                AttributeValue::U64(v) => map.serialize_entry(key, &v)?,
+                AttributeValue::Str(v) => map.serialize_entry(key, &v)?,
+                AttributeValue::String(v) => map.serialize_entry(key, &v)?,
+            }
+        }
+
         map.end()
     }
 }
@@ -159,4 +170,57 @@ pub struct CreateIndexTemplate {
 #[derive(Debug, Serialize)]
 pub struct IndexTemplate {
     pub mappings: serde_json::Value,
+}
+
+#[cfg(test)]
+mod tests {
+    use alumet::{
+        measurement::Timestamp,
+        metrics::RawMetricId,
+        resources::{Resource, ResourceConsumer},
+    };
+    use time::OffsetDateTime;
+
+    use super::*;
+
+    /// Parses an RFC 3339 date-and-time string into a Timestamp value.
+    pub(crate) fn timestamp_from_rfc3339(timestamp: &str) -> Timestamp {
+        SystemTime::from(OffsetDateTime::parse(timestamp, &Rfc3339).unwrap()).into()
+    }
+
+    #[test]
+    fn test_serialize() {
+        let doc = DocMeasurement {
+            measurement: &MeasurementPoint::new_untyped(
+                timestamp_from_rfc3339("2025-06-06T12:03:18Z"),
+                RawMetricId::from_u64(1),
+                Resource::LocalMachine,
+                ResourceConsumer::LocalMachine,
+                WrappedMeasurementValue::U64(64),
+            )
+            .with_attr_vec(vec![
+                ("bool", AttributeValue::Bool(true)),
+                ("f64", AttributeValue::F64(0.45)),
+                ("u64", AttributeValue::U64(69)),
+                ("str", AttributeValue::Str("alumet")),
+                ("string", AttributeValue::String("elastic search".to_string())),
+            ]),
+        };
+
+        let result = serde_json::to_string_pretty(&doc).unwrap();
+        let expected_result = "{
+  \"@timestamp\": \"2025-06-06T12:03:18Z\",
+  \"resource_kind\": \"local_machine\",
+  \"resource_id\": \"\",
+  \"consumer_kind\": \"local_machine\",
+  \"consumer_id\": \"\",
+  \"value\": 64,
+  \"bool\": true,
+  \"f64\": 0.45,
+  \"u64\": 69,
+  \"str\": \"alumet\",
+  \"string\": \"elastic search\"
+}";
+        assert_eq!(result, expected_result)
+    }
 }
