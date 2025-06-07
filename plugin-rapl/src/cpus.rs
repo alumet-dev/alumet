@@ -13,7 +13,7 @@ pub struct CpuId {
 }
 
 /// Cpu vendor that supports RAPL energy counters.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CpuVendor {
     Intel,
     Amd,
@@ -75,7 +75,7 @@ pub fn online_cpus() -> anyhow::Result<Vec<u32>> {
     parse_cpu_list(&list)
 }
 
-pub fn cpu_vendor() -> anyhow::Result<CpuVendor> {
+fn run_lscpu() -> anyhow::Result<String> {
     // run: LC_ALL=C lscpu
     let child = Command::new("lscpu")
         .env("LC_ALL", "C")
@@ -83,12 +83,14 @@ pub fn cpu_vendor() -> anyhow::Result<CpuVendor> {
         .spawn()
         .context("lscpu should be executable")?;
     let finished = child.wait_with_output()?;
-    let stdout = std::str::from_utf8(&finished.stdout)?;
+    Ok(std::str::from_utf8(&finished.stdout)?.to_string())
+}
 
+fn parse_cpu_vendor_from_lscpu(lscpu: &str) -> anyhow::Result<CpuVendor> {
     // find the Vendor ID
     let vendor_regex = regex::Regex::new(r"Vendor ID:\s+(\w+)")?;
     let group = vendor_regex
-        .captures(stdout)
+        .captures(lscpu)
         .context("vendor id not found in lscpu output")?
         .get(1)
         .unwrap();
@@ -102,9 +104,73 @@ pub fn cpu_vendor() -> anyhow::Result<CpuVendor> {
     }
 }
 
+pub fn cpu_vendor() -> anyhow::Result<CpuVendor> {
+    let lscpu_result = run_lscpu()?;
+    parse_cpu_vendor_from_lscpu(&lscpu_result)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{parse_cpu_and_socket_list, CpuId};
+    use super::*;
+
+    #[test]
+    fn test_parse_cpu_vendor_from_lscpu() -> anyhow::Result<()> {
+        let lscpu_result = "Architecture:             x86_64
+  CPU op-mode(s):         32-bit, 64-bit
+  Address sizes:          46 bits physical, 48 bits virtual
+  Byte Order:             Little Endian
+CPU(s):                   14
+  On-line CPU(s) list:    0-13
+Vendor ID:                GenuineIntel
+  Model name:             Intel(R) Core(TM) Ultra 5 135U
+    CPU family:           6
+    Model:                170
+    Thread(s) per core:   2
+    Core(s) per socket:   12
+    Socket(s):            1
+    Stepping:             4
+    CPU(s) scaling MHz:   40%
+    CPU max MHz:          4400.0000
+    CPU min MHz:          400.0000
+    BogoMIPS:             5376.00
+    Flags:                fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm
+                          pbe syscall nx pdpe1gb rdtscp lm constant_tsc art arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc cpuid ap
+                          erfmperf tsc_known_freq pni pclmulqdq dtes64 monitor ds_cpl vmx smx est tm2 ssse3 sdbg fma cx16 xtpr pdcm pcid sse4_
+                          1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand lahf_lm abm 3dnowprefetch cpuid_fault epb
+                          intel_ppin ssbd ibrs ibpb stibp ibrs_enhanced tpr_shadow flexpriority ept vpid ept_ad fsgsbase tsc_adjust bmi1 avx2
+                          smep bmi2 erms invpcid rdseed adx smap clflushopt clwb intel_pt sha_ni xsaveopt xsavec xgetbv1 xsaves split_lock_det
+                          ect user_shstk avx_vnni dtherm ida arat pln pts hwp hwp_notify hwp_act_window hwp_epp hwp_pkg_req hfi vnmi umip pku
+                          ospke waitpkg gfni vaes vpclmulqdq tme rdpid bus_lock_detect movdiri movdir64b fsrm md_clear serialize pconfig arch_
+                          lbr ibt flush_l1d arch_capabilities
+Virtualization features:
+  Virtualization:         VT-x
+Caches (sum of all):
+  L1d:                    352 KiB (10 instances)
+  L1i:                    640 KiB (10 instances)
+  L2:                     10 MiB (5 instances)
+  L3:                     12 MiB (1 instance)
+NUMA:
+  NUMA node(s):           1
+  NUMA node0 CPU(s):      0-13
+Vulnerabilities:
+  Gather data sampling:   Not affected
+  Itlb multihit:          Not affected
+  L1tf:                   Not affected
+  Mds:                    Not affected
+  Meltdown:               Not affected
+  Mmio stale data:        Not affected
+  Reg file data sampling: Not affected
+  Retbleed:               Not affected
+  Spec rstack overflow:   Not affected
+  Spec store bypass:      Mitigation; Speculative Store Bypass disabled via prctl
+  Spectre v1:             Mitigation; usercopy/swapgs barriers and __user pointer sanitization
+  Spectre v2:             Mitigation; Enhanced / Automatic IBRS; IBPB conditional; RSB filling; PBRSB-eIBRS Not affected; BHI BHI_DIS_S
+  Srbds:                  Not affected
+  Tsx async abort:        Not affected";
+        let cpu_vendor = parse_cpu_vendor_from_lscpu(lscpu_result)?;
+        assert_eq!(cpu_vendor, CpuVendor::Intel);
+        Ok(())
+    }
 
     #[test]
     fn test_parse_cpumask() -> anyhow::Result<()> {
