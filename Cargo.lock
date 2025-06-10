@@ -2186,6 +2186,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "mount-watcher"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb109bb98a0f7f2ca6b7a86e168d66b6774d1190025a1b6a65acf3c5aafac0e8"
+dependencies = [
+ "log",
+ "mio 1.0.4",
+ "thiserror 2.0.12",
+ "timerfd",
+]
+
+[[package]]
 name = "multimap"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4501,6 +4513,7 @@ dependencies = [
  "criterion",
  "log",
  "mio 1.0.4",
+ "mount-watcher",
  "notify 8.1.0",
  "pretty_assertions",
  "rustc-hash",

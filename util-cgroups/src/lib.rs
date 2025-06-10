@@ -5,10 +5,9 @@ compile_error!("only Linux is supported");
 pub mod detect;
 pub mod hierarchy;
 pub mod measure;
-pub mod mount;
 pub mod mount_wait;
 
 // re-exports
 pub use detect::CgroupDetector;
 pub use hierarchy::{Cgroup, CgroupHierarchy, CgroupVersion};
-pub use mount_wait::MountWait;
+pub use mount_wait::CgroupMountWait;

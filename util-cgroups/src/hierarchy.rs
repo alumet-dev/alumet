@@ -16,9 +16,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use mount_watcher::mount::{list_current_mounts, LinuxMount};
 use thiserror::Error;
-
-use super::mount::{self, read_proc_mounts, Mount};
 
 /// A control group, v1 or v2.
 #[derive(Debug, Clone)]
@@ -71,7 +70,7 @@ impl<'h> Display for Cgroup<'h> {
 
 impl CgroupHierarchy {
     /// Analyzes the basic configuration of the hierarchy mounted at `m`.
-    pub fn from_mount(m: &Mount) -> Result<Self, HierarchyError> {
+    pub fn from_mount(m: &LinuxMount) -> Result<Self, HierarchyError> {
         let mount_point = &m.mount_point;
         match m.fs_type.as_str() {
             "cgroup2" => {
@@ -340,7 +339,7 @@ fn parse_v2_controllers(cgroup_root: &Path) -> Result<Vec<String>, HierarchyErro
     }
 }
 
-fn parse_v1_options(cgroup_mount: &Mount) -> Result<(Vec<String>, Option<String>), HierarchyError> {
+fn parse_v1_options(cgroup_mount: &LinuxMount) -> Result<(Vec<String>, Option<String>), HierarchyError> {
     let options = &cgroup_mount.mount_options;
     let no_controller = options.iter().any(|o| *o == "none");
     let hierarchy_name = options.iter().find_map(|o| o.strip_prefix("name="));
@@ -365,7 +364,7 @@ fn parse_v1_options_from_sysfs(cgroup_root: &Path) -> Result<(Vec<String>, Optio
     // Furthermore, there can be "named hierarchies", which have no controller but an arbitrary name.
     // => use /proc/mounts to get the information we need
 
-    let mounts = read_proc_mounts().map_err(HierarchyError::BadMounts)?;
+    let mounts = list_current_mounts().map_err(HierarchyError::BadMounts)?;
     let this_mount = mounts
         .into_iter()
         .find(|m| m.mount_point == cgroup_root)
@@ -382,7 +381,7 @@ pub enum HierarchyError {
     #[error("{0} not found in /proc/mounts")]
     MountNotFound(String),
     #[error("failed to analyse /proc/mounts")]
-    BadMounts(#[source] mount::ReadError),
+    BadMounts(#[source] mount_watcher::mount::ReadError),
     #[error("{0} is not a valid hierarchy root: the path should be absolute and should exist")]
     BadRoot(PathBuf),
     #[error("{0:?} is not a cgroup filesystem")]
@@ -393,11 +392,9 @@ pub enum HierarchyError {
 mod tests {
     use std::path::PathBuf;
 
-    use crate::{
-        hierarchy::{CgroupHierarchy, CgroupVersion, HierarchyError},
-        mount::Mount,
-        Cgroup,
-    };
+    use mount_watcher::mount::LinuxMount;
+
+    use crate::hierarchy::{CgroupHierarchy, CgroupVersion, HierarchyError};
 
     #[test]
     fn cgroup_properties_v1() {
@@ -458,7 +455,7 @@ mod tests {
 
     #[test]
     fn bad_hierarchy_from_mount() {
-        let mount = Mount::parse("tmpfs /tmp tmpfs rw 0 0").unwrap();
+        let mount = LinuxMount::parse("tmpfs /tmp tmpfs rw 0 0").unwrap();
         let h = CgroupHierarchy::from_mount(&mount);
         assert!(matches!(h, Err(HierarchyError::NotCgroupfs(p)) if p == PathBuf::from("/tmp")));
     }

@@ -258,12 +258,12 @@ impl notify::poll::ScanEventHandler for EventHandler {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
-    use super::super::{detect::callback, hierarchy::CgroupHierarchy};
-    use super::CgroupDetector;
-
     // Manual cgroup testing.
+
+    // use std::time::Duration;
+    // use super::super::{detect::callback, hierarchy::CgroupHierarchy};
+    // use super::CgroupDetector;
+
     // TODO: add automatic test, by:
     // - finding a cgroup that we have the right to modify as the current user
     // - creating new child cgroups in this cgroup
