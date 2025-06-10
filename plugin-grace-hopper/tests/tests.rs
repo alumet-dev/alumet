@@ -70,7 +70,7 @@ fn test_correct_plugin_init_with_one_source_empty_value() {
     });
 
     let startup_expectation = StartupExpectations::new()
-        .expect_metric::<u64>("consumption", PrefixedUnit::micro(alumet::units::Unit::Watt))
+        .expect_metric::<f64>("consumption", PrefixedUnit::micro(alumet::units::Unit::Watt))
         .expect_source("grace-hopper", "Module_0");
 
     let runtime_expectation = RuntimeExpectations::new().test_source(
@@ -79,7 +79,7 @@ fn test_correct_plugin_init_with_one_source_empty_value() {
         |m| {
             assert_eq!(m.len(), 1);
             for elm in m {
-                assert!(elm.value == WrappedMeasurementValue::U64(0));
+                assert!(elm.value == WrappedMeasurementValue::F64(0.0));
             }
         },
     );
@@ -105,9 +105,10 @@ fn test_correct_plugin_init_with_several_sources() {
     std::fs::create_dir_all(file_path_info.parent().unwrap()).unwrap();
     let mut file = File::create(&file_path_info).unwrap();
     let mut file_avg = File::create(&file_path_average).unwrap();
-    let mut _file_int = File::create(&file_path_interval).unwrap();
+    let mut file_int = File::create(&file_path_interval).unwrap();
     writeln!(file, "Module Power Socket 0").unwrap();
     writeln!(file_avg, "123456789").unwrap();
+    writeln!(file_int, "50").unwrap();
 
     let file_path_info = root.path().join("hwmon2/device/power1_oem_info");
     let file_path_average = root.path().join("hwmon2/device/power1_average");
@@ -135,9 +136,10 @@ fn test_correct_plugin_init_with_several_sources() {
     std::fs::create_dir_all(file_path_info.parent().unwrap()).unwrap();
     let mut file = File::create(&file_path_info).unwrap();
     let mut file_avg = File::create(&file_path_average).unwrap();
-    let mut _file_int = File::create(&file_path_interval).unwrap();
+    let mut file_int = File::create(&file_path_interval).unwrap();
     writeln!(file, "SysIO Power Socket 2").unwrap();
     writeln!(file_avg, "678954321").unwrap();
+    writeln!(file_int, "50").unwrap();
 
     let mut plugins = PluginSet::new();
     let config = Config {
@@ -152,7 +154,7 @@ fn test_correct_plugin_init_with_several_sources() {
     });
 
     let startup_expectation = StartupExpectations::new()
-        .expect_metric::<u64>("consumption", PrefixedUnit::micro(alumet::units::Unit::Watt))
+        .expect_metric::<f64>("consumption", PrefixedUnit::micro(alumet::units::Unit::Watt))
         .expect_source("grace-hopper", "Module_0")
         .expect_source("grace-hopper", "Grace_0")
         .expect_source("grace-hopper", "CPU_2")
@@ -165,7 +167,7 @@ fn test_correct_plugin_init_with_several_sources() {
             |m| {
                 assert_eq!(m.len(), 1);
                 for elm in m {
-                    assert!(elm.value == WrappedMeasurementValue::U64(123456789));
+                    assert!(elm.value == WrappedMeasurementValue::F64(123456789.0));
                 }
             },
         )
@@ -175,7 +177,7 @@ fn test_correct_plugin_init_with_several_sources() {
             |m| {
                 assert_eq!(m.len(), 1);
                 for elm in m {
-                    assert!(elm.value == WrappedMeasurementValue::U64(987654321));
+                    assert!(elm.value == WrappedMeasurementValue::F64(987654321.0));
                 }
             },
         )
@@ -185,7 +187,7 @@ fn test_correct_plugin_init_with_several_sources() {
             |m| {
                 assert_eq!(m.len(), 1);
                 for elm in m {
-                    assert!(elm.value == WrappedMeasurementValue::U64(1234598761));
+                    assert!(elm.value == WrappedMeasurementValue::F64(1234598761.0));
                 }
             },
         )
@@ -195,7 +197,7 @@ fn test_correct_plugin_init_with_several_sources() {
             |m| {
                 assert_eq!(m.len(), 1);
                 for elm in m {
-                    assert!(elm.value == WrappedMeasurementValue::U64(678954321));
+                    assert!(elm.value == WrappedMeasurementValue::F64(678954321.0));
                 }
             },
         );
