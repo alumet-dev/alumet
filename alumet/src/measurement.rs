@@ -184,6 +184,19 @@ impl Timestamp {
     pub fn duration_since(&self, earlier: Timestamp) -> Result<Duration, SystemTimeError> {
         self.0.duration_since(earlier.0)
     }
+
+    pub fn from_unix_timestamp(secs: u64, nanos: u32) -> Self {
+        let duration = Duration::new(secs, nanos);
+        Self(SystemTime::UNIX_EPOCH + duration)
+    }
+
+    pub fn add_duration(&self, duration: Duration) -> Self {
+        Self(self.0 + duration)
+    }
+
+    pub fn sub_duration(&self, duration: Duration) -> Self {
+        Self(self.0 - duration)
+    }
 }
 
 impl From<SystemTime> for Timestamp {
