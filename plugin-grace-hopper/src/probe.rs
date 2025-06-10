@@ -33,11 +33,7 @@ pub struct GraceHopperProbe {
 impl GraceHopperProbe {
     pub fn new(alumet: &mut AlumetPluginStart, sensor: Sensor) -> Result<Self, anyhow::Error> {
         let metric = alumet
-            .create_metric::<f64>(
-                "consumption",
-                PrefixedUnit::micro(Unit::Watt),
-                "Power consumption of the sensor",
-            )
+            .create_metric::<f64>("consumption", Unit::Joule, "Energy consumption of the sensor")
             .ok();
 
         if !sensor.file.exists() {
