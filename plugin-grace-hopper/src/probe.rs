@@ -10,7 +10,10 @@ use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
     pipeline::{elements::error::PollError, Source},
-    plugin::AlumetPluginStart,
+    plugin::{
+        util::{CounterDiff, CounterDiffUpdate},
+        AlumetPluginStart,
+    },
     resources::{Resource, ResourceConsumer},
     units::{PrefixedUnit, Unit},
 };
@@ -22,14 +25,15 @@ pub struct GraceHopperProbe {
     kind: String,
     file: File,
     consumer: ResourceConsumer,
-    metric: Option<TypedMetricId<u64>>,
-    _power_stats_interval: Duration,
+    metric: Option<TypedMetricId<f64>>,
+    power_stats_interval: Duration,
+    last_timestamp: CounterDiff,
 }
 
 impl GraceHopperProbe {
     pub fn new(alumet: &mut AlumetPluginStart, sensor: Sensor) -> Result<Self, anyhow::Error> {
         let metric = alumet
-            .create_metric::<u64>(
+            .create_metric::<f64>(
                 "consumption",
                 PrefixedUnit::micro(Unit::Watt),
                 "Power consumption of the sensor",
@@ -52,7 +56,8 @@ impl GraceHopperProbe {
             file,
             metric,
             consumer: ResourceConsumer::LocalMachine,
-            _power_stats_interval: sensor.average_interval,
+            power_stats_interval: sensor.average_interval,
+            last_timestamp: CounterDiff::with_max_value(u64::MAX),
         };
         Ok(probe)
     }
@@ -62,6 +67,7 @@ impl Source for GraceHopperProbe {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         let mut buffer = String::new();
         let power = read_power_value(&mut buffer, &mut self.file)?;
+        let computed_energy = compute_energy(power, &mut self.last_timestamp, timestamp)?;
         measurements.push(
             MeasurementPoint::new(
                 timestamp,
@@ -69,9 +75,10 @@ impl Source for GraceHopperProbe {
                     .expect("can't push to the MeasurementAccumulator because can't retrieve the metric"),
                 Resource::CpuPackage { id: self.socket },
                 self.consumer.clone(),
-                power,
+                computed_energy,
             )
-            .with_attr("sensor", self.kind.clone()),
+            .with_attr("sensor", self.kind.clone())
+            .with_attr("min_interval_update_ms", self.power_stats_interval.as_millis() as f64),
         );
 
         Ok(())
@@ -100,14 +107,45 @@ pub fn read_power_value(buffer: &mut String, file: &mut File) -> Result<u64, any
     Ok(power_consumption)
 }
 
+/// Compute an energy from a power. Using as time the time elapsed between
+/// `last_timestamp` and the current timestamp `timestamp`.
+///
+/// This function first computes as `u64` the current Timestamp as ns. Then using the
+/// `CounterDiff` structure it compute the time elapsed since the last measurement.
+/// Finally it compute the energy using the formula: Energy(J) = Power(W) * Time(s)
+///
+/// Returns the computed energy on success or 0.0 for the first time
+pub fn compute_energy(
+    power: u64,
+    last_timestamp: &mut CounterDiff,
+    timestamp: Timestamp,
+) -> Result<f64, anyhow::Error> {
+    let (second, nanosec) = timestamp.to_unix_timestamp();
+    let final_value = second * 1_000_000_000 + nanosec as u64;
+    let time_elapsed_opt = match last_timestamp.update(final_value) {
+        CounterDiffUpdate::FirstTime => None,
+        CounterDiffUpdate::Difference(diff) | CounterDiffUpdate::CorrectedDifference(diff) => Some(diff),
+    };
+    if let Some(time_elapsed_ns) = time_elapsed_opt {
+        let time_in_seconds_u64 = time_elapsed_ns / 1_000_000_000;
+        let time_in_seconds = time_in_seconds_u64 as f64;
+        Ok(power as f64 * time_in_seconds)
+    } else {
+        Ok(power as f64)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use alumet::measurement::Timestamp;
+    use alumet::plugin::util::CounterDiff;
     use anyhow::Context;
     use std::fs::File;
     use std::io::Write;
+    use std::time::Duration;
     use tempfile::tempdir;
 
-    use crate::probe::read_power_value;
+    use crate::probe::{compute_energy, read_power_value};
 
     #[test]
     fn test_read_power_value() {
@@ -134,5 +172,25 @@ mod tests {
             // Check content
             assert_eq!(power, expected_sensor, "Incorrect sensor for input '{}'", line);
         }
+    }
+
+    #[test]
+    fn test_compute_energy() {
+        let mut c1 = CounterDiff::with_max_value(u64::MAX);
+        let ts1 = Timestamp::now();
+        let power1 = 1;
+        let power2 = 2;
+        // Only one measurement, can't compute energy -> power
+        assert_eq!(1.0, compute_energy(power1, &mut c1, ts1).unwrap());
+        let ts2 = ts1.add_duration(Duration::from_secs(1));
+        // 1s at 1W -> 1J
+        assert_eq!(2.0, compute_energy(power2, &mut c1, ts2).unwrap());
+        // Create a timestamp at 130s after the previous CounterDiff value (ts2), at 130W -> 130J
+        let ts3 = ts1.add_duration(Duration::from_secs(131));
+        assert_eq!(130.0, compute_energy(power1, &mut c1, ts3).unwrap());
+
+        let power3 = 75;
+        let ts4 = ts3.add_duration(Duration::from_secs(3));
+        assert_eq!(225.0, compute_energy(power3, &mut c1, ts4).unwrap());
     }
 }
