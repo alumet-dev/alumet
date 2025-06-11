@@ -29,7 +29,7 @@ pub struct Sensor {
     /// Socket associated to the sensor
     socket: u32,
     /// How often value are updated
-    average_interval: Duration,
+    _average_interval: Duration,
     /// PathBuf to the file which contain values
     file: PathBuf,
 }
@@ -119,10 +119,16 @@ fn get_sensor_from_dir(entry: DirEntry) -> Result<Option<Sensor>, anyhow::Error>
     }
     let file = File::open(&device_file).context("failed to open the file")?;
     let (kind, socket) = get_sensor_information_from_file(&file)?;
+    log::info!(
+        "Power stats interval is {:?}, for sensor {} on socket {:?}",
+        interval,
+        kind,
+        socket
+    );
     Ok(Some(Sensor {
         kind,
         socket,
-        average_interval: interval,
+        _average_interval: interval,
         file: device_file,
     }))
 }
@@ -315,7 +321,7 @@ mod tests {
             let result = get_sensor_from_dir(entry);
             match result {
                 Ok(sensor) => {
-                    assert_eq!(50, sensor.unwrap().average_interval.as_millis());
+                    assert_eq!(50, sensor.unwrap()._average_interval.as_millis());
                 }
                 Err(_) => assert!(false),
             }
