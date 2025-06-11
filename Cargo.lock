@@ -4424,6 +4424,7 @@ dependencies = [
  "notify 8.0.0",
  "pretty_assertions",
  "rustc-hash",
+ "serde",
  "tempfile",
  "thiserror 2.0.12",
  "util-cgroups",
