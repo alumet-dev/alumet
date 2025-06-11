@@ -15,7 +15,7 @@ use alumet::{
         AlumetPluginStart,
     },
     resources::{Resource, ResourceConsumer},
-    units::{PrefixedUnit, Unit},
+    units::Unit,
 };
 
 use crate::Sensor;
@@ -26,7 +26,7 @@ pub struct GraceHopperProbe {
     file: File,
     consumer: ResourceConsumer,
     metric: Option<TypedMetricId<f64>>,
-    power_stats_interval: Duration,
+    _power_stats_interval: Duration,
     last_timestamp: CounterDiff,
 }
 
@@ -52,7 +52,7 @@ impl GraceHopperProbe {
             file,
             metric,
             consumer: ResourceConsumer::LocalMachine,
-            power_stats_interval: sensor.average_interval,
+            _power_stats_interval: sensor._average_interval,
             last_timestamp: CounterDiff::with_max_value(u64::MAX),
         };
         Ok(probe)
@@ -73,8 +73,7 @@ impl Source for GraceHopperProbe {
                 self.consumer.clone(),
                 computed_energy,
             )
-            .with_attr("sensor", self.kind.clone())
-            .with_attr("min_interval_update_ms", self.power_stats_interval.as_millis() as f64),
+            .with_attr("sensor", self.kind.clone()),
         );
 
         Ok(())
@@ -178,15 +177,15 @@ mod tests {
         let power2 = 2;
         // Only one measurement, can't compute energy -> power
         assert_eq!(1.0, compute_energy(power1, &mut c1, ts1).unwrap());
-        let ts2 = ts1.add_duration(Duration::from_secs(1));
+        let ts2 = ts1 + Duration::from_secs(1);
         // 1s at 1W -> 1J
         assert_eq!(2.0, compute_energy(power2, &mut c1, ts2).unwrap());
         // Create a timestamp at 130s after the previous CounterDiff value (ts2), at 130W -> 130J
-        let ts3 = ts1.add_duration(Duration::from_secs(131));
+        let ts3 = ts1 + Duration::from_secs(131);
         assert_eq!(130.0, compute_energy(power1, &mut c1, ts3).unwrap());
 
         let power3 = 75;
-        let ts4 = ts3.add_duration(Duration::from_secs(3));
+        let ts4 = ts3 + Duration::from_secs(3);
         assert_eq!(225.0, compute_energy(power3, &mut c1, ts4).unwrap());
     }
 }
