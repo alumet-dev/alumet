@@ -31,6 +31,7 @@ use ordered_float::OrderedFloat;
 use smallvec::SmallVec;
 use std::borrow::Cow;
 use std::hash::{Hash, Hasher};
+use std::ops::{Add, Sub};
 use std::time::{Duration, SystemTime, SystemTimeError, UNIX_EPOCH};
 use std::{collections::HashMap, fmt::Display};
 
@@ -189,12 +190,20 @@ impl Timestamp {
         let duration = Duration::new(secs, nanos);
         Self(SystemTime::UNIX_EPOCH + duration)
     }
+}
 
-    pub fn add_duration(&self, duration: Duration) -> Self {
+impl Add<Duration> for Timestamp {
+    type Output = Self;
+
+    fn add(self, duration: Duration) -> Self::Output {
         Self(self.0 + duration)
     }
+}
 
-    pub fn sub_duration(&self, duration: Duration) -> Self {
+impl Sub<Duration> for Timestamp {
+    type Output = Self;
+
+    fn sub(self, duration: Duration) -> Self::Output {
         Self(self.0 - duration)
     }
 }
