@@ -41,7 +41,6 @@ impl AlumetPlugin for PrometheusPlugin {
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
         // Create a new PrometheusOutput instance
         let output = Box::new(PrometheusOutput::new(
-            self.config.append_unit_to_metric_name,
             self.config.use_unit_display_name,
             self.config.add_attributes_to_labels,
             self.config.port,
@@ -156,7 +155,6 @@ struct Config {
     prefix: String,
     suffix: String,
     port: u16,
-    append_unit_to_metric_name: bool,
     use_unit_display_name: bool,
     add_attributes_to_labels: bool,
 }
@@ -168,7 +166,6 @@ impl Default for Config {
             prefix: String::from(""),
             suffix: String::from("_alumet"),
             port: 9091,
-            append_unit_to_metric_name: true,
             use_unit_display_name: true,
             add_attributes_to_labels: true,
         }
