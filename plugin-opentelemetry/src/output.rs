@@ -1,5 +1,6 @@
 use alumet::{
     measurement::{MeasurementBuffer, WrappedMeasurementValue},
+    metrics::Metric,
     pipeline::elements::{error::WriteError, output::OutputContext},
 };
 use anyhow::Context;
@@ -11,7 +12,6 @@ use std::{env, sync::OnceLock, time::Duration};
 
 #[derive(Clone)]
 pub struct OpenTelemetryOutput {
-    append_unit_to_metric_name: bool,
     use_unit_display_name: bool,
     add_attributes_to_labels: bool,
     prefix: String,
@@ -23,7 +23,6 @@ pub struct OpenTelemetryOutput {
 
 impl OpenTelemetryOutput {
     pub fn new(
-        append_unit_to_metric_name: bool,
         use_unit_display_name: bool,
         add_attributes_to_labels: bool,
         prefix: String,
@@ -32,7 +31,6 @@ impl OpenTelemetryOutput {
         push_interval_seconds: u64,
     ) -> anyhow::Result<OpenTelemetryOutput> {
         Ok(Self {
-            append_unit_to_metric_name,
             use_unit_display_name,
             add_attributes_to_labels,
             prefix,
@@ -93,25 +91,7 @@ impl alumet::pipeline::Output for OpenTelemetryOutput {
                 .metrics
                 .by_id(&m.metric)
                 .with_context(|| format!("Unknown metric {:?}", m.metric))?;
-            let metric_name = format!(
-                "{}{}{}",
-                self.prefix,
-                if self.append_unit_to_metric_name {
-                    let unit_string = if self.use_unit_display_name {
-                        full_metric.unit.display_name()
-                    } else {
-                        full_metric.unit.unique_name()
-                    };
-                    if unit_string.is_empty() {
-                        full_metric.name.to_owned()
-                    } else {
-                        format!("{}_{}", full_metric.name, unit_string)
-                    }
-                } else {
-                    full_metric.name.clone()
-                },
-                self.suffix
-            );
+            let metric_name = format!("{}{}{}", self.prefix, full_metric.name.clone(), self.suffix);
 
             // Create the default labels for all metrics and optionally add attributes
             let mut labels = vec![
@@ -143,7 +123,7 @@ impl alumet::pipeline::Output for OpenTelemetryOutput {
             let gauge = meter
                 .f64_gauge(metric_name)
                 .with_description(metric.description.to_string())
-                .with_unit(metric.unit.display_name())
+                .with_unit(get_unit_string(full_metric, self.use_unit_display_name))
                 .build();
             match m.value {
                 WrappedMeasurementValue::F64(v) => gauge.record(v as f64, &labels),
@@ -152,5 +132,13 @@ impl alumet::pipeline::Output for OpenTelemetryOutput {
         }
 
         Ok(())
+    }
+}
+
+fn get_unit_string(full_metric: &Metric, use_unit_display_name: bool) -> String {
+    if use_unit_display_name {
+        full_metric.unit.display_name()
+    } else {
+        full_metric.unit.unique_name()
     }
 }

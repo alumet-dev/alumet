@@ -29,7 +29,6 @@ impl AlumetPlugin for OpenTelemetryPlugin {
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
         // Create a new OpenTelemetryOutput instance
         let otel_output = Box::new(OpenTelemetryOutput::new(
-            self.config.append_unit_to_metric_name,
             self.config.use_unit_display_name,
             self.config.add_attributes_to_labels,
             self.config.prefix.clone(),
@@ -52,7 +51,6 @@ struct Config {
     collector_host: String,
     prefix: String,
     suffix: String,
-    append_unit_to_metric_name: bool,
     use_unit_display_name: bool,
     add_attributes_to_labels: bool,
     push_interval_seconds: u64,
@@ -64,7 +62,6 @@ impl Default for Config {
             collector_host: String::from("http://localhost:4317"),
             prefix: String::from(""),
             suffix: String::from("_alumet"),
-            append_unit_to_metric_name: true,
             use_unit_display_name: true,
             add_attributes_to_labels: true,
             push_interval_seconds: 15,

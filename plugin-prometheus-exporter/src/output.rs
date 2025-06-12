@@ -1,5 +1,6 @@
 use alumet::{
     measurement::{MeasurementBuffer, WrappedMeasurementValue},
+    metrics::Metric,
     pipeline::elements::{error::WriteError, output::OutputContext},
 };
 use anyhow::Context;
@@ -23,7 +24,6 @@ pub struct MetricState {
 #[derive(Clone)]
 pub struct PrometheusOutput {
     pub state: MetricState,
-    append_unit_to_metric_name: bool,
     use_unit_display_name: bool,
     add_attributes_to_labels: bool,
     prefix: String,
@@ -33,7 +33,6 @@ pub struct PrometheusOutput {
 
 impl PrometheusOutput {
     pub fn new(
-        append_unit_to_metric_name: bool,
         use_unit_display_name: bool,
         add_attributes_to_labels: bool,
         port: u16,
@@ -53,7 +52,6 @@ impl PrometheusOutput {
 
         Ok(Self {
             state,
-            append_unit_to_metric_name,
             use_unit_display_name,
             add_attributes_to_labels,
             prefix,
@@ -84,20 +82,7 @@ impl alumet::pipeline::Output for PrometheusOutput {
             let metric_name = format!(
                 "{}{}{}",
                 self.prefix,
-                sanitize_name(if self.append_unit_to_metric_name {
-                    let unit_string = if self.use_unit_display_name {
-                        full_metric.unit.display_name()
-                    } else {
-                        full_metric.unit.unique_name()
-                    };
-                    if unit_string.is_empty() {
-                        full_metric.name.to_owned()
-                    } else {
-                        format!("{}_{}", full_metric.name, unit_string)
-                    }
-                } else {
-                    full_metric.name.clone()
-                }),
+                sanitize_name(full_metric.name.clone()),
                 self.suffix
             );
 
@@ -124,8 +109,14 @@ impl alumet::pipeline::Output for PrometheusOutput {
             let family = if let Some(family) = metrics.get(&metric_name) {
                 family
             } else {
+                let unit_string = get_unit_string(full_metric, self.use_unit_display_name);
                 let family = Family::<Vec<(String, String)>, Gauge<f64, AtomicU64>>::default();
-                registry.register(metric_name.clone(), &metric.description, family.clone());
+                registry.register_with_unit(
+                    metric_name.clone(),
+                    &metric.description,
+                    prometheus_client::registry::Unit::Other(unit_string),
+                    family.clone(),
+                );
 
                 metrics.insert(metric_name.clone(), family.clone());
                 // Check that it was correctly registered
@@ -151,4 +142,12 @@ fn sanitize_name(name: String) -> String {
     name.chars()
         .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
         .collect()
+}
+
+fn get_unit_string(full_metric: &Metric, use_unit_display_name: bool) -> String {
+    if use_unit_display_name {
+        full_metric.unit.display_name()
+    } else {
+        full_metric.unit.unique_name()
+    }
 }
