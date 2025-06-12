@@ -39,16 +39,22 @@ pub struct CpuStats {
     // could be extended to manage other measurements
 }
 
+pub type CollectorCreationError = super::memory::CollectorCreationError;
+
 impl CpuStatCollector {
     pub fn new<P: AsRef<Path>>(
         path: P,
         settings: CpuStatCollectorSettings,
         io_buf: &mut Vec<u8>,
-    ) -> anyhow::Result<Self> {
-        let file = File::open(path)?;
+    ) -> Result<Self, CollectorCreationError> {
+        let path = path.as_ref();
+
+        let file = File::open(path).map_err(|e| CollectorCreationError::Io(e, path.into()))?;
 
         let keys = settings.enabled_keys()?;
-        let (stat_file, stat_mapping) = StatFileBuilder::new(file, &keys).build(io_buf.as_mut())?;
+        let (stat_file, stat_mapping) = StatFileBuilder::new(file, &keys)
+            .build(io_buf.as_mut())
+            .map_err(|e| CollectorCreationError::Io(e, path.into()))?;
 
         let mut mapping = CpuStatMapping::default();
         if let Some(i) = stat_mapping.line_index("usage_usec") {
@@ -59,6 +65,14 @@ impl CpuStatCollector {
         }
         if let Some(i) = stat_mapping.line_index("system_usec") {
             mapping.system = i.into();
+        }
+
+        if !stat_mapping.keys_not_found().is_empty() {
+            log::warn!(
+                "keys not found in {}: {}",
+                path.display(),
+                stat_mapping.keys_not_found().join(", ")
+            )
         }
 
         Ok(Self { stat_file, mapping })
