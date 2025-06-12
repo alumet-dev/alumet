@@ -258,7 +258,7 @@ impl CgroupHierarchy {
     /// let hierarchy: CgroupHierarchy = todo!();
     /// let cgroup_path = "/system.slice/bluetooth.service";
     /// let sysfs = hierarchy.cgroup_fs_path(&cgroup_path);
-    /// assert_eq!(relative, PathBuf::from("/sys/fs/cgroup/system.slice/bluetooth.service"))
+    /// assert_eq!(sysfs, PathBuf::from("/sys/fs/cgroup/system.slice/bluetooth.service"))
     /// ```
     pub fn cgroup_fs_path(&self, canonical_path: &str) -> PathBuf {
         let relative_path = if let Some(relative) = canonical_path.strip_prefix("/") {
