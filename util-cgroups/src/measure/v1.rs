@@ -6,7 +6,7 @@ use std::io::{self};
 use crate::{Cgroup, CgroupHierarchy, measure::parse::U64File};
 
 /// Collects cgroup v1 measurements.
-pub struct CollectorV1 {
+pub struct V1Collector {
     cpuacct_usage: Option<U64File>,
     memory_stat: Option<U64File>,
 }
@@ -17,7 +17,7 @@ pub struct V1Stats {
     pub memory_stat: Option<u64>,
 }
 
-impl CollectorV1 {
+impl V1Collector {
     /// Creates a new `ProbeV1` that gathers data from multiple cgroup hierarchies.
     ///
     /// # Available metrics

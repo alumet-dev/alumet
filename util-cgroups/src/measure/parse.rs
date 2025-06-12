@@ -6,7 +6,7 @@ use std::{
 
 use rustc_hash::{FxBuildHasher, FxHashMap};
 
-use crate::measure::bitset::BitSet64;
+use crate::measure::bitset::BitSet128;
 
 /// Reads `file` from the beginning to the end into `io_buf`.
 ///
@@ -71,7 +71,7 @@ pub unsafe fn parse_space_kv(io_buf: &[u8], mut on_ikv: impl FnMut(usize, &str, 
 /// The bytes passed in must be valid UTF-8.
 pub unsafe fn parse_space_kv_at_lines(
     io_buf: &[u8],
-    indices: &BitSet64,
+    indices: &BitSet128,
     mut on_ikv: impl FnMut(u8, &str, u64),
 ) -> io::Result<()> {
     let content = unsafe { std::str::from_utf8_unchecked(io_buf) };
@@ -115,9 +115,23 @@ impl U64File {
 }
 
 /// Helper for reading a file in the "stat" format, that is, a file that contains one key-value pair per line, with a space between the string key and the u64 value.
+///
+/// # Index cache optimization
+/// To speed up the parsing of the file, we remember the index of the line of each key.
+///
+/// Even though the kernel documentation warns about using the line index, it should work
+/// because we detect the indices for each file, and its content only change depending on:
+/// - the configuration of the kernel
+/// - the configuration of the cgroup filesystem
+///
+/// IMPORTANT: If this assumption is proven false in the future, we will need to rework this.
+///
+/// See:
+/// - https://docs.kernel.org/admin-guide/cgroup-v2.html
+/// - https://github.com/torvalds/linux/blob/488ef3560196ee10fc1c5547e1574a87068c3494/mm/memcontrol.c#L1482 (for memory.stat)
 pub struct SelectiveStatFile {
     file: File,
-    cached_indices: BitSet64,
+    cached_indices: BitSet128,
 }
 
 pub struct SelectiveStatMapping {
@@ -151,12 +165,12 @@ impl StatFileBuilder {
 
         // this is initialization time, we can afford to check that the file is valid to avoid problems later (even though there should not be any issue)
         std::str::from_utf8(&io_buf).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-        if io_buf.lines().count() >= 64 {
+        if io_buf.lines().count() >= BitSet128::LIMIT.into() {
             return Err(io::Error::other("too many lines in file, the BitSet will not work"));
         }
 
         // find the line numbers that correspond to the keys we want, to avoid comparing the keys in subsequent reads
-        let mut cached_indices = BitSet64::default();
+        let mut cached_indices = BitSet128::default();
         let mut key_to_line = FxHashMap::with_capacity_and_hasher(self.keys_to_get.len(), FxBuildHasher);
         // SAFETY: we have checked that the file is valid utf-8
         unsafe {
@@ -307,7 +321,7 @@ burst_usec 0
         assert_eq!(&[index_usage, index_periods, index_burst], &[0, 4, 7]);
 
         // check the bitset
-        assert_eq!(stat_file.cached_indices, BitSet64::new(&[0, 4, 7]));
+        assert_eq!(stat_file.cached_indices, BitSet128::new(&[0, 4, 7]));
 
         // read
         // SAFETY: we have written utf-8 data in this test
