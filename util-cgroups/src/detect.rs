@@ -7,6 +7,7 @@ use std::{
     time::Duration,
 };
 
+use anyhow::anyhow;
 use notify::{
     event::{CreateKind, RemoveKind},
     Watcher,
@@ -109,11 +110,20 @@ impl CgroupDetector {
     /// The `handler` callback will be called each time new cgroups are created in this hierarchy.
     pub fn new(hierarchy: CgroupHierarchy, config: Config, handler: impl Callback + 'static) -> anyhow::Result<Self> {
         // sanity check: the hierarchy root should exist
-        if !hierarchy.root().try_exists()? {
-            return Err(anyhow::anyhow!(
-                "the hierarchy root should exist: missing directory {}",
-                hierarchy.root().display()
-            ));
+        match hierarchy.root().try_exists() {
+            Ok(true) => (), // fine
+            Ok(false) => {
+                return Err(anyhow!(
+                    "the hierarchy root should exist: missing directory {}",
+                    hierarchy.root().display()
+                ));
+            }
+            Err(e) => {
+                return Err(anyhow::Error::new(e).context(format!(
+                    "could not check the existence of {} - do I have the permission to access it?",
+                    hierarchy.root().display()
+                )));
+            }
         }
 
         let state = Arc::new(Mutex::new(DetectorState {
