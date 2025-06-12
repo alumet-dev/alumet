@@ -16,7 +16,7 @@ use super::hierarchy::CgroupHierarchy;
 /// ```
 /// use util_cgroups::mount_wait::CgroupMountWait;
 ///
-/// let wait = CgroupMountWait::new(|hierarchies| {
+/// let wait = CgroupMountWait::new(None, |hierarchies| {
 ///     for h in hierarchies {
 ///         todo!()
 ///     }
@@ -30,8 +30,8 @@ pub struct CgroupMountWait {
 impl CgroupMountWait {
     /// Waits for a cgroupfs to be mounted and executes the given `callback` when it occurs.
     pub fn new(
-        callback: impl FnMut(Vec<CgroupHierarchy>) -> anyhow::Result<()> + Send + 'static,
         coalesce_v1: Option<Duration>,
+        callback: impl FnMut(Vec<CgroupHierarchy>) -> anyhow::Result<()> + Send + 'static,
     ) -> anyhow::Result<Self> {
         let watcher = prepare_watcher(callback, coalesce_v1)?;
         Ok(Self { watcher: Some(watcher) })
