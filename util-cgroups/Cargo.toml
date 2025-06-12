@@ -5,7 +5,7 @@ edition = "2021"
 description = "Utilities to use control groups, v1 and v2."
 
 [features]
-manually = ["dep:serde"]
+manually = []
 
 [dependencies]
 anyhow = "1.0.98"
@@ -14,7 +14,7 @@ mio = { version = "1.0.4", features = ["os-poll", "os-ext"] }
 mount-watcher = "0.4.0"
 notify = "8.0.0"
 rustc-hash = "2.1.1"
-serde = { version = "1.0.219", features = ["derive"], optional = true}
+serde = { version = "1.0.219", features = ["derive"]}
 thiserror = "2.0.12"
 walkdir = "2.5.0"
 
