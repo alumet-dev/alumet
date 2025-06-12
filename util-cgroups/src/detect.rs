@@ -108,6 +108,14 @@ impl CgroupDetector {
     ///
     /// The `handler` callback will be called each time new cgroups are created in this hierarchy.
     pub fn new(hierarchy: CgroupHierarchy, config: Config, handler: impl Callback + 'static) -> anyhow::Result<Self> {
+        // sanity check: the hierarchy root should exist
+        if !hierarchy.root().try_exists()? {
+            return Err(anyhow::anyhow!(
+                "the hierarchy root should exist: missing directory {}",
+                hierarchy.root().display()
+            ));
+        }
+
         let state = Arc::new(Mutex::new(DetectorState {
             known_cgroups: FxHashSet::with_capacity_and_hasher(INITIAL_CAPACITY, FxBuildHasher),
             callback: Box::new(handler),
