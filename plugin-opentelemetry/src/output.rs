@@ -1,5 +1,6 @@
 use alumet::{
     measurement::{MeasurementBuffer, WrappedMeasurementValue},
+    metrics::Metric,
     pipeline::elements::{error::WriteError, output::OutputContext},
 };
 use anyhow::Context;
@@ -97,16 +98,8 @@ impl alumet::pipeline::Output for OpenTelemetryOutput {
                 "{}{}{}",
                 self.prefix,
                 if self.append_unit_to_metric_name {
-                    let unit_string = if self.use_unit_display_name {
-                        full_metric.unit.display_name()
-                    } else {
-                        full_metric.unit.unique_name()
-                    };
-                    if unit_string.is_empty() {
-                        full_metric.name.to_owned()
-                    } else {
-                        format!("{}_{}", full_metric.name, unit_string)
-                    }
+                    let unit_string = get_unit_string(full_metric, self.use_unit_display_name);
+                    format!("{}_{}", full_metric.name, unit_string)
                 } else {
                     full_metric.name.clone()
                 },
@@ -143,7 +136,7 @@ impl alumet::pipeline::Output for OpenTelemetryOutput {
             let gauge = meter
                 .f64_gauge(metric_name)
                 .with_description(metric.description.to_string())
-                .with_unit(metric.unit.display_name())
+                .with_unit(get_unit_string(full_metric, self.use_unit_display_name))
                 .build();
             match m.value {
                 WrappedMeasurementValue::F64(v) => gauge.record(v as f64, &labels),
@@ -153,4 +146,16 @@ impl alumet::pipeline::Output for OpenTelemetryOutput {
 
         Ok(())
     }
+}
+
+fn get_unit_string(full_metric: &Metric, use_unit_display_name: bool) -> String {
+    let unit_string = if use_unit_display_name {
+        full_metric.unit.display_name()
+    } else {
+        full_metric.unit.unique_name()
+    };
+    if unit_string.is_empty() {
+        return full_metric.name.to_owned();
+    }
+    unit_string
 }
