@@ -4,6 +4,7 @@ use std::{
     fmt::Debug,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use notify::{
@@ -24,12 +25,13 @@ use super::hierarchy::{Cgroup, CgroupHierarchy, CgroupVersion};
 ///
 /// ```no_run
 /// use util_cgroups::{
-///     detect::{callback, CgroupDetector},
+///     detect::{callback, CgroupDetector, Config},
 ///     hierarchy::CgroupHierarchy
 /// };
 ///
 /// let hierarchy: CgroupHierarchy = todo!();
-/// let detector = CgroupDetector::new(hierarchy, callback(|cgroups| {
+/// let config = Config::default();
+/// let detector = CgroupDetector::new(hierarchy, config, callback(|cgroups| {
 ///     println!("new cgroups detected: {cgroups:?}");
 ///     Ok(())
 /// }));
@@ -42,6 +44,21 @@ pub struct CgroupDetector {
 
     state: Arc<Mutex<DetectorState>>,
     hierarchy: CgroupHierarchy,
+}
+
+pub struct Config {
+    /// Time between each refresh of the filesystem watcher.
+    ///
+    /// Only applies to cgroup v1 hierarchies (cgroupv2 supports inotify).
+    pub v1_refresh_interval: Duration,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            v1_refresh_interval: Duration::from_secs(30),
+        }
+    }
 }
 
 /// A callback that is called when new cgroups are detected by a [`CgroupDetector`].
@@ -90,7 +107,7 @@ impl CgroupDetector {
     /// Starts a new cgroup detector for the given group hierarchy.
     ///
     /// The `handler` callback will be called each time new cgroups are created in this hierarchy.
-    pub fn new(hierarchy: CgroupHierarchy, handler: impl Callback + 'static) -> anyhow::Result<Self> {
+    pub fn new(hierarchy: CgroupHierarchy, config: Config, handler: impl Callback + 'static) -> anyhow::Result<Self> {
         let state = Arc::new(Mutex::new(DetectorState {
             known_cgroups: FxHashSet::with_capacity_and_hasher(INITIAL_CAPACITY, FxBuildHasher),
             callback: Box::new(handler),
@@ -104,11 +121,12 @@ impl CgroupDetector {
         let mut watcher: Box<dyn Watcher> = match hierarchy.version() {
             CgroupVersion::V1 => {
                 // inotify is not supported, use polling
-                let config = notify::Config::default();
+                let watcher_config = notify::Config::default();
+                watcher_config.with_poll_interval(config.v1_refresh_interval);
                 let initial_scan_handler = handler.clone();
 
                 // PollWatcher performs the initial scan on its own.
-                let watcher = notify::PollWatcher::with_initial_scan(handler, config, initial_scan_handler)?;
+                let watcher = notify::PollWatcher::with_initial_scan(handler, watcher_config, initial_scan_handler)?;
                 Box::new(watcher)
             }
             CgroupVersion::V2 => {
