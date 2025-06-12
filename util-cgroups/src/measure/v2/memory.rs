@@ -1,10 +1,18 @@
-use std::{fs::File, io, path::Path};
+use std::{
+    fs::File,
+    io,
+    path::{Path, PathBuf},
+};
 
 use serde::Serialize;
+use thiserror::Error;
 
 use crate::measure::{
     parse::{SelectiveStatFile, StatFileBuilder, U64File},
-    v2::{line_index::LineIndex, settings::EnabledKeys},
+    v2::{
+        line_index::LineIndex,
+        settings::{EnabledKeys, EnabledKeysError},
+    },
 };
 
 /// Collects measurements from `memory.current`.
@@ -60,16 +68,27 @@ impl MemoryCurrentCollector {
     }
 }
 
+#[derive(Debug, Error)]
+pub enum CollectorCreationError {
+    #[error("failed to create collector: error on {1}")]
+    Io(#[source] io::Error, PathBuf),
+    #[error("failed to create collector: bad settings")]
+    Settings(#[from] EnabledKeysError),
+}
+
 impl MemoryStatCollector {
     pub fn new<P: AsRef<Path>>(
         path: P,
         settings: MemoryStatCollectorSettings,
         io_buf: &mut Vec<u8>,
-    ) -> anyhow::Result<Self> {
-        let file = File::open(path.as_ref())?;
+    ) -> Result<Self, CollectorCreationError> {
+        let path = path.as_ref();
+        let file = File::open(path).map_err(|e| CollectorCreationError::Io(e, path.into()))?;
 
         let keys = settings.enabled_keys()?;
-        let (stat_file, stat_mapping) = StatFileBuilder::new(file, &keys).build(io_buf.as_mut())?;
+        let (stat_file, stat_mapping) = StatFileBuilder::new(file, &keys)
+            .build(io_buf.as_mut())
+            .map_err(|e| CollectorCreationError::Io(e, path.into()))?;
 
         let mut mapping = MemoryStatMapping::default();
         if let Some(i) = stat_mapping.line_index("anon") {
@@ -88,7 +107,7 @@ impl MemoryStatCollector {
         if !stat_mapping.keys_not_found().is_empty() {
             log::warn!(
                 "keys not found in {}: {}",
-                path.as_ref().display(),
+                path.display(),
                 stat_mapping.keys_not_found().join(", ")
             )
         }

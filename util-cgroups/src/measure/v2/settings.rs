@@ -1,5 +1,6 @@
 use anyhow::anyhow;
 use serde::{Serialize, ser::Serializer};
+use thiserror::Error;
 
 use super::serde_util::{Impossible, SerializationError};
 
@@ -28,14 +29,20 @@ use super::serde_util::{Impossible, SerializationError};
 // If you update this example, please also update the unit test.
 pub trait EnabledKeys: Serialize {
     /// Generates the list of enabled keys.
-    fn enabled_keys(&self) -> anyhow::Result<Vec<String>> {
+    fn enabled_keys(&self) -> Result<Vec<String>, EnabledKeysError> {
         let result = self.serialize(EnabledKeysSerializer)?;
         match result {
-            SerializedValue::Flag(_) => Err(anyhow!("unexpected result type")),
+            SerializedValue::Flag(_) => Err(EnabledKeysError(SerializationError::Message(
+                "bad result type: is there a bug in the serialization?".to_string(),
+            ))),
             SerializedValue::EnabledSet(keys) => Ok(keys),
         }
     }
 }
+
+#[derive(Debug, Error)]
+#[error("enabled_keys() failed: invalid settings structure")]
+pub struct EnabledKeysError(#[from] SerializationError);
 
 pub struct EnabledKeysSerializer;
 

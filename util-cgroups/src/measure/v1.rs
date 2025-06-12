@@ -46,10 +46,10 @@ impl V1Collector {
         })
     }
 
-    /// Creates a new `ProbeV1` in a single cgroup v1 hierarchy.
+    /// Creates a new `V1Collector` in a single cgroup v1 hierarchy.
     ///
     /// # Available metrics
-    /// The probe can only measure what is provided by the cgroup controllers attached to the given hierarchy.
+    /// The collector can only measure what is provided by the cgroup controllers attached to the given hierarchy.
     pub fn in_single_hierarchy<'h>(cgroup: Cgroup<'h>) -> anyhow::Result<Self> {
         Self::across_hierarchies(cgroup.canonical_path(), &[cgroup.hierarchy()])
     }
