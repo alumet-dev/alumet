@@ -2662,8 +2662,10 @@ name = "plugin-cgroup"
 version = "0.1.0"
 dependencies = [
  "alumet",
+ "anyhow",
  "log",
  "pretty_assertions",
+ "regex",
  "tempfile",
  "thiserror 2.0.12",
  "util-cgroups",

@@ -93,9 +93,18 @@ impl RawMetricId {
 ///
 /// It allows to check, at compile time, that the measurements of this metric
 /// have a value of type `T`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 #[repr(C)]
 pub struct TypedMetricId<T: MeasurementType>(pub(crate) RawMetricId, pub(crate) PhantomData<T>);
+
+// Implement Clone even if T does not implement Clone.
+impl<T: MeasurementType> Clone for TypedMetricId<T> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone(), PhantomData)
+    }
+}
+
+impl<T: MeasurementType> Copy for TypedMetricId<T> {}
 
 impl MetricId for RawMetricId {
     fn untyped_id(&self) -> RawMetricId {
