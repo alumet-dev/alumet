@@ -31,6 +31,7 @@ use ordered_float::OrderedFloat;
 use smallvec::SmallVec;
 use std::borrow::Cow;
 use std::hash::{Hash, Hasher};
+use std::ops::{Add, Sub};
 use std::time::{Duration, SystemTime, SystemTimeError, UNIX_EPOCH};
 use std::{collections::HashMap, fmt::Display};
 
@@ -183,6 +184,27 @@ impl Timestamp {
     /// Returns the amount of time elapsed from an earlier point in time.
     pub fn duration_since(&self, earlier: Timestamp) -> Result<Duration, SystemTimeError> {
         self.0.duration_since(earlier.0)
+    }
+
+    pub fn from_unix_timestamp(secs: u64, nanos: u32) -> Self {
+        let duration = Duration::new(secs, nanos);
+        Self(SystemTime::UNIX_EPOCH + duration)
+    }
+}
+
+impl Add<Duration> for Timestamp {
+    type Output = Self;
+
+    fn add(self, duration: Duration) -> Self::Output {
+        Self(self.0 + duration)
+    }
+}
+
+impl Sub<Duration> for Timestamp {
+    type Output = Self;
+
+    fn sub(self, duration: Duration) -> Self::Output {
+        Self(self.0 - duration)
     }
 }
 
