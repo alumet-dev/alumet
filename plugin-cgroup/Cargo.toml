@@ -5,7 +5,9 @@ edition = "2021"
 
 [dependencies]
 alumet = { path = "../alumet" }
+anyhow = "1.0.98"
 log = "0.4.27"
+regex = { version = "1.11.1", default-features = false, features = ["std", "perf"] }
 thiserror = "2.0.12"
 util-cgroups = { path = "../util-cgroups", features = ["manually"]}
 

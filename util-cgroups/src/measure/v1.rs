@@ -3,7 +3,7 @@
 use anyhow::Context;
 use std::io::{self};
 
-use crate::{Cgroup, CgroupHierarchy, measure::parse::U64File};
+use crate::{measure::parse::U64File, Cgroup, CgroupHierarchy};
 
 /// Collects cgroup v1 measurements.
 pub struct V1Collector {

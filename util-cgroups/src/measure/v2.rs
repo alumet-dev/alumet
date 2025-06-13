@@ -27,11 +27,11 @@ mod common {
     use anyhow::Context;
 
     use crate::{
-        Cgroup,
         measure::v2::{
             cpu::{self, CpuStatCollectorSettings},
             memory::{self, MemoryStatCollectorSettings},
         },
+        Cgroup,
     };
 
     use super::{
