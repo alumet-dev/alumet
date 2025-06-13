@@ -153,6 +153,14 @@ impl MeasurementPoint {
         self
     }
 
+    /// Attaches multiple attributes to this measurement point, from a `slice`.
+    /// Existing attributes with conflicting keys are replaced.
+    pub fn with_attr_slice(mut self, attributes: &[(String, AttributeValue)]) -> Self {
+        self.attributes
+            .extend(attributes.iter().map(|(k, v)| (k.to_owned().into(), v.to_owned())));
+        self
+    }
+
     /// Attaches multiple attributes to this measurement point, from a [`HashMap`].
     /// Existing attributes with conflicting keys are replaced.
     pub fn with_attr_map<K: Into<Cow<'static, str>>>(

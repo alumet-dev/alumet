@@ -1,7 +1,7 @@
 //! Wait for the cgroupfs to be mounted.
 
 use mount_watcher::{mount::LinuxMount, MountWatcher, WatchControl};
-use std::time::Duration;
+use std::{ops::ControlFlow, time::Duration};
 
 use crate::CgroupVersion;
 
@@ -27,12 +27,29 @@ pub struct CgroupMountWait {
     watcher: Option<MountWatcher>,
 }
 
+/// A callback that is called when new cgroup filesystems are detected by a [`CgroupMountWait`].
+pub trait Callback: Send {
+    /// Called when new cgroup filesystems are mounted.
+    ///
+    /// With cgroup v2, only one cgroupfs can be mounted in the system.
+    /// However, with cgroup v1, there are multiple cgroupfs (one per hierarchy), each with their own controller(s).
+    ///
+    /// # Return value
+    /// Return `ControlFlow::Continue(())` to keep being notified for more cgroup hierarchies, and `ControlFlow::Break(())` to stop the wait.
+    fn on_cgroupfs_mounted(&mut self, hierarchies: Vec<CgroupHierarchy>) -> anyhow::Result<ControlFlow<()>>;
+}
+
+impl<F: FnMut(Vec<CgroupHierarchy>) -> anyhow::Result<ControlFlow<()>> + Send> Callback for F {
+    fn on_cgroupfs_mounted(&mut self, hierarchies: Vec<CgroupHierarchy>) -> anyhow::Result<ControlFlow<()>> {
+        self(hierarchies)
+    }
+}
+
 impl CgroupMountWait {
     /// Waits for a cgroupfs to be mounted and executes the given `callback` when it occurs.
-    pub fn new(
-        coalesce_v1: Option<Duration>,
-        callback: impl FnMut(Vec<CgroupHierarchy>) -> anyhow::Result<()> + Send + 'static,
-    ) -> anyhow::Result<Self> {
+    ///
+    /// The trigger decides whether the wait should continue or not.
+    pub fn new(coalesce_v1: Option<Duration>, callback: impl Callback + 'static) -> anyhow::Result<Self> {
         let watcher = prepare_watcher(callback, coalesce_v1)?;
         Ok(Self { watcher: Some(watcher) })
     }
@@ -58,7 +75,7 @@ impl Drop for CgroupMountWait {
 
 /// Prepare a `MountWatcher` that triggers the `callback` when new cgroupfs are mounted.
 fn prepare_watcher(
-    mut callback: impl FnMut(Vec<CgroupHierarchy>) -> anyhow::Result<()> + Send + 'static,
+    mut callback: impl Callback + 'static,
     coalesce_v1: Option<Duration>,
 ) -> anyhow::Result<MountWatcher> {
     let watcher = MountWatcher::new(move |event| {
@@ -74,10 +91,11 @@ fn prepare_watcher(
 
         // call the user-provided function
         if !new_cgroupfs.is_empty() {
-            if let Err(err) = callback(new_cgroupfs) {
-                log::error!("error in callback: {err:?}");
-            }
-            return WatchControl::Stop;
+            match callback.on_cgroupfs_mounted(new_cgroupfs) {
+                Ok(ControlFlow::Continue(())) => return WatchControl::Continue,
+                Ok(ControlFlow::Break(())) => return WatchControl::Stop,
+                Err(err) => log::error!("error in callback: {err:?}"),
+            };
         }
 
         // no cgroups, continue
