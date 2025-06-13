@@ -24,6 +24,8 @@ pub struct OptionalFeatures {
     pub decoder_utilization: bool,
     /// GPU video encoding property.
     pub encoder_utilization: bool,
+    /// Utilization stats for relevant currently running processes.
+    pub process_utilization_stats: bool,
     /// Relevant currently running computing processes data.
     pub running_compute_processes: AvailableVersion,
     /// Relevant currently running graphical processes data.
@@ -40,6 +42,7 @@ impl OptionalFeatures {
             major_utilization: is_supported(device.utilization_rates())?,
             decoder_utilization: is_supported(device.decoder_utilization())?,
             encoder_utilization: is_supported(device.encoder_utilization())?,
+            process_utilization_stats: is_supported(device.process_utilization_stats(0))?,
             running_compute_processes: check_running_compute_processes(device)?,
             running_graphics_processes: check_running_graphics_processes(device)?,
         })
@@ -78,6 +81,9 @@ impl Display for OptionalFeatures {
         }
         if self.encoder_utilization {
             available.push("encoder_utilization");
+        }
+        if self.process_utilization_stats {
+            available.push("process_utilization_stats");
         }
         if self.temperature_gpu {
             available.push("temperature_gpu");
@@ -150,13 +156,14 @@ mod tests {
             major_utilization: true,
             decoder_utilization: true,
             encoder_utilization: true,
+            process_utilization_stats: true,
             temperature_gpu: true,
             running_compute_processes: AvailableVersion::Latest,
             running_graphics_processes: AvailableVersion::Latest,
         };
         assert_eq!(
             format!("{}", features),
-            "total_energy_consumption, instant_power, major_utilization, decoder_utilization, encoder_utilization, temperature_gpu, running_compute_processes(latest), running_graphics_processes(latest)"
+            "total_energy_consumption, instant_power, major_utilization, decoder_utilization, encoder_utilization, process_utilization_stats, temperature_gpu, running_compute_processes(latest), running_graphics_processes(latest)"
         );
     }
 
@@ -170,6 +177,7 @@ mod tests {
             major_utilization: false,
             decoder_utilization: true,
             encoder_utilization: true,
+            process_utilization_stats: false,
             temperature_gpu: true,
             running_compute_processes: AvailableVersion::None,
             running_graphics_processes: AvailableVersion::None,
@@ -190,6 +198,7 @@ mod tests {
             major_utilization: false,
             decoder_utilization: false,
             encoder_utilization: false,
+            process_utilization_stats: false,
             temperature_gpu: false,
             running_compute_processes: AvailableVersion::V2,
             running_graphics_processes: AvailableVersion::V2,
@@ -220,6 +229,7 @@ mod tests {
             major_utilization: false,
             decoder_utilization: false,
             encoder_utilization: false,
+            process_utilization_stats: false,
             temperature_gpu: false,
             running_compute_processes: AvailableVersion::None,
             running_graphics_processes: AvailableVersion::None,
