@@ -10,10 +10,7 @@ use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
     pipeline::{elements::error::PollError, Source},
-    plugin::{
-        util::{CounterDiff, CounterDiffUpdate},
-        AlumetPluginStart,
-    },
+    plugin::AlumetPluginStart,
     resources::{Resource, ResourceConsumer},
     units::Unit,
 };
@@ -27,7 +24,7 @@ pub struct GraceHopperProbe {
     consumer: ResourceConsumer,
     metric: Option<TypedMetricId<f64>>,
     _power_stats_interval: Duration,
-    last_timestamp: CounterDiff,
+    last_timestamp: Option<Timestamp>,
 }
 
 impl GraceHopperProbe {
@@ -53,7 +50,7 @@ impl GraceHopperProbe {
             metric,
             consumer: ResourceConsumer::LocalMachine,
             _power_stats_interval: sensor._average_interval,
-            last_timestamp: CounterDiff::with_max_value(u64::MAX),
+            last_timestamp: None,
         };
         Ok(probe)
     }
@@ -63,19 +60,19 @@ impl Source for GraceHopperProbe {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         let mut buffer = String::new();
         let power = read_power_value(&mut buffer, &mut self.file)?;
-        let computed_energy = compute_energy(power, &mut self.last_timestamp, timestamp)?;
-        measurements.push(
-            MeasurementPoint::new(
-                timestamp,
-                self.metric
-                    .expect("can't push to the MeasurementAccumulator because can't retrieve the metric"),
-                Resource::CpuPackage { id: self.socket },
-                self.consumer.clone(),
-                computed_energy,
-            )
-            .with_attr("sensor", self.kind.clone()),
-        );
-
+        if let Some(computed_energy) = compute_energy(power, &mut self.last_timestamp, timestamp) {
+            measurements.push(
+                MeasurementPoint::new(
+                    timestamp,
+                    self.metric
+                        .expect("can't push to the MeasurementAccumulator because can't retrieve the metric"),
+                    Resource::CpuPackage { id: self.socket },
+                    self.consumer.clone(),
+                    computed_energy,
+                )
+                .with_attr("sensor", self.kind.clone()),
+            );
+        }
         Ok(())
     }
 }
@@ -105,35 +102,25 @@ pub fn read_power_value(buffer: &mut String, file: &mut File) -> Result<u64, any
 /// Compute an energy from a power. Using as time the time elapsed between
 /// `last_timestamp` and the current timestamp `timestamp`.
 ///
-/// This function first computes as `u64` the current Timestamp as ns. Then using the
-/// `CounterDiff` structure it compute the time elapsed since the last measurement.
+/// This function first computes as `(u64, u32)` the current Timestamp and last_timestamp stored.
+/// Then it computes the time elapsed between the two timestamps.
 /// Finally it compute the energy using the formula: Energy(J) = Power(W) * Time(s)
 ///
-/// Returns the computed energy on success or 0.0 for the first time
-pub fn compute_energy(
-    power: u64,
-    last_timestamp: &mut CounterDiff,
-    timestamp: Timestamp,
-) -> Result<f64, anyhow::Error> {
-    let (second, nanosec) = timestamp.to_unix_timestamp();
-    let final_value = second * 1_000_000_000 + nanosec as u64;
-    let time_elapsed_opt = match last_timestamp.update(final_value) {
-        CounterDiffUpdate::FirstTime => None,
-        CounterDiffUpdate::Difference(diff) | CounterDiffUpdate::CorrectedDifference(diff) => Some(diff),
-    };
-    if let Some(time_elapsed_ns) = time_elapsed_opt {
-        let time_in_seconds_u64 = time_elapsed_ns / 1_000_000_000;
-        let time_in_seconds = time_in_seconds_u64 as f64;
-        Ok(power as f64 * time_in_seconds)
-    } else {
-        Ok(power as f64)
+/// Returns the computed energy on success or None for the first time
+pub fn compute_energy(power: u64, last_timestamp: &mut Option<Timestamp>, timestamp: Timestamp) -> Option<f64> {
+    if last_timestamp.is_none() {
+        return None;
     }
+    let (old_s, old_ns) = last_timestamp.unwrap().to_unix_timestamp();
+    let (new_s, new_ns) = timestamp.to_unix_timestamp();
+    let time_elapsed = (new_s - old_s) as f64 + ((new_ns - old_ns) as f64 / 1_000_000_000.0);
+    *last_timestamp = Some(timestamp);
+    Some(power as f64 * time_elapsed)
 }
 
 #[cfg(test)]
 mod tests {
     use alumet::measurement::Timestamp;
-    use alumet::plugin::util::CounterDiff;
     use anyhow::Context;
     use std::fs::File;
     use std::io::Write;
@@ -171,21 +158,23 @@ mod tests {
 
     #[test]
     fn test_compute_energy() {
-        let mut c1 = CounterDiff::with_max_value(u64::MAX);
+        // let mut c1 = CounterDiff::with_max_value(u64::MAX);
         let ts1 = Timestamp::now();
         let power1 = 1;
         let power2 = 2;
         // Only one measurement, can't compute energy -> power
-        assert_eq!(1.0, compute_energy(power1, &mut c1, ts1).unwrap());
+        assert_eq!(None, compute_energy(power1, &mut None, ts1));
+
         let ts2 = ts1 + Duration::from_secs(1);
-        // 1s at 1W -> 1J
-        assert_eq!(2.0, compute_energy(power2, &mut c1, ts2).unwrap());
+        // 1s at 2W -> 2J
+        assert_eq!(2.0, compute_energy(power2, &mut Some(ts1), ts2).unwrap());
+
         // Create a timestamp at 130s after the previous CounterDiff value (ts2), at 130W -> 130J
         let ts3 = ts1 + Duration::from_secs(131);
-        assert_eq!(130.0, compute_energy(power1, &mut c1, ts3).unwrap());
+        assert_eq!(130.0, compute_energy(power1, &mut Some(ts2), ts3).unwrap());
 
         let power3 = 75;
         let ts4 = ts3 + Duration::from_secs(3);
-        assert_eq!(225.0, compute_energy(power3, &mut c1, ts4).unwrap());
+        assert_eq!(225.0, compute_energy(power3, &mut Some(ts3), ts4).unwrap());
     }
 }
