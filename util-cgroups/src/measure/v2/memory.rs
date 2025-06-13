@@ -29,10 +29,10 @@ pub struct MemoryStatCollector {
 /// Represents the measurements extracted from the `memory.stat` file.
 #[derive(Default)]
 pub struct MemoryStats {
-    anon: Option<u64>,
-    file: Option<u64>,
-    kernel_stack: Option<u64>,
-    page_tables: Option<u64>,
+    pub anon: Option<u64>,
+    pub file: Option<u64>,
+    pub kernel_stack: Option<u64>,
+    pub page_tables: Option<u64>,
     // could be extended to manage other memory.stat measurements
 }
 
@@ -54,6 +54,17 @@ pub struct MemoryStatCollectorSettings {
 }
 
 impl EnabledKeys for MemoryStatCollectorSettings {}
+
+impl Default for MemoryStatCollectorSettings {
+    fn default() -> Self {
+        Self {
+            anon: true,
+            file: true,
+            kernel_stack: true,
+            page_tables: true,
+        }
+    }
+}
 
 impl MemoryCurrentCollector {
     pub fn new<P: AsRef<Path>>(path: P) -> io::Result<Self> {

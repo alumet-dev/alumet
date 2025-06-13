@@ -41,7 +41,7 @@ use super::hierarchy::{Cgroup, CgroupHierarchy, CgroupVersion};
 pub struct CgroupDetector {
     // keeps the watcher alive
     #[allow(dead_code)]
-    watcher: Box<dyn Watcher>,
+    watcher: Box<dyn Watcher + Send>,
 
     state: Arc<Mutex<DetectorState>>,
     hierarchy: CgroupHierarchy,
@@ -73,7 +73,7 @@ impl<F: for<'a> FnMut(Vec<Cgroup<'a>>) -> anyhow::Result<()> + Send> Callback fo
     }
 }
 
-// The impl above should be enough, but it is.
+// The impl above should be enough, but it is not.
 // Type inference does not infer for<'a> but a specific lifetime, which doesn't work here.
 //
 /// Helper to build a callback.
@@ -83,7 +83,7 @@ pub fn callback(f: impl for<'all> FnMut(Vec<Cgroup<'all>>) -> anyhow::Result<()>
 
 /// Internal state of the detector.
 ///
-/// It isshared between the handler and the detector struct, to allow cgroups to be
+/// It is shared between the handler and the detector struct, to allow cgroups to be
 /// added by the handler and forgotten by the detector.
 struct DetectorState {
     /// A set of known cgroupfs, to avoid detecting the same group multiple times.
@@ -136,7 +136,7 @@ impl CgroupDetector {
             state: state.clone(),
         };
 
-        let mut watcher: Box<dyn Watcher> = match hierarchy.version() {
+        let mut watcher: Box<dyn Watcher + Send> = match hierarchy.version() {
             CgroupVersion::V1 => {
                 // inotify is not supported, use polling
                 let watcher_config = notify::Config::default();
@@ -182,7 +182,7 @@ impl CgroupDetector {
     /// Checks whether a cgroup has been detected by this detector.
     ///
     /// `cgroup` is the unique name of the cgroup in the cgroup hierarchy,
-    /// for example `user.slice/mygroup`.
+    /// for example `/user.slice/mygroup`.
     pub fn is_known(&self, cgroup: &str) -> bool {
         self.state.lock().unwrap().known_cgroups.contains(cgroup)
     }
@@ -257,6 +257,7 @@ impl notify::EventHandler for EventHandler {
         // -> yes, but we have to use inotify directly, not the notify rust wrapper… -> later
         match event {
             Ok(evt) => match evt.kind {
+                // TODO notify returns CreateKind::Any instead of CreateKind::Folder with the PollWatcher…
                 notify::EventKind::Create(CreateKind::Folder) => {
                     self.register_cgroups(evt.paths);
                 }
