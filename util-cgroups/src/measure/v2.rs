@@ -24,6 +24,8 @@ pub use common::{V2Collector, V2Stats};
 mod common {
     use std::io::{self, ErrorKind};
 
+    use anyhow::Context;
+
     use crate::{
         Cgroup,
         measure::v2::{
@@ -115,10 +117,12 @@ mod common {
                 }
             };
 
+            let error_msg = || format!("collector creation failed for cgroup {}", cgroup.unique_name());
+
             Ok(Self {
-                memory_current: prepare_memory_current()?,
-                memory_stat: prepare_memory_stat(io_buf)?,
-                cpu_stat: prepare_cpu_stat(io_buf)?,
+                memory_current: prepare_memory_current().with_context(error_msg)?,
+                memory_stat: prepare_memory_stat(io_buf).with_context(error_msg)?,
+                cpu_stat: prepare_cpu_stat(io_buf).with_context(error_msg)?,
             })
         }
 
