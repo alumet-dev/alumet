@@ -30,6 +30,16 @@ pub struct CpuStatCollectorSettings {
 
 impl EnabledKeys for CpuStatCollectorSettings {}
 
+impl Default for CpuStatCollectorSettings {
+    fn default() -> Self {
+        Self {
+            usage: true,
+            user: true,
+            system: true,
+        }
+    }
+}
+
 /// Represents the measurements extracted from the `cpu.stat` file.
 #[derive(Debug, Default)]
 pub struct CpuStats {

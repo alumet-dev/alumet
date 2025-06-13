@@ -18,7 +18,7 @@ pub struct V1Stats {
 }
 
 impl V1Collector {
-    /// Creates a new `ProbeV1` that gathers data from multiple cgroup hierarchies.
+    /// Creates a new collector that gathers data from multiple cgroup hierarchies.
     ///
     /// # Available metrics
     /// The probe can only measure what is provided by the cgroup controllers attached to the given hierarchies.
@@ -52,6 +52,7 @@ impl V1Collector {
     /// The collector can only measure what is provided by the cgroup controllers attached to the given hierarchy.
     pub fn in_single_hierarchy<'h>(cgroup: Cgroup<'h>) -> anyhow::Result<Self> {
         Self::across_hierarchies(cgroup.canonical_path(), &[cgroup.hierarchy()])
+            .with_context(|| format!("collector creation failed for cgroup {}", cgroup.unique_name()))
     }
 
     /// Collects measurements from the underlying "file", using `io_buf` as an intermediary I/O buffer.
