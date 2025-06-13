@@ -291,7 +291,7 @@ mod tests {
         let mut _file = File::create(&file_path).unwrap();
         // std::thread::sleep(Duration::from_secs(30));
 
-        let entries = fs::read_dir(root_path.clone()).unwrap();
+        let entries = fs::read_dir(root_path).unwrap();
         for entry in entries {
             let result = get_sensor_from_dir(entry.unwrap());
             match result {
@@ -307,8 +307,8 @@ mod tests {
     fn test_get_sensor_from_dir_missing_file_interval() {
         let root = tempdir().unwrap();
         let root_path = root.path();
-        let file_path_info = root_path.clone().join("mySensor/device/power1_oem_info");
-        let file_path_average = root_path.clone().join("mySensor/device/power1_average");
+        let file_path_info = root_path.join("mySensor/device/power1_oem_info");
+        let file_path_average = root_path.join("mySensor/device/power1_average");
         std::fs::create_dir_all(file_path_info.parent().unwrap()).unwrap();
         let mut file = File::create(&file_path_info).unwrap();
         let mut file_avg = File::create(&file_path_average).unwrap();
@@ -332,7 +332,7 @@ mod tests {
     fn test_get_sensor_from_dir_missing_file_device() {
         let root = tempdir().unwrap();
         let root_path = root.path();
-        let file_path_average = root_path.clone().join("mySensor/device/power1_average");
+        let file_path_average = root_path.join("mySensor/device/power1_average");
         std::fs::create_dir_all(file_path_average.parent().unwrap()).unwrap();
         let mut file_avg = File::create(&file_path_average).unwrap();
         writeln!(file_avg, "11558822").unwrap();
@@ -354,7 +354,7 @@ mod tests {
     fn test_get_sensor_information_from_file() {
         let root = tempdir().unwrap();
         let root_path = root.path();
-        let file_average = root_path.clone().join("myFile");
+        let file_average = root_path.join("myFile");
         let mut file = OpenOptions::new()
             .read(true)
             .write(true)
