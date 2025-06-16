@@ -30,7 +30,7 @@ pub struct GraceHopperProbe {
 impl GraceHopperProbe {
     pub fn new(alumet: &mut AlumetPluginStart, sensor: Sensor) -> Result<Self, anyhow::Error> {
         let metric = alumet
-            .create_metric::<f64>("consumption", Unit::Joule, "Energy consumption of the sensor")
+            .create_metric::<f64>("energy_consumed", Unit::Joule, "Energy consumption of the sensor")
             .ok();
 
         if !sensor.file.exists() {
@@ -109,11 +109,13 @@ pub fn read_power_value(buffer: &mut String, file: &mut File) -> Result<u64, any
 /// Returns the computed energy on success or None for the first time
 pub fn compute_energy(power: u64, last_timestamp: &mut Option<Timestamp>, timestamp: Timestamp) -> Option<f64> {
     if last_timestamp.is_none() {
+        *last_timestamp = Some(timestamp);
         return None;
     }
-    let (old_s, old_ns) = last_timestamp.unwrap().to_unix_timestamp();
-    let (new_s, new_ns) = timestamp.to_unix_timestamp();
-    let time_elapsed = (new_s - old_s) as f64 + ((new_ns - old_ns) as f64 / 1_000_000_000.0);
+    let time_elapsed = timestamp
+        .duration_since(last_timestamp.unwrap())
+        .expect("last timestamp should be before current_timestamp")
+        .as_secs_f64();
     *last_timestamp = Some(timestamp);
     Some(power as f64 * time_elapsed)
 }
