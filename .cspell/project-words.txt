@@ -48,3 +48,4 @@ Trystram
 UCUM
 uncore
 VERGEN
+zcat
