@@ -30,6 +30,7 @@ struct Metrics {
     // Their IDs are gathered in different phases of the plugin initialization,
     // that is why they are Options.
     hardware_usage: RawMetricId,
+    global_hardware_usage: RawMetricId,
     consumed_energy: RawMetricId,
     attributed_energy: TypedMetricId<f64>,
 }
@@ -63,6 +64,7 @@ impl AlumetPlugin for EnergyAttributionPlugin {
 
         let consumed_energy = self.config.consumed_energy_metric_name.clone();
         let hardware_usage = self.config.hardware_usage_metric_name.clone();
+        let global_hardware_usage = self.config.global_hardware_usage_metric_name.clone();
         let hardware_metric_filter = self.config.hardware_usage_metric_filter.clone().unwrap_or_default();
 
         // Add the transform builder and its metrics
@@ -75,9 +77,14 @@ impl AlumetPlugin for EnergyAttributionPlugin {
                 .metric_by_name(&hardware_usage)
                 .with_context(|| format!("Metric not found {}", hardware_usage))?
                 .0;
+            let global_hardware_usage_metric = ctx
+                .metric_by_name(&global_hardware_usage)
+                .with_context(|| format!("Metric not found {}", global_hardware_usage))?
+                .0;
             let metrics = Metrics {
                 attributed_energy: attribution_energy_metric,
                 consumed_energy: consumed_energy_metric,
+                global_hardware_usage: global_hardware_usage_metric,
                 hardware_usage: hardware_usage_metric,
             };
 
@@ -95,6 +102,7 @@ impl AlumetPlugin for EnergyAttributionPlugin {
 #[derive(Deserialize, Serialize)]
 struct Config {
     consumed_energy_metric_name: String,
+    global_hardware_usage_metric_name: String,
     hardware_usage_metric_name: String,
     hardware_usage_metric_filter: Option<HashMap<String, String>>,
 }
@@ -105,6 +113,7 @@ impl Default for Config {
             consumed_energy_metric_name: String::from("rapl_consumed_energy"),
             hardware_usage_metric_name: String::from("cpu_time_delta"),
             hardware_usage_metric_filter: None,
+            global_hardware_usage_metric_name: String::from("kernel_cpu_time"),
         }
     }
 }

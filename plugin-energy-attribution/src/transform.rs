@@ -1,5 +1,6 @@
 use std::{
-    collections::HashMap, time::{SystemTime, UNIX_EPOCH},
+    collections::HashMap,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use alumet::{
@@ -14,6 +15,7 @@ use alumet::{
 pub struct EnergyAttributionTransform {
     pub metrics: super::Metrics,
     consumed_energy_buffer: HashMap<u128, MeasurementPoint>,
+    global_hardware_usage_buffer: HashMap<u128, MeasurementPoint>,
     hardware_usage_buffer: HashMap<u128, Vec<MeasurementPoint>>,
     hardware_usage_metric_filter: HashMap<String, String>,
 }
@@ -25,6 +27,7 @@ impl EnergyAttributionTransform {
             metrics,
             hardware_usage_buffer: HashMap::<u128, Vec<MeasurementPoint>>::new(),
             consumed_energy_buffer: HashMap::<u128, MeasurementPoint>::new(),
+            global_hardware_usage_buffer: HashMap::<u128, MeasurementPoint>::new(),
             hardware_usage_metric_filter: hardware_usage_metric_filter,
         }
     }
@@ -37,7 +40,10 @@ impl EnergyAttributionTransform {
 
         // If the buffers do have enough (every) MeasurementPoints,
         // then we compute the energy attribution.
-        while self.consumed_energy_buffer.len() >= 2 && self.hardware_usage_buffer.len() >= 2 {
+        while self.consumed_energy_buffer.len() >= 2
+            && self.hardware_usage_buffer.len() >= 2
+            && self.global_hardware_usage_buffer.len() >= 2
+        {
             // Get the smallest consumed_energy id i.e. the oldest timestamp (key) present in the buffer.
             let consumed_energy_mini_id = self
                 .consumed_energy_buffer
@@ -54,16 +60,15 @@ impl EnergyAttributionTransform {
             let consumed_energy_point = self.consumed_energy_buffer.remove(&consumed_energy_mini_id).unwrap();
 
             // Compute the sum of every `total_usage_usec` for the given timestamp: `consumed_energy_mini_id`.
-            let tot_time_sum = self
-                .hardware_usage_buffer
+            let tot_time_sum = match self
+                .global_hardware_usage_buffer
                 .get(&consumed_energy_mini_id)
                 .unwrap()
-                .iter()
-                .map(|x| match x.value {
-                    WrappedMeasurementValue::F64(fx) => fx,
-                    WrappedMeasurementValue::U64(ux) => ux as f64,
-                })
-                .sum::<f64>();
+                .value
+            {
+                WrappedMeasurementValue::F64(fx) => fx,
+                WrappedMeasurementValue::U64(ux) => ux as f64,
+            };
 
             // Then for every points in the hardware_usage_buffer at `consumed_energy_mini_id`.
             for point in self
@@ -173,21 +178,24 @@ impl EnergyAttributionTransform {
 
         Ok(())
     }
+
+    /// Adds given measurement point to the global hardware usage buffer.
+    fn add_to_global_hardware_buffer(&mut self, m: MeasurementPoint) -> Result<(), TransformError> {
+        let id = SystemTime::from(m.timestamp).duration_since(UNIX_EPOCH)?.as_nanos();
+        self.global_hardware_usage_buffer.insert(id, m.clone());
+        Ok(())
+    }
 }
 
 impl Transform for EnergyAttributionTransform {
     /// Applies the transform on the measurements.
     fn apply(&mut self, measurements: &mut MeasurementBuffer, _ctx: &TransformContext) -> Result<(), TransformError> {
         // Retrieve the hardware_usage_id and the consumed_energy_id.
-        // Using a nested scope to reduce the lock time.
-        let (hardware_usage_id, consumed_energy_id) = {
-            let metrics = &self.metrics;
+        let metrics = &self.metrics;
 
-            let hardware_usage_id = metrics.hardware_usage.as_u64();
-            let consumed_energy_id = metrics.consumed_energy.as_u64();
-
-            (hardware_usage_id, consumed_energy_id)
-        };
+        let hardware_usage_id = metrics.hardware_usage.as_u64();
+        let consumed_energy_id = metrics.consumed_energy.as_u64();
+        let global_hardware_usage_id = metrics.global_hardware_usage.as_u64();
 
         // Filling the buffers.
         for m in measurements.clone().iter() {
@@ -195,6 +203,8 @@ impl Transform for EnergyAttributionTransform {
                 let _ = &self.add_to_energy_buffer(m.clone())?;
             } else if m.metric.as_u64() == hardware_usage_id {
                 let _ = &self.add_to_hardware_buffer(m.clone())?;
+            } else if m.metric.as_u64() == global_hardware_usage_id {
+                let _ = &self.add_to_global_hardware_buffer(m.clone())?;
             }
         }
 
