@@ -69,7 +69,7 @@ fn test_correct_plugin_init_with_one_source_empty_value() {
     });
 
     let startup_expectation = StartupExpectations::new()
-        .expect_metric::<f64>("consumption", alumet::units::Unit::Joule)
+        .expect_metric::<f64>("energy_consumed", alumet::units::Unit::Joule)
         .expect_source("grace-hopper", "Module_0");
 
     let runtime_expectation = RuntimeExpectations::new()
@@ -155,7 +155,7 @@ fn test_correct_plugin_init_with_several_sources() {
     });
 
     let startup_expectation = StartupExpectations::new()
-        .expect_metric::<f64>("consumption", alumet::units::Unit::Joule)
+        .expect_metric::<f64>("energy_consumed", alumet::units::Unit::Joule)
         .expect_source("grace-hopper", "Module_0")
         .expect_source("grace-hopper", "Grace_0")
         .expect_source("grace-hopper", "CPU_2")
