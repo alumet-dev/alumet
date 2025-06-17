@@ -8,6 +8,7 @@ use alumet::{
         Transform,
     }, resources::Resource
 };
+use anyhow::anyhow;
 
 pub struct EnergyAttributionTransform {
     pub metrics: super::Metrics,
@@ -192,11 +193,7 @@ impl EnergyAttributionTransform {
     }
 
     fn get_metric_id(&self, name: String) -> Result<RawMetricId, TransformError> {
-        if let Some(id) = self.metrics.hardware_usage {
-            return Ok(id)
-        } else {
-            Ok(self.metric_reader.lock().unwrap().as_ref().unwrap().by_name(&name).unwrap().0)
-        }
+        Ok(self.metric_reader.lock().unwrap().as_ref().ok_or(anyhow!("cannot get ref of metric registry"))?.by_name(&name).ok_or(anyhow!("cannot retrieve metric by name {name}"))?.0)
     }
 }
 
@@ -204,19 +201,19 @@ impl Transform for EnergyAttributionTransform {
     /// Applies the transform on the measurements.
     fn apply(&mut self, measurements: &mut MeasurementBuffer, _ctx: &TransformContext) -> Result<(), TransformError> {
         // Retrieve the hardware_usage_id and the consumed_energy_id.
-        let metrics = &self.metrics;
+        // let metrics = &self.metrics;
 
-        let hardware_usage_id = metrics.hardware_usage.unwrap().as_u64();
-        let consumed_energy_id = metrics.consumed_energy.unwrap().as_u64();
-        let global_hardware_usage_id = metrics.global_hardware_usage.unwrap().as_u64();
+        // let hardware_usage_id = metrics.hardware_usage.unwrap().as_u64();
+        // let consumed_energy_id = metrics.consumed_energy.unwrap().as_u64();
+        // let global_hardware_usage_id = metrics.global_hardware_usage.unwrap().as_u64();
 
         // Filling the buffers.
         for m in measurements.clone().iter() {
-            if m.metric.as_u64() == consumed_energy_id {
+            if m.metric.as_u64() == self.metrics.consumed_energy_id.unwrap_or(self.get_metric_id(self.metrics.consumed_energy_metric_name.clone())?).as_u64() {
                 let _ = &self.add_to_energy_buffer(m.clone())?;
-            } else if m.metric.as_u64() == hardware_usage_id {
+            } else if m.metric.as_u64() == self.metrics.hardware_usage_id.unwrap_or(self.get_metric_id(self.metrics.hardware_usage_metric_name.clone())?).as_u64() {
                 let _ = &self.add_to_hardware_buffer(m.clone())?;
-            } else if m.metric.as_u64() == global_hardware_usage_id {
+            } else if m.metric.as_u64() == self.metrics.global_hardware_usage_id.unwrap_or(self.get_metric_id(self.metrics.global_hardware_metric_name.clone())?).as_u64() {
                 let _ = &self.add_to_global_hardware_buffer(m.clone())?;
             }
         }

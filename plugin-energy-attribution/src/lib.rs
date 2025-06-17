@@ -31,10 +31,16 @@ struct Metrics {
     //
     // Their IDs are gathered in different phases of the plugin initialization,
     // that is why they are Options.
-    hardware_usage: Option<RawMetricId>,
-    global_hardware_usage: Option<RawMetricId>,
-    consumed_energy: Option<RawMetricId>,
     attributed_energy: Option<TypedMetricId<f64>>,
+
+    consumed_energy_id: Option<RawMetricId>,
+    consumed_energy_metric_name: String,
+
+    global_hardware_usage_id: Option<RawMetricId>,
+    global_hardware_metric_name: String,
+
+    hardware_usage_id: Option<RawMetricId>,
+    hardware_usage_metric_name: String,
 }
 
 impl AlumetPlugin for EnergyAttributionPlugin {
@@ -73,9 +79,12 @@ impl AlumetPlugin for EnergyAttributionPlugin {
 
         let metrics = Metrics {
             attributed_energy: Some(attribution_energy_metric),
-            consumed_energy: None,
-            global_hardware_usage: None,
-            hardware_usage: None,
+            consumed_energy_id: None,
+            consumed_energy_metric_name: consumed_energy,
+            global_hardware_usage_id: None,
+            global_hardware_metric_name: global_hardware_usage,
+            hardware_usage_id: None,
+            hardware_usage_metric_name: hardware_usage,
         };
 
         alumet.add_transform(
