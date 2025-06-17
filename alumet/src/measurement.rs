@@ -283,6 +283,20 @@ impl WrappedMeasurementValue {
             WrappedMeasurementValue::U64(_) => WrappedMeasurementType::U64,
         }
     }
+
+    pub fn as_f64(&self) -> f64 {
+        match self {
+            WrappedMeasurementValue::F64(x) => *x,
+            WrappedMeasurementValue::U64(x) => *x as f64,
+        }
+    }
+
+    pub fn as_u64(&self) -> u64 {
+        match self {
+            WrappedMeasurementValue::F64(x) => *x as u64,
+            WrappedMeasurementValue::U64(x) => *x,
+        }
+    }
 }
 
 /// An attribute value of any supported attribute type.
@@ -477,5 +491,27 @@ impl<'a> MeasurementAccumulator<'a> {
 
     pub(crate) fn as_inner(&'a self) -> &'a MeasurementBuffer {
         self.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(test)]
+    mod wrapped_measurement_value {
+        use super::*;
+
+        #[test]
+        fn as_f64() {
+            assert_eq!(WrappedMeasurementValue::U64(69).as_f64(), 69.0);
+            assert_eq!(WrappedMeasurementValue::F64(18.38).as_f64(), 18.38);
+        }
+
+        #[test]
+        fn as_u64() {
+            assert_eq!(WrappedMeasurementValue::U64(69).as_u64(), 69);
+            assert_eq!(WrappedMeasurementValue::F64(18.38).as_u64(), 18);
+        }
     }
 }
