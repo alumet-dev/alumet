@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::{Arc, Mutex}};
 
 use alumet::{
-    metrics::{RawMetricId, TypedMetricId},
+    metrics::{registry::MetricRegistry, RawMetricId, TypedMetricId},
     plugin::{
         rust::{deserialize_config, serialize_config, AlumetPlugin},
         ConfigTable,
@@ -14,6 +14,8 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 use transform::EnergyAttributionTransform;
+
+use tokio::sync::mpsc;
 
 mod transform;
 
@@ -29,10 +31,10 @@ struct Metrics {
     //
     // Their IDs are gathered in different phases of the plugin initialization,
     // that is why they are Options.
-    hardware_usage: RawMetricId,
-    global_hardware_usage: RawMetricId,
-    consumed_energy: RawMetricId,
-    attributed_energy: TypedMetricId<f64>,
+    hardware_usage: Option<RawMetricId>,
+    global_hardware_usage: Option<RawMetricId>,
+    consumed_energy: Option<RawMetricId>,
+    attributed_energy: Option<TypedMetricId<f64>>,
 }
 
 impl AlumetPlugin for EnergyAttributionPlugin {
@@ -67,30 +69,69 @@ impl AlumetPlugin for EnergyAttributionPlugin {
         let global_hardware_usage = self.config.global_hardware_usage_metric_name.clone();
         let hardware_metric_filter = self.config.hardware_usage_metric_filter.clone().unwrap_or_default();
 
-        // Add the transform builder and its metrics
-        alumet.add_transform_builder("transform", move |ctx| {
-            let consumed_energy_metric = ctx
-                .metric_by_name(&consumed_energy)
-                .with_context(|| format!("Metric not found : {}", consumed_energy))?
-                .0;
-            let hardware_usage_metric = ctx
-                .metric_by_name(&hardware_usage)
-                .with_context(|| format!("Metric not found {}", hardware_usage))?
-                .0;
-            let global_hardware_usage_metric = ctx
-                .metric_by_name(&global_hardware_usage)
-                .with_context(|| format!("Metric not found {}", global_hardware_usage))?
-                .0;
-            let metrics = Metrics {
-                attributed_energy: attribution_energy_metric,
-                consumed_energy: consumed_energy_metric,
-                global_hardware_usage: global_hardware_usage_metric,
-                hardware_usage: hardware_usage_metric,
-            };
+        let metric_reader = Arc::new(Mutex::new(Option::<MetricRegistry>::None));
 
-            let transform = Box::new(EnergyAttributionTransform::new(metrics, hardware_metric_filter));
-            Ok(transform)
-        })?;
+        let metrics = Metrics {
+            attributed_energy: Some(attribution_energy_metric),
+            consumed_energy: None,
+            global_hardware_usage: None,
+            hardware_usage: None,
+        };
+
+        alumet.add_transform(
+            "energy-attribution",
+            Box::new(EnergyAttributionTransform::new(
+                metrics,
+                hardware_metric_filter,
+                &metric_reader.clone(),
+            )),
+        )?;
+        // // Add the transform builder and its metrics
+        // alumet.add_transform_builder("transform", move |ctx| {
+        //     // let consumed_energy_metric = ctx
+        //     //     .metric_by_name(&consumed_energy)
+        //     //     .with_context(|| format!("Metric not found : {}", consumed_energy))?
+        //     //     .0;
+        //     // let hardware_usage_metric = ctx
+        //     //     .metric_by_name(&hardware_usage)
+        //     //     .with_context(|| format!("Metric not found {}", hardware_usage))?
+        //     //     .0;
+        //     // let global_hardware_usage_metric = ctx
+        //     //     .metric_by_name(&global_hardware_usage)
+        //     //     .with_context(|| format!("Metric not found {}", global_hardware_usage))?
+        //     //     .0;
+        //     let metrics = Metrics {
+        //         attributed_energy: Some(attribution_energy_metric),
+        //         consumed_energy: None,
+        //         global_hardware_usage: None,
+        //         hardware_usage: None,
+        //     };
+
+        //     let transform = Box::new();
+        //     Ok(transform)
+        // })?; 
+
+        let metric_reader_clone = metric_reader.clone();
+        alumet.on_pre_pipeline_start( move |prestart| {
+            metric_reader_clone.clone().lock().unwrap().replace(prestart.metrics().clone());
+            Ok(())
+        });
+        // alumet.on_pre_pipeline_start(move |pre_start| {
+        //     // Register existing metrics.
+        //     let Some(hardware_usage) = pre_start.metrics().by_name(&self.config.clone().hardware_usage_metric_name.clone());
+
+        //     Ok(())
+        // });
+
+        // alumet.on_pre_pipeline_start(move |pre_start| {
+        //     pre_start.add_metric_listener("a", move |new_metrics| {
+        //         for metric in new_metrics {
+        //             if metric.1.name == consumed_energy.clone() {
+        //                 self.
+        //             }
+        //         }
+        //     })?;
+        // });
         Ok(())
     }
 
@@ -99,7 +140,7 @@ impl AlumetPlugin for EnergyAttributionPlugin {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Clone)]
 struct Config {
     consumed_energy_metric_name: String,
     global_hardware_usage_metric_name: String,

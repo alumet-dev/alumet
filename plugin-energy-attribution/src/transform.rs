@@ -1,15 +1,12 @@
 use std::{
-    collections::HashMap,
-    time::{SystemTime, UNIX_EPOCH},
+    collections::HashMap, sync::{Arc, Mutex}, time::{SystemTime, UNIX_EPOCH}
 };
 
 use alumet::{
-    measurement::{AttributeValue, MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue},
-    pipeline::{
+    measurement::{AttributeValue, MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue}, metrics::{online::MetricReader, registry::MetricRegistry, RawMetricId}, pipeline::{
         elements::{error::TransformError, transform::TransformContext},
         Transform,
-    },
-    resources::Resource,
+    }, resources::Resource
 };
 
 pub struct EnergyAttributionTransform {
@@ -18,17 +15,20 @@ pub struct EnergyAttributionTransform {
     global_hardware_usage_buffer: HashMap<u128, MeasurementPoint>,
     hardware_usage_buffer: HashMap<u128, Vec<MeasurementPoint>>,
     hardware_usage_metric_filter: HashMap<String, String>,
+
+    metric_reader: Arc<Mutex<Option<MetricRegistry>>>,
 }
 
 impl EnergyAttributionTransform {
     /// Instantiates a new EnergyAttributionTransform with its private fields initialized.
-    pub fn new(metrics: super::Metrics, hardware_usage_metric_filter: HashMap<String, String>) -> Self {
+    pub fn new(metrics: super::Metrics, hardware_usage_metric_filter: HashMap<String, String>,  metric_reader: &Arc<Mutex<Option<MetricRegistry>>>) -> Self {
         Self {
             metrics,
             hardware_usage_buffer: HashMap::<u128, Vec<MeasurementPoint>>::new(),
             consumed_energy_buffer: HashMap::<u128, MeasurementPoint>::new(),
             global_hardware_usage_buffer: HashMap::<u128, MeasurementPoint>::new(),
             hardware_usage_metric_filter: hardware_usage_metric_filter,
+            metric_reader: metric_reader.clone()
         }
     }
 
@@ -93,7 +93,7 @@ impl EnergyAttributionTransform {
                 // We create the new MeasurementPoint for the energy attribution.
                 let new_m = MeasurementPoint::new(
                     consumed_energy_point.timestamp,
-                    metric_id,
+                    metric_id.unwrap(),
                     point.resource.clone(),
                     point.consumer.clone(),
                     match consumed_energy_point.value {
@@ -134,6 +134,11 @@ impl EnergyAttributionTransform {
                 }
                 Ok(())
             }
+            // Resource::Gpu { bus_id: _ } => {
+            //     let id = SystemTime::from(m.timestamp).duration_since(UNIX_EPOCH)?.as_nanos();
+            //     self.consumed_energy_buffer.insert(id, m.clone());
+            //     Ok(())
+            // }
             _ => Ok(()),
         }
     }
@@ -185,6 +190,14 @@ impl EnergyAttributionTransform {
         self.global_hardware_usage_buffer.insert(id, m.clone());
         Ok(())
     }
+
+    fn get_metric_id(&self, name: String) -> Result<RawMetricId, TransformError> {
+        if let Some(id) = self.metrics.hardware_usage {
+            return Ok(id)
+        } else {
+            Ok(self.metric_reader.lock().unwrap().as_ref().unwrap().by_name(&name).unwrap().0)
+        }
+    }
 }
 
 impl Transform for EnergyAttributionTransform {
@@ -193,9 +206,9 @@ impl Transform for EnergyAttributionTransform {
         // Retrieve the hardware_usage_id and the consumed_energy_id.
         let metrics = &self.metrics;
 
-        let hardware_usage_id = metrics.hardware_usage.as_u64();
-        let consumed_energy_id = metrics.consumed_energy.as_u64();
-        let global_hardware_usage_id = metrics.global_hardware_usage.as_u64();
+        let hardware_usage_id = metrics.hardware_usage.unwrap().as_u64();
+        let consumed_energy_id = metrics.consumed_energy.unwrap().as_u64();
+        let global_hardware_usage_id = metrics.global_hardware_usage.unwrap().as_u64();
 
         // Filling the buffers.
         for m in measurements.clone().iter() {
