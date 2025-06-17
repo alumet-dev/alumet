@@ -24,7 +24,39 @@ pub struct GraceHopperProbe {
     consumer: ResourceConsumer,
     metric: Option<TypedMetricId<f64>>,
     _power_stats_interval: Duration,
+    last_timestamp: LastMeasure,
+}
+
+#[derive(Default)]
+struct LastMeasure {
     last_timestamp: Option<Timestamp>,
+    last_power: Option<u64>,
+}
+
+impl LastMeasure {
+    /// Compute an energy from a power. Using as time the time elapsed between
+    /// self's timestamp and the current timestamp `timestamp`.
+    ///
+    /// This function first computes the time elapsed between two timestamps.
+    /// It returns None if it's not possible.
+    /// Finally it compute the energy using the formula: Energy(J) = ((Power_old(W) + Power_new(W)) / 2) * Time(s)
+    ///
+    /// Returns the computed energy on success or None for the first time
+    pub fn compute_energy(&mut self, power: u64, timestamp: Timestamp) -> Option<f64> {
+        if self.last_timestamp.is_none() {
+            self.last_timestamp = Some(timestamp);
+            self.last_power = Some(power);
+            return None;
+        }
+        let time_elapsed = timestamp
+            .duration_since(self.last_timestamp.unwrap())
+            .expect("last timestamp should be before current_timestamp")
+            .as_secs_f64();
+        let energy_consumed = Some((self.last_power.unwrap() + power) as f64 / 2.0 * (time_elapsed));
+        self.last_timestamp = Some(timestamp);
+        self.last_power = Some(power);
+        energy_consumed
+    }
 }
 
 impl GraceHopperProbe {
@@ -50,7 +82,7 @@ impl GraceHopperProbe {
             metric,
             consumer: ResourceConsumer::LocalMachine,
             _power_stats_interval: sensor._average_interval,
-            last_timestamp: None,
+            last_timestamp: LastMeasure::default(),
         };
         Ok(probe)
     }
@@ -60,7 +92,7 @@ impl Source for GraceHopperProbe {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         let mut buffer = String::new();
         let power = read_power_value(&mut buffer, &mut self.file)?;
-        if let Some(computed_energy) = compute_energy(power, &mut self.last_timestamp, timestamp) {
+        if let Some(computed_energy) = self.last_timestamp.compute_energy(power, timestamp) {
             measurements.push(
                 MeasurementPoint::new(
                     timestamp,
@@ -99,27 +131,6 @@ pub fn read_power_value(buffer: &mut String, file: &mut File) -> Result<u64, any
     Ok(power_consumption)
 }
 
-/// Compute an energy from a power. Using as time the time elapsed between
-/// `last_timestamp` and the current timestamp `timestamp`.
-///
-/// This function first computes as `(u64, u32)` the current Timestamp and last_timestamp stored.
-/// Then it computes the time elapsed between the two timestamps.
-/// Finally it compute the energy using the formula: Energy(J) = Power(W) * Time(s)
-///
-/// Returns the computed energy on success or None for the first time
-pub fn compute_energy(power: u64, last_timestamp: &mut Option<Timestamp>, timestamp: Timestamp) -> Option<f64> {
-    if last_timestamp.is_none() {
-        *last_timestamp = Some(timestamp);
-        return None;
-    }
-    let time_elapsed = timestamp
-        .duration_since(last_timestamp.unwrap())
-        .expect("last timestamp should be before current_timestamp")
-        .as_secs_f64();
-    *last_timestamp = Some(timestamp);
-    Some(power as f64 * time_elapsed)
-}
-
 #[cfg(test)]
 mod tests {
     use alumet::measurement::Timestamp;
@@ -129,7 +140,9 @@ mod tests {
     use std::time::Duration;
     use tempfile::tempdir;
 
-    use crate::probe::{compute_energy, read_power_value};
+    // use crate::probe::{compute_energy, read_power_value};
+    use crate::probe::read_power_value;
+    use crate::probe::LastMeasure;
 
     #[test]
     fn test_read_power_value() {
@@ -161,22 +174,33 @@ mod tests {
     #[test]
     fn test_compute_energy() {
         // let mut c1 = CounterDiff::with_max_value(u64::MAX);
-        let ts1 = Timestamp::now();
-        let power1 = 1;
-        let power2 = 2;
+        let mut lm_init = LastMeasure::default();
+        let ts0 = Timestamp::now();
         // Only one measurement, can't compute energy -> power
-        assert_eq!(None, compute_energy(power1, &mut None, ts1));
+        assert_eq!(None, lm_init.compute_energy(140, ts0));
 
-        let ts2 = ts1 + Duration::from_secs(1);
-        // 1s at 2W -> 2J
-        assert_eq!(2.0, compute_energy(power2, &mut Some(ts1), ts2).unwrap());
+        // lm_init.last_timestamp = Some(0 + Duration::from_secs(3));
+        let ts6 = ts0 + Duration::from_secs(6);
+        assert_eq!(495.0, lm_init.compute_energy(25, ts6).unwrap());
 
-        // Create a timestamp at 130s after the previous CounterDiff value (ts2), at 130W -> 130J
-        let ts3 = ts1 + Duration::from_secs(131);
-        assert_eq!(130.0, compute_energy(power1, &mut Some(ts2), ts3).unwrap());
+        lm_init.last_timestamp = Some(ts0 + Duration::from_secs(5));
+        lm_init.last_power = Some(70);
+        let ts55 = ts0 + Duration::from_millis(5500);
+        assert_eq!(50.0, lm_init.compute_energy(130, ts55).unwrap());
 
-        let power3 = 75;
-        let ts4 = ts3 + Duration::from_secs(3);
-        assert_eq!(225.0, compute_energy(power3, &mut Some(ts3), ts4).unwrap());
+        lm_init.last_timestamp = Some(lm_init.last_timestamp.unwrap() + Duration::from_millis(500));
+        lm_init.last_power = Some(50);
+        let ts10 = ts0 + Duration::from_secs(10);
+        assert_eq!(250.0, lm_init.compute_energy(75, ts10).unwrap());
+
+        lm_init.last_timestamp = Some(ts0 + Duration::from_secs(9));
+        lm_init.last_power = Some(80);
+        let ts97 = ts0 + Duration::from_millis(9700);
+        assert_eq!(50.05, lm_init.compute_energy(63, ts97).unwrap());
+
+        lm_init.last_timestamp = Some(ts0 + Duration::from_secs(15));
+        lm_init.last_power = Some(70);
+        let ts19 = ts0 + Duration::from_secs(19);
+        assert_eq!(282.0, lm_init.compute_energy(71, ts19).unwrap());
     }
 }
