@@ -1,17 +1,16 @@
-use std::hash::Hash;
+use std::{hash::Hash, ops::RangeInclusive};
 
-use env_logger::fmt::Timestamp;
 use fxhash::FxHashMap;
 
 use crate::{
-    measurement::MeasurementPoint,
+    measurement::{MeasurementBuffer, MeasurementPoint, Timestamp},
     metrics::RawMetricId,
     resources::{Resource, ResourceConsumer},
 };
 
 pub mod grouped_buffer;
 pub mod interpolate;
-pub mod window;
+pub mod together;
 
 #[derive(Default)]
 pub struct Timeseries {
@@ -19,32 +18,63 @@ pub struct Timeseries {
     points: Vec<MeasurementPoint>,
 }
 
-pub struct GroupedTimeseries<K: Eq + Hash> {
-    groups: FxHashMap<K, Timeseries>,
+pub struct Timeslice<'a> {
+    points: &'a [MeasurementPoint],
 }
 
-#[derive(PartialEq, Eq, Hash)]
-pub struct GroupKey(RawMetricId, Resource, ResourceConsumer);
-
 impl Timeseries {
-    pub fn group(self) -> GroupedTimeseries<GroupKey> {
-        // TODO opt: reuse buffers across grouping operations
-        let mut groups: FxHashMap<GroupKey, Timeseries> = FxHashMap::default();
-        for p in self.points.into_iter() {
-            let key = GroupKey(p.metric, p.resource.clone(), p.consumer.clone());
-            groups
-                .entry(key)
-                .and_modify(|series| series.points.push(p))
-                .or_insert_with(|| Timeseries { points: Vec::new() });
-        }
-        GroupedTimeseries { groups }
-    }
-
     pub fn first(&self) -> Option<&MeasurementPoint> {
         self.points.first()
     }
 
     pub fn last(&self) -> Option<&MeasurementPoint> {
         self.points.last()
+    }
+
+    pub fn as_slice(&self) -> Timeslice {
+        Timeslice { points: &self.points }
+    }
+}
+
+impl<'a> Timeslice<'a> {
+    pub fn restrict(&self, range: RangeInclusive<Timestamp>) -> Timeslice<'a> {
+        // the data points are sorted, we just need to find the borders
+        let i_first_ok =
+            self.points
+                .iter()
+                .enumerate()
+                .find_map(|(i, m)| if &m.timestamp >= range.start() { Some(i) } else { None });
+        let i_last_ok =
+            self.points
+                .iter()
+                .rev()
+                .enumerate()
+                .find_map(|(i, m)| if &m.timestamp <= range.end() { Some(i) } else { None });
+        if let (Some(first), Some(last)) = (i_first_ok, i_last_ok) {
+            if last > first {
+                return Timeslice {
+                    points: &self.points[first..=last],
+                };
+            }
+        }
+        // nothing in range
+        Timeslice {
+            points: &self.points[0..0],
+        }
+    }
+}
+
+impl From<MeasurementBuffer> for Timeseries {
+    fn from(value: MeasurementBuffer) -> Self {
+        let mut points: Vec<MeasurementPoint> = value.into_iter().collect();
+        points.sort_by_key(|p| p.timestamp);
+        Self { points }
+    }
+}
+
+impl From<Vec<MeasurementPoint>> for Timeseries {
+    fn from(mut points: Vec<MeasurementPoint>) -> Self {
+        points.sort_by_key(|p| p.timestamp);
+        Self { points }
     }
 }
