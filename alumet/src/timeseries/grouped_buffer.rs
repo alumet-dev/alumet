@@ -5,7 +5,7 @@ use fxhash::{FxBuildHasher, FxHashMap, FxHasher};
 use crate::{
     measurement::{MeasurementBuffer, MeasurementPoint, Timestamp},
     metrics::RawMetricId,
-    resources::{Resource, ResourceConsumer},
+    resources::{Resource, ResourceConsumer}, timeseries::{interpolate::Interpolated, together::Together},
 };
 
 use super::{interpolate::InterpolationReference, Timeseries};
@@ -15,18 +15,23 @@ pub struct GroupedBuffer<K: Key> {
 }
 
 pub trait Key: Eq + Hash + Clone {
+    /// Computes the key of one measurement.
     fn new(p: &MeasurementPoint) -> Self;
 }
 
 impl<K: Key> GroupedBuffer<K> {
-    pub fn extend(&mut self, buf: &MeasurementBuffer) {
+    pub fn extend(&mut self, buf: &MeasurementBuffer, filter: impl Fn(&MeasurementPoint) -> bool) {
         for p in buf {
+            if !filter(p) {
+                continue;
+            }
+
             let key = K::new(p);
             self.groups
                 .entry(key)
                 .or_insert_with(Default::default)
                 .points
-                .push(p.to_owned());
+                .push(p.to_owned()); // TODO avoid copy
         }
     }
 
@@ -41,6 +46,11 @@ impl<K: Key> GroupedBuffer<K> {
     pub fn extract_common_range(&mut self, temporal_reference_key: &K) -> Option<RangeInclusive<Timestamp>> {
         let ref_series = self.groups.remove(temporal_reference_key).unwrap();
         assert!(!self.groups.is_empty());
+        // inf = max_S(min_t(S))
+        // sup = min_S(max_t(S))
+        // ref_first = min_t(t(ref) | t >= inf)
+        // ref_last = min_t(t(ref) | t <= sup)
+        // range = [ref_first, ref_last]
         let inf = self
             .groups
             .values()
@@ -72,6 +82,15 @@ impl<K: Key> GroupedBuffer<K> {
         } else {
             None
         }
+    }
+
+    pub fn interpolate_all(mut self, temporal_reference_key: &K) -> Option<Together<Interpolated<MeasurementPoint>>> {
+        // interpolate each non-reference timeseries at reference timestamps
+        let range = self.extract_common_range(temporal_reference_key)?;
+        let ref_series = self.groups.remove(temporal_reference_key).unwrap();
+        let interp_time = InterpolationReference::from(ref_series.as_slice().restrict(range));
+        let res = self.groups.into_values().map(|s| s.interpolate_linear(interp_time.clone())).collect();
+        Some(Together::new(res))
     }
 }
 

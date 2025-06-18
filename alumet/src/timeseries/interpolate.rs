@@ -1,5 +1,8 @@
-use super::{GroupKey, GroupedTimeseries, Timeseries};
-use crate::measurement::{MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementValue};
+use super::Timeseries;
+use crate::{
+    measurement::{MeasurementPoint, Timestamp, WrappedMeasurementValue},
+    timeseries::Timeslice,
+};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct InterpolationReference {
@@ -7,24 +10,17 @@ pub struct InterpolationReference {
     t: Vec<Timestamp>,
 }
 
-impl From<MeasurementBuffer> for Timeseries {
-    fn from(value: MeasurementBuffer) -> Self {
-        let mut points: Vec<MeasurementPoint> = value.into_iter().collect();
-        points.sort_by_key(|p| p.timestamp);
-        Self { points }
-    }
-}
-
-impl From<Vec<MeasurementPoint>> for Timeseries {
-    fn from(mut points: Vec<MeasurementPoint>) -> Self {
-        points.sort_by_key(|p| p.timestamp);
-        Self { points }
-    }
-}
-
 impl From<Vec<Timestamp>> for InterpolationReference {
     fn from(value: Vec<Timestamp>) -> Self {
         Self { t: value }
+    }
+}
+
+impl From<Timeslice<'_>> for InterpolationReference {
+    fn from(value: Timeslice) -> Self {
+        Self {
+            t: value.points.iter().map(|p| p.timestamp).collect(),
+        }
     }
 }
 

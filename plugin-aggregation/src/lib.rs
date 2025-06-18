@@ -62,7 +62,6 @@ impl AlumetPlugin for AggregationPlugin {
         alumet.add_transform("plugin-aggregation", transform)?;
 
         // TODO: give metric sender to the transformPlugin P2
-
         Ok(())
     }
 
