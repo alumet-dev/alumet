@@ -3,3 +3,4 @@
 compile_error!("only Linux is supported");
 
 pub mod probe;
+pub mod plugins;
