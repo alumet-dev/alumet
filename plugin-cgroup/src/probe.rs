@@ -15,6 +15,7 @@ pub mod v1;
 pub mod v2;
 
 pub mod personalise;
+mod self_stop;
 
 /// CounterDiff to compute the delta when it makes sense.
 struct DeltaCounters {

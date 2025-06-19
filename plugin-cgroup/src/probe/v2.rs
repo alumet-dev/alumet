@@ -8,7 +8,7 @@ use util_cgroups::{
     Cgroup,
 };
 
-use crate::probe::{AugmentedMetric, self_stop::analyze_io_result};
+use crate::probe::{self_stop::analyze_io_result, AugmentedMetric};
 
 use super::{AugmentedMetrics, DeltaCounters};
 
