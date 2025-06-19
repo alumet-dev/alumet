@@ -8,7 +8,7 @@ use util_cgroups::{
     Cgroup,
 };
 
-use crate::probe::AugmentedMetric;
+use crate::probe::{AugmentedMetric, self_stop::analyze_io_result};
 
 use super::{AugmentedMetrics, DeltaCounters};
 
@@ -56,7 +56,7 @@ impl CgroupV2Probe {
 
 impl Source for CgroupV2Probe {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, t: Timestamp) -> Result<(), PollError> {
-        let data = self.collector.measure(&mut self.io_buf)?;
+        let data = analyze_io_result(self.collector.measure(&mut self.io_buf))?;
         let resource = Resource::LocalMachine; // TODO more precise, but we don't know the pkg id
 
         // Cpu statistics
