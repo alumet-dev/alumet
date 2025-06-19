@@ -12,7 +12,7 @@ use notify::{
     event::{CreateKind, RemoveKind},
     Watcher,
 };
-use rustc_hash::{FxBuildHasher, FxHashSet};
+use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use walkdir::WalkDir;
 
 use super::hierarchy::{Cgroup, CgroupHierarchy, CgroupVersion};
@@ -131,7 +131,7 @@ impl CgroupDetector {
             callback: Box::new(handler),
         }));
 
-        let handler = EventHandler {
+        let mut handler = EventHandler {
             hierarchy: hierarchy.clone(),
             state: state.clone(),
         };
@@ -141,9 +141,9 @@ impl CgroupDetector {
                 // inotify is not supported, use polling
                 let watcher_config = notify::Config::default();
                 watcher_config.with_poll_interval(config.v1_refresh_interval);
-                let initial_scan_handler = handler.clone();
 
                 // PollWatcher performs the initial scan on its own.
+                let initial_scan_handler = handler.clone();
                 let watcher = notify::PollWatcher::with_initial_scan(handler, watcher_config, initial_scan_handler)?;
                 Box::new(watcher)
             }
@@ -153,7 +153,7 @@ impl CgroupDetector {
                 let watcher = notify::recommended_watcher(handler.clone())?;
 
                 // We need to manually do the initial scan.
-                initial_scan(&hierarchy, handler);
+                handler.initial_scan();
 
                 // all good :)
                 Box::new(watcher)
@@ -196,22 +196,6 @@ impl CgroupDetector {
     }
 }
 
-/// Performs an initial scan of the cgroup hierarchy, and call the `handler` for each cgroup found.
-fn initial_scan(hierarchy: &CgroupHierarchy, mut handler: EventHandler) {
-    let mut initial_cgroup_paths = Vec::with_capacity(INITIAL_CAPACITY);
-    for entry_res in WalkDir::new(hierarchy.root()) {
-        match entry_res {
-            Ok(entry) => {
-                if entry.file_type().is_dir() {
-                    initial_cgroup_paths.push(entry.into_path());
-                }
-            }
-            Err(err) => handler.handle_error(err),
-        }
-    }
-    handler.register_cgroups(initial_cgroup_paths);
-}
-
 impl EventHandler {
     /// Registers new control groups.
     fn register_cgroups(&mut self, paths: Vec<PathBuf>) {
@@ -246,8 +230,77 @@ impl EventHandler {
         }
     }
 
+    /// Updates the list of control groups, removing old cgroups and registering new ones.
+    fn update_cgroups(&mut self, paths: Vec<PathBuf>) {
+        let res = {
+            let mut state = self.state.lock().unwrap();
+            let previously_known = &state.known_cgroups;
+            let mut current_cgroups = FxHashMap::with_capacity_and_hasher(paths.len(), FxBuildHasher);
+            for path in paths {
+                let cgroup = Cgroup::from_fs_path(&self.hierarchy, path);
+                current_cgroups.insert(cgroup.canonical_path().to_owned(), cgroup);
+            }
+
+            // Find the new cgroups and the removed cgroups
+            // - new = in current_cgroups but not previously known
+            // - removed = previously known but not in current_cgroups
+            // TODO use extract_if after Rust version upgrade (1.88)
+            let mut new_cgroups = Vec::default();
+            let mut removed_cgroups = Vec::default();
+            for cgroup in current_cgroups.values() {
+                if !previously_known.contains(cgroup.canonical_path()) {
+                    new_cgroups.push(cgroup.to_owned());
+                }
+            }
+            for cgroup_path in previously_known {
+                if !current_cgroups.contains_key(cgroup_path) {
+                    removed_cgroups.push(cgroup_path); // TODO cgroup struct
+                }
+            }
+
+            // update list of known cgroups
+            state.known_cgroups = current_cgroups.into_keys().collect();
+
+            // call the callbacks
+            // TODO on_cgroups_removed callback
+            state.callback.on_new_cgroups(new_cgroups)
+        }; // unlock mutex
+
+        if let Err(err) = res {
+            self.handle_error(err);
+        }
+    }
+
     fn handle_error(&mut self, err: impl Debug) {
         log::error!("error in event handler: {err:?}");
+    }
+
+    /// Performs an initial scan of the cgroup hierarchy, and call the handler for each cgroup found.
+    fn initial_scan(&mut self) {
+        let initial_cgroup_paths = self.full_scan();
+        self.register_cgroups(initial_cgroup_paths);
+    }
+
+    /// Rescans the cgroup hierarchy, removing the cgroups that no longer exist and registering the new ones.
+    fn rescan(&mut self) {
+        let paths = self.full_scan();
+        self.update_cgroups(paths);
+    }
+
+    /// Performs a full recursive scan of the cgroup hierarchy and returns the cgroups found.
+    fn full_scan(&mut self) -> Vec<PathBuf> {
+        let mut cgroup_paths = Vec::with_capacity(INITIAL_CAPACITY);
+        for entry_res in WalkDir::new(self.hierarchy.root()) {
+            match entry_res {
+                Ok(entry) => {
+                    if entry.file_type().is_dir() {
+                        cgroup_paths.push(entry.into_path());
+                    }
+                }
+                Err(err) => self.handle_error(err),
+            }
+        }
+        cgroup_paths
     }
 }
 
@@ -261,11 +314,21 @@ impl notify::EventHandler for EventHandler {
                 notify::EventKind::Create(CreateKind::Folder) => {
                     self.register_cgroups(evt.paths);
                 }
+                notify::EventKind::Create(CreateKind::Any) => {
+                    // the PollWatcher (used for cgroup v1) returns CreateKind::Any events, we have to check the type manually…
+                    let dir_paths = evt.paths.into_iter().filter(|p| p.is_dir()).collect();
+                    self.register_cgroups(dir_paths);
+                }
                 notify::EventKind::Remove(RemoveKind::Folder) => {
                     self.forget_cgroups(evt.paths);
                 }
+                notify::EventKind::Remove(RemoveKind::Any) => {
+                    let dir_paths = evt.paths.into_iter().filter(|p| p.is_dir()).collect();
+                    self.forget_cgroups(dir_paths);
+                }
                 notify::EventKind::Other if evt.flag() == Some(notify::event::Flag::Rescan) => {
-                    // TODO handle rescan
+                    // Some events have been lost, we must recheck everything.
+                    self.rescan();
                 }
                 _ => (),
             },
