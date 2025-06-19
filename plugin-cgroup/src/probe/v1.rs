@@ -5,6 +5,8 @@ use alumet::{
 };
 use util_cgroups::{measure::v1::V1Collector, Cgroup};
 
+use crate::probe::self_stop::analyze_io_result;
+
 use super::*;
 
 pub struct CgroupV1Probe {
@@ -47,7 +49,7 @@ impl CgroupV1Probe {
 
 impl Source for CgroupV1Probe {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, t: Timestamp) -> Result<(), PollError> {
-        let data = self.collector.measure(&mut self.io_buf)?;
+        let data = analyze_io_result(self.collector.measure(&mut self.io_buf))?;
         let resource = Resource::LocalMachine; // TODO more precise, but we don't know the pkg id
 
         // Cpu statistics
