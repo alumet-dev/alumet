@@ -394,7 +394,7 @@ mod tests {
 
     use mount_watcher::mount::LinuxMount;
 
-    use crate::hierarchy::{CgroupHierarchy, CgroupVersion, HierarchyError};
+    use crate::{hierarchy::{CgroupHierarchy, CgroupVersion, HierarchyError}, Cgroup};
 
     #[test]
     fn cgroup_properties_v1() {

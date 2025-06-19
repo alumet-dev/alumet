@@ -1,4 +1,3 @@
-use anyhow::anyhow;
 use serde::{ser::Serializer, Serialize};
 use thiserror::Error;
 
