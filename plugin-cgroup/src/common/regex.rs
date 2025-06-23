@@ -9,7 +9,7 @@ use thiserror::Error;
 ///
 /// # Example
 /// ```
-/// use plugin_cgroup::probe::personalise::RegexAttributesExtrator;
+/// use plugin_cgroup::common::regex::RegexAttributesExtrator;
 /// use alumet::measurement::AttributeValue;
 ///
 /// # fn f() -> anyhow::Result<()> {
