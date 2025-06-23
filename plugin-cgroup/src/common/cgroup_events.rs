@@ -63,8 +63,14 @@ impl Default for ReactorConfig {
 
 #[derive(Clone)]
 pub struct ReactorCallbacks<S: CgroupSetupCallback, R: CgroupRemovalCallback> {
+    /// Called when a new cgroup is detected.
+    /// 
+    /// Its role is to setup the probe (source) associated to this cgroup.
+    /// It can also prevent the creation of the probe.
     pub probe_setup: S,
-    pub on_removal: R,
+
+    /// Called when a cgroup is deleted.
+    pub on_removal: Option<R>,
 }
 
 struct WaitCallback<S: CgroupSetupCallback, R: CgroupRemovalCallback> {
@@ -191,11 +197,11 @@ impl<S: CgroupSetupCallback, R: CgroupRemovalCallback> detect::Callback for Dete
         // The source will stop itself: it will try to gather measurements and see that the cgroup no longer exists.
         // What we do here is delegate the work to someone else, because it depends on the context.
         // Some plugins may want to keep track of the active cgroups, others may want to send a notification, etc.
-        self.state
-            .callbacks
-            .on_removal
-            .on_cgroups_removed(cgroups)
-            .context("error in cgroup removal callback")
+        if let Some(f) = self.state.callbacks.on_removal.as_mut() {
+            f.on_cgroups_removed(cgroups)
+                .context("error in cgroup removal callback")?;
+        }
+        Ok(())
     }
 }
 
