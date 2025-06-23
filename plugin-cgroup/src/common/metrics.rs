@@ -3,36 +3,9 @@ use std::u64;
 use alumet::{
     measurement::{AttributeValue, MeasurementType},
     metrics::TypedMetricId,
-    plugin::{util::CounterDiff, AlumetPluginStart},
+    plugin::AlumetPluginStart,
     units::{PrefixedUnit, Unit},
 };
-
-/// Notification-based creator of the cgroup probes, v1 and v2.
-pub mod creator;
-/// Probe for cgroups v1.
-pub mod v1;
-/// Probe for cgroups v2.
-pub mod v2;
-
-pub mod personalise;
-mod self_stop;
-
-/// CounterDiff to compute the delta when it makes sense.
-struct DeltaCounters {
-    usage: CounterDiff,
-    user: CounterDiff,
-    system: CounterDiff,
-}
-
-impl Default for DeltaCounters {
-    fn default() -> Self {
-        Self {
-            usage: CounterDiff::with_max_value(u64::MAX),
-            user: CounterDiff::with_max_value(u64::MAX),
-            system: CounterDiff::with_max_value(u64::MAX),
-        }
-    }
-}
 
 /// Contains common metrics.
 #[derive(Clone, Eq, PartialEq)]

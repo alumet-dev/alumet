@@ -1,17 +1,17 @@
 use alumet::{
-    measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
-    pipeline::{elements::error::PollError, Source},
+    measurement::{MeasurementAccumulator, MeasurementPoint, MeasurementType, Timestamp},
+    pipeline::{Source, elements::error::PollError},
     resources::{Resource, ResourceConsumer},
 };
 use util_cgroups::{measure::v1::V1Collector, Cgroup};
 
-use crate::probe::self_stop::analyze_io_result;
-
-use super::*;
+use super::{
+    delta::CpuDeltaCounters, metrics::AugmentedMetric, metrics::AugmentedMetrics, self_stop::analyze_io_result,
+};
 
 pub struct CgroupV1Probe {
     consumer: ResourceConsumer,
-    delta_counters: DeltaCounters,
+    delta_counters: CpuDeltaCounters,
     metrics: AugmentedMetrics,
     collector: V1Collector,
     io_buf: Vec<u8>,
@@ -27,7 +27,7 @@ impl CgroupV1Probe {
         let collector = V1Collector::in_single_hierarchy(cgroup)?;
         Ok(Self {
             consumer,
-            delta_counters: DeltaCounters::default(),
+            delta_counters: Default::default(),
             metrics,
             collector,
             io_buf,
