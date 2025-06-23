@@ -3,7 +3,7 @@
 use mount_watcher::{mount::LinuxMount, MountWatcher, WatchControl};
 use std::{ops::ControlFlow, time::Duration};
 
-use crate::CgroupVersion;
+use crate::{CgroupVersion, hierarchy::HierarchyError};
 
 use super::hierarchy::CgroupHierarchy;
 
@@ -15,12 +15,13 @@ use super::hierarchy::CgroupHierarchy;
 ///
 /// ```
 /// use util_cgroups::mount_wait::CgroupMountWait;
+/// use std::ops::ControlFlow;
 ///
 /// let wait = CgroupMountWait::new(None, |hierarchies| {
 ///     for h in hierarchies {
 ///         todo!()
 ///     }
-///     Ok(())
+///     Ok(ControlFlow::Continue(()))
 /// });
 /// ```
 pub struct CgroupMountWait {
@@ -68,6 +69,7 @@ impl CgroupMountWait {
 impl Drop for CgroupMountWait {
     fn drop(&mut self) {
         if let Some(w) = self.watcher.take() {
+            log::debug!("CgroupMountWait is dropped");
             w.stop(); // just set the flag
         }
     }
@@ -110,6 +112,10 @@ fn extract_cgroup_hierarchies(mounts: &[LinuxMount]) -> Vec<CgroupHierarchy> {
         .iter()
         .filter_map(|m| match CgroupHierarchy::from_mount(m) {
             Ok(h) => Some(h),
+            Err(HierarchyError::NotCgroupfs(_)) => {
+                // this is not a cgroup filesystem, skip it
+                None
+            }
             Err(e) => {
                 log::warn!(
                     "{m:?} appears to be a cgroup, but I could not construct a CgroupHierarchy structure from it: {e:#}"
