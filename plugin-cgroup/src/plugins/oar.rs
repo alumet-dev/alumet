@@ -90,7 +90,7 @@ impl AlumetPlugin for OarPlugin {
             s.metrics,
             ReactorCallbacks {
                 probe_setup: s.source_setup,
-                on_removal: Some(s.job_cleaner),
+                on_removal: s.job_cleaner,
             },
             alumet.pipeline_control(),
         )
