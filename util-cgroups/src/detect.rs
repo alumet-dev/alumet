@@ -1,7 +1,6 @@
 //! Detection of cgroups.
 
 use std::{
-    fmt::Debug,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::Duration,
@@ -26,16 +25,23 @@ use super::hierarchy::{Cgroup, CgroupHierarchy, CgroupVersion};
 ///
 /// ```no_run
 /// use util_cgroups::{
-///     detect::{callback, CgroupDetector, Config},
+///     detect::{callback, ClosureCallbacks, CgroupDetector, Config},
 ///     hierarchy::CgroupHierarchy
 /// };
 ///
 /// let hierarchy: CgroupHierarchy = todo!();
 /// let config = Config::default();
-/// let detector = CgroupDetector::new(hierarchy, config, callback(|cgroups| {
-///     println!("new cgroups detected: {cgroups:?}");
-///     Ok(())
-/// }));
+///
+/// // see doc of ClosureCallbacks
+/// let callbacks = ClosureCallbacks {
+///     on_cgroups_created: callback(|cgroups| {
+///         println!("new cgroups detected: {cgroups:?}");
+///         Ok(())
+///     }),
+///     on_cgroups_removed: callback(|cgroups| {todo!()}),
+/// };
+///
+/// let detector = CgroupDetector::new(hierarchy, config, callbacks);
 /// // TODO store detector somewhere, otherwise it will stop when dropped.
 /// ```
 pub struct CgroupDetector {
@@ -62,7 +68,7 @@ impl Default for Config {
     }
 }
 
-/// A callback that reacts to the detection of cgroups by a [`CgroupDetector`].
+/// A set of callbacks that react to the detection of cgroups by a [`CgroupDetector`].
 pub trait Callback: Send {
     /// Called when new cgroups are detected.
     fn on_cgroups_created(&mut self, cgroups: Vec<Cgroup>) -> anyhow::Result<()>;
@@ -71,14 +77,16 @@ pub trait Callback: Send {
     fn on_cgroups_removed(&mut self, cgroups: Vec<Cgroup>) -> anyhow::Result<()>;
 }
 
-/// An easy way to create a `Callback` from two closures.
+/// An easy way to create a [`Callback`] from two closures.
+///
+/// You can also use a structure that implements the [`Callback`] interface.
 pub struct ClosureCallbacks<F1, F2>
 where
-    F1: for<'all> FnMut(Vec<Cgroup<'all>>) -> anyhow::Result<()> + Send,
-    F2: for<'all> FnMut(Vec<Cgroup<'all>>) -> anyhow::Result<()> + Send,
+    F1: for<'all> FnMut(Vec<Cgroup<'all>>) -> anyhow::Result<()> + Send + 'static,
+    F2: for<'all> FnMut(Vec<Cgroup<'all>>) -> anyhow::Result<()> + Send + 'static,
 {
-    on_cgroups_created: F1,
-    on_cgroups_removed: F2,
+    pub on_cgroups_created: F1,
+    pub on_cgroups_removed: F2,
 }
 
 impl<F1, F2> Callback for ClosureCallbacks<F1, F2>
@@ -295,8 +303,8 @@ impl EventHandler {
         Ok(())
     }
 
-    fn handle_error(&mut self, err: impl Debug) {
-        log::error!("error in event handler: {err:?}");
+    fn handle_error(&mut self, err: anyhow::Error) {
+        log::error!("error in event handler: {err:#}");
     }
 
     fn handle_result(&mut self, res: anyhow::Result<()>) {
@@ -327,7 +335,7 @@ impl EventHandler {
                         cgroup_paths.push(entry.into_path());
                     }
                 }
-                Err(err) => self.handle_error(err),
+                Err(err) => self.handle_error(anyhow::Error::new(err).context("error during full scan")),
             }
         }
         cgroup_paths
@@ -373,7 +381,7 @@ impl notify::EventHandler for EventHandler {
                 self.handle_result(res);
             }
             Err(err) => {
-                self.handle_error(err);
+                self.handle_error(anyhow::Error::new(err).context("error in EventHandler"));
             }
         };
     }
@@ -391,7 +399,7 @@ impl notify::poll::ScanEventHandler for EventHandler {
                 }
             }
             Err(err) => {
-                self.handle_error(err);
+                self.handle_error(anyhow::Error::new(err).context("error in ScanEventHandler"));
             }
         }
     }
