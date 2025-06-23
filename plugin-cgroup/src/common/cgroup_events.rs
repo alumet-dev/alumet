@@ -25,6 +25,15 @@ pub trait CgroupSetupCallback: Clone + Send + 'static {
     fn setup_new_probe(&mut self, cgroup: &Cgroup, metrics: &Metrics) -> Option<ProbeSetup>;
 }
 
+#[derive(Clone, Copy)]
+pub struct NoCallback;
+
+impl CgroupRemovalCallback for NoCallback {
+    fn on_cgroups_removed(&mut self, cgroups: Vec<Cgroup>) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+
 /// Settings to apply to the cgroup probe.
 pub struct ProbeSetup {
     pub metrics: AugmentedMetrics,
@@ -64,13 +73,13 @@ impl Default for ReactorConfig {
 #[derive(Clone)]
 pub struct ReactorCallbacks<S: CgroupSetupCallback, R: CgroupRemovalCallback> {
     /// Called when a new cgroup is detected.
-    /// 
+    ///
     /// Its role is to setup the probe (source) associated to this cgroup.
     /// It can also prevent the creation of the probe.
     pub probe_setup: S,
 
     /// Called when a cgroup is deleted.
-    pub on_removal: Option<R>,
+    pub on_removal: R,
 }
 
 struct WaitCallback<S: CgroupSetupCallback, R: CgroupRemovalCallback> {
@@ -197,11 +206,11 @@ impl<S: CgroupSetupCallback, R: CgroupRemovalCallback> detect::Callback for Dete
         // The source will stop itself: it will try to gather measurements and see that the cgroup no longer exists.
         // What we do here is delegate the work to someone else, because it depends on the context.
         // Some plugins may want to keep track of the active cgroups, others may want to send a notification, etc.
-        if let Some(f) = self.state.callbacks.on_removal.as_mut() {
-            f.on_cgroups_removed(cgroups)
-                .context("error in cgroup removal callback")?;
-        }
-        Ok(())
+        self.state
+            .callbacks
+            .on_removal
+            .on_cgroups_removed(cgroups)
+            .context("error in cgroup removal callback")
     }
 }
 
@@ -209,5 +218,21 @@ fn make_cgroup_source(cgroup: Cgroup<'_>, metrics: AugmentedMetrics) -> anyhow::
     match cgroup.hierarchy().version() {
         CgroupVersion::V1 => Ok(Box::new(CgroupV1Probe::new(cgroup, metrics)?)),
         CgroupVersion::V2 => Ok(Box::new(CgroupV2Probe::new(cgroup, metrics)?)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_remove_callback() {
+        // ensure that it compiles
+        fn _f(probe_setup: impl CgroupSetupCallback) {
+            ReactorCallbacks {
+                probe_setup,
+                on_removal: NoCallback,
+            };
+        }
     }
 }
