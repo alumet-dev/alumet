@@ -8,13 +8,11 @@ use util_cgroups::{
     Cgroup,
 };
 
-use crate::probe::{self_stop::analyze_io_result, AugmentedMetric};
-
-use super::{AugmentedMetrics, DeltaCounters};
+use super::{delta::CpuDeltaCounters, metrics::AugmentedMetric, metrics::AugmentedMetrics, self_stop::analyze_io_result};
 
 pub struct CgroupV2Probe {
     consumer: ResourceConsumer,
-    delta_counters: DeltaCounters,
+    delta_counters: CpuDeltaCounters,
     metrics: AugmentedMetrics,
     collector: V2Collector,
     io_buf: Vec<u8>,
@@ -34,7 +32,7 @@ impl CgroupV2Probe {
         )?;
         Ok(Self {
             consumer,
-            delta_counters: DeltaCounters::default(),
+            delta_counters: Default::default(),
             metrics,
             collector,
             io_buf,

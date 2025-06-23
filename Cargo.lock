@@ -2678,6 +2678,7 @@ dependencies = [
  "log",
  "pretty_assertions",
  "regex",
+ "rustc-hash",
  "serde",
  "tempfile",
  "thiserror 2.0.12",
