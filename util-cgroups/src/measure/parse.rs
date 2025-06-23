@@ -162,6 +162,7 @@ impl StatFileBuilder {
     pub fn build(mut self, io_buf: &mut Vec<u8>) -> io::Result<(SelectiveStatFile, SelectiveStatMapping)> {
         // read the file into the buffer
         read_fully(&mut self.file, io_buf)?;
+        log::warn!("read: {}", std::str::from_utf8(io_buf).unwrap());
 
         // this is initialization time, we can afford to check that the file is valid to avoid problems later (even though there should not be any issue)
         std::str::from_utf8(&io_buf).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;

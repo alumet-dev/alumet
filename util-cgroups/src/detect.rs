@@ -53,6 +53,12 @@ pub struct CgroupDetector {
     hierarchy: CgroupHierarchy,
 }
 
+impl Drop for CgroupDetector {
+    fn drop(&mut self) {
+        log::debug!("cgroup drop, hierarchy: {:?}", self.hierarchy.root());
+    }
+}
+
 pub struct Config {
     /// Time between each refresh of the filesystem watcher.
     ///
@@ -318,13 +324,13 @@ impl EventHandler {
         let initial_cgroup_paths = self.full_scan();
         self.register_cgroups(initial_cgroup_paths)
     }
-
+    
     /// Rescans the cgroup hierarchy, removing the cgroups that no longer exist and registering the new ones.
     fn rescan(&mut self) -> anyhow::Result<()> {
         let paths = self.full_scan();
         self.update_cgroups(paths)
     }
-
+    
     /// Performs a full recursive scan of the cgroup hierarchy and returns the cgroups found.
     fn full_scan(&mut self) -> Vec<PathBuf> {
         let mut cgroup_paths = Vec::with_capacity(INITIAL_CAPACITY);

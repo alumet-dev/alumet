@@ -23,9 +23,9 @@ struct CpuStatMapping {
 
 #[derive(Debug, Serialize)]
 pub struct CpuStatCollectorSettings {
-    pub usage: bool,
-    pub user: bool,
-    pub system: bool,
+    pub usage_usec: bool,
+    pub user_usec: bool,
+    pub system_usec: bool,
 }
 
 impl EnabledKeys for CpuStatCollectorSettings {}
@@ -33,9 +33,9 @@ impl EnabledKeys for CpuStatCollectorSettings {}
 impl Default for CpuStatCollectorSettings {
     fn default() -> Self {
         Self {
-            usage: true,
-            user: true,
-            system: true,
+            usage_usec: true,
+            user_usec: true,
+            system_usec: true,
         }
     }
 }
@@ -84,7 +84,6 @@ impl CpuStatCollector {
                 stat_mapping.keys_not_found().join(", ")
             )
         }
-
         Ok(Self { stat_file, mapping })
     }
 
@@ -102,7 +101,9 @@ impl CpuStatCollector {
                 i if i == self.mapping.system.0 => {
                     res.system = Some(v);
                 }
-                _ => (),
+                _ => {
+                    ()
+                },
             })
         }?;
         Ok(res)

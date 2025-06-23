@@ -133,7 +133,6 @@ mod common {
             let memory_current = self.memory_current.as_mut().map(|c| c.measure(io_buf)).transpose()?;
             let memory_stat = self.memory_stat.as_mut().map(|c| c.measure(io_buf)).transpose()?;
             let cpu_stat = self.cpu_stat.as_mut().map(|c| c.measure(io_buf)).transpose()?;
-
             Ok(V2Stats {
                 memory_current,
                 memory_stat,

@@ -25,7 +25,7 @@ use super::hierarchy::CgroupHierarchy;
 /// });
 /// ```
 pub struct CgroupMountWait {
-    watcher: Option<MountWatcher>,
+    pub watcher: Option<MountWatcher>,
 }
 
 /// A callback that is called when new cgroup filesystems are detected by a [`CgroupMountWait`].

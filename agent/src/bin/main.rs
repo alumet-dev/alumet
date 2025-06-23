@@ -44,6 +44,8 @@ fn load_plugins_metadata() -> Vec<PluginMetadata> {
             plugin_cgroupv2::K8sPlugin,
             plugin_cgroupv2::OARPlugin,
             plugin_cgroupv1::Oar2Plugin,
+            plugin_cgroup::plugins::OarPlugin,
+            plugin_cgroup::plugins::SlurmPlugin,
             plugin_rapl::RaplPlugin,
             plugin_perf::PerfPlugin,
             plugin_procfs::ProcfsPlugin,
