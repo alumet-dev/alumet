@@ -1,34 +1,60 @@
-use alumet::plugin::rust::AlumetPlugin;
+use alumet::{
+    metrics::def::MetricId,
+    plugin::{
+        rust::{deserialize_config, AlumetPlugin},
+        AlumetPluginStart, ConfigTable,
+    },
+    units::Unit,
+};
+use anyhow::Context;
+
+use crate::formula::{config::FormulaConfig, transform::GenericAttributionTransform};
 
 mod formula;
-mod transform;
 
 pub struct EnergyAttributionPlugin {
-    // config: Config,
+    config: Option<FormulaConfig>,
 }
 
 impl AlumetPlugin for EnergyAttributionPlugin {
     fn name() -> &'static str {
-        todo!()
+        "energy-attribution"
     }
 
     fn version() -> &'static str {
-        todo!()
+        env!("CARGO_PKG_VERSION")
     }
 
-    fn init(config: alumet::plugin::ConfigTable) -> anyhow::Result<Box<Self>> {
-        todo!()
+    fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
+        let config = deserialize_config(config)?;
+        Ok(Box::new(Self { config: Some(config) }))
     }
 
-    fn default_config() -> anyhow::Result<Option<alumet::plugin::ConfigTable>> {
-        todo!()
+    fn default_config() -> anyhow::Result<Option<ConfigTable>> {
+        Ok(None)
     }
 
-    fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
-        todo!()
+    fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
+        let formula_config = self.config.take().unwrap();
+        let result_metric = alumet.create_metric::<f64>(
+            "attributed_energy",
+            Unit::Joule,
+            "Energy attribution (since the previous value) per consumer and per resource",
+        )?;
+        let result_metric_id = result_metric.untyped_id();
+
+        // create the transform, in a builder because we need the metric registry
+        let _ = alumet.add_transform_builder("attribution_transform", move |ctx| {
+            let res = formula::prepare(formula_config, ctx.metrics(), result_metric_id)
+                .context("failed to prepare attribution formula; check that you have enabled the required sources and that the configuration is correct");
+            let (formula, params) = res?;
+            let transform = Box::new(GenericAttributionTransform::new(formula, params));
+            Ok(transform)
+        })?;
+        Ok(())
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
-        todo!()
+        Ok(())
     }
 }

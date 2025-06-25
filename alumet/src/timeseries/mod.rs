@@ -1,15 +1,10 @@
-use std::{hash::Hash, ops::RangeInclusive};
+use std::ops::RangeInclusive;
 
-use fxhash::FxHashMap;
-
-use crate::{
-    measurement::{MeasurementBuffer, MeasurementPoint, Timestamp},
-    metrics::RawMetricId,
-    resources::{Resource, ResourceConsumer},
-};
+use crate::measurement::{MeasurementBuffer, MeasurementPoint, Timestamp};
 
 pub mod grouped_buffer;
 pub mod interpolate;
+pub mod multi_interp;
 pub mod together;
 
 #[derive(Default)]
@@ -75,6 +70,13 @@ impl From<MeasurementBuffer> for Timeseries {
 impl From<Vec<MeasurementPoint>> for Timeseries {
     fn from(mut points: Vec<MeasurementPoint>) -> Self {
         points.sort_by_key(|p| p.timestamp);
+        Self { points }
+    }
+}
+
+impl<'a> From<&'a [MeasurementPoint]> for Timeslice<'a> {
+    fn from(points: &'a [MeasurementPoint]) -> Self {
+        assert!(points.is_sorted_by_key(|p| p.timestamp));
         Self { points }
     }
 }
