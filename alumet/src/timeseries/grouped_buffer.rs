@@ -1,11 +1,10 @@
-use std::{collections::HashMap, hash::Hash, ops::RangeInclusive, time::SystemTime};
+use std::{hash::Hash, ops::RangeInclusive};
 
-use fxhash::{FxBuildHasher, FxHashMap, FxHasher};
+use rustc_hash::FxHashMap;
 
 use crate::{
     measurement::{MeasurementBuffer, MeasurementPoint, Timestamp},
-    metrics::RawMetricId,
-    resources::{Resource, ResourceConsumer}, timeseries::{interpolate::Interpolated, together::Together},
+    timeseries::{interpolate::Interpolated, together::Together},
 };
 
 use super::{interpolate::InterpolationReference, Timeseries};
@@ -14,19 +13,28 @@ pub struct GroupedBuffer<K: Key> {
     groups: FxHashMap<K, Timeseries>,
 }
 
-pub trait Key: Eq + Hash + Clone {
+pub trait Key: Eq + Hash + Clone {}
+
+pub trait KeyFactory: Clone {
+    type Key: Key;
+
     /// Computes the key of one measurement.
-    fn new(p: &MeasurementPoint) -> Self;
+    fn new_key(&mut self, p: &MeasurementPoint) -> Self::Key;
 }
 
 impl<K: Key> GroupedBuffer<K> {
-    pub fn extend(&mut self, buf: &MeasurementBuffer, filter: impl Fn(&MeasurementPoint) -> bool) {
+    pub fn extend(
+        &mut self,
+        buf: &MeasurementBuffer,
+        filter: impl Fn(&MeasurementPoint) -> bool,
+        key_factory: &mut impl KeyFactory<Key = K>,
+    ) {
         for p in buf {
             if !filter(p) {
                 continue;
             }
 
-            let key = K::new(p);
+            let key = key_factory.new_key(p);
             self.groups
                 .entry(key)
                 .or_insert_with(Default::default)
@@ -89,32 +97,11 @@ impl<K: Key> GroupedBuffer<K> {
         let range = self.extract_common_range(temporal_reference_key)?;
         let ref_series = self.groups.remove(temporal_reference_key).unwrap();
         let interp_time = InterpolationReference::from(ref_series.as_slice().restrict(range));
-        let res = self.groups.into_values().map(|s| s.interpolate_linear(interp_time.clone())).collect();
+        let res = self
+            .groups
+            .into_values()
+            .map(|s| s.interpolate_linear(interp_time.clone()))
+            .collect();
         Some(Together::new(res))
-    }
-}
-
-// Standard possible keys (the trait can be implemented by external crate).
-impl Key for RawMetricId {
-    fn new(p: &MeasurementPoint) -> Self {
-        p.metric
-    }
-}
-
-impl Key for Resource {
-    fn new(p: &MeasurementPoint) -> Self {
-        p.resource.clone()
-    }
-}
-
-impl Key for ResourceConsumer {
-    fn new(p: &MeasurementPoint) -> Self {
-        p.consumer.clone()
-    }
-}
-
-impl Key for (RawMetricId, ResourceConsumer) {
-    fn new(p: &MeasurementPoint) -> Self {
-        (p.metric, p.consumer.clone())
     }
 }

@@ -1,6 +1,6 @@
 use std::{cell::RefCell, ops::Deref, rc::Rc, time::Duration};
 
-use fxhash::FxHashMap;
+use rustc_hash::FxHashMap;
 use tokio::sync::RwLockReadGuard;
 use wrapped_output::{OutputDone, SetOutputOutputCheck, WrappedOutput};
 use wrapped_source::{SetSourceCheck, SourceDone, WrappedManagedSource};

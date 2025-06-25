@@ -100,14 +100,14 @@ impl InterpolationReference {
         t_min: &Timestamp,
         t_max: &Timestamp,
     ) -> (InterpolationReference, InterpolationReference, InterpolationReference) {
-        let first_after_min = self.t.iter().enumerate().find(|(i, t)| t >= &t_min).map(|(i, t)| i);
+        let first_after_min = self.t.iter().enumerate().find(|(_i, t)| t >= &t_min).map(|(i, _t)| i);
         let last_before_max = self
             .t
             .iter()
             .enumerate()
             .rev()
-            .find(|(i, t)| t <= &t_max)
-            .map(|(i, t)| i);
+            .find(|(_i, t)| t <= &t_max)
+            .map(|(i, _t)| i);
 
         match (first_after_min, last_before_max) {
             (None, _) => {
