@@ -325,6 +325,7 @@ impl alumet::pipeline::Source for PowercapProbe {
         // The size of the content of the file `energy_uj` should never exceed those of `max_energy_uj`,
         // which is 16 bytes on all our test machines (if it does exceed 16 bytes it's fine, but less optimal).
         let mut zone_reading_buf = Vec::with_capacity(16);
+        let mut pkg_total = 0.0;
 
         for zone in &mut self.zones {
             if let Some(joules) = zone.read_counter_diff_in_joules(&mut zone_reading_buf)? {
@@ -332,10 +333,23 @@ impl alumet::pipeline::Source for PowercapProbe {
                 measurements.push(
                     MeasurementPoint::new(timestamp, self.metric, zone.resource.clone(), consumer, joules)
                         .with_attr("domain", AttributeValue::String(zone.domain.to_string())),
-                )
-            }
+                );
+                if matches!(zone.resource, Resource::CpuPackage { id: _ }) {
+                    pkg_total += joules;
+                }
+            };
+
             // clear the buffer, so that we can fill it again
             zone_reading_buf.clear();
+        }
+        if pkg_total != 0.0 {
+            measurements.push(MeasurementPoint::new(
+                timestamp,
+                self.metric,
+                Resource::LocalMachine,
+                ResourceConsumer::LocalMachine,
+                pkg_total,
+            ).with_attr("domain", "package_total"));
         }
         Ok(())
     }

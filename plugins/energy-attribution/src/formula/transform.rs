@@ -96,8 +96,11 @@ impl AttributionState {
 
 impl Transform for GenericAttributionTransform {
     fn apply(&mut self, measurements: &mut MeasurementBuffer, _ctx: &TransformContext) -> Result<(), TransformError> {
+        // TODO buffer more and apply the transformation by "chunk"
+        // To do this properly, we need a timeout, which could work by using an async transform triggered by either the timeout or a new message.
+
         self.state.extend(&measurements);
-        log::trace!("attribution buffer: {:?}", self.state.buffer_per_resource);
+        log::warn!("attribution buffer: {:?}", self.state.buffer_per_resource);
 
         let temporal_ref_metric = self.state.params.temporal_ref_metric;
 
@@ -149,7 +152,7 @@ impl Transform for GenericAttributionTransform {
                             .formula
                             .evaluate(multi_point)
                             .map_err(TransformError::UnexpectedInput)?;
-                        let point = MeasurementPoint::new_untyped(
+                        let point = MeasurementPoint::new(
                             t,
                             self.formula.result_metric_id,
                             resource.clone(),
@@ -166,8 +169,6 @@ impl Transform for GenericAttributionTransform {
                     // not enough data yet
                     // TODO handle stale data: it could happen that we have some isolated measurements and we'll never get more, we should remove them after some time
                 }
-
-                // synchronize everything so we have the same timestamps for every timeserie
             }
         }
         Ok(())

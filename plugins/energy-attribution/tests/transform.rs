@@ -27,7 +27,7 @@ const CONFIG_CPU: &str = r#"
         cpu_energy = { metric = "rapl_consumed_energy", resource_kind = "local_machine", domain = "package_total" }
 
         [per_consumer]
-        cpu_usage = { metric = "cpu_usage_percent" }
+        cpu_usage = { metric = "cpu_percent", kind = "total" }
     "#;
 
 #[test]
@@ -275,10 +275,10 @@ struct CpuMetrics {
 impl CpuMetrics {
     fn find_in(metrics: &MetricRegistry) -> Self {
         let rapl_consumed_energy = metrics.by_name("rapl_consumed_energy").unwrap().0;
-        let cpu_usage_percent = metrics.by_name("cpu_usage_percent").unwrap().0;
+        let cpu_percent = metrics.by_name("cpu_percent").unwrap().0;
         Self {
             rapl_consumed_energy,
-            cpu_usage_percent,
+            cpu_usage_percent: cpu_percent,
         }
     }
 }

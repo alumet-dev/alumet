@@ -1,6 +1,6 @@
 use alumet::{
     measurement::{MeasurementPoint, WrappedMeasurementValue},
-    metrics::{RawMetricId, registry::MetricRegistry},
+    metrics::{registry::MetricRegistry, RawMetricId, TypedMetricId},
 };
 use anyhow::{Context, anyhow};
 use evalexpr::{ContextWithMutableVariables, HashMapContext, Node};
@@ -8,7 +8,7 @@ use rustc_hash::FxHashMap;
 
 pub struct PreparedFormula {
     /// Metric id of the value produced by the formula.
-    pub result_metric_id: RawMetricId,
+    pub result_metric_id: TypedMetricId<f64>,
 
     /// metric id -> eval variable identifier.
     pub metric_to_ident: FxHashMap<RawMetricId, String>,
@@ -71,7 +71,7 @@ impl DataFilter for super::config::FilterConfig {
 pub fn prepare(
     config: super::config::FormulaConfig,
     metrics: &MetricRegistry,
-    result_metric_id: RawMetricId,
+    result_metric_id: TypedMetricId<f64>,
 ) -> anyhow::Result<(PreparedFormula, AttributionParams)> {
     let mut metric_to_ident = FxHashMap::default();
     let mut data_filters = FxHashMap::default();
@@ -140,10 +140,7 @@ pub fn prepare(
 }
 
 impl PreparedFormula {
-    pub fn evaluate(
-        &mut self,
-        multi_point: FxHashMap<RawMetricId, MeasurementPoint>,
-    ) -> anyhow::Result<WrappedMeasurementValue> {
+    pub fn evaluate(&mut self, multi_point: FxHashMap<RawMetricId, MeasurementPoint>) -> anyhow::Result<f64> {
         // prepare the environment
         self.eval_ctx.clear_variables();
         for (k, p) in multi_point {
@@ -155,11 +152,10 @@ impl PreparedFormula {
         // evaluate
         let res = self.expr.eval_with_context(&self.eval_ctx)?;
         match res {
-            evalexpr::Value::Float(v) => Ok(WrappedMeasurementValue::F64(v)),
+            evalexpr::Value::Float(v) => Ok(v),
             evalexpr::Value::Int(v) => {
                 // we only support floats for now (the result metric is created as f64), convert
-                let float = v as f64;
-                Ok(WrappedMeasurementValue::F64(float))
+                Ok(v as f64)
             }
             wrong => Err(anyhow!(
                 "invalid value produced by the formula: expected int or float, got {wrong:?}"
