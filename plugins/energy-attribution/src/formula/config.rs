@@ -2,25 +2,25 @@ use alumet::measurement::AttributeValue;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FormulaConfig {
     pub(super) formula: String,
 
     #[serde(rename = "ref")]
-    pub reference_metric_name: String,
+    pub reference_ident: String,
 
     pub(super) per_resource: FxHashMap<String, FormulaTimeseriesConfig>,
     pub(super) per_consumer: FxHashMap<String, FormulaTimeseriesConfig>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FormulaTimeseriesConfig {
     pub(super) metric: String,
     #[serde(flatten)]
     pub(super) filters: FilterConfig,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FilterConfig {
     pub(super) resource_kind: Option<String>,
     pub(super) resource_id: Option<String>,
@@ -32,7 +32,7 @@ pub struct FilterConfig {
     pub(super) attributes: FxHashMap<String, FilterAttributeValue>,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(untagged)]
 pub enum FilterAttributeValue {
     UInt(u64),
