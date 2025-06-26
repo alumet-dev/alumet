@@ -34,6 +34,7 @@ fn load_plugins_metadata() -> Vec<PluginMetadata> {
         plugin_energy_attribution::EnergyAttributionPlugin,
         plugin_energy_estimation_tdp::EnergyEstimationTdpPlugin,
         plugin_elasticsearch::ElasticSearchPlugin,
+        plugin_kwollect::KwollectPlugin,
     ];
 
     // plugins that only work on Linux
