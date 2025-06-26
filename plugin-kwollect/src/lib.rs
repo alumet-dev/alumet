@@ -57,7 +57,7 @@ pub struct Config {
     pub hostname: String,
 }
 
-fn default_client_name() -> String {
+fn default_client_name_and_site() -> (String, String) {
     let binding = hostname::get()
         .expect("No client_name specified in the config, and unable to retrieve the hostname of the current node.");
     let fullname = binding.to_string_lossy().to_string();
@@ -80,17 +80,18 @@ fn default_client_name() -> String {
     // Let's retrieve only the nodename
     let parts: Vec<&str> = fullname.split('.').collect();
     if parts.len() >= 2 && sites.contains(&parts[1]) {
-        parts[0].to_string() // first part of the hostname
+        (parts[0].to_string(), parts[1].to_string()) // first part of the hostname
     } else {
-        fullname // Invalid format or SITE not recognized
+        (fullname, String::from("grenoble")) // Invalid format or SITE not recognized, by default, we will use the grenoble site :)
     }
 }
 
 impl Default for Config {
     fn default() -> Self {
+        let (hostname, site) = default_client_name_and_site();
         Self {
-            url: String::from("http://localhost:8080"),
-            hostname: default_client_name(),
+            url: format!("https://api.grid5000.fr/stable/sites/{site}/metrics"),
+            hostname,
             login: None,
             password: None,
         }
