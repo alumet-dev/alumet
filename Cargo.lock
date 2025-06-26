@@ -52,6 +52,7 @@ dependencies = [
  "log",
  "num_enum",
  "ordered-float",
+ "pretty_assertions",
  "rustc-hash",
  "serde",
  "serial_test",
@@ -2539,12 +2540,14 @@ version = "0.1.0"
 dependencies = [
  "alumet",
  "anyhow",
+ "env_logger",
  "evalexpr",
  "log",
  "pretty_assertions",
  "rustc-hash",
  "serde",
  "serde_json",
+ "time",
  "toml",
 ]
 
