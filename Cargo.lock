@@ -52,6 +52,7 @@ dependencies = [
  "nc",
  "num_enum",
  "ordered-float",
+ "pretty_assertions",
  "rustc-hash",
  "serde",
  "serial_test",
