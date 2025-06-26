@@ -26,10 +26,15 @@ pub struct MultiSyncInterpolator<'a, K: Eq + Hash + Clone> {
     pub series: FxHashMap<K, &'a [MeasurementPoint]>,
 }
 
+#[derive(Debug)]
 pub struct InterpolationBoundaries {
+    /// max_S(min_t(S)): for each serie, find the minimum timestamp, and take the max of them
     pub inf: Timestamp,
+    /// min_S(max_t(S)): for each serie, find the maximum timestamp, and take the min of them
     pub sup: Timestamp,
+    /// The first point, in the reference series, that we can use.
     pub ref_first: (usize, Timestamp),
+    /// The last point, in the reference series, that we can use.
     pub ref_last: (usize, Timestamp),
 }
 
@@ -46,6 +51,8 @@ impl<'a, K: Eq + Hash + Clone> MultiSyncInterpolator<'a, K> {
         // ref_first = min_t(t(ref) | t >= inf)
         // ref_last = min_t(t(ref) | t <= sup)
         // range = [ref_first, ref_last]
+        assert!(self.reference.is_sorted_by_key(|p| p.timestamp));
+
         let inf = self
             .series
             .values()
@@ -84,22 +91,24 @@ impl<'a, K: Eq + Hash + Clone> MultiSyncInterpolator<'a, K> {
             })
             .next();
         if let (Some(ref_first), Some(ref_last)) = (ref_first, ref_last) {
-            Some(InterpolationBoundaries {
-                inf,
-                sup,
-                ref_first,
-                ref_last,
-            })
-        } else {
-            None
+            if ref_first <= ref_last {
+                // TODO use if-let-chain when Rust version gets upgraded
+                return Some(InterpolationBoundaries {
+                    inf,
+                    sup,
+                    ref_first,
+                    ref_last,
+                });
+            };
         }
+        None
     }
 
     pub fn sync_interpolate(&self, boundaries: &InterpolationBoundaries) -> SyncResult<K> {
         // extract reference
         let ref_first = boundaries.ref_first.0;
         let ref_last = boundaries.ref_last.0;
-        let time_ref = &self.reference[ref_first..ref_last];
+        let time_ref = &self.reference[ref_first..=ref_last];
 
         // init result
         let mut res = SyncResult {
