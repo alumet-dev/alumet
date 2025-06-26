@@ -51,7 +51,7 @@ impl DataFilter for super::config::FilterConfig {
                 return false;
             }
         }
-        if let Some(consumer_id) = &self.resource_kind {
+        if let Some(consumer_id) = &self.consumer_id {
             if point.consumer.id_display().to_string() != *consumer_id {
                 return false;
             }
@@ -77,38 +77,47 @@ pub fn prepare(
     let mut data_filters = FxHashMap::default();
     let mut general_metrics = Vec::default();
     let mut consumer_metrics = Vec::default();
+    let mut temporal_ref_metric = None;
 
-    let reference_metric_id = metrics
-        .by_name(&config.reference_metric_name)
-        .with_context(|| {
-            format!(
-                "could not find the temporal reference metric {}",
-                config.reference_metric_name
-            )
-        })?
-        .0;
-    metric_to_ident.insert(reference_metric_id, config.reference_metric_name);
+    log::debug!("preparing: {config:?}");
 
+    // Gather the MetricId of the metrics that are used in the formula.
     for (ident, serie_config) in config.per_resource {
+        let metric_name = &serie_config.metric;
         let metric_id = metrics
-            .by_name(&serie_config.metric)
-            .with_context(|| format!("could not find the per_resource metric {ident}"))?
+            .by_name(metric_name)
+            .with_context(|| format!("could not find metric '{metric_name}' for per_resource formula input '{ident}'"))?
             .0;
+
+        // Is this the temporal reference? Save its id.
+        if ident == config.reference_ident {
+            temporal_ref_metric = Some(metric_id);
+        }
+
         metric_to_ident.insert(metric_id, ident);
 
         general_metrics.push(metric_id);
         data_filters.insert(metric_id, Box::new(serie_config.filters) as _);
     }
     for (ident, serie_config) in config.per_consumer {
+        let metric_name = &serie_config.metric;
         let metric_id = metrics
-            .by_name(&serie_config.metric)
-            .with_context(|| format!("could not find the per_consumer metric {ident}"))?
+            .by_name(metric_name)
+            .with_context(|| format!("could not find metric '{metric_name}' for per_consumer formula input '{ident}'"))?
             .0;
         metric_to_ident.insert(metric_id, ident);
 
         consumer_metrics.push(metric_id);
         data_filters.insert(metric_id, Box::new(serie_config.filters) as _);
     }
+
+    // ensure that we have found the reference
+    let temporal_ref_metric = temporal_ref_metric.with_context(|| {
+        format!(
+            "temporal reference '{}' not found, it should be declared in the `per_resource` timeseries",
+            config.reference_ident
+        )
+    })?;
 
     // compile the expression to speed up evaluation later
     let expr = evalexpr::build_operator_tree(&config.formula)
@@ -124,7 +133,7 @@ pub fn prepare(
         data_filters,
         general_metrics,
         consumer_metrics,
-        temporal_ref_metric: reference_metric_id,
+        temporal_ref_metric,
     };
 
     Ok((formula, params))

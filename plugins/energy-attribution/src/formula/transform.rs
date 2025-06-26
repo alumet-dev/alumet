@@ -37,14 +37,14 @@ pub struct AttributionState {
     params: AttributionParams,
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct ResourceData {
     general: ByMetricBuffer,
     per_consumer: FxHashMap<ResourceConsumer, ByMetricBuffer>,
     // TODO support more complex keys
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct ByMetricBuffer(FxHashMap<RawMetricId, Vec<MeasurementPoint>>);
 
 impl ByMetricBuffer {
@@ -71,6 +71,7 @@ impl AttributionState {
             let filter = self.params.data_filters.get(&p.metric);
             if !filter.is_some_and(|f| f.accept(p)) {
                 // we don't need this data point
+                log::trace!("filtered out: {p:?}");
                 continue;
             }
 
@@ -96,6 +97,7 @@ impl AttributionState {
 impl Transform for GenericAttributionTransform {
     fn apply(&mut self, measurements: &mut MeasurementBuffer, _ctx: &TransformContext) -> Result<(), TransformError> {
         self.state.extend(&measurements);
+        log::trace!("attribution buffer: {:?}", self.state.buffer_per_resource);
 
         let temporal_ref_metric = self.state.params.temporal_ref_metric;
 
@@ -103,11 +105,15 @@ impl Transform for GenericAttributionTransform {
         for (resource, rd) in &mut self.state.buffer_per_resource {
             let general = &rd.general;
 
-            // for now, the time reference MUST be a "general" per-resource metric
-            let temporal_ref = general
-                .0
-                .get(&temporal_ref_metric)
-                .expect("temporal ref should exist in general metric buffer");
+            // For now, the time reference MUST be a "general" per-resource metric.
+            // However, it may not be present in the buffer if we have not received it yet.
+            let temporal_ref = general.0.get(&temporal_ref_metric);
+
+            if temporal_ref.is_none() {
+                // todo write this nicely
+                continue;
+            }
+            let temporal_ref = temporal_ref.unwrap();
 
             // for each consumer of this resource
             for (consumer, cd) in &mut rd.per_consumer {
@@ -131,12 +137,14 @@ impl Transform for GenericAttributionTransform {
 
                 // compute in which limits we can interpolate
                 let boundaries = sync.interpolation_boundaries();
+                log::trace!("interpolation boundaries for {consumer:?}: {boundaries:?}");
                 if let Some(boundaries) = boundaries {
                     // we have enough data to perform an synchronisation, let's do it!
                     let synced = sync.sync_interpolate(&boundaries);
 
                     // for each multi-point, evaluate the attribution formula
                     for (t, multi_point) in synced.series {
+                        log::trace!("evaluating formula at {t:?} with {multi_point:?}");
                         let attributed = self
                             .formula
                             .evaluate(multi_point)
