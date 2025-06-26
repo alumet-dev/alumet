@@ -24,7 +24,6 @@ members = [
     "plugin-mongodb",
     "plugin-elasticsearch",
     "test-dynamic-plugins", 
-    "plugin-example", 
     "plugin-kwollect",
 ]
 

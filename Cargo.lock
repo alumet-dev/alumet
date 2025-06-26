@@ -2558,15 +2558,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "plugin-example"
-version = "0.1.0"
-dependencies = [
- "alumet",
- "anyhow",
- "log",
-]
-
-[[package]]
 name = "plugin-grace-hopper"
 version = "0.1.0"
 dependencies = [
