@@ -1,4 +1,4 @@
-use std::{ops::ControlFlow, time::Duration};
+use std::{ops::ControlFlow, sync::{Arc, Mutex}, time::Duration};
 
 use alumet::pipeline::{
     Source,
@@ -30,6 +30,9 @@ pub struct NoCallback;
 
 impl CgroupRemovalCallback for NoCallback {
     fn on_cgroups_removed(&mut self, cgroups: Vec<Cgroup>) -> anyhow::Result<()> {
+        for cgroup in cgroups {
+            log::debug!("Cgroup removed: {}", cgroup);
+        }
         Ok(())
     }
 }
@@ -49,6 +52,7 @@ pub struct SourceSettings {
 /// Reacts to cgroup events.
 pub struct CgroupReactor {
     _wait: CgroupMountWait,
+    _detectors: Arc<Mutex<Vec<CgroupDetector>>>,
 }
 
 /// Configuration of the [`CgroupReactor`].
@@ -83,7 +87,7 @@ pub struct ReactorCallbacks<S: CgroupSetupCallback, R: CgroupRemovalCallback> {
 }
 
 struct WaitCallback<S: CgroupSetupCallback, R: CgroupRemovalCallback> {
-    detectors: Vec<CgroupDetector>,
+    detectors: Arc<Mutex<Vec<CgroupDetector>>>,
     rt: tokio::runtime::Runtime,
     state: CloneableState<S, R>,
 }
@@ -114,20 +118,22 @@ impl CgroupReactor {
         callbacks: ReactorCallbacks<impl CgroupSetupCallback, impl CgroupRemovalCallback>,
         alumet_control: PluginControlHandle,
     ) -> anyhow::Result<Self> {
-        let callback = WaitCallback::new(metrics, callbacks, alumet_control);
+        let detectors: Arc<Mutex<Vec<CgroupDetector>>> = Arc::new(Mutex::new(Vec::new()));
+        let callback = WaitCallback::new(metrics, callbacks, alumet_control, Arc::clone(&detectors));
         let _wait = CgroupMountWait::new(config.v1_coalesce_delay, callback)?;
-        Ok(Self { _wait })
+        Ok(Self { _wait, _detectors: detectors })
     }
 }
 
 impl<S: CgroupSetupCallback, R: CgroupRemovalCallback> WaitCallback<S, R> {
-    fn new(metrics: Metrics, callbacks: ReactorCallbacks<S, R>, alumet_control: PluginControlHandle) -> Self {
+    fn new(metrics: Metrics, callbacks: ReactorCallbacks<S, R>, alumet_control: PluginControlHandle, detectors: Arc<Mutex<Vec<CgroupDetector>>>) -> Self {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_time()
             .build()
             .expect("I need a current-thread runtime");
+        
         Self {
-            detectors: Vec::new(),
+            detectors: detectors,
             state: CloneableState {
                 metrics,
                 callbacks,
@@ -147,7 +153,9 @@ impl<S: CgroupSetupCallback, R: CgroupRemovalCallback> mount_wait::Callback for 
                 state: self.state.clone(),
             };
             let detector = CgroupDetector::new(h, config, callback)?;
-            self.detectors.push(detector);
+            let mut detectors_lock = self.detectors.lock().unwrap(); // Handle potential lock error
+            detectors_lock.push(detector);
+            // self.detectors.push(detector);
         }
         Ok(ControlFlow::Break(()))
     }

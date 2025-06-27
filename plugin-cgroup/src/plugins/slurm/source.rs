@@ -1,8 +1,4 @@
-use std::process::Command;
-
-use alumet::{measurement::AttributeValue, pipeline::elements::source::trigger::TriggerSpec};
-use anyhow::{Context, anyhow};
-use log::warn;
+use alumet::pipeline::elements::source::trigger::TriggerSpec;
 use util_cgroups::Cgroup;
 
 // use super::OarVersion;
@@ -48,7 +44,7 @@ impl JobSourceSetup {
 impl CgroupSetupCallback for JobSourceSetup {
     fn setup_new_probe(&mut self, cgroup: &Cgroup, metrics: &Metrics) -> Option<ProbeSetup> {
         // extracts attributes "job_id" and ("user" or "user_id")
-        let mut attrs = self
+        let attrs = self
             .extractor
             .extract(cgroup.canonical_path())
             .expect("bad regex: it should only match if the input can be parsed into the specified types");
@@ -59,8 +55,6 @@ impl CgroupSetupCallback for JobSourceSetup {
 
         if is_job {
             let job_id = find_jobid_in_attrs(&attrs).expect("job_id should be set");
-            // log::info!("job_id is: {:?}, attrs: {:?}", job_id, attrs);
-            // attrs.push((String::from("job_id"), AttributeValue::String(job_id.to_string())));
 
             // give a nice name
             name = format!(
@@ -83,22 +77,6 @@ impl CgroupSetupCallback for JobSourceSetup {
             source_settings,
         })
     }
-}
-
-fn username_from_id(id: u64) -> anyhow::Result<String> {
-    let child = Command::new("id")
-        .args(&["-n", "-u", &id.to_string()])
-        .spawn()
-        .context("failed to spawn process id")?;
-    let output = child
-        .wait_with_output()
-        .context("failed to wait for process id to terminate")?;
-    if !output.status.success() {
-        let error_message = String::from_utf8_lossy(&output.stderr).into_owned();
-        return Err(anyhow!("process id failed with {}", output.status).context(error_message));
-    }
-    let username = String::from_utf8_lossy(&output.stdout).into_owned();
-    Ok(username)
 }
 
 #[cfg(test)]
