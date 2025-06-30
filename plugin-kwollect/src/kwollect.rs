@@ -1,44 +1,55 @@
 use alumet::measurement::{AttributeValue, WrappedMeasurementValue};
-use serde_json::Value;
+use serde::{ser::SerializeMap, Serialize};
 use std::collections::HashMap;
 
 pub struct Measure {
     pub device_id: String,
-    pub label: HashMap<String, AttributeValue>,
-    pub name: String,
+    pub labels: HashMap<String, AttributeValue>,
+    pub metric_id: String,
     pub timestamp: f64,
     pub value: WrappedMeasurementValue,
 }
 
-pub fn format_to_json(entry: Measure) -> Value {
-    let mut obj = serde_json::map::Map::new();
-    obj.insert(
-        "_timestamp".to_string(),
-        Value::Number(serde_json::Number::from_f64(entry.timestamp).unwrap()),
-    );
-    obj.insert("metric_id".to_string(), Value::String(entry.name));
-    match entry.value {
-        WrappedMeasurementValue::F64(value) => {
-            obj.insert(
-                "value".to_string(),
-                Value::Number(serde_json::Number::from_f64(value).unwrap()),
-            );
-        }
-        WrappedMeasurementValue::U64(value) => {
-            obj.insert(
-                "value".to_string(),
-                Value::Number(serde_json::Number::from_u128(value as u128).unwrap()),
-            );
-        }
-    }
-    obj.insert("device_id".to_string(), Value::String(entry.device_id));
-    let mut labels = serde_json::map::Map::new();
-    for attr in entry.label {
-        labels.insert(attr.0.to_string(), Value::String(attr.1.to_string()));
-    }
-    obj.insert("labels".to_string(), Value::Object(labels));
+impl Serialize for Measure {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(5))?;
+        map.serialize_entry("_timestamp", &self.timestamp)?;
+        map.serialize_entry("metric_id", &self.metric_id)?;
+        map.serialize_entry("device_id", &self.device_id)?;
 
-    Value::Object(obj)
+        match self.value {
+            WrappedMeasurementValue::F64(v) => map.serialize_entry("value", &v)?,
+            WrappedMeasurementValue::U64(v) => map.serialize_entry("value", &v)?,
+        };
+
+        struct LabelsSerializer<'a>(&'a HashMap<String, AttributeValue>);
+
+        impl Serialize for LabelsSerializer<'_> {
+            fn serialize<T>(&self, serializer: T) -> Result<T::Ok, T::Error>
+            where
+                T: serde::Serializer,
+            {
+                let mut labels_map = serializer.serialize_map(Some(self.0.len()))?;
+                for (key, value) in self.0 {
+                    match value {
+                        AttributeValue::Bool(v) => labels_map.serialize_entry(key, v)?,
+                        AttributeValue::F64(v) => labels_map.serialize_entry(key, v)?,
+                        AttributeValue::U64(v) => labels_map.serialize_entry(key, v)?,
+                        AttributeValue::Str(v) => labels_map.serialize_entry(key, v)?,
+                        AttributeValue::String(v) => labels_map.serialize_entry(key, v)?,
+                    }
+                }
+                labels_map.end()
+            }
+        }
+
+        map.serialize_entry("labels", &LabelsSerializer(&self.labels))?;
+
+        map.end()
+    }
 }
 
 #[cfg(test)]
@@ -48,18 +59,18 @@ mod tests {
     use alumet::measurement::{AttributeValue, WrappedMeasurementValue};
     use serde_json::Value;
 
-    use crate::kwollect::{format_to_json, Measure};
+    use crate::kwollect::Measure;
 
     #[test]
-    fn test_format_to_json_f64() {
+    fn test_serialize_impl() {
         let entry = Measure {
             device_id: String::from("Iorek"),
-            label: HashMap::new(),
-            name: String::from("Byrnison"),
+            labels: HashMap::new(),
+            metric_id: String::from("Byrnison"),
             timestamp: 1750930866.0,
             value: WrappedMeasurementValue::F64(19.0),
         };
-        let formated = format_to_json(entry);
+        let formated = serde_json::to_value(&entry).unwrap();
         assert!(formated.is_object());
         if let Value::Object(map) = &formated {
             for (key, value) in map {
@@ -72,8 +83,8 @@ mod tests {
                         }
                     }
                     "device_id" => {
-                        if let Value::String(device) = value {
-                            assert_eq!(*device, String::from("Iorek"))
+                        if let Value::String(device_id) = value {
+                            assert_eq!(*device_id, String::from("Iorek"))
                         } else {
                             assert!(false)
                         }
@@ -82,8 +93,8 @@ mod tests {
                         assert!(value.is_object())
                     }
                     "metric_id" => {
-                        if let Value::String(device) = value {
-                            assert_eq!(*device, String::from("Byrnison"))
+                        if let Value::String(metric_id) = value {
+                            assert_eq!(*metric_id, String::from("Byrnison"))
                         } else {
                             assert!(false)
                         }
@@ -111,15 +122,18 @@ mod tests {
         label.insert("William".to_string(), AttributeValue::String("Kirjava".to_string()));
         label.insert("Lyra".to_string(), AttributeValue::String("Pantalaimon".to_string()));
         label.insert("Alethiometer".to_string(), AttributeValue::U64(6));
+        label.insert("Read".to_string(), AttributeValue::Bool(true));
+        label.insert("score".to_string(), AttributeValue::F64(4.4));
+        label.insert("author".to_string(), AttributeValue::Str("Philip Pullman"));
 
         let entry = Measure {
             device_id: String::from("Pantalaimon"),
-            label: label,
-            name: String::from("Kirjava"),
+            labels: label,
+            metric_id: String::from("Kirjava"),
             timestamp: 1750930867.0,
             value: WrappedMeasurementValue::U64(12),
         };
-        let formated = format_to_json(entry);
+        let formated = serde_json::to_value(&entry).unwrap();
         assert!(formated.is_object());
         if let Value::Object(map) = &formated {
             for (key, value) in map {
@@ -132,18 +146,57 @@ mod tests {
                         }
                     }
                     "device_id" => {
-                        if let Value::String(device) = value {
-                            assert_eq!(*device, String::from("Pantalaimon"))
+                        if let Value::String(device_id) = value {
+                            assert_eq!(*device_id, String::from("Pantalaimon"))
                         } else {
                             assert!(false)
                         }
                     }
                     "labels" => {
-                        assert!(value.is_object())
+                        assert!(value.is_object());
+                        match value {
+                            Value::Null => assert!(false),
+                            Value::Bool(_) => assert!(false),
+                            Value::Number(_) => assert!(false),
+                            Value::String(_) => assert!(false),
+                            Value::Array(_) => assert!(false),
+                            Value::Object(map) => {
+                                for (key, value) in map {
+                                    match key.as_str() {
+                                        "William" => {
+                                            assert!(value.is_string());
+                                            assert_eq!(value, "Kirjava");
+                                        }
+                                        "Lyra" => {
+                                            assert!(value.is_string());
+                                            assert_eq!(value, "Pantalaimon");
+                                        }
+                                        "Alethiometer" => {
+                                            assert!(value.is_u64());
+                                            assert_eq!(value, 6);
+                                        }
+                                        "Read" => {
+                                            assert!(value.is_boolean());
+                                            assert_eq!(value, true);
+                                        }
+                                        "score" => {
+                                            assert!(value.is_f64());
+                                            assert_eq!(value, 4.4 as f64);
+                                        }
+                                        "author" => {
+                                            assert_eq!(value, "Philip Pullman");
+                                        }
+                                        _ => {
+                                            assert!(false);
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                     "metric_id" => {
-                        if let Value::String(device) = value {
-                            assert_eq!(*device, String::from("Kirjava"))
+                        if let Value::String(metric_id) = value {
+                            assert_eq!(*metric_id, String::from("Kirjava"))
                         } else {
                             assert!(false)
                         }

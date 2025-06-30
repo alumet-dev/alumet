@@ -24,8 +24,8 @@ Here is a configuration example of the kwollect plugin. It's part of the Alumet 
 ```toml
 [plugins.kwollect]
 # Url of the Grid'5000 API, it needs to specify the correct site used
-url = "http://localhost:8080"
-# Name of the machine 
+url = "https://api.grid5000.fr/stable/sites/grenoble/metrics"
+# Name of the machine
 hostname = "mars"
 # Login and password used to push the metric, both are optional. If none are specified, it will push using the current user
 login = 

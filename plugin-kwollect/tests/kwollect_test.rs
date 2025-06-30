@@ -1,13 +1,11 @@
 pub mod fakeplugin;
 
+use alumet::agent::plugin::PluginInfo;
 use alumet::{
-    agent::{
-        self,
-        plugin::{PluginInfo, PluginSet},
-    },
+    agent::{self, plugin::PluginSet},
     measurement::{AttributeValue, MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementValue},
     pipeline::naming::OutputName,
-    plugin::PluginMetadata,
+    plugin::{rust::AlumetPlugin, PluginMetadata},
     resources::{Resource, ResourceConsumer},
     test::{runtime::OutputCheckInputContext, RuntimeExpectations},
 };
@@ -151,6 +149,11 @@ fn test_with_auth() {
         .unwrap();
 
     agent.wait_for_shutdown(Duration::from_secs(2)).unwrap();
+}
+
+#[test]
+fn test_default_config() {
+    let _ = crate::KwollectPlugin::init(KwollectPlugin::default_config().unwrap().unwrap()).unwrap();
 }
 
 fn config_to_toml_table(config: &Config) -> toml::Table {

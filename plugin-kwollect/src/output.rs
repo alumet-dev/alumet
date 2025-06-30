@@ -5,10 +5,9 @@ use alumet::{
     pipeline::elements::{error::WriteError, output::OutputContext},
 };
 use anyhow::Context;
-use reqwest::{Client, StatusCode};
-use serde_json::Value;
+use reqwest::{blocking::Client, StatusCode};
 
-use crate::kwollect::{format_to_json, Measure};
+use crate::kwollect::Measure;
 
 pub struct KwollectOutput {
     client: Client,
@@ -39,8 +38,10 @@ impl KwollectOutput {
 
 impl alumet::pipeline::Output for KwollectOutput {
     fn write(&mut self, measurements: &MeasurementBuffer, ctx: &OutputContext) -> Result<(), WriteError> {
-        let mut json_list = Value::Array(vec![]);
+        // let mut json_list = Value::Array(vec![]);
+        let mut json_list = Vec::new();
         for measure in measurements.iter() {
+            log::info!("MEASURE");
             let full_metric = ctx
                 .metrics
                 .by_id(&measure.metric)
@@ -55,29 +56,25 @@ impl alumet::pipeline::Output for KwollectOutput {
             }
             let entry = Measure {
                 timestamp: ts,
-                name: metric_name,
+                metric_id: metric_name,
                 value: measure.value.clone(),
                 device_id: self.node.clone(),
-                label: json_map,
+                labels: json_map,
             };
-            let formated = format_to_json(entry);
-            if let Value::Array(ref mut array) = json_list {
-                array.push(formated);
-            }
+            let serialized = serde_json::to_value(&entry).unwrap();
+            json_list.push(serialized);
         }
-        let rt = tokio::runtime::Handle::current();
-        rt.block_on(async {
-            let mut request_builder = self.client.post(&self.url);
-            if let Some((user, pass)) = &self.auth {
-                request_builder = request_builder.basic_auth(user, Some(pass));
-            }
-            let res = request_builder.json(&json_list).send().await.unwrap();
 
-            if res.status() != StatusCode::OK {
-                let body = res.text().await.unwrap();
-                log::error!("response from remote: {}", body)
-            }
-        });
+        let mut request_builder = self.client.post(&self.url);
+        if let Some((user, pass)) = &self.auth {
+            request_builder = request_builder.basic_auth(user, Some(pass));
+        }
+        let res = request_builder.json(&json_list).send().unwrap();
+
+        if res.status() != StatusCode::OK {
+            let body = res.text().unwrap();
+            log::error!("response from remote: {}", body)
+        }
 
         Ok(())
     }
