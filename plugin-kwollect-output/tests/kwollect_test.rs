@@ -11,7 +11,7 @@ use alumet::{
 };
 use base64::prelude::*;
 use mockito::{Mock, Server, ServerGuard};
-use plugin_kwollect::{Config, KwollectPlugin};
+use plugin_kwollect_output::{Config, KwollectPlugin};
 use std::time::Duration;
 
 use crate::fakeplugin::TestsPlugin;
@@ -47,7 +47,7 @@ fn test_with_no_auth() {
     config.url = server.url();
     config.login = None;
     config.password = None;
-    config.hostname = "DHARMA".to_string();
+    config.hostname = Some("DHARMA".to_string());
 
     plugins.add_plugin(PluginInfo {
         metadata: PluginMetadata::from_static::<KwollectPlugin>(),
@@ -82,7 +82,7 @@ fn test_with_no_auth() {
     };
 
     let runtime_expectations = RuntimeExpectations::new().test_output(
-        OutputName::from_str("kwollect", "kwollect-output"),
+        OutputName::from_str("kwollect-output", "kwollect-output"),
         make_input,
         check_output,
     );
@@ -104,7 +104,9 @@ fn test_with_auth() {
         url: server.url(),
         login: Some("toto".to_string()),
         password: Some("tata".to_string()),
-        hostname: "DHARMA".to_string(),
+        hostname: Some("DHARMA".to_string()),
+        append_unit_to_metric_name: true,
+        use_unit_display_name: false,
     };
 
     plugins.add_plugin(PluginInfo {
@@ -138,7 +140,7 @@ fn test_with_auth() {
     };
 
     let runtime_expectations = RuntimeExpectations::new().test_output(
-        OutputName::from_str("kwollect", "kwollect-output"),
+        OutputName::from_str("kwollect-output", "kwollect-output"),
         make_input,
         check_output,
     );

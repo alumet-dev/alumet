@@ -13,7 +13,7 @@ pub struct KwollectPlugin {
 
 impl AlumetPlugin for KwollectPlugin {
     fn name() -> &'static str {
-        "kwollect"
+        "kwollect-output"
     }
 
     fn version() -> &'static str {
@@ -30,14 +30,13 @@ impl AlumetPlugin for KwollectPlugin {
     }
 
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
-        let url = &self.config.url;
-        let login = self.config.login.clone();
-        let password = self.config.password.clone();
         let output = Box::new(KwollectOutput::new(
-            url.to_owned(),
+            self.config.url.to_owned(),
             self.config.hostname.clone(),
-            login,
-            password,
+            self.config.login.clone(),
+            self.config.password.clone(),
+            self.config.append_unit_to_metric_name,
+            self.config.use_unit_display_name,
         )?);
         alumet.add_blocking_output("kwollect-output", output)?;
 
@@ -54,7 +53,9 @@ pub struct Config {
     pub url: String,
     pub login: Option<String>,
     pub password: Option<String>,
-    pub hostname: String,
+    pub hostname: Option<String>,
+    pub append_unit_to_metric_name: bool,
+    pub use_unit_display_name: bool,
 }
 
 fn default_client_name_and_site() -> (String, String) {
@@ -77,9 +78,11 @@ impl Default for Config {
         let (hostname, site) = default_client_name_and_site();
         Self {
             url: format!("https://api.grid5000.fr/stable/sites/{site}/metrics"),
-            hostname,
+            hostname: Some(hostname),
             login: None,
             password: None,
+            append_unit_to_metric_name: true,
+            use_unit_display_name: true,
         }
     }
 }

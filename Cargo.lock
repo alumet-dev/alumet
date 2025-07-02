@@ -86,7 +86,7 @@ dependencies = [
  "plugin-energy-estimation-tdp",
  "plugin-grace-hopper",
  "plugin-influxdb",
- "plugin-kwollect",
+ "plugin-kwollect-output",
  "plugin-mongodb",
  "plugin-nvidia-jetson",
  "plugin-nvidia-nvml",
@@ -2585,7 +2585,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "plugin-kwollect"
+name = "plugin-kwollect-output"
 version = "0.1.0"
 dependencies = [
  "alumet",

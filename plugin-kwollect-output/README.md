@@ -1,4 +1,4 @@
-# RAPL plugin
+# Kwollect plugin
 
 The Kwollect plugin is an output plugin. Its aim is to push the metrics to the API of [Grid'5000](https://www.grid5000.fr/w/Grid5000:Home).
 This API use Kwollect and let user push their custom metrics as some metrics are already pushed automatically.

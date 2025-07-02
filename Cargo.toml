@@ -8,10 +8,12 @@ members = [
     "plugin-cgroupv1",
     "plugin-cgroupv2",
     "plugin-csv",
+    "plugin-elasticsearch",
     "plugin-energy-attribution",
     "plugin-energy-estimation-tdp",
     "plugin-grace-hopper",
     "plugin-influxdb",
+    "plugin-kwollect-output",
     "plugin-mongodb",
     "plugin-nvidia-nvml",
     "plugin-nvidia-jetson",
@@ -22,9 +24,7 @@ members = [
     "plugin-relay",
     "plugin-socket-control",
     "plugin-mongodb",
-    "plugin-elasticsearch",
     "test-dynamic-plugins", 
-    "plugin-kwollect",
 ]
 
 # To apply the following lint settings to a workspace member,

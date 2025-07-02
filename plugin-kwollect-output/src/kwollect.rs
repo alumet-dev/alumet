@@ -16,7 +16,7 @@ impl Serialize for Measure {
         S: serde::Serializer,
     {
         let mut map = serializer.serialize_map(Some(5))?;
-        map.serialize_entry("_timestamp", &self.timestamp)?;
+        map.serialize_entry("timestamp", &self.timestamp)?;
         map.serialize_entry("metric_id", &self.metric_id)?;
         map.serialize_entry("device_id", &self.device_id)?;
 
@@ -45,7 +45,6 @@ impl Serialize for Measure {
                 labels_map.end()
             }
         }
-
         map.serialize_entry("labels", &LabelsSerializer(&self.labels))?;
 
         map.end()
@@ -75,7 +74,7 @@ mod tests {
         if let Value::Object(map) = &formated {
             for (key, value) in map {
                 match key.as_str() {
-                    "_timestamp" => {
+                    "timestamp" => {
                         if let Value::Number(ts) = value {
                             assert_eq!(ts.as_f64().unwrap(), 1750930866.0 as f64)
                         } else {
@@ -138,7 +137,7 @@ mod tests {
         if let Value::Object(map) = &formated {
             for (key, value) in map {
                 match key.as_str() {
-                    "_timestamp" => {
+                    "timestamp" => {
                         if let Value::Number(ts) = value {
                             assert_eq!(ts.as_f64().unwrap(), 1750930867.0 as f64)
                         } else {
