@@ -11,6 +11,7 @@ members = [
     "plugins/energy-estimation-tdp",
     "plugins/grace-hopper",
     "plugins/influxdb",
+    "plugins/kwollect-input",
     "plugins/kwollect-output",
     "plugins/mongodb",
     "plugins/nvidia-jetson",

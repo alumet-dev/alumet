@@ -31,6 +31,7 @@ plugin-aggregation = { path = "../plugins/aggregation" }
 plugin-energy-attribution = { path = "../plugins/energy-attribution" }
 plugin-energy-estimation-tdp = { path = "../plugins/energy-estimation-tdp" }
 plugin-elasticsearch = { path = "../plugins/elasticsearch" }
+plugin-kwollect-input = { path = "../plugins/kwollect-input" }
 plugin-kwollect-output = { path = "../plugins/kwollect-output" }
 
 # Linux-only dependencies

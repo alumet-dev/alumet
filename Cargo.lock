@@ -84,6 +84,7 @@ dependencies = [
  "plugin-grace-hopper",
  "plugin-influxdb",
  "plugin-k8s",
+ "plugin-kwollect-input",
  "plugin-kwollect-output",
  "plugin-mongodb",
  "plugin-nvidia-jetson",
@@ -467,8 +468,10 @@ checksum = "c469d952047f47f91b68d1cba3f10d63c11d73e4636f24f08daf0278abf01c4d"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
+ "js-sys",
  "num-traits",
  "serde",
+ "wasm-bindgen",
  "windows-link",
 ]
 
@@ -939,6 +942,16 @@ checksum = "778e2ac28f6c47af28e4907f13ffd1e1ddbd400980a9abd7c8df189bf578a5ad"
 dependencies = [
  "libc",
  "windows-sys 0.60.2",
+]
+
+[[package]]
+name = "error-chain"
+version = "0.12.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d2f06b9cac1506ece98fe3231e3cc9c4410ec3d5b1f24ae1c8946f0742cdefc"
+dependencies = [
+ "backtrace",
+ "version_check",
 ]
 
 [[package]]
@@ -1663,9 +1676,9 @@ checksum = "f4c7245a08504955605670dbf141fceab975f15ca21570696aebe9d2e71576bd"
 
 [[package]]
 name = "io-uring"
-version = "0.7.9"
+version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d93587f37623a1a17d94ef2bc9ada592f5465fe7732084ab7beefabe5c77c0c4"
+checksum = "b86e202f00093dcba4275d4636b93ef9dd75d025ae560d2521b45ea28ab49013"
 dependencies = [
  "bitflags 2.9.1",
  "cfg-if",
@@ -2579,6 +2592,24 @@ dependencies = [
  "toml 0.9.5",
  "util-cgroups",
  "util-cgroups-plugins",
+]
+
+[[package]]
+name = "plugin-kwollect-input"
+version = "0.1.0"
+dependencies = [
+ "alumet",
+ "anyhow",
+ "chrono",
+ "error-chain",
+ "hostname",
+ "log",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "time",
+ "tokio",
 ]
 
 [[package]]
