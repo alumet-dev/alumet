@@ -34,6 +34,7 @@ fn load_plugins_metadata() -> Vec<PluginMetadata> {
         plugin_energy_attribution::EnergyAttributionPlugin,
         plugin_energy_estimation_tdp::EnergyEstimationTdpPlugin,
         plugin_elasticsearch::ElasticSearchPlugin,
+        plugin_kwollect_input::KwollectPluginInput
         plugin_kwollect_output::KwollectPlugin,
     ];
 
@@ -121,6 +122,8 @@ fn main() -> anyhow::Result<()> {
             UnknownPluginInConfigPolicy::Error,
         )
         .context("invalid plugins config")?;
+
+    plugins.set_plugin_enabled("plugin-kwollect", true);
 
     // Extract non-plugin config.
     let config = config.try_into::<GeneralConfig>().context("invalid general config")?;
