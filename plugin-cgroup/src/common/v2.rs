@@ -8,7 +8,9 @@ use util_cgroups::{
     Cgroup,
 };
 
-use super::{delta::CpuDeltaCounters, metrics::AugmentedMetric, metrics::AugmentedMetrics, self_stop::analyze_io_result};
+use super::{
+    delta::CpuDeltaCounters, metrics::AugmentedMetric, metrics::AugmentedMetrics, self_stop::analyze_io_result,
+};
 
 pub struct CgroupV2Probe {
     consumer: ResourceConsumer,
