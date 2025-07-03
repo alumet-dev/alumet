@@ -8,7 +8,7 @@ use alumet::{
 };
 
 use mongodb::{
-    bson::{doc, Document},
+    bson::{doc, Bson, Document},
     sync::Client,
 };
 use mongodb2::convert_timestamp;
@@ -116,13 +116,13 @@ impl Output for MongoDbOutput {
                 };
                 match field_value {
                     AttributeValue::F64(v) => {
-                        doc.insert(field_key, v.to_string());
+                        doc.insert(field_key, v);
                     }
                     AttributeValue::U64(v) => {
-                        doc.insert(field_key, format!("{v}u"));
+                        doc.insert(field_key, u64_to_bson(*v));
                     }
                     AttributeValue::Bool(v) => {
-                        doc.insert(field_key, if *v { "T" } else { "F" });
+                        doc.insert(field_key, v);
                     }
                     AttributeValue::Str(v) => {
                         doc.insert(field_key, v);
@@ -130,16 +130,22 @@ impl Output for MongoDbOutput {
                     AttributeValue::String(v) => {
                         doc.insert(field_key, v);
                     }
+                    AttributeValue::ListU64(items) => {
+                        doc.insert(
+                            field_key,
+                            items.into_iter().map(|v| u64_to_bson(*v)).collect::<Vec<_>>(),
+                        );
+                    }
                 }
             }
 
             // Append alumet value
             match m.value {
                 WrappedMeasurementValue::F64(v) => {
-                    doc.insert("value", v.to_string());
+                    doc.insert("value", v);
                 }
                 WrappedMeasurementValue::U64(v) => {
-                    doc.insert("value", format!("{v}u"));
+                    doc.insert("value", u64_to_bson(v));
                 }
             }
 
@@ -158,6 +164,10 @@ impl Output for MongoDbOutput {
 
         Ok(())
     }
+}
+
+fn u64_to_bson(v: u64) -> String {
+    format!("{v}u")
 }
 
 #[derive(Serialize, Deserialize)]

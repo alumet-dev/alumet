@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 alumet = { path = "../alumet" }
 anyhow = "1.0.88"
+itertools = "0.14.0"
 log = "0.4.22"
 serde = { version = "1.0.210", features = ["derive"] }
 tokio = { version = "1.40.0", features = ["rt"] }
