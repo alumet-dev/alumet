@@ -20,6 +20,7 @@ humantime
 hwinfo
 hwmon
 ITLB
+kwollect
 Mispredicted
 miri
 monitorable

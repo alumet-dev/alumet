@@ -1,0 +1,39 @@
+[package]
+name = "plugin-kwollect-output"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alumet = { path = "../alumet" }
+anyhow = "1.0.98"
+base64 = "0.22.1"
+hostname = "0.4.0"
+humantime-serde = "1.1.1"
+log = "0.4.27"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+tokio = "1.45.1"
+
+# Use RusTLS instead of OpenSSL on musl
+[target.'cfg(target_env = "musl")'.dependencies]
+reqwest = { version = "0.12.15", default-features = false, features = [
+    "rustls-tls",
+    "http2",
+    "blocking",
+    "json",
+] }
+[target.'cfg(not(target_env = "musl"))'.dependencies]
+reqwest = { version = "0.12.15", default-features = false, features = [
+    "native-tls",
+    "http2",
+    "blocking",
+    "json",
+] }
+
+[dev-dependencies]
+alumet = {path = "../alumet", features = ["test"]}
+toml = "0.8.19"
+mockito = "1.7.0"
+
+[lints]
+workspace = true
