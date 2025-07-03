@@ -30,6 +30,7 @@ use fxhash::FxBuildHasher;
 use ordered_float::OrderedFloat;
 use smallvec::SmallVec;
 use std::borrow::Cow;
+use std::fmt::Write;
 use std::hash::{Hash, Hasher};
 use std::ops::{Add, Sub};
 use std::time::{Duration, SystemTime, SystemTimeError, UNIX_EPOCH};
@@ -319,6 +320,7 @@ pub enum AttributeValue {
     /// do it: it will save a memory allocation.
     Str(&'static str),
     String(String),
+    ListU64(Vec<u64>),
 }
 
 impl Hash for AttributeValue {
@@ -329,6 +331,7 @@ impl Hash for AttributeValue {
             AttributeValue::U64(u64_value) => u64_value.hash(state),
             AttributeValue::Str(str_value) => str_value.hash(state),
             AttributeValue::String(string_value) => string_value.hash(state),
+            AttributeValue::ListU64(value) => value.hash(state),
         }
     }
 }
@@ -343,6 +346,19 @@ impl Display for AttributeValue {
             AttributeValue::Bool(x) => write!(f, "{x}"),
             AttributeValue::Str(str) => f.write_str(str),
             AttributeValue::String(str) => f.write_str(str),
+            AttributeValue::ListU64(items) => {
+                f.write_char('[')?;
+                let mut first = true;
+                for i in items {
+                    Display::fmt(i, f)?;
+                    if first {
+                        first = false;
+                    } else {
+                        f.write_str(", ")?;
+                    }
+                }
+                f.write_char(']')
+            }
         }
     }
 }
