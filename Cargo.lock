@@ -2792,6 +2792,7 @@ version = "0.1.0"
 dependencies = [
  "alumet",
  "anyhow",
+ "itertools 0.14.0",
  "log",
  "mockito",
  "reqwest",

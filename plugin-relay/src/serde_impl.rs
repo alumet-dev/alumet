@@ -158,6 +158,7 @@ pub enum TypedValue<'a> {
     U64(u64),
     Bool(bool),
     Str(&'a str),
+    ListU64(Vec<u64>), // TODO optimize
 }
 
 #[derive(Serialize, Deserialize)]
@@ -180,8 +181,7 @@ impl<'a> From<TypedValue<'a>> for WrappedMeasurementValue {
         match value {
             TypedValue::F64(v) => WrappedMeasurementValue::F64(v),
             TypedValue::U64(v) => WrappedMeasurementValue::U64(v),
-            TypedValue::Bool(_) => unreachable!("MeasurementPoint values should never be Bool"),
-            TypedValue::Str(_) => unreachable!("MeasurementPoint values should never be Str"),
+            _ => unreachable!("MeasurementPoint values should never be of this type, got {value:?}"),
         }
     }
 }
@@ -194,6 +194,7 @@ impl<'a> From<&'a AttributeValue> for TypedValue<'a> {
             AttributeValue::Bool(v) => TypedValue::Bool(*v),
             AttributeValue::Str(v) => TypedValue::Str(v),
             AttributeValue::String(v) => TypedValue::Str(v),
+            AttributeValue::ListU64(items) => TypedValue::ListU64(items.to_owned()),
         }
     }
 }
@@ -205,6 +206,7 @@ impl<'a> From<&'a TypedValue<'a>> for AttributeValue {
             TypedValue::U64(v) => AttributeValue::U64(*v),
             TypedValue::Bool(v) => AttributeValue::Bool(*v),
             TypedValue::Str(v) => AttributeValue::String(v.to_string()),
+            TypedValue::ListU64(items) => AttributeValue::ListU64(items.to_owned()),
         }
     }
 }
