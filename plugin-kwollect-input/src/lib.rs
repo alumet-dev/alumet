@@ -100,8 +100,8 @@ fn default_client_name_and_site() -> (String, String, String) {
     let fullname = binding.to_string_lossy().to_string();
     let parts: Vec<&str> = fullname.split('.').collect();
     return (
-        parts[0].to_string(),
-        parts[1].to_string(),
+        "lyon".to_string(),     //parts[0].to_string(),
+        "taurus-7".to_string(), //parts[1].to_string(),
         "wattmetre_power_watt".to_string(),
     ); // first part of the hostname
 }
