@@ -8,7 +8,9 @@ use util_cgroups::{
     measure::v2::{V2Collector, cpu::CpuStatCollectorSettings, memory::MemoryStatCollectorSettings},
 };
 
-use super::{delta::CpuDeltaCounters, metrics::AugmentedMetric, metrics::AugmentedMetrics, self_stop::analyze_io_result};
+use super::{
+    delta::CpuDeltaCounters, metrics::AugmentedMetric, metrics::AugmentedMetrics, self_stop::analyze_io_result,
+};
 
 pub struct CgroupV2Probe {
     consumer: ResourceConsumer,

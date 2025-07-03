@@ -189,8 +189,7 @@ mod tests {
     #[test]
     fn regex_extractor_mixed() -> anyhow::Result<()> {
         // use ^ and $ so that we match the whole string
-        let mut extractor =
-            RegexAttributesExtrator::new("^.*/name=(?<name__str>[a-zA-Z0-9]+)/(?<leaf>[a-zA-Z]+)$")?;
+        let mut extractor = RegexAttributesExtrator::new("^.*/name=(?<name__str>[a-zA-Z0-9]+)/(?<leaf>[a-zA-Z]+)$")?;
         assert_eq!(
             extractor.groups,
             vec![
