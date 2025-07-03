@@ -1,4 +1,8 @@
-use std::{ops::ControlFlow, time::Duration};
+use std::{
+    ops::ControlFlow,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use alumet::pipeline::{
     Source,
@@ -47,8 +51,10 @@ pub struct SourceSettings {
 }
 
 /// Reacts to cgroup events.
+#[allow(dead_code)] // fields only exist to keep some values alive
 pub struct CgroupReactor {
-    _wait: CgroupMountWait,
+    wait: CgroupMountWait,
+    detectors: AliveDetectors,
 }
 
 /// Configuration of the [`CgroupReactor`].
@@ -82,8 +88,30 @@ pub struct ReactorCallbacks<S: CgroupSetupCallback, R: CgroupRemovalCallback> {
     pub on_removal: R,
 }
 
+/// Keeps the CgroupDetectors alive until the CgroupReactor goes away.
+///
+/// Holding the `CgroupMountWait` is not enough, because the background thread can stop after an event
+/// (when the wait callback returns `ControlFlow::Break`), which will drop its state, terminating the
+/// detectors if they are owned by the thread.
+#[derive(Clone)]
+struct AliveDetectors {
+    inner: Arc<Mutex<Vec<CgroupDetector>>>,
+}
+
+impl AliveDetectors {
+    fn new() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    fn push(&mut self, detector: CgroupDetector) {
+        self.inner.lock().unwrap().push(detector);
+    }
+}
+
 struct WaitCallback<S: CgroupSetupCallback, R: CgroupRemovalCallback> {
-    detectors: Vec<CgroupDetector>,
+    detectors: AliveDetectors,
     rt: tokio::runtime::Runtime,
     state: CloneableState<S, R>,
 }
@@ -114,20 +142,26 @@ impl CgroupReactor {
         callbacks: ReactorCallbacks<impl CgroupSetupCallback, impl CgroupRemovalCallback>,
         alumet_control: PluginControlHandle,
     ) -> anyhow::Result<Self> {
-        let callback = WaitCallback::new(metrics, callbacks, alumet_control);
-        let _wait = CgroupMountWait::new(config.v1_coalesce_delay, callback)?;
-        Ok(Self { _wait })
+        let detectors = AliveDetectors::new();
+        let callback = WaitCallback::new(metrics, callbacks, alumet_control, detectors.clone());
+        let wait = CgroupMountWait::new(config.v1_coalesce_delay, callback)?;
+        Ok(Self { wait, detectors })
     }
 }
 
 impl<S: CgroupSetupCallback, R: CgroupRemovalCallback> WaitCallback<S, R> {
-    fn new(metrics: Metrics, callbacks: ReactorCallbacks<S, R>, alumet_control: PluginControlHandle) -> Self {
+    fn new(
+        metrics: Metrics,
+        callbacks: ReactorCallbacks<S, R>,
+        alumet_control: PluginControlHandle,
+        detectors: AliveDetectors,
+    ) -> Self {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_time()
             .build()
             .expect("I need a current-thread runtime");
         Self {
-            detectors: Vec::new(),
+            detectors,
             state: CloneableState {
                 metrics,
                 callbacks,
