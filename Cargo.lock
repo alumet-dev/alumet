@@ -2590,6 +2590,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "plugin-kwollect-input"
+version = "0.1.0"
+dependencies = [
+ "alumet",
+ "anyhow",
+ "chrono",
+ "hostname",
+ "log",
+ "serde",
+ "time",
+]
+
+[[package]]
 name = "plugin-kwollect-output"
 version = "0.1.0"
 dependencies = [
@@ -2605,19 +2618,6 @@ dependencies = [
  "serde_json",
  "tokio",
  "toml 0.8.23",
-]
-
-[[package]]
-name = "plugin-kwollect-input"
-version = "0.1.0"
-dependencies = [
- "alumet",
- "anyhow",
- "chrono",
- "hostname",
- "log",
- "serde",
- "time",
 ]
 
 [[package]]
