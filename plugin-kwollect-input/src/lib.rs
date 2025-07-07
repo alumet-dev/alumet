@@ -34,6 +34,9 @@ impl AlumetPlugin for KwollectPluginInput {
         Ok(Box::new(KwollectPluginInput { config }))
     }
 
+    // TODO: adding a source to the stop BUS --> we can try with start bus if we use sleep at the moment no?
+    // TODO: Building response of the API as a csv? --> test with csv plugin
+    // TODO: Erase the sleep and put start_alumet at the tsart and end_alumet at the end
     fn start(&mut self, _alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         log::info!("Kwollect-input plugin is starting");
         let start_alumet: OffsetDateTime = SystemTime::now().into();
@@ -103,7 +106,6 @@ pub struct Config {
     pub password: String,
 }
 
-/// TODO: generalize configuration
 impl Default for Config {
     fn default() -> Self {
         Config {
