@@ -7,10 +7,16 @@ edition = "2024"
 alumet = { version = "0.8.1", path = "../alumet" }
 anyhow = "1.0.98"
 chrono = "0.4.41"
+error-chain = "0.12.4"
 hostname = "0.4.1"
 log = "0.4.27"
-serde = "1.0.219"
+reqwest = { version = "0.12.22", features = ["json"] }
+serde = {version = "1.0.219", features = ["derive"]}
+serde_json = "1.0"
+tempfile = "3.20.0"
 time = "0.3.41"
+tokio = "1.46.0"
+csv = "1.1"
 
 [lints]
 workspace = true

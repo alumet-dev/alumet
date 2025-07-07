@@ -124,8 +124,6 @@ fn main() -> anyhow::Result<()> {
         )
         .context("invalid plugins config")?;
 
-    plugins.set_plugin_enabled("plugin-kwollect", true);
-
     // Extract non-plugin config.
     let config = config.try_into::<GeneralConfig>().context("invalid general config")?;
 
