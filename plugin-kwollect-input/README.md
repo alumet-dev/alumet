@@ -4,7 +4,7 @@ The Kwollect-input plugin creates an Alumet **source** that collects measurement
 
 ## Requirements
 
-- A node or a cluster on Grid'5000.
+- Have an account on Grid'5000.
 
 ## Metrics
 
