@@ -22,7 +22,11 @@ Here is a configuration example of the Kwollect-input plugin. It's part of the A
 
 ```toml
 [plugins.kwollect-input]
-..
+site = "lyon"
+hostname = "taurus-7"
+metrics = "wattmetre_power_watt"
+login = "login"
+password = "password"
 ```
 
 ### Usage
