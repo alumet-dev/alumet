@@ -7,10 +7,9 @@ use alumet::{
     pipeline::elements::{error::PollError, source::Source},
     resources::{Resource, ResourceConsumer},
 };
-use anyhow::Context;
 use chrono::FixedOffset;
 use log;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use time::OffsetDateTime;
 
 pub struct KwollectSource {
@@ -24,6 +23,7 @@ impl KwollectSource {
     }
 }
 
+// See what exists for plugin-perf, plugin-procfs
 impl Source for KwollectSource {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator<'_>, timestamp: Timestamp) -> Result<(), PollError> {
         log::info!("Kwollect-input plugin is starting");
@@ -46,16 +46,35 @@ impl Source for KwollectSource {
         match fetch_data(&url, &self.config) {
             Ok(data) => {
                 log::info!("Raw API data: {:?}", data); // To log API data
-                if let Some(measurements) = parse_measurements(data) {
-                    for measure in measurements {
-                        log::info!("MeasureKwollect: {:?}", measure); // To log measures of Kwollect
-                        measurements.push(measure);
+                if let Some(parsed) = parse_measurements(data) {
+                    for measure in parsed {
+                        // Convert MeasureKwollect to MeasurementPoint
+                        let value = match measure.value {
+                            WrappedMeasurementValue::F64(v) => v,
+                            WrappedMeasurementValue::U64(v) => v as f64,
+                        };
+
+                        // Create a measurement point and add it to the accumulator
+                        let measurement_point = MeasurementPoint::new(
+                            Timestamp::from(f64_to_system_time(measure.timestamp)),
+                            self.metric,
+                            Resource::LocalMachine,
+                            ResourceConsumer::LocalMachine,
+                            value,
+                        );
+
+                        measurements.push(measurement_point);
                     }
                 }
             }
             Err(e) => log::error!("Failed to fetch data: {}", e),
         }
-
         Ok(())
     }
+}
+
+fn f64_to_system_time(seconds: f64) -> SystemTime {
+    let secs = seconds as u64;
+    let nanos = ((seconds - secs as f64) * 1_000_000_000.0) as u32;
+    UNIX_EPOCH + std::time::Duration::new(secs, nanos)
 }
