@@ -11,7 +11,7 @@ use std::time::{Duration, SystemTime};
 use time::OffsetDateTime;
 
 mod kwollect;
-//mod source;
+mod source;
 use kwollect::parse_measurements;
 
 /// Structure for Kwollect implementation
