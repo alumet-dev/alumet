@@ -118,7 +118,7 @@ fn parse_measurement(measurement: &Value) -> Option<MeasureKwollect> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use chrono::{DateTime, Utc};
 
     #[test]
     fn test_parse_measurement_with_power_consumption() {
@@ -135,9 +135,17 @@ mod tests {
         let parsed_measurement = parse_measurement(&power_consumption_measurement);
         assert!(parsed_measurement.is_some(), "Failed to parse measurement");
         let parsed_measurement = parsed_measurement.unwrap();
+
         assert_eq!(parsed_measurement.device_id, "taurus-7");
         assert_eq!(parsed_measurement.metric_id, "wattmetre_power_watt");
         assert_eq!(parsed_measurement.value, WrappedMeasurementValue::F64(131.7));
+
+        // Convert timestamp to DateTime and check
+        let timestamp = parsed_measurement.timestamp;
+        let datetime_utc =
+            DateTime::<Utc>::from_timestamp(timestamp as i64, (timestamp.fract() * 1_000_000_000.0) as u32);
+        assert!(datetime_utc.is_some());
+
         assert!(parsed_measurement.labels.contains_key("_device_orig"));
         assert_eq!(
             parsed_measurement.labels.get("_device_orig"),

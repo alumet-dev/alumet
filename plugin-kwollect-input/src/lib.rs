@@ -2,15 +2,16 @@ use alumet::plugin::{
     AlumetPluginStart, ConfigTable,
     rust::{AlumetPlugin, deserialize_config, serialize_config},
 };
+use chrono::{DateTime, FixedOffset, Utc};
 use reqwest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::error::Error;
 use std::time::{Duration, SystemTime};
-use time::{OffsetDateTime, format_description};
+use time::OffsetDateTime;
 
 mod kwollect;
 use kwollect::parse_measurements;
-use std::error::Error;
 
 /// Configuration of input Kwollect plugin
 pub struct KwollectPluginInput {
@@ -42,9 +43,21 @@ impl AlumetPlugin for KwollectPluginInput {
     fn start(&mut self, _alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         log::info!("Kwollect-input plugin is starting");
         let start_alumet: OffsetDateTime = SystemTime::now().into();
+        let system_time: SystemTime = convert_to_system_time(start_alumet);
+        let start_utc = convert_to_utc(system_time);
+
         std::thread::sleep(Duration::from_secs(10)); // to test the API
+
         let end_alumet: OffsetDateTime = SystemTime::now().into();
-        let url = build_kwollect_url(&self.config, &start_alumet, &end_alumet);
+        let system_time: SystemTime = convert_to_system_time(end_alumet);
+        let end_utc = convert_to_utc(system_time);
+
+        // Convert timestamp (UTC+2)
+        let paris_offset = FixedOffset::east_opt(2 * 3600).unwrap();
+        let start_paris = start_utc.with_timezone(&paris_offset);
+        let end_paris = end_utc.with_timezone(&paris_offset);
+
+        let url = build_kwollect_url(&self.config, &start_paris, &end_paris);
 
         match fetch_data(&url, &self.config) {
             Ok(data) => {
@@ -67,19 +80,24 @@ impl AlumetPlugin for KwollectPluginInput {
     }
 }
 
+fn convert_to_system_time(offset_date_time: OffsetDateTime) -> SystemTime {
+    SystemTime::from(offset_date_time)
+}
+
+// Convert timestamp (UTC+2) to be able to put the good timestamp on API request to Grid'5000
+fn convert_to_utc(system_time: SystemTime) -> DateTime<Utc> {
+    system_time.into()
+}
+
 /// Constructs the API URL to query Kwollect by the Grid'5000 API
-fn build_kwollect_url(config: &Config, start_alumet: &OffsetDateTime, end_alumet: &OffsetDateTime) -> String {
+fn build_kwollect_url(config: &Config, start: &DateTime<FixedOffset>, end: &DateTime<FixedOffset>) -> String {
     format!(
         "https://api.grid5000.fr/stable/sites/{}/metrics?nodes={}&metrics={}&start_time={}&end_time={}",
         config.site,
         config.hostname,
         config.metrics,
-        start_alumet
-            .format(&format_description::parse("[year]-[month]-[day]T[hour]:[minute]:[second]").unwrap())
-            .unwrap(),
-        end_alumet
-            .format(&format_description::parse("[year]-[month]-[day]T[hour]:[minute]:[second]").unwrap())
-            .unwrap(),
+        start.format("%Y-%m-%dT%H:%M:%S"),
+        end.format("%Y-%m-%dT%H:%M:%S"),
     )
 }
 
