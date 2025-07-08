@@ -5,14 +5,19 @@ The Kwollect-input plugin creates an Alumet **source** that collects measurement
 ## Requirements
 
 - Have an account on Grid'5000.
+- Wants to collects kwollect data (and/or other data gave by alumet) on a node or a cluster.
 
 ## Metrics
 
-Here are the metrics collected by the plugin source (if we only take power consumption).
+Here is an example of the metrics collected by the plugin source (if we only take power consumption):
 
 |Timestamp|Device-id|Metric-id|Value|Labels|
 |----|----|----|-----------|----------|
 |`2025-06-20T14:15:20.005984+02:00`|taurus-7|wattmetre_power_watt|131.7|{"_device_orig":["wattmetre1-port6"]}||
+
+Here is an example of the metrics return by alumet with the csv plugin:
+
+...
 
 ## Attributes
 
@@ -25,8 +30,8 @@ Here is a configuration example of the Kwollect-input plugin. It's part of the A
 site = "lyon"
 hostname = "taurus-7"
 metrics = "wattmetre_power_watt"
-login = "login"
-password = "password"
+login = "YOUR G5K LOGIN"
+password = "YOUR G5K PASSWORD"
 ```
 
 ### Usage

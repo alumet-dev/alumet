@@ -11,9 +11,10 @@ use std::time::{Duration, SystemTime};
 use time::OffsetDateTime;
 
 mod kwollect;
+//mod source;
 use kwollect::parse_measurements;
 
-/// Configuration of input Kwollect plugin
+/// Structure for Kwollect implementation
 pub struct KwollectPluginInput {
     config: Config,
 }
