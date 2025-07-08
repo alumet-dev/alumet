@@ -3,7 +3,7 @@
 use mount_watcher::{mount::LinuxMount, MountWatcher, WatchControl};
 use std::{ops::ControlFlow, time::Duration};
 
-use crate::{CgroupVersion, hierarchy::HierarchyError};
+use crate::{hierarchy::HierarchyError, CgroupVersion};
 
 use super::hierarchy::CgroupHierarchy;
 

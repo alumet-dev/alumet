@@ -1,11 +1,8 @@
-use std::time::Duration;
-
 use alumet::plugin::{
+    rust::{deserialize_config, serialize_config, AlumetPlugin},
     AlumetPluginStart, AlumetPostStart, ConfigTable,
-    rust::{AlumetPlugin, deserialize_config, serialize_config},
 };
 use anyhow::Context;
-use serde::{Deserialize, Serialize};
 
 use crate::{
     common::{
@@ -27,7 +24,7 @@ mod transform;
 ///
 /// Supports OAR2 and OAR3, on cgroup v1 or cgroup v2.
 pub struct OarPlugin {
-    config: Option<Config>,
+    config: Option<config::Config>,
     /// Intermediary state for startup.
     starting_state: Option<StartingState>,
     /// The reactor that is running in the background. Dropping it will stop it.
@@ -35,7 +32,7 @@ pub struct OarPlugin {
 }
 
 impl OarPlugin {
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: config::Config) -> Self {
         Self {
             config: Some(config),
             reactor: None,
@@ -54,12 +51,12 @@ impl AlumetPlugin for OarPlugin {
     }
 
     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
-        let config: Config = deserialize_config(config)?;
+        let config: config::Config = deserialize_config(config)?;
         Ok(Box::new(Self::new(config)))
     }
 
     fn default_config() -> anyhow::Result<Option<ConfigTable>> {
-        let config = serialize_config(Config::default())?;
+        let config = serialize_config(config::Config::default())?;
         Ok(Some(config))
     }
 
@@ -105,34 +102,11 @@ impl AlumetPlugin for OarPlugin {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Config {
-    oar_version: OarVersion,
-    #[serde(with = "humantime_serde")]
-    poll_interval: Duration,
-    jobs_only: bool,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            oar_version: OarVersion::Oar3,
-            poll_interval: Duration::from_secs(1),
-            jobs_only: true,
-        }
-    }
-}
+mod config;
 
 struct StartingState {
     metrics: Metrics,
     reactor_config: ReactorConfig,
     source_setup: source::JobSourceSetup,
     job_cleaner: JobCleaner,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum OarVersion {
-    Oar2,
-    Oar3,
 }
