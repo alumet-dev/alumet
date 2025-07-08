@@ -12,10 +12,12 @@ mod kwollect;
 use kwollect::parse_measurements;
 use std::error::Error;
 
+/// Configuration of input Kwollect plugin
 pub struct KwollectPluginInput {
     config: Config,
 }
 
+/// Implementation of input Kwollect plugin as an alumet plugin
 impl AlumetPlugin for KwollectPluginInput {
     fn name() -> &'static str {
         "kwollect-input"
@@ -65,7 +67,7 @@ impl AlumetPlugin for KwollectPluginInput {
     }
 }
 
-/// Constructs the API URL to query Kwollect
+/// Constructs the API URL to query Kwollect by the Grid'5000 API
 fn build_kwollect_url(config: &Config, start_alumet: &OffsetDateTime, end_alumet: &OffsetDateTime) -> String {
     format!(
         "https://api.grid5000.fr/stable/sites/{}/metrics?nodes={}&metrics={}&start_time={}&end_time={}",
@@ -97,6 +99,7 @@ fn fetch_data(url: &str, config: &Config) -> Result<Value, Box<dyn Error>> {
     Ok(data)
 }
 
+/// A structure that stocks the configuration parameters that are necessary to interact with grid'5000 API (to build the request)
 #[derive(Serialize, Deserialize)]
 pub struct Config {
     pub site: String,
