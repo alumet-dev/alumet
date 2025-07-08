@@ -2,17 +2,18 @@
 
 use std::{
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     time::Duration,
 };
 
 use anyhow::{anyhow, Context};
-use notify::{
-    event::{CreateKind, RemoveKind},
-    Watcher,
-};
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use walkdir::WalkDir;
+
+use crate::file_watch::{self, PathKind};
 
 use super::hierarchy::{Cgroup, CgroupHierarchy, CgroupVersion};
 
@@ -47,7 +48,7 @@ use super::hierarchy::{Cgroup, CgroupHierarchy, CgroupVersion};
 pub struct CgroupDetector {
     // keeps the watcher alive
     #[allow(dead_code)]
-    watcher: Box<dyn Watcher + Send>,
+    watcher: Box<dyn file_watch::Watcher + Send>,
 
     state: Arc<Mutex<DetectorState>>,
     hierarchy: CgroupHierarchy,
@@ -58,12 +59,17 @@ pub struct Config {
     ///
     /// Only applies to cgroup v1 hierarchies (cgroupv2 supports inotify).
     pub v1_refresh_interval: Duration,
+    /// If `true`, always use a poll-based approach instead of `inotify`.
+    ///
+    /// This is less efficient, but could prove useful for debugging purposes.
+    pub force_polling: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             v1_refresh_interval: Duration::from_secs(30),
+            force_polling: false,
         }
     }
 }
@@ -166,21 +172,20 @@ impl CgroupDetector {
             state: state.clone(),
         };
 
-        let mut watcher: Box<dyn Watcher + Send> = match hierarchy.version() {
-            CgroupVersion::V1 => {
-                // inotify is not supported, use polling
-                let watcher_config = notify::Config::default();
-                watcher_config.with_poll_interval(config.v1_refresh_interval);
+        let paths_to_watch = vec![hierarchy.root().to_owned()];
+        let use_polling = hierarchy.version() == CgroupVersion::V1 || config.force_polling;
 
-                // PollWatcher performs the initial scan on its own.
-                let initial_scan_handler = handler.clone();
-                let watcher = notify::PollWatcher::with_initial_scan(handler, watcher_config, initial_scan_handler)?;
+        let watcher: Box<dyn file_watch::Watcher + Send> = match use_polling {
+            true => {
+                // inotify is not supported, use polling
+                handler.initial_scan().context("error during initial scan")?;
+                let watcher = PollingRefresh::start(config.v1_refresh_interval, handler);
                 Box::new(watcher)
             }
-            CgroupVersion::V2 => {
+            false => {
                 // inotify is supported
                 // First, start the watcher. Then, do the initial scan. This way, we will not miss events.
-                let watcher = notify::recommended_watcher(handler.clone())?;
+                let watcher = file_watch::inotify::InotifyWatcher::new(handler.clone(), paths_to_watch)?;
 
                 // We need to manually do the initial scan.
                 let res = handler.initial_scan().context("error during initial scan");
@@ -190,7 +195,6 @@ impl CgroupDetector {
                 Box::new(watcher)
             }
         };
-        watcher.watch(hierarchy.root(), notify::RecursiveMode::Recursive)?;
 
         Ok(Self {
             hierarchy,
@@ -227,13 +231,47 @@ impl CgroupDetector {
     }
 }
 
+struct PollingRefresh {
+    stop_flag: Arc<AtomicBool>,
+}
+
+impl PollingRefresh {
+    pub fn start(refresh_interval: Duration, mut handler: EventHandler) -> Self {
+        let stop_flag = Arc::new(AtomicBool::new(false));
+
+        let stop = Arc::clone(&stop_flag);
+        std::thread::spawn(move || -> anyhow::Result<()> {
+            while !stop.load(Ordering::Relaxed) {
+                std::thread::sleep(refresh_interval);
+                handler.rescan().context("rescan failed")?;
+            }
+            Ok(())
+        });
+
+        Self { stop_flag }
+    }
+}
+
+impl super::file_watch::Watcher for PollingRefresh {
+    fn stop(&mut self) -> anyhow::Result<()> {
+        self.stop_flag.store(true, Ordering::Relaxed);
+        Ok(())
+    }
+}
+
+impl Drop for PollingRefresh {
+    fn drop(&mut self) {
+        self.stop_flag.store(true, Ordering::Relaxed);
+    }
+}
+
 impl EventHandler {
     /// Registers new control groups.
-    fn register_cgroups(&mut self, paths: Vec<PathBuf>) -> anyhow::Result<()> {
+    fn register_cgroups(&mut self, paths: impl Iterator<Item = PathBuf>) -> anyhow::Result<()> {
         // For optimization purposes, we register multiple cgroups at once,
         // so that we only need to lock() once.
         let mut state = self.state.lock().unwrap();
-        let mut new_cgroups = Vec::with_capacity(paths.len());
+        let mut new_cgroups = Vec::with_capacity(paths.size_hint().0);
         for path in paths {
             let cgroup = Cgroup::from_fs_path(&self.hierarchy, path);
             if state.known_cgroups_paths.insert(cgroup.canonical_path().to_owned()) {
@@ -245,9 +283,9 @@ impl EventHandler {
     }
 
     /// Removes control groups.
-    fn forget_cgroups(&mut self, paths: Vec<PathBuf>) -> anyhow::Result<()> {
+    fn forget_cgroups(&mut self, paths: impl Iterator<Item = PathBuf>) -> anyhow::Result<()> {
         let mut state = self.state.lock().unwrap();
-        let mut removed = Vec::with_capacity(paths.len());
+        let mut removed = Vec::with_capacity(paths.size_hint().0);
         for path in paths {
             let cgroup = Cgroup::from_fs_path(&self.hierarchy, path);
             if state.known_cgroups_paths.remove(cgroup.canonical_path()) {
@@ -316,7 +354,7 @@ impl EventHandler {
     /// Performs an initial scan of the cgroup hierarchy, and call the handler for each cgroup found.
     fn initial_scan(&mut self) -> anyhow::Result<()> {
         let initial_cgroup_paths = self.full_scan();
-        self.register_cgroups(initial_cgroup_paths)
+        self.register_cgroups(initial_cgroup_paths.into_iter())
     }
 
     /// Rescans the cgroup hierarchy, removing the cgroups that no longer exist and registering the new ones.
@@ -342,66 +380,38 @@ impl EventHandler {
     }
 }
 
-impl notify::EventHandler for EventHandler {
-    fn handle_event(&mut self, event: notify::Result<notify::Event>) {
-        // TODO we get a lot of Access(Open(Any)) and Modify(Metadata(Any)) events, can we ignore them at the inotify level instead of in the match below?
-        // -> yes, but we have to use inotify directly, not the notify rust wrapper… -> later
+impl file_watch::EventHandler for EventHandler {
+    fn handle_event(&mut self, event: anyhow::Result<file_watch::Event>) {
+        fn extract_folder_paths(paths: Vec<(PathBuf, PathKind)>) -> impl Iterator<Item = PathBuf> {
+            paths
+                .into_iter()
+                .filter(|(_, kind)| *kind == PathKind::Directory)
+                .map(|(path, _)| path)
+        }
+
         match event {
             Ok(evt) => {
-                let res = match evt.kind {
-                    // TODO notify returns CreateKind::Any instead of CreateKind::Folder with the PollWatcher…
-                    notify::EventKind::Create(CreateKind::Folder) => self.register_cgroups(evt.paths),
-                    notify::EventKind::Create(CreateKind::Any) => {
-                        // the PollWatcher (used for cgroup v1) returns CreateKind::Any events, we have to check the type manually…
-                        let dir_paths = evt.paths.into_iter().filter(|p| p.is_dir()).collect();
-                        self.register_cgroups(dir_paths)
+                match evt {
+                    file_watch::Event::NeedRescan => {
+                        // Some events have been lost by inotify, we must recheck everything.
+                        let res = self.rescan();
+                        self.handle_result(res);
                     }
-                    notify::EventKind::Remove(RemoveKind::Folder) => self.forget_cgroups(evt.paths),
-                    notify::EventKind::Remove(RemoveKind::Any) => {
-                        // We cannot use is_dir() in the filter because the file or folder no longer exists.
-                        // Use a simplistic test that is not perfect but should work.
-                        // It's okay to call forget_cgroups with a path that was not registered before, it will
-                        // be ignored (or just print a warning).
-                        let dir_paths = evt
-                            .paths
-                            .into_iter()
-                            .filter(|p| {
-                                p.extension()
-                                    .is_none_or(|ext| ext != "stat" && !ext.as_encoded_bytes().ends_with(b"_in_bytes"))
-                            })
-                            .collect();
-                        self.forget_cgroups(dir_paths)
+                    file_watch::Event::Fs { created, deleted } => {
+                        let created = extract_folder_paths(created);
+                        let deleted = extract_folder_paths(deleted);
+
+                        let res1 = self.forget_cgroups(deleted);
+                        let res2 = self.register_cgroups(created);
+                        self.handle_result(res1);
+                        self.handle_result(res2);
                     }
-                    notify::EventKind::Other if evt.flag() == Some(notify::event::Flag::Rescan) => {
-                        // Some events have been lost, we must recheck everything.
-                        self.rescan()
-                    }
-                    _ => Ok(()),
                 };
-                self.handle_result(res);
             }
             Err(err) => {
-                self.handle_error(anyhow::Error::new(err).context("error in EventHandler"));
+                self.handle_error(err.context("error in EventHandler"));
             }
         };
-    }
-}
-
-impl notify::poll::ScanEventHandler for EventHandler {
-    fn handle_event(&mut self, event: notify::poll::ScanEvent) {
-        // TODO optimize: collect the paths first and then handle them all at once
-        // But this is only used with cgroup v1 so it's fine for now…
-        match event {
-            Ok(path) => {
-                if path.is_dir() {
-                    let res = self.register_cgroups(vec![path]);
-                    self.handle_result(res);
-                }
-            }
-            Err(err) => {
-                self.handle_error(anyhow::Error::new(err).context("error in ScanEventHandler"));
-            }
-        }
     }
 }
 

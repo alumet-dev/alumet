@@ -1,6 +1,6 @@
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, MeasurementType, Timestamp},
-    pipeline::{Source, elements::error::PollError},
+    pipeline::{elements::error::PollError, Source},
     resources::{Resource, ResourceConsumer},
 };
 use util_cgroups::{measure::v1::V1Collector, Cgroup};

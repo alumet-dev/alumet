@@ -3,6 +3,7 @@
 compile_error!("only Linux is supported");
 
 pub mod detect;
+pub mod file_watch;
 pub mod hierarchy;
 pub mod measure;
 pub mod mount_wait;

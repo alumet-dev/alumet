@@ -3,8 +3,8 @@ use std::cell::LazyCell;
 use alumet::{
     measurement::{AttributeValue, MeasurementBuffer},
     pipeline::{
-        Transform,
         elements::{error::TransformError, transform::TransformContext},
+        Transform,
     },
 };
 

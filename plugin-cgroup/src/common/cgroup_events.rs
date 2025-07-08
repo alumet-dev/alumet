@@ -5,12 +5,12 @@ use std::{
 };
 
 use alumet::pipeline::{
-    Source,
-    control::{PluginControlHandle, request},
+    control::{request, PluginControlHandle},
     elements::source::trigger::TriggerSpec,
+    Source,
 };
 use anyhow::Context;
-use util_cgroups::{Cgroup, CgroupDetector, CgroupHierarchy, CgroupMountWait, CgroupVersion, detect, mount_wait};
+use util_cgroups::{detect, mount_wait, Cgroup, CgroupDetector, CgroupHierarchy, CgroupMountWait, CgroupVersion};
 
 use crate::common::{
     metrics::{AugmentedMetrics, Metrics},
