@@ -171,14 +171,13 @@ mod tests {
 
     #[test]
     fn test_compute_energy() {
-        let ts_now = Timestamp::now();
+        let ts0 = Timestamp::now();
         let mut lm_init = PowerMeasure {
-            timestamp: ts_now,
+            timestamp: ts0,
             power: 0,
         };
-        let ts0 = ts_now;
         // timestamp diff is 0, can't compute energy -> 0
-        let measure = PowerMeasure {
+        let mut measure = PowerMeasure {
             timestamp: ts0,
             power: 140,
         };
@@ -186,7 +185,7 @@ mod tests {
         lm_init.power = measure.power;
 
         let ts6 = ts0 + Duration::from_secs(6);
-        let measure = PowerMeasure {
+        measure = PowerMeasure {
             timestamp: ts6,
             power: 25,
         };
@@ -197,7 +196,7 @@ mod tests {
         lm_init.timestamp = ts0 + Duration::from_secs(5);
         lm_init.power = 70;
         let ts55 = ts0 + Duration::from_millis(5500);
-        let measure = PowerMeasure {
+        measure = PowerMeasure {
             timestamp: ts55,
             power: 130,
         };
@@ -207,7 +206,7 @@ mod tests {
         lm_init.timestamp = lm_init.timestamp + Duration::from_millis(500);
         lm_init.power = 50;
         let ts10 = ts0 + Duration::from_secs(10);
-        let measure = PowerMeasure {
+        measure = PowerMeasure {
             timestamp: ts10,
             power: 75,
         };
@@ -216,7 +215,7 @@ mod tests {
         lm_init.timestamp = ts0 + Duration::from_secs(9);
         lm_init.power = 80;
         let ts97 = ts0 + Duration::from_millis(9700);
-        let measure = PowerMeasure {
+        measure = PowerMeasure {
             timestamp: ts97,
             power: 63,
         };
@@ -225,7 +224,7 @@ mod tests {
         lm_init.timestamp = ts0 + Duration::from_secs(15);
         lm_init.power = 70;
         let ts19 = ts0 + Duration::from_secs(19);
-        let measure = PowerMeasure {
+        measure = PowerMeasure {
             timestamp: ts19,
             power: 71,
         };
