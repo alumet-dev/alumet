@@ -108,7 +108,7 @@ fn test_correct_plugin_init_with_several_sources() {
     let mut file_avg = File::create(&file_path_average).unwrap();
     let mut file_int = File::create(&file_path_interval).unwrap();
     writeln!(file, "Module Power Socket 0").unwrap();
-    writeln!(file_avg, "60").unwrap();
+    writeln!(file_avg, "60000000").unwrap();
     writeln!(file_int, "50").unwrap();
 
     let file_path_info = root.path().join("hwmon2/device/power1_oem_info");
@@ -119,7 +119,7 @@ fn test_correct_plugin_init_with_several_sources() {
     let mut file_avg = File::create(&file_path_average).unwrap();
     let mut _file_int = File::create(&file_path_interval).unwrap();
     writeln!(file, "Grace Power Socket 0").unwrap();
-    writeln!(file_avg, "62").unwrap();
+    writeln!(file_avg, "62000000").unwrap();
 
     let file_path_info = root.path().join("hwmon3/device/power1_oem_info");
     let file_path_average = root.path().join("hwmon3/device/power1_average");
@@ -129,7 +129,7 @@ fn test_correct_plugin_init_with_several_sources() {
     let mut file_avg = File::create(&file_path_average).unwrap();
     let mut _file_int = File::create(&file_path_interval).unwrap();
     writeln!(file, "CPU Power Socket 2").unwrap();
-    writeln!(file_avg, "64").unwrap();
+    writeln!(file_avg, "64000000").unwrap();
 
     let file_path_info = root.path().join("hwmon6/device/power1_oem_info");
     let file_path_average = root.path().join("hwmon6/device/power1_average");
@@ -139,7 +139,7 @@ fn test_correct_plugin_init_with_several_sources() {
     let mut file_avg = File::create(&file_path_average).unwrap();
     let mut file_int = File::create(&file_path_interval).unwrap();
     writeln!(file, "SysIO Power Socket 2").unwrap();
-    writeln!(file_avg, "67").unwrap();
+    writeln!(file_avg, "67000000").unwrap();
     writeln!(file_int, "77").unwrap();
 
     let mut plugins = PluginSet::new();
@@ -176,6 +176,7 @@ fn test_correct_plugin_init_with_several_sources() {
                 for elm in m {
                     match elm.value {
                         WrappedMeasurementValue::F64(value) => {
+                            println!("value is {:?}", value);
                             assert!(value >= 60.0 && value <= 61.0);
                         }
                         WrappedMeasurementValue::U64(_) => {
@@ -199,6 +200,7 @@ fn test_correct_plugin_init_with_several_sources() {
                 for elm in m {
                     match elm.value {
                         WrappedMeasurementValue::F64(value) => {
+                            println!("value is {:?}", value);
                             assert!(value >= 62.0 && value <= 63.0);
                         }
                         WrappedMeasurementValue::U64(_) => {
@@ -222,6 +224,7 @@ fn test_correct_plugin_init_with_several_sources() {
                 for elm in m {
                     match elm.value {
                         WrappedMeasurementValue::F64(value) => {
+                            println!("value is {:?}", value);
                             assert!(value >= 64.0 && value <= 65.0);
                         }
                         WrappedMeasurementValue::U64(_) => {
@@ -245,6 +248,7 @@ fn test_correct_plugin_init_with_several_sources() {
                 for elm in m {
                     match elm.value {
                         WrappedMeasurementValue::F64(value) => {
+                            println!("value is {:?}", value);
                             assert!(value >= 67.0 && value <= 68.0);
                         }
                         WrappedMeasurementValue::U64(_) => {

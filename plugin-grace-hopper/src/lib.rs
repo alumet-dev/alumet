@@ -29,7 +29,7 @@ pub struct Sensor {
     /// Socket associated to the sensor
     socket: u32,
     /// How often value are updated
-    _average_interval: Duration,
+    // TODO: average_interval: Duration,*
     /// PathBuf to the file which contain values
     file: PathBuf,
 }
@@ -128,7 +128,6 @@ fn get_sensor_from_dir(entry: DirEntry) -> Result<Option<Sensor>, anyhow::Error>
     Ok(Some(Sensor {
         kind,
         socket,
-        _average_interval: interval,
         file: device_file,
     }))
 }
@@ -321,7 +320,9 @@ mod tests {
             let result = get_sensor_from_dir(entry);
             match result {
                 Ok(sensor) => {
-                    assert_eq!(50, sensor.unwrap()._average_interval.as_millis());
+                    assert_eq!("Module", sensor.as_ref().unwrap().kind);
+                    assert_eq!(0, sensor.as_ref().unwrap().socket);
+                    assert_eq!(file_path_info, sensor.as_ref().unwrap().file);
                 }
                 Err(_) => assert!(false),
             }

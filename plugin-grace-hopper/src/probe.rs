@@ -22,8 +22,7 @@ pub struct GraceHopperProbe {
     kind: String,
     file: File,
     consumer: ResourceConsumer,
-    metric: Option<TypedMetricId<f64>>,
-    _power_stats_interval: Duration,
+    metric: TypedMetricId<f64>,
     last_measure: Option<PowerMeasure>,
 }
 
@@ -41,7 +40,7 @@ impl PowerMeasure {
     /// Finally it compute the energy using the formula: Energy(J) = ((Power_old(W) + Power_new(W)) / 2) * Time(s)
     ///
     /// Returns the computed energy
-    pub fn compute_energy(&mut self, measure: &PowerMeasure) -> Result<f64, anyhow::Error> {
+    pub fn compute_energy(&self, measure: &PowerMeasure) -> anyhow::Result<f64> {
         let time_elapsed = measure.timestamp.duration_since(self.timestamp)?.as_secs_f64();
         let energy_consumed = (((self.power + measure.power) / 1_000_000) as f64 / 2.0) * time_elapsed; // Divided by 10e6 because of µW
         Ok(energy_consumed)
@@ -49,10 +48,8 @@ impl PowerMeasure {
 }
 
 impl GraceHopperProbe {
-    pub fn new(alumet: &mut AlumetPluginStart, sensor: Sensor) -> Result<Self, anyhow::Error> {
-        let metric = alumet
-            .create_metric::<f64>("energy_consumed", Unit::Joule, "Energy consumption of the sensor")
-            .ok();
+    pub fn new(alumet: &mut AlumetPluginStart, sensor: Sensor) -> anyhow::Result<Self> {
+        let metric = alumet.create_metric::<f64>("energy_consumed", Unit::Joule, "Energy consumption of the sensor")?;
 
         if !sensor.file.exists() {
             return Err(anyhow!("can't find the file: {:?} so no probe created", sensor.file));
@@ -70,7 +67,6 @@ impl GraceHopperProbe {
             file,
             metric,
             consumer: ResourceConsumer::LocalMachine,
-            _power_stats_interval: sensor._average_interval,
             last_measure: None,
         };
         Ok(probe)
@@ -82,27 +78,24 @@ impl Source for GraceHopperProbe {
         let mut buffer = String::new();
         let power = read_power_value(&mut buffer, &mut self.file).map_err(PollError::from)?;
         let new_measure = PowerMeasure { timestamp, power };
-        if self.last_measure.is_none() {
-            self.last_measure = Some(PowerMeasure {
-                timestamp: new_measure.timestamp,
-                power: new_measure.power,
-            });
-            return Ok(());
+
+        if let Some(last_measure) = &self.last_measure {
+            let computed_energy = last_measure.compute_energy(&new_measure)?;
+            measurements.push(
+                MeasurementPoint::new(
+                    timestamp,
+                    self.metric,
+                    Resource::CpuPackage { id: self.socket },
+                    self.consumer.clone(),
+                    computed_energy,
+                )
+                .with_attr("sensor", self.kind.clone()),
+            );
         }
-        let computed_energy = self.last_measure.as_mut().unwrap().compute_energy(&new_measure)?;
-        self.last_measure.as_mut().unwrap().timestamp = new_measure.timestamp;
-        self.last_measure.as_mut().unwrap().power = new_measure.power;
-        measurements.push(
-            MeasurementPoint::new(
-                timestamp,
-                self.metric
-                    .expect("can't push to the MeasurementAccumulator because can't retrieve the metric"),
-                Resource::CpuPackage { id: self.socket },
-                self.consumer.clone(),
-                computed_energy,
-            )
-            .with_attr("sensor", self.kind.clone()),
-        );
+        self.last_measure = Some(PowerMeasure {
+            timestamp: new_measure.timestamp,
+            power: new_measure.power,
+        });
         Ok(())
     }
 }
@@ -179,7 +172,7 @@ mod tests {
         // timestamp diff is 0, can't compute energy -> 0
         let mut measure = PowerMeasure {
             timestamp: ts0,
-            power: 140,
+            power: 140_000000,
         };
         assert_eq!(0.0, lm_init.compute_energy(&measure).unwrap());
         lm_init.power = measure.power;
@@ -187,46 +180,46 @@ mod tests {
         let ts6 = ts0 + Duration::from_secs(6);
         measure = PowerMeasure {
             timestamp: ts6,
-            power: 25,
+            power: 25_000000,
         };
         assert_eq!(495.0, lm_init.compute_energy(&measure).unwrap());
         lm_init.power = measure.power;
         lm_init.timestamp = measure.timestamp;
 
         lm_init.timestamp = ts0 + Duration::from_secs(5);
-        lm_init.power = 70;
+        lm_init.power = 70_000000;
         let ts55 = ts0 + Duration::from_millis(5500);
         measure = PowerMeasure {
             timestamp: ts55,
-            power: 130,
+            power: 130_000000,
         };
         assert_eq!(50.0, lm_init.compute_energy(&measure).unwrap());
         lm_init.timestamp = measure.timestamp;
 
         lm_init.timestamp = lm_init.timestamp + Duration::from_millis(500);
-        lm_init.power = 50;
+        lm_init.power = 50_000000;
         let ts10 = ts0 + Duration::from_secs(10);
         measure = PowerMeasure {
             timestamp: ts10,
-            power: 75,
+            power: 75_000000,
         };
         assert_eq!(250.0, lm_init.compute_energy(&measure).unwrap());
 
         lm_init.timestamp = ts0 + Duration::from_secs(9);
-        lm_init.power = 80;
+        lm_init.power = 80_000000;
         let ts97 = ts0 + Duration::from_millis(9700);
         measure = PowerMeasure {
             timestamp: ts97,
-            power: 63,
+            power: 63_000000,
         };
         assert_eq!(50.05, lm_init.compute_energy(&measure).unwrap());
 
         lm_init.timestamp = ts0 + Duration::from_secs(15);
-        lm_init.power = 70;
+        lm_init.power = 70_000000;
         let ts19 = ts0 + Duration::from_secs(19);
         measure = PowerMeasure {
             timestamp: ts19,
-            power: 71,
+            power: 71_000000,
         };
         assert_eq!(282.0, lm_init.compute_energy(&measure).unwrap());
     }
