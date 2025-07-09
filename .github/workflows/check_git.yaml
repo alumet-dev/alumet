@@ -19,3 +19,23 @@ jobs:
             echo "::error::When updating your branch, you must rebase instead of merging."
             exit 1
           fi
+
+      - name: Check that conventional commits are used
+        shell: bash
+        run: |
+          exit_code=0
+
+          commit_type_regex='build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test'
+          commit_scope_regex='\([a-zA-Z0-9_\-\.]+\)'
+          commit_summary_regex='([a-z0-9_ \.\-\`])+'
+          commit_body_regex='((\n|\r\n){2}[\s\S]+)'
+          commit_message_regex="(^(${commit_type_regex})(${commit_scope_regex})?(\!)?: ${commit_summary_regex}${commit_body_regex}?)"
+
+          while IFS= read -r commit_hash; do
+            if [[ ! "$(git log --format=%B -n 1 $commit_hash)" =~ $commit_message_regex ]]; then
+              echo "::error::Commit messages must follow conventional commits, but \"${commit_hash}\" doesn't."
+              exit_code=1
+            fi
+          done <<< "$(git log --abbrev-commit --format='%h' --no-merges ${{ github.event.pull_request.base.sha }}..)"
+
+          exit $exit_code
