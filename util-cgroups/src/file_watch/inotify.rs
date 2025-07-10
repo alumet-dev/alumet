@@ -36,19 +36,23 @@ impl InotifyWatcher {
         let (mut watch, stop_waker) = WatchLoop::new(event_handler)?;
 
         // register the paths we want to watch
+        // It's important to do it recursively, in case the directory is not empty.
+        let mut created = Vec::new();
+        let mut deleted = Vec::new();
         for path in paths_to_watch {
-            watch
-                .add_watch_dir(path.clone(), true)
-                .with_context(|| format!("could not add watch to path {path:?}"))?;
+            match path.metadata().map(|m| m.is_dir()) {
+                Ok(true) => watch.watch_recursively(path, &mut created, &mut deleted)?,
+                Ok(false) => return Err(anyhow::anyhow!("cannot watch {path:?} because it is not a directory")),
+                Err(e) => return Err(e).context(format!("cannot watch {path:?}")),
+            }
         }
 
         // spawn the thread
         let thread_handle = std::thread::spawn(move || {
             if let Err(e) = watch.run() {
-                println!("WHAT: {e:?}");
-                panic!("WHAT: {e:?}");
-                // log::error!("error in inotify-based loop: {e:?}");
+                log::error!("error in inotify-based loop: {e:?}");
             }
+            log::debug!("inotify-based loop has stopped")
         });
 
         Ok(Self {
@@ -142,6 +146,53 @@ impl<E: EventHandler> WatchLoop<E> {
         Ok((s, stop_waker))
     }
 
+    fn watch_recursively(
+        &mut self,
+        path: PathBuf,
+        created: &mut Vec<(PathBuf, PathKind)>,
+        deleted: &mut Vec<(PathBuf, PathKind)>,
+    ) -> anyhow::Result<()> {
+        log::trace!("watch_recursively {path:?}");
+        // Iterate on `path` and its sub-directories (the first item yielded by the iterator is `path`).
+        // WHY: Doing `add_watch_dir` is not enough, because the directory can be modified (e.g. sub-directories can be created) between the inotify event and the registration of the directory. To avoid missing any event, we need to recursively list the sub-directories.
+        for (entry, metadata) in WalkDir::new(&path).into_iter().filter_map(entry_metadata) {
+            let path = entry.into_path();
+            if metadata.is_dir() {
+                match self.add_watch_dir(WatchedDir {
+                    path: path.clone(),
+                    watch_recursively: true,
+                }) {
+                    Ok(true) => {
+                        log::trace!("(rec) created: Directory {path:?}");
+                        created.push((path, PathKind::Directory));
+                    }
+                    Ok(false) => {
+                        log::trace!("(rec) already created: {path:?}");
+                    }
+                    Err(e) if e == Errno::ENOENT => {
+                        // The directory has been removed in the meantime!
+                        // Mark it as created *and* deleted.
+                        log::trace!("(±) Directory {path:?}");
+                        deleted.push((path.clone(), PathKind::Directory));
+                        self.unmark_watched(&path);
+                    }
+                    Err(e) => {
+                        return Err(anyhow::Error::new(e).context(format!("could not add watch to path {path:?}")));
+                    }
+                }
+            } else if metadata.is_file() {
+                // just a file, emit "created"
+                if self.mark_watched(path.clone()) {
+                    log::trace!("(rec) created: File {path:?}");
+                    created.push((path, PathKind::File));
+                } else {
+                    log::trace!("(rec) already created: {path:?}");
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn run(mut self) -> anyhow::Result<()> {
         let mut events = Events::with_capacity(INITIAL_CAPACITY);
 
@@ -212,44 +263,7 @@ impl<E: EventHandler> WatchLoop<E> {
                 };
                 log::trace!("(+) {kind:?} {path:?}");
                 if kind == PathKind::Directory && watched_dir.watch_recursively {
-                    // Watch recursively.
-
-                    // Iterate on `path` and its sub-directories (the first item yielded by the iterator is `path`).
-                    // WHY: Doing `add_watch_dir` is not enough, because the directory can be modified (e.g. sub-directories can be created) between the inotify event and the registration of the directory. To avoid missing any event, we need to recursively list the sub-directories.
-                    for (entry, metadata) in WalkDir::new(&path).into_iter().filter_map(entry_metadata) {
-                        let path = entry.into_path();
-                        if metadata.is_dir() {
-                            match self.add_watch_dir(path.clone(), true) {
-                                Ok(true) => {
-                                    log::trace!("(rec) created: Directory {path:?}");
-                                    created.push((path, PathKind::Directory));
-                                }
-                                Ok(false) => {
-                                    log::trace!("(rec) already created: {path:?}");
-                                }
-                                Err(e) if e == Errno::ENOENT => {
-                                    // The directory has been removed in the meantime!
-                                    // Mark it as created *and* deleted.
-                                    log::trace!("(±) {kind:?} {path:?}");
-                                    deleted.push((path.clone(), kind));
-                                    self.unmark_watched(&path);
-                                }
-                                Err(e) => {
-                                    return Err(
-                                        anyhow::Error::new(e).context(format!("could not add watch to path {path:?}"))
-                                    );
-                                }
-                            }
-                        } else if metadata.is_file() {
-                            // just a file, emit "created"
-                            if self.mark_watched(path.clone()) {
-                                log::trace!("(rec) created: File {path:?}");
-                                created.push((path, PathKind::File));
-                            } else {
-                                log::trace!("(rec) already created: {path:?}");
-                            }
-                        }
-                    }
+                    self.watch_recursively(path, &mut created, &mut deleted)?;
                 } else {
                     if self.mark_watched(path.clone()) {
                         log::trace!("(file) created: {path:?}");
@@ -309,18 +323,14 @@ impl<E: EventHandler> WatchLoop<E> {
         self.watched_paths.remove(path)
     }
 
-    fn add_watch_dir(&mut self, path: PathBuf, recursive: bool) -> nix::Result<bool> {
-        if !self.watched_paths.insert(path.clone()) {
+    fn add_watch_dir(&mut self, watched: WatchedDir) -> nix::Result<bool> {
+        if !self.watched_paths.insert(watched.path.clone()) {
             // prevent duplicates
             return Ok(false);
         }
 
         let flags = flags_add_watch();
-        let wd = self.inotify.add_watch(&path, flags)?;
-        let watched = WatchedDir {
-            path,
-            watch_recursively: recursive,
-        };
+        let wd = self.inotify.add_watch(&watched.path, flags)?;
         self.watched_dirs.insert(wd, watched);
         Ok(true)
     }
