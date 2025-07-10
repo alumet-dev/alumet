@@ -31,6 +31,7 @@ use ordered_float::OrderedFloat;
 use smallvec::SmallVec;
 use std::borrow::Cow;
 use std::hash::{Hash, Hasher};
+use std::ops::{Add, Sub};
 use std::time::{Duration, SystemTime, SystemTimeError, UNIX_EPOCH};
 use std::{collections::HashMap, fmt::Display};
 
@@ -184,6 +185,27 @@ impl Timestamp {
     pub fn duration_since(&self, earlier: Timestamp) -> Result<Duration, SystemTimeError> {
         self.0.duration_since(earlier.0)
     }
+
+    pub fn from_unix_timestamp(secs: u64, nanos: u32) -> Self {
+        let duration = Duration::new(secs, nanos);
+        Self(SystemTime::UNIX_EPOCH + duration)
+    }
+}
+
+impl Add<Duration> for Timestamp {
+    type Output = Self;
+
+    fn add(self, duration: Duration) -> Self::Output {
+        Self(self.0 + duration)
+    }
+}
+
+impl Sub<Duration> for Timestamp {
+    type Output = Self;
+
+    fn sub(self, duration: Duration) -> Self::Output {
+        Self(self.0 - duration)
+    }
 }
 
 impl From<SystemTime> for Timestamp {
@@ -259,6 +281,20 @@ impl WrappedMeasurementValue {
         match self {
             WrappedMeasurementValue::F64(_) => WrappedMeasurementType::F64,
             WrappedMeasurementValue::U64(_) => WrappedMeasurementType::U64,
+        }
+    }
+
+    pub fn as_f64(&self) -> f64 {
+        match self {
+            WrappedMeasurementValue::F64(x) => *x,
+            WrappedMeasurementValue::U64(x) => *x as f64,
+        }
+    }
+
+    pub fn as_u64(&self) -> u64 {
+        match self {
+            WrappedMeasurementValue::F64(x) => *x as u64,
+            WrappedMeasurementValue::U64(x) => *x,
         }
     }
 }
@@ -455,5 +491,27 @@ impl<'a> MeasurementAccumulator<'a> {
 
     pub(crate) fn as_inner(&'a self) -> &'a MeasurementBuffer {
         self.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(test)]
+    mod wrapped_measurement_value {
+        use super::*;
+
+        #[test]
+        fn as_f64() {
+            assert_eq!(WrappedMeasurementValue::U64(69).as_f64(), 69.0);
+            assert_eq!(WrappedMeasurementValue::F64(18.38).as_f64(), 18.38);
+        }
+
+        #[test]
+        fn as_u64() {
+            assert_eq!(WrappedMeasurementValue::U64(69).as_u64(), 69);
+            assert_eq!(WrappedMeasurementValue::F64(18.38).as_u64(), 18);
+        }
     }
 }
