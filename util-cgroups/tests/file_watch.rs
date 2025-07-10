@@ -256,3 +256,84 @@ fn recursive_tricky() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn recursive_already_existing() -> anyhow::Result<()> {
+    let _ = env_logger::try_init_from_env(env_logger::Env::default());
+
+    let tmp = tempfile::tempdir()?;
+
+    // create some directories BEFORE starting the watcher
+    std::fs::create_dir_all(tmp.path().join("dir1/sub/little"))?;
+    std::fs::create_dir_all(tmp.path().join("dir2/sub/BIG"))?;
+    std::fs::create_dir(tmp.path().join("dir3"))?;
+
+    let event_handler = InotifyEventCheck::new();
+    let events = Arc::clone(&event_handler.events);
+
+    let _watcher = InotifyWatcher::new(event_handler, vec![tmp.path().to_owned()])?;
+
+    // check that the existing directories are not reported as detected
+    std::thread::sleep(TOLERANCE);
+    check_events("existing", &events, vec![], vec![]);
+
+    // now, create some subdirs and subfiles
+    std::fs::create_dir(tmp.path().join("dir1/sub/little/leaf"))?;
+    std::fs::write(tmp.path().join("dir1/sub/little/some_file.tmp"), "")?;
+
+    // check that they have been detected
+    std::thread::sleep(TOLERANCE);
+    check_events(
+        "created_subdirs_and_files",
+        &events,
+        vec![
+            (tmp.path().join("dir1/sub/little/leaf"), PathKind::Directory),
+            (tmp.path().join("dir1/sub/little/some_file.tmp"), PathKind::File),
+        ],
+        vec![],
+    );
+
+    // remove and check
+    std::fs::remove_dir(tmp.path().join("dir1/sub/little/leaf"))?;
+    std::fs::remove_file(tmp.path().join("dir1/sub/little/some_file.tmp"))?;
+    std::thread::sleep(TOLERANCE);
+    check_events(
+        "removed_subdirs_and_files",
+        &events,
+        vec![],
+        vec![
+            (tmp.path().join("dir1/sub/little/leaf"), PathKind::Directory),
+            (tmp.path().join("dir1/sub/little/some_file.tmp"), PathKind::File),
+        ],
+    );
+
+    // create again and check
+    std::fs::create_dir(tmp.path().join("dir1/sub/little/leaf"))?;
+    std::fs::write(tmp.path().join("dir1/sub/little/some_file.tmp"), "")?;
+    std::thread::sleep(TOLERANCE);
+    check_events(
+        "created_subdirs_and_files(2)",
+        &events,
+        vec![
+            (tmp.path().join("dir1/sub/little/leaf"), PathKind::Directory),
+            (tmp.path().join("dir1/sub/little/some_file.tmp"), PathKind::File),
+        ],
+        vec![],
+    );
+
+    // remove the parent directory and all its content
+    std::fs::remove_dir_all(tmp.path().join("dir1/sub"))?;
+    std::thread::sleep(TOLERANCE);
+    check_events(
+        "removed_subdirs_rec",
+        &events,
+        vec![],
+        vec![
+            (tmp.path().join("dir1/sub"), PathKind::Directory),
+            (tmp.path().join("dir1/sub/little"), PathKind::Directory),
+            (tmp.path().join("dir1/sub/little/leaf"), PathKind::Directory),
+            (tmp.path().join("dir1/sub/little/some_file.tmp"), PathKind::File),
+        ],
+    );
+    Ok(())
+}
