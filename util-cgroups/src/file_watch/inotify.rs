@@ -1,5 +1,6 @@
 use std::{
     ffi::OsString,
+    fs::Metadata,
     io::ErrorKind,
     os::fd::{AsFd, AsRawFd},
     path::PathBuf,
@@ -15,6 +16,7 @@ use nix::{
     sys::inotify::{AddWatchFlags, InitFlags, Inotify, InotifyEvent, WatchDescriptor},
 };
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
+use walkdir::WalkDir;
 
 pub struct InotifyWatcher {
     thread_handle: Option<JoinHandle<()>>,
@@ -81,9 +83,8 @@ impl Drop for InotifyWatcher {
     }
 }
 
-struct Watched {
+struct WatchedDir {
     path: PathBuf,
-    kind: PathKind,
     watch_recursively: bool,
 }
 
@@ -95,8 +96,8 @@ struct Watched {
 struct WatchLoop<E: EventHandler> {
     inotify: Inotify,
     epoll: Poll,
-    watched_infos: FxHashMap<WatchDescriptor, Watched>,
-    watched_dirs: FxHashSet<PathBuf>,
+    watched_dirs: FxHashMap<WatchDescriptor, WatchedDir>,
+    watched_paths: FxHashSet<PathBuf>,
     event_handler: E,
 }
 
@@ -107,7 +108,7 @@ const STOP_TOKEN: Token = Token(1);
 
 // AddWatchFlags ops are not const
 fn flags_add_watch() -> AddWatchFlags {
-    AddWatchFlags::IN_CREATE | /*AddWatchFlags::IN_DELETE |*/ AddWatchFlags::IN_DELETE_SELF
+    AddWatchFlags::IN_CREATE | AddWatchFlags::IN_DELETE | AddWatchFlags::IN_DELETE_SELF
 }
 
 impl<E: EventHandler> WatchLoop<E> {
@@ -134,8 +135,8 @@ impl<E: EventHandler> WatchLoop<E> {
         let s = Self {
             inotify,
             epoll,
-            watched_infos: FxHashMap::with_capacity_and_hasher(INITIAL_CAPACITY, FxBuildHasher),
-            watched_dirs: FxHashSet::with_capacity_and_hasher(INITIAL_CAPACITY, FxBuildHasher),
+            watched_dirs: FxHashMap::with_capacity_and_hasher(INITIAL_CAPACITY, FxBuildHasher),
+            watched_paths: FxHashSet::with_capacity_and_hasher(INITIAL_CAPACITY, FxBuildHasher),
             event_handler,
         };
         Ok((s, stop_waker))
@@ -182,7 +183,7 @@ impl<E: EventHandler> WatchLoop<E> {
     }
 
     fn process_fs_events(&mut self, events: Vec<InotifyEvent>) -> anyhow::Result<()> {
-        fn full_name(watched: &Watched, event_name: Option<OsString>) -> PathBuf {
+        fn full_name(watched: &WatchedDir, event_name: Option<OsString>) -> PathBuf {
             match event_name {
                 Some(filename) => watched.path.join(filename),
                 None => watched.path.clone(),
@@ -202,7 +203,7 @@ impl<E: EventHandler> WatchLoop<E> {
 
             if evt.mask.contains(AddWatchFlags::IN_CREATE) {
                 // A file or directory has been created in a watched directory.
-                let watched_dir = self.watched_infos.get(&evt.wd).unwrap();
+                let watched_dir = self.watched_dirs.get(&evt.wd).unwrap();
                 let path = full_name(watched_dir, evt.name);
                 let kind = if evt.mask.contains(AddWatchFlags::IN_ISDIR) {
                     PathKind::Directory
@@ -211,23 +212,55 @@ impl<E: EventHandler> WatchLoop<E> {
                 };
                 log::trace!("(+) {kind:?} {path:?}");
                 if kind == PathKind::Directory && watched_dir.watch_recursively {
-                    // watch recursively
-                    match self.add_watch_dir(path.clone(), true) {
-                        Ok(_) => (),
-                        Err(e) if e == Errno::ENOENT => {
-                            // The directory has been removed in the meantime!
-                            // Mark it as created _and_ deleted.
-                            deleted.push((path.clone(), kind));
-                        }
-                        Err(e) => {
-                            return Err(anyhow::Error::new(e).context(format!("could not add watch to path {path:?}")));
+                    // Watch recursively.
+
+                    // Iterate on `path` and its sub-directories (the first item yielded by the iterator is `path`).
+                    // WHY: Doing `add_watch_dir` is not enough, because the directory can be modified (e.g. sub-directories can be created) between the inotify event and the registration of the directory. To avoid missing any event, we need to recursively list the sub-directories.
+                    for (entry, metadata) in WalkDir::new(&path).into_iter().filter_map(entry_metadata) {
+                        let path = entry.into_path();
+                        if metadata.is_dir() {
+                            match self.add_watch_dir(path.clone(), true) {
+                                Ok(true) => {
+                                    log::trace!("(rec) created: Directory {path:?}");
+                                    created.push((path, PathKind::Directory));
+                                }
+                                Ok(false) => {
+                                    log::trace!("(rec) already created: {path:?}");
+                                }
+                                Err(e) if e == Errno::ENOENT => {
+                                    // The directory has been removed in the meantime!
+                                    // Mark it as created *and* deleted.
+                                    log::trace!("(±) {kind:?} {path:?}");
+                                    deleted.push((path.clone(), kind));
+                                    self.unmark_watched(&path);
+                                }
+                                Err(e) => {
+                                    return Err(
+                                        anyhow::Error::new(e).context(format!("could not add watch to path {path:?}"))
+                                    );
+                                }
+                            }
+                        } else if metadata.is_file() {
+                            // just a file, emit "created"
+                            if self.mark_watched(path.clone()) {
+                                log::trace!("(rec) created: File {path:?}");
+                                created.push((path, PathKind::File));
+                            } else {
+                                log::trace!("(rec) already created: {path:?}");
+                            }
                         }
                     }
+                } else {
+                    if self.mark_watched(path.clone()) {
+                        log::trace!("(file) created: {path:?}");
+                        created.push((path, kind));
+                    } else {
+                        log::trace!("(file) already created: {path:?}");
+                    }
                 }
-                created.push((path, kind));
             } else if evt.mask.contains(AddWatchFlags::IN_DELETE) {
                 // A file or directory has been removed from a watched directory.
-                let watched_dir = self.watched_infos.get(&evt.wd).unwrap();
+                let watched_dir = self.watched_dirs.get(&evt.wd).unwrap();
                 let path = full_name(watched_dir, evt.name);
                 let kind = if evt.mask.contains(AddWatchFlags::IN_ISDIR) {
                     PathKind::Directory
@@ -236,26 +269,24 @@ impl<E: EventHandler> WatchLoop<E> {
                 };
                 log::trace!("(-) {kind:?} {path:?}");
 
-                // If a directory that we watched has been removed, avoid putting it twice in the "deleted" list.
-                if kind == PathKind::Directory && self.watched_dirs.remove(&path) {
+                // Avoid putting it twice in the "deleted" list.
+                if self.unmark_watched(&path) {
                     deleted.push((path, kind));
                 }
             } else if evt.mask.contains(AddWatchFlags::IN_DELETE_SELF) {
                 // A directory that we watched has been removed.
-                let watched_dir = &self.watched_infos.remove(&evt.wd).unwrap();
+                let watched_dir = &self.watched_dirs.remove(&evt.wd).unwrap();
                 let path = full_name(watched_dir, evt.name);
-                let kind = watched_dir.kind;
-                debug_assert_eq!(kind, PathKind::Directory);
-                log::trace!("(x) {kind:?} {path:?}");
+                log::trace!("(x) Directory {path:?}");
 
                 // IN_DELETE might arrive before IN_DELETE_SELF.
                 // In that case, avoid putting the directory twice in the "deleted" list.
-                if self.watched_dirs.remove(&path) {
-                    deleted.push((path, kind));
+                if self.unmark_watched(&path) {
+                    deleted.push((path, PathKind::Directory));
                 }
             } else if evt.mask.contains(AddWatchFlags::IN_IGNORED) {
                 // The wd should be forgotten in IN_DELETE_SELF
-                debug_assert!(!self.watched_infos.contains_key(&evt.wd));
+                debug_assert!(!self.watched_dirs.contains_key(&evt.wd));
             }
         }
 
@@ -270,16 +301,36 @@ impl<E: EventHandler> WatchLoop<E> {
         Ok(())
     }
 
-    fn add_watch_dir(&mut self, path: PathBuf, recursive: bool) -> nix::Result<()> {
+    fn mark_watched(&mut self, path: PathBuf) -> bool {
+        self.watched_paths.insert(path)
+    }
+
+    fn unmark_watched(&mut self, path: &PathBuf) -> bool {
+        self.watched_paths.remove(path)
+    }
+
+    fn add_watch_dir(&mut self, path: PathBuf, recursive: bool) -> nix::Result<bool> {
+        if !self.watched_paths.insert(path.clone()) {
+            // prevent duplicates
+            return Ok(false);
+        }
+
         let flags = flags_add_watch();
         let wd = self.inotify.add_watch(&path, flags)?;
-        let watched = Watched {
-            path: path.clone(),
-            kind: PathKind::Directory,
+        let watched = WatchedDir {
+            path,
             watch_recursively: recursive,
         };
-        self.watched_dirs.insert(path);
-        self.watched_infos.insert(wd, watched);
-        Ok(())
+        self.watched_dirs.insert(wd, watched);
+        Ok(true)
     }
+}
+
+fn entry_metadata(res: walkdir::Result<walkdir::DirEntry>) -> Option<(walkdir::DirEntry, Metadata)> {
+    if let Ok(e) = res {
+        if let Ok(metadata) = e.metadata() {
+            return Some((e, metadata));
+        }
+    }
+    None
 }
