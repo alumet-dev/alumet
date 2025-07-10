@@ -4548,6 +4548,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "criterion",
+ "env_logger",
  "log",
  "mio 1.0.4",
  "mount-watcher",
