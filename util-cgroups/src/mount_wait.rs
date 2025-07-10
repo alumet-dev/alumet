@@ -1,11 +1,9 @@
 //! Wait for the cgroupfs to be mounted.
 
-use mount_watcher::{mount::LinuxMount, MountWatcher, WatchControl};
-use std::{ops::ControlFlow, time::Duration};
+use mount_watcher::{MountWatcher, WatchControl, mount::LinuxMount};
+use std::{any::Any, ops::ControlFlow, time::Duration};
 
-use crate::{hierarchy::HierarchyError, CgroupVersion};
-
-use super::hierarchy::CgroupHierarchy;
+use super::hierarchy::{CgroupHierarchy, HierarchyError, CgroupVersion};
 
 /// `CgroupMountWait` represents a handle to a background thread that waits for a cgroup filesystem to be mounted.
 ///
@@ -61,7 +59,7 @@ impl CgroupMountWait {
     /// If the thread has panicked, an error is returned with the panic payload.
     pub fn stop_and_join(mut self) -> std::thread::Result<()> {
         let watcher = self.watcher.take().unwrap();
-        watcher.stop();
+        watcher.stop().map_err(|e| Box::new(e) as Box<dyn Any + Send>)?;
         watcher.join()
     }
 }
@@ -70,7 +68,7 @@ impl Drop for CgroupMountWait {
     fn drop(&mut self) {
         if let Some(w) = self.watcher.take() {
             log::debug!("CgroupMountWait is dropped");
-            w.stop(); // just set the flag
+            let _ = w.stop(); // just set the flag
         }
     }
 }
