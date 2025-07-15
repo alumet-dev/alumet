@@ -150,7 +150,7 @@ impl StatFileBuilder {
     pub fn new<S: AsRef<str>>(file: File, keys: &[S]) -> Self {
         Self {
             file,
-            keys_to_get: keys.into_iter().map(|s| s.as_ref().to_owned()).collect(),
+            keys_to_get: keys.iter().map(|s| s.as_ref().to_owned()).collect(),
         }
     }
 

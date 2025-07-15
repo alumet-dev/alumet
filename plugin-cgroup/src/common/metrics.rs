@@ -1,5 +1,3 @@
-use std::u64;
-
 use alumet::{
     measurement::{AttributeValue, MeasurementType},
     metrics::TypedMetricId,
@@ -125,7 +123,7 @@ impl AugmentedMetrics {
         Self::with_common_attr_vec(
             metrics,
             common_attrs
-                .into_iter()
+                .iter()
                 .map(|(k, v)| (k.to_owned().into(), v.to_owned()))
                 .collect(),
         )

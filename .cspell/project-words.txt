@@ -22,6 +22,7 @@ giga
 humantime
 hwinfo
 hwmon
+indice
 ITLB
 kwollect
 Mispredicted
