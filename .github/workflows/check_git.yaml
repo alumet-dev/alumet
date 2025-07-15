@@ -26,8 +26,8 @@ jobs:
           exit_code=0
 
           commit_type_regex='build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test'
-          commit_scope_regex='\([a-zA-Z0-9_\-\.]+\)'
-          commit_summary_regex='([a-z0-9_ \.\-\`])+'
+          commit_scope_regex='\([a-zA-Z0-9\._-]+\)'
+          commit_summary_regex='([a-z0-9 \.\`_-])+'
           commit_body_regex='((\n|\r\n){2}[\s\S]+)'
           commit_message_regex="(^(${commit_type_regex})(${commit_scope_regex})?(\!)?: ${commit_summary_regex}${commit_body_regex}?)"
 
