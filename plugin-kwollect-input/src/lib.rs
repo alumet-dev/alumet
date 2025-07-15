@@ -1,6 +1,10 @@
-use alumet::plugin::{
-    AlumetPluginStart, ConfigTable,
-    rust::{AlumetPlugin, deserialize_config, serialize_config},
+use alumet::{
+    pipeline::Source,
+    plugin::{
+        AlumetPluginStart, AlumetPostStart, ConfigTable, event,
+        rust::{AlumetPlugin, deserialize_config, serialize_config},
+    },
+    units::Unit,
 };
 use chrono::{DateTime, FixedOffset, Utc};
 use reqwest;
@@ -12,6 +16,7 @@ use time::OffsetDateTime;
 
 mod kwollect;
 mod source;
+use crate::source::KwollectSource;
 use kwollect::parse_measurements;
 
 /// Structure for Kwollect implementation
@@ -41,7 +46,7 @@ impl AlumetPlugin for KwollectPluginInput {
     // TODO: adding a source to the stop BUS --> we can try with start bus if we use sleep at the moment no?
     // TODO: Building response of the API as a csv? --> test with csv plugin
     // TODO: Erase the sleep and put start_alumet at the tsart and end_alumet at the end
-    fn start(&mut self, _alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
+    fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         log::info!("Kwollect-input plugin is starting");
         let start_alumet: OffsetDateTime = SystemTime::now().into();
         let system_time: SystemTime = convert_to_system_time(start_alumet);
@@ -71,7 +76,15 @@ impl AlumetPlugin for KwollectPluginInput {
             }
             Err(e) => log::error!("Failed to fetch data: {}", e),
         }
+        //let metrics = alumet.create_metric::<u64>(self.config.metrics, Unit::Unity, self.config.metrics)?;
+        //let mut source = KwollectSource::poll(self.config, metrics);
 
+        Ok(())
+    }
+
+    fn post_pipeline_start(&mut self, alumet: &mut AlumetPostStart) -> anyhow::Result<()> {
+        // TODO: to chnage it is just the main idea
+        //event::end_consumer_measurement().subscribe(listener);
         Ok(())
     }
 
