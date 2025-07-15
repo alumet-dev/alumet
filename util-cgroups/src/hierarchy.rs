@@ -63,7 +63,7 @@ pub enum CgroupVersion {
     V2,
 }
 
-impl<'h> Display for Cgroup<'h> {
+impl Display for Cgroup<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.unique_name().as_ref())
     }

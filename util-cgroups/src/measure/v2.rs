@@ -61,8 +61,8 @@ mod common {
         /// - the cgroup controllers that are enabled
         /// - the configuration of the Linux kernel
         /// - the collectors' settings passed to this method
-        pub fn new<'h>(
-            cgroup: Cgroup<'h>,
+        pub fn new(
+            cgroup: Cgroup<'_>,
             memory_stat_settings: MemoryStatCollectorSettings,
             cpu_stat_settings: CpuStatCollectorSettings,
             io_buf: &mut Vec<u8>,
