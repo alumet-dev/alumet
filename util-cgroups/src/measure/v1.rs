@@ -50,7 +50,7 @@ impl V1Collector {
     ///
     /// # Available metrics
     /// The collector can only measure what is provided by the cgroup controllers attached to the given hierarchy.
-    pub fn in_single_hierarchy<'h>(cgroup: Cgroup<'h>) -> anyhow::Result<Self> {
+    pub fn in_single_hierarchy(cgroup: Cgroup) -> anyhow::Result<Self> {
         Self::across_hierarchies(cgroup.canonical_path(), &[cgroup.hierarchy()])
             .with_context(|| format!("collector creation failed for cgroup {}", cgroup.unique_name()))
     }

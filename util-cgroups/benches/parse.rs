@@ -359,7 +359,7 @@ mod alternatives {
     //     use crate::alternatives::{BitSet64, BitSet128, IndiceCache};
 
     //     #[test]
-    //     fn testb64() {
+    //     fn test_b64() {
     //         let b64 = BitSet64::new(&[]);
     //         for i in 0..64 {
     //             assert!(!b64.contains(i));
@@ -377,7 +377,7 @@ mod alternatives {
     //     }
 
     //     #[test]
-    //     fn testb128() {
+    //     fn test_b128() {
     //         let b128 = BitSet128::new(&[]);
     //         for i in 0..128 {
     //             assert!(!b128.contains(i));

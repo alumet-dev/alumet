@@ -321,7 +321,7 @@ fn no_cgroup() {
     let root = root_unwraped.path().to_path_buf();
     let version = CgroupVersion::V1;
 
-    //Creation of CgrouHierarchy
+    //Creation of CgroupHierarchy
     let hierarchy_cpu = CgroupHierarchy::manually_unchecked(root.clone(), version, vec![""]);
 
     // Detection of Cgroup
@@ -355,7 +355,7 @@ fn one_cgroup_created_v1() {
     // Create path before
     let path_cpu = root.join("cpuacct");
     let path_mem = root.join("memory");
-    //Creation of CgrouHierarchy
+    //Creation of CgroupHierarchy
     let hierarchy_cpu = CgroupHierarchy::manually_unchecked(path_cpu, version, vec!["cpuacct"]);
     let hierarchy_mem = CgroupHierarchy::manually_unchecked(path_mem, version, vec!["memory"]);
     // Creation of cgroup
@@ -411,7 +411,7 @@ fn one_cgroup_created_after_v1() {
     let version = CgroupVersion::V1;
     // Create path before
     let path_cpu = root.join("cpuacct");
-    //Creation of CgrouHierarchy
+    //Creation of CgroupHierarchy
     let hierarchy_cpu = CgroupHierarchy::manually_unchecked(path_cpu, version, vec!["cpuacct"]);
     let res_cpu = create_folder(&root, "cpuacct", hierarchy_cpu.clone()).unwrap();
     let cpt: std::sync::Arc<AtomicU8> = std::sync::Arc::new(AtomicU8::new(0));
@@ -449,7 +449,7 @@ fn severale_cgroup_created_after_v1() {
     let version = CgroupVersion::V1;
     // Create path before
     let path_cpu = root.join("cpuacct");
-    //Creation of CgrouHierarchy
+    //Creation of CgroupHierarchy
     let hierarchy_cpu = CgroupHierarchy::manually_unchecked(path_cpu.clone(), version, vec!["cpuacct"]);
     assert!(create_folder(&root, "cpuacct", hierarchy_cpu.clone()).is_ok());
 
@@ -608,7 +608,7 @@ fn cgroup_missing_element_v1() {
     let version = CgroupVersion::V1;
     // Create path before
     let path_cpu = root.join("cpuacct");
-    //Creation of CgrouHierarchy
+    //Creation of CgroupHierarchy
     let hierarchy_cpu = CgroupHierarchy::manually_unchecked(path_cpu.clone(), version, vec!["cpuacct"]);
     assert!(create_folder(&root, "cpuacct", hierarchy_cpu.clone()).is_ok());
     let cpt: std::sync::Arc<AtomicU8> = std::sync::Arc::new(AtomicU8::new(0));

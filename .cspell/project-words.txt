@@ -7,6 +7,7 @@ Burstable
 cbindgen
 cdylib
 Cgroups
+cgroupfs
 cgroupv
 cguest
 CNRS
@@ -20,6 +21,7 @@ giga
 humantime
 hwinfo
 hwmon
+indice
 ITLB
 kwollect
 Mispredicted
