@@ -126,6 +126,7 @@ impl<E: Event> EventBus<E> {
 struct EventBuses {
     start_consumer_measurement: EventBus<StartConsumerMeasurement>,
     start_resource_measurement: EventBus<StartResourceMeasurement>,
+    end_consumer_measurement: EventBus<EndConsumerMeasurement>,
 }
 
 /// Global variable, initialized only once, containing the event buses.
@@ -145,6 +146,13 @@ pub fn start_resource_measurement() -> &'static EventBus<StartResourceMeasuremen
         .start_resource_measurement
 }
 
+/// Returns the global event bus for the event [`EndConsumerMeasurement`].
+pub fn end_consumer_measurement() -> &'static EventBus<EndConsumerMeasurement> {
+    &GLOBAL_EVENT_BUSES
+        .get_or_init(EventBuses::default)
+        .end_consumer_measurement
+}
+
 /// Event occurring when new [resource consumers](ResourceConsumer) are detected
 /// and should be measured.
 #[derive(Clone)]
@@ -155,17 +163,22 @@ pub struct StartConsumerMeasurement(pub Vec<ResourceConsumer>);
 #[derive(Clone)]
 pub struct StartResourceMeasurement(pub Vec<Resource>);
 
+/// Event occurring when measurements should be performed at the end of the consumer experiment.
+#[derive(Clone)]
+pub struct EndConsumerMeasurement(pub Vec<ResourceConsumer>);
+
 impl Event for StartConsumerMeasurement {}
 impl Event for StartResourceMeasurement {}
+impl Event for EndConsumerMeasurement {}
 
 #[cfg(test)]
 mod tests {
     use std::sync::{
-        atomic::{AtomicU32, Ordering},
+        atomic::{AtomicU32, AtomicUsize, Ordering},
         Arc,
     };
 
-    use super::{Event, EventBus};
+    use super::{EndConsumerMeasurement, Event, EventBus};
 
     #[derive(Clone)]
     struct TestEvent(u32);
@@ -195,5 +208,19 @@ mod tests {
         assert_eq!(1, event_count.load(Ordering::SeqCst));
         bus.publish(TestEvent(10));
         assert_eq!(11, event_count.load(Ordering::SeqCst));
+    }
+    #[test]
+    fn test_end_consumer_measurement() {
+        let bus = EventBus::<EndConsumerMeasurement>::default();
+        let event_count = Arc::new(AtomicUsize::new(0));
+        let cloned_count = event_count.clone();
+
+        bus.subscribe(move |_event| {
+            cloned_count.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        });
+
+        bus.publish(EndConsumerMeasurement(vec![]));
+        assert_eq!(1, event_count.load(Ordering::SeqCst));
     }
 }
