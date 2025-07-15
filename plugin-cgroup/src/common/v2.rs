@@ -21,7 +21,7 @@ pub struct CgroupV2Probe {
 }
 
 impl CgroupV2Probe {
-    pub fn new<'h>(cgroup: Cgroup<'h>, metrics: AugmentedMetrics) -> anyhow::Result<Self> {
+    pub fn new(cgroup: Cgroup<'_>, metrics: AugmentedMetrics) -> anyhow::Result<Self> {
         let consumer = ResourceConsumer::ControlGroup {
             path: cgroup.canonical_path().to_owned().into(),
         };

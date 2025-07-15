@@ -281,9 +281,9 @@ impl serde::ser::SerializeStruct for SerializeStructWrapper {
     type Ok = String;
     type Error = SerializationError;
 
-    fn serialize_field<T: ?Sized>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
+    fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
     where
-        T: serde::Serialize,
+        T: serde::Serialize + ?Sized,
     {
         let value_str = value.serialize(StatSerializer)?;
         self.fields.push(format!("{key} {value_str}"));
