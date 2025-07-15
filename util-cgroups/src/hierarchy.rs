@@ -16,7 +16,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use mount_watcher::mount::{LinuxMount, list_current_mounts};
+use mount_watcher::mount::{list_current_mounts, LinuxMount};
 use thiserror::Error;
 
 /// A control group, v1 or v2.
@@ -395,8 +395,8 @@ mod tests {
     use mount_watcher::mount::LinuxMount;
 
     use crate::{
-        Cgroup,
         hierarchy::{CgroupHierarchy, CgroupVersion, HierarchyError},
+        Cgroup,
     };
 
     #[test]

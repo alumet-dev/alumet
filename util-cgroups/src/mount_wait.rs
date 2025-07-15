@@ -1,9 +1,9 @@
 //! Wait for the cgroupfs to be mounted.
 
-use mount_watcher::{MountWatcher, WatchControl, mount::LinuxMount};
+use mount_watcher::{mount::LinuxMount, MountWatcher, WatchControl};
 use std::{any::Any, ops::ControlFlow, time::Duration};
 
-use crate::{CgroupVersion, hierarchy::HierarchyError};
+use crate::{hierarchy::HierarchyError, CgroupVersion};
 
 use super::hierarchy::CgroupHierarchy;
 

@@ -1,4 +1,4 @@
-use serde::{Serialize, ser::Serializer};
+use serde::{ser::Serializer, Serialize};
 use thiserror::Error;
 
 use super::serde_util::{Impossible, SerializationError};

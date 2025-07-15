@@ -1,9 +1,9 @@
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, MeasurementType, Timestamp},
-    pipeline::{Source, elements::error::PollError},
+    pipeline::{elements::error::PollError, Source},
     resources::{Resource, ResourceConsumer},
 };
-use util_cgroups::{Cgroup, measure::v1::V1Collector};
+use util_cgroups::{measure::v1::V1Collector, Cgroup};
 
 use super::{
     delta::CpuDeltaCounters, metrics::AugmentedMetric, metrics::AugmentedMetrics, self_stop::analyze_io_result,

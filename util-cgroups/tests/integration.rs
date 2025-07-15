@@ -9,7 +9,7 @@ use std::thread;
 use std::time::Duration;
 use tempfile::tempdir;
 use toml;
-use util_cgroups::detect::{ClosureCallbacks, Config, callback};
+use util_cgroups::detect::{callback, ClosureCallbacks, Config};
 use util_cgroups::hierarchy::CgroupVersion;
 use util_cgroups::{CgroupDetector, CgroupHierarchy};
 
