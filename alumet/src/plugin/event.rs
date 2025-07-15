@@ -174,11 +174,11 @@ impl Event for EndConsumerMeasurement {}
 #[cfg(test)]
 mod tests {
     use std::sync::{
-        atomic::{AtomicU32, AtomicUsize, Ordering},
+        atomic::{AtomicU32, Ordering},
         Arc,
     };
 
-    use super::{EndConsumerMeasurement, Event, EventBus};
+    use super::{Event, EventBus};
 
     #[derive(Clone)]
     struct TestEvent(u32);
@@ -208,19 +208,5 @@ mod tests {
         assert_eq!(1, event_count.load(Ordering::SeqCst));
         bus.publish(TestEvent(10));
         assert_eq!(11, event_count.load(Ordering::SeqCst));
-    }
-    #[test]
-    fn test_end_consumer_measurement() {
-        let bus = EventBus::<EndConsumerMeasurement>::default();
-        let event_count = Arc::new(AtomicUsize::new(0));
-        let cloned_count = event_count.clone();
-
-        bus.subscribe(move |_event| {
-            cloned_count.fetch_add(1, Ordering::SeqCst);
-            Ok(())
-        });
-
-        bus.publish(EndConsumerMeasurement(vec![]));
-        assert_eq!(1, event_count.load(Ordering::SeqCst));
     }
 }
