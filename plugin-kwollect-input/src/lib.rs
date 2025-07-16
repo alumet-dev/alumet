@@ -1,7 +1,8 @@
 use alumet::{
+    metrics,
     pipeline::Source,
     plugin::{
-        AlumetPluginStart, AlumetPostStart, ConfigTable, event,
+        AlumetPluginStart, AlumetPostStart, AlumetPreStart, ConfigTable, event,
         rust::{AlumetPlugin, deserialize_config, serialize_config},
     },
     units::Unit,
@@ -76,14 +77,25 @@ impl AlumetPlugin for KwollectPluginInput {
             }
             Err(e) => log::error!("Failed to fetch data: {}", e),
         }
-        //let metrics = alumet.create_metric::<u64>(self.config.metrics, Unit::Unity, self.config.metrics)?;
-        //let mut source = KwollectSource::poll(self.config, metrics);
+        // Est -ce que c'est intéressant de définir des métriques?
+        // let metrics = alumet.create_metric::<u64>(
+        //     self.config.metrics.to_string(),
+        //     Unit::Unity,
+        //     self.config.metrics.to_string(),
+        // )?;
 
+        Ok(())
+    }
+
+    fn pre_pipeline_start(&mut self, alumet: &mut AlumetPreStart<'_>) -> anyhow::Result<()> {
+        // config.clone() n'existe pas!!
+        //let mut source = KwollectSource::new(self.config.clone(), AlumetPreStart::metrics(alumet).clone());
         Ok(())
     }
 
     fn post_pipeline_start(&mut self, alumet: &mut AlumetPostStart) -> anyhow::Result<()> {
         // TODO: to chnage it is just the main idea
+        // IDEAS HERE: https://github.com/alumet-dev/alumet/blob/main/alumet/src/plugin/phases.rs#L65
         //event::end_consumer_measurement().subscribe(listener);
         Ok(())
     }
