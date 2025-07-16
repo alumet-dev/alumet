@@ -15,6 +15,7 @@ use time::OffsetDateTime;
 pub struct KwollectSource {
     pub config: Config,
     pub metric_registry: MetricRegistry,
+    // pub metric: TypedMetricId<u64>,
 }
 
 impl KwollectSource {
@@ -22,6 +23,7 @@ impl KwollectSource {
         Ok(KwollectSource {
             config,
             metric_registry,
+            //metric,
         })
     }
 }
@@ -30,9 +32,10 @@ impl Source for KwollectSource {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator<'_>, timestamp: Timestamp) -> Result<(), PollError> {
         log::info!("Kwollect-input plugin is starting");
 
+        // To create a Measurement Point from the MeasureKwollect type data
         fn create_measurement_point(
             measure: &MeasureKwollect,
-            metric_registry: &MetricRegistry,
+            metric_registry: &MetricRegistry, // I used this because without it we cannot use "try_from" method to convert the metric_id to a TypedMetricId
             timestamp: Timestamp,
         ) -> Result<MeasurementPoint, PollError> {
             let resource = Resource::LocalMachine;
@@ -40,6 +43,7 @@ impl Source for KwollectSource {
 
             let metric_id = create_f64_metric_id(measure, metric_registry)
                 .map_err(|e| PollError::Fatal(anyhow::anyhow!("{}", e)))?;
+            //let metric_id=metric;
 
             let value = match measure.value {
                 WrappedMeasurementValue::F64(v) => v,
