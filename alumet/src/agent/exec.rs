@@ -42,16 +42,14 @@ pub fn watch_process(
     args: Vec<String>,
     shutdown_timeout: Duration,
 ) -> Result<(), WatchError> {
-    log::info!("Starting watch_process for program: {}", program);
-
     // At least one measurement.
     if let Err(e) = trigger_measurement_now(&agent.pipeline) {
         log::error!("Could not trigger a first measurement before the child spawn: {e}");
     }
 
     // Spawn the process and wait for it to exit.
-    let (pid, exit_status) = exec_child(program, args)?;
-    log::info!("Child process exited with status {:?}, PID: {}", exit_status, pid);
+    let exit_status = exec_child(program, args)?;
+    log::info!("Child process exited with status {exit_status}, Alumet will now stop.");
 
     // One last measurement.
     if let Err(e) = trigger_measurement_now(&agent.pipeline) {
@@ -68,7 +66,7 @@ pub fn watch_process(
 }
 
 /// Spawns a child process and waits for it to exit.
-fn exec_child(external_command: String, args: Vec<String>) -> Result<(u32, ExitStatus), WatchError> {
+fn exec_child(external_command: String, args: Vec<String>) -> Result<ExitStatus, WatchError> {
     // Spawn the process.
     let mut p = Command::new(external_command.clone())
         .args(args)
@@ -83,7 +81,7 @@ fn exec_child(external_command: String, args: Vec<String>) -> Result<(u32, ExitS
 
     // Wait for the process to terminate.
     let status = p.wait().map_err(|e| WatchError::ProcessWait(pid, e))?;
-    Ok((pid, status))
+    Ok(status)
 }
 
 const TRIGGER_TIMEOUT: Duration = Duration::from_secs(1);
