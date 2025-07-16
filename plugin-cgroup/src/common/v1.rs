@@ -1,9 +1,9 @@
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, MeasurementType, Timestamp},
-    pipeline::{Source, elements::error::PollError},
+    pipeline::{elements::error::PollError, Source},
     resources::{Resource, ResourceConsumer},
 };
-use util_cgroups::{Cgroup, measure::v1::V1Collector};
+use util_cgroups::{measure::v1::V1Collector, Cgroup};
 
 use super::{
     delta::CpuDeltaCounters, metrics::AugmentedMetric, metrics::AugmentedMetrics, self_stop::analyze_io_result,
@@ -18,7 +18,7 @@ pub struct CgroupV1Probe {
 }
 
 impl CgroupV1Probe {
-    pub fn new<'h>(cgroup: Cgroup<'h>, metrics: AugmentedMetrics) -> anyhow::Result<Self> {
+    pub fn new(cgroup: Cgroup<'_>, metrics: AugmentedMetrics) -> anyhow::Result<Self> {
         let cgroup_canon_path = cgroup.canonical_path().to_owned();
         let consumer = ResourceConsumer::ControlGroup {
             path: cgroup_canon_path.clone().into(),

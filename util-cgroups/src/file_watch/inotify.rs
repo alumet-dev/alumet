@@ -10,7 +10,7 @@ use std::{
 
 use crate::file_watch::{EventHandler, PathKind, Watcher};
 use anyhow::Context;
-use mio::{Events, Interest, Poll, Token, Waker, unix::SourceFd};
+use mio::{unix::SourceFd, Events, Interest, Poll, Token, Waker};
 use nix::{
     errno::Errno,
     sys::inotify::{AddWatchFlags, InitFlags, Inotify, InotifyEvent, WatchDescriptor},
@@ -264,13 +264,11 @@ impl<E: EventHandler> WatchLoop<E> {
                 log::trace!("(+) {kind:?} {path:?}");
                 if kind == PathKind::Directory && watched_dir.watch_recursively {
                     self.watch_recursively(path, &mut created, &mut deleted)?;
+                } else if self.mark_watched(path.clone()) {
+                    log::trace!("(file) created: {path:?}");
+                    created.push((path, kind));
                 } else {
-                    if self.mark_watched(path.clone()) {
-                        log::trace!("(file) created: {path:?}");
-                        created.push((path, kind));
-                    } else {
-                        log::trace!("(file) already created: {path:?}");
-                    }
+                    log::trace!("(file) already created: {path:?}");
                 }
             } else if evt.mask.contains(AddWatchFlags::IN_DELETE) {
                 // A file or directory has been removed from a watched directory.

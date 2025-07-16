@@ -6,7 +6,7 @@ use rustc_hash::FxHashSet;
 use crate::{
     common::{cgroup_events::CgroupRemovalCallback, regex::RegexAttributesExtrator},
     plugins::oar::{
-        attr::{JOB_REGEX_OAR2, JOB_REGEX_OAR3, find_jobid_in_attrs},
+        attr::{find_jobid_in_attrs, JOB_REGEX_OAR2, JOB_REGEX_OAR3},
         config::OarVersion,
     },
 };

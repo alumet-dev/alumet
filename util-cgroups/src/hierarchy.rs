@@ -2,7 +2,7 @@
 //!
 //! # Differences between cgroup v1 and cgroup v2
 //!
-//! In cgroup v1, each controller can get a separate hierachy.
+//! In cgroup v1, each controller can get a separate hierarchy.
 //! In addition, one can create "named hierarchies" that have no controller.
 //!
 //! In cgroup v2, there is a single, unified hierarchy for the whole system.
@@ -16,7 +16,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use mount_watcher::mount::{LinuxMount, list_current_mounts};
+use mount_watcher::mount::{list_current_mounts, LinuxMount};
 use thiserror::Error;
 
 /// A control group, v1 or v2.
@@ -62,7 +62,7 @@ pub enum CgroupVersion {
     V2,
 }
 
-impl<'h> Display for Cgroup<'h> {
+impl Display for Cgroup<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.unique_name().as_ref())
     }
@@ -264,7 +264,7 @@ impl CgroupHierarchy {
         let relative_path = if let Some(relative) = canonical_path.strip_prefix("/") {
             relative
         } else {
-            &canonical_path
+            canonical_path
         };
         self.root.join(relative_path)
     }
@@ -395,8 +395,8 @@ mod tests {
     use mount_watcher::mount::LinuxMount;
 
     use crate::{
-        Cgroup,
         hierarchy::{CgroupHierarchy, CgroupVersion, HierarchyError},
+        Cgroup,
     };
 
     #[test]

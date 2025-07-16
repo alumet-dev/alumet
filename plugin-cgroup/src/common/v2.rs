@@ -1,11 +1,11 @@
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, MeasurementType, Timestamp},
-    pipeline::{Source, elements::error::PollError},
+    pipeline::{elements::error::PollError, Source},
     resources::{Resource, ResourceConsumer},
 };
 use util_cgroups::{
+    measure::v2::{cpu::CpuStatCollectorSettings, memory::MemoryStatCollectorSettings, V2Collector},
     Cgroup,
-    measure::v2::{V2Collector, cpu::CpuStatCollectorSettings, memory::MemoryStatCollectorSettings},
 };
 
 use super::{
@@ -21,7 +21,7 @@ pub struct CgroupV2Probe {
 }
 
 impl CgroupV2Probe {
-    pub fn new<'h>(cgroup: Cgroup<'h>, metrics: AugmentedMetrics) -> anyhow::Result<Self> {
+    pub fn new(cgroup: Cgroup<'_>, metrics: AugmentedMetrics) -> anyhow::Result<Self> {
         let consumer = ResourceConsumer::ControlGroup {
             path: cgroup.canonical_path().to_owned().into(),
         };
