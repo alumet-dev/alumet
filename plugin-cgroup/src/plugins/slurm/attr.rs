@@ -9,3 +9,28 @@ pub fn find_jobid_in_attrs(attrs: &Vec<(String, AttributeValue)>) -> Option<u64>
         _ => unreachable!("job_id should be a u64, is the regex correct?"),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::plugins::slurm::attr::find_jobid_in_attrs;
+    use alumet::measurement::AttributeValue;
+
+    #[test]
+    fn test_find_jobid_in_attrs() {
+        let attrs: Vec<(String, AttributeValue)> = vec![
+            ("job_id".to_string(), AttributeValue::U64(19)),
+            ("Saphira".to_string(), AttributeValue::String("Eragon".to_string())),
+        ];
+        assert_eq!(find_jobid_in_attrs(&attrs), Some(19));
+    }
+
+    #[test]
+    fn test_find_jobid_in_attrs_not_existing() {
+        let attrs: Vec<(String, AttributeValue)> = vec![
+            ("not_job_id".to_string(), AttributeValue::U64(15)),
+            ("Glaedr".to_string(), AttributeValue::String("Oromis".to_string())),
+        ];
+        assert_eq!(find_jobid_in_attrs(&attrs), None);
+    }
+
+}

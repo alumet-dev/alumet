@@ -19,11 +19,11 @@ mod source;
 ///
 /// Supports slurm on cgroup v1 or cgroup v2.
 pub struct SlurmPlugin {
-    config: Option<Config>,
+    pub config: Option<Config>,
     /// Intermediary state for startup.
-    starting_state: Option<StartingState>,
+    pub starting_state: Option<StartingState>,
     /// The reactor that is running in the background. Dropping it will stop it.
-    reactor: Option<CgroupReactor>,
+    pub reactor: Option<CgroupReactor>,
 }
 
 impl SlurmPlugin {
@@ -62,7 +62,6 @@ impl AlumetPlugin for SlurmPlugin {
         let starting_state = StartingState {
             metrics: Metrics::create(alumet)?,
             reactor_config: ReactorConfig::default(),
-            // job_cleaner: JobCleaner::with_version(&tracker, config.oar_version)?,
             source_setup: source::JobSourceSetup::new(config)?,
         };
         self.starting_state = Some(starting_state);
@@ -87,39 +86,31 @@ impl AlumetPlugin for SlurmPlugin {
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
-        drop(self.reactor.take().unwrap());
+        if let Some(reactor) = self.reactor.take() {
+            drop(reactor);
+        }
         Ok(())
     }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
-    oar_version: SlurmCgroupVersion,
     #[serde(with = "humantime_serde")]
-    poll_interval: Duration,
-    jobs_only: bool,
+    pub poll_interval: Duration,
+    pub jobs_only: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            oar_version: SlurmCgroupVersion::V2,
             poll_interval: Duration::from_secs(1),
             jobs_only: true,
         }
     }
 }
 
-struct StartingState {
+pub struct StartingState {
     metrics: Metrics,
     reactor_config: ReactorConfig,
     source_setup: source::JobSourceSetup,
-    // job_cleaner: JobCleaner,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum SlurmCgroupVersion {
-    V1,
-    V2,
 }
