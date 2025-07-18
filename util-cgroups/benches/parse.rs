@@ -394,3 +394,163 @@ mod alternatives {
     //     }
     // }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::alternatives::*;
+
+    #[test]
+    fn test_prepare_cache_memory_stat() {
+        let cache = prepare_cache_memory_stat::<MockCache>();
+        assert_eq!(cache.get_indices(), vec![0, 1, 3, 4]);
+    }
+
+    #[test]
+    fn test_prepare_cache_memory_cpu() {
+        let cache = prepare_cache_memory_cpu::<MockCache>();
+        assert_eq!(cache.get_indices(), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn test_parse_space_kv_unchecked_cached_indices_hashset() {
+        let data = b"a1 111\nb2 222\nc3 333\n";
+        let indices: HashSet<usize> = IndiceCache::new(&[0, 2]);
+        let mut results = Vec::new();
+
+        parse_space_kv_unchecked_cached_indices(data, &indices, |key, value| {
+            results.push((key.to_string(), value));
+        }).unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0], ("key1".to_string(), 111));
+        assert_eq!(results[1], ("key3".to_string(), 333));
+    }
+
+    #[test]
+    fn test_parse_space_kv_unchecked_cached_indices_vec() {
+        let data = b"key1 321\nkey2 123\nkey3 231\n";
+        let indices: Vec<usize> = IndiceCache::new(&[1]);
+        let mut results = Vec::new();
+
+        parse_space_kv_unchecked_cached_indices(data, &indices, |key, value| {
+            results.push((key.to_string(), value));
+        }).unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0], ("key2".to_string(), 123));
+    }
+
+    #[test]
+    fn test_parse_space_kv_utf8_invalid_number() {
+        let data = b"key1 100\nkey2 invalid_number\nkey3 300\n";
+        let indices: HashSet<usize> = IndiceCache::new(&[0, 1, 2]);
+        let mut results = Vec::new();
+
+        let result = parse_space_kv_utf8_cached_indices(data, &indices, |key, value| {
+            results.push((key.to_string(), value));
+        });
+
+        assert!(result.is_err()); // Expect an error due to invalid number
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidData); // Check for specific error kind
+    }
+
+    #[test]
+    fn test_parse_space_kv_utf8_cached_indices_hashset() {
+        let data = b"a1 111\nb2 222\nc3 333\n";
+        let indices: HashSet<usize> = IndiceCache::new(&[0, 2]);
+        let mut results = Vec::new();
+
+        parse_space_kv_utf8_cached_indices(data, &indices, |key, value| {
+            results.push((key.to_string(), value));
+        }).unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0], ("a1".to_string(), 111));
+        assert_eq!(results[1], ("c3".to_string(), 333));
+    }
+
+    #[test]
+    fn test_parse_space_kv_utf8_cached_indices_vec() {
+        let data = b"key1 321\nkey2 123\nkey3 231\n";
+        let indices: Vec<usize> = IndiceCache::new(&[1]);
+        let mut results = Vec::new();
+
+        parse_space_kv_utf8_cached_indices(data, &indices, |key, value| {
+            results.push((key.to_string(), value));
+        }).unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0], ("key2".to_string(), 123));
+    }
+
+    #[test]
+    fn test_parse_space_kv_utf8_invalid_number() {
+        let data = b"key1 100\nkey2 invalid_number\nkey3 300\n";
+        let indices: HashSet<usize> = IndiceCache::new(&[0, 1, 2]);
+        let mut results = Vec::new();
+
+        let result = parse_space_kv_utf8_cached_indices(data, &indices, |key, value| {
+            results.push((key.to_string(), value));
+        });
+
+        assert!(result.is_err()); // Expect an error due to invalid number
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidData); // Check for specific error kind
+    }
+
+    #[test]
+    fn test_parse_space_kv_utf8_empty_input() {
+        let data = b"";
+        let indices: HashSet<usize> = IndiceCache::new(&[]);
+        let mut results = Vec::new();
+
+        parse_space_kv_utf8_cached_indices(data, &indices, |key, value| {
+            results.push((key.to_string(), value));
+        }).unwrap();
+
+        assert!(results.is_empty()); // Expect an empty result
+    }
+
+    #[test]
+    fn test_parse_space_kv_utf8_out_of_bounds_index() {
+        let data = b"key1 100\nkey2 200\nkey3 300\n";
+        let indices: Vec<usize> = IndiceCache::new(&[3]); // Out of bounds
+        let mut results = Vec::new();
+
+        parse_space_kv_utf8_cached_indices(data, &indices, |key, value| {
+            results.push((key.to_string(), value));
+        }).unwrap();
+
+        assert!(results.is_empty()); // Expect an empty result
+    }
+
+    #[test]
+    fn test_parse_space_kv_utf8_multiple_pairs_on_one_line() {
+        let data = b"key1 100 key2 200\nkey3 300\n";
+        let indices: HashSet<usize> = IndiceCache::new(&[0]); // Only process the first line
+        let mut results = Vec::new();
+
+        parse_space_kv_utf8_cached_indices(data, &indices, |key, value| {
+            results.push((key.to_string(), value));
+        }).unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0], ("key1".to_string(), 100)); // Only the first pair should be processed
+    }
+
+    #[test]
+    fn test_parse_space_kv_utf8_invalid_utf8() {
+        let data = b"key1 100\nkey2 200\n\xFF"; // Invalid UTF-8 byte
+        let indices: HashSet<usize> = IndiceCache::new(&[0, 1]);
+        let mut results = Vec::new();
+
+        let result = parse_space_kv_utf8_cached_indices(data, &indices, |key, value| {
+            results.push((key.to_string(), value));
+        });
+
+        assert!(result.is_err()); // Expect an error due to invalid UTF-8
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidData); // Check for specific error kind
+    }
+
+
+}
