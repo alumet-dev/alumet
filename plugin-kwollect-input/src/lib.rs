@@ -1,8 +1,8 @@
 use alumet::{
-    metrics,
-    pipeline::Source,
+    pipeline::{elements::source::trigger::builder::ManualTriggerBuilder, naming::SourceName},
     plugin::{
-        AlumetPluginStart, AlumetPostStart, AlumetPreStart, ConfigTable, event,
+        AlumetPluginStart, AlumetPostStart, ConfigTable,
+        event::{self},
         rust::{AlumetPlugin, deserialize_config, serialize_config},
     },
     units::Unit,
@@ -11,18 +11,19 @@ use chrono::{DateTime, FixedOffset, Utc};
 use reqwest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::error::Error;
+use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
+use std::{error::Error, sync::Arc};
 use time::OffsetDateTime;
 
 mod kwollect;
 mod source;
 use crate::source::KwollectSource;
-use kwollect::parse_measurements;
 
 /// Structure for Kwollect implementation
 pub struct KwollectPluginInput {
     config: Config,
+    shared_url: Option<Arc<Mutex<Option<String>>>>,
 }
 
 /// Implementation of input Kwollect plugin as an alumet plugin
@@ -41,62 +42,89 @@ impl AlumetPlugin for KwollectPluginInput {
 
     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
         let config = deserialize_config(config)?;
-        Ok(Box::new(KwollectPluginInput { config }))
+        Ok(Box::new(KwollectPluginInput {
+            config,
+            shared_url: None,
+        }))
     }
 
-    // TODO: adding a source to the stop BUS --> we can try with start bus if we use sleep at the moment no?
-    // TODO: Building response of the API as a csv? --> test with csv plugin
-    // TODO: Erase the sleep and put start_alumet at the tsart and end_alumet at the end
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         log::info!("Kwollect-input plugin is starting");
+
+        // Create a metric for the source.
+        let kwollect_metric = alumet.create_metric::<u64>(
+            "power_consumption",
+            Unit::Watt,
+            "Power consumption of the node reported by wattmetre, in watt ",
+        )?;
+
+        let shared_url = Arc::new(Mutex::new(None));
+        self.shared_url = Some(shared_url.clone());
+        let source = KwollectSource::new(self.config.clone(), kwollect_metric, shared_url.clone())?;
+
+        let trigger_spec = ManualTriggerBuilder::new().build()?;
+
+        alumet.add_source("kwollect_event_source", Box::new(source), trigger_spec)?;
+        Ok(())
+    }
+
+    // Here this is where we want to call the API
+    fn post_pipeline_start(&mut self, alumet: &mut AlumetPostStart) -> anyhow::Result<()> {
+        let control_handle = alumet.pipeline_control();
+        let paris_offset = FixedOffset::east_opt(2 * 3600).unwrap();
         let start_alumet: OffsetDateTime = SystemTime::now().into();
         let system_time: SystemTime = convert_to_system_time(start_alumet);
         let start_utc = convert_to_utc(system_time);
-
-        std::thread::sleep(Duration::from_secs(10)); // to test the API
-
-        let end_alumet: OffsetDateTime = SystemTime::now().into();
-        let system_time: SystemTime = convert_to_system_time(end_alumet);
-        let end_utc = convert_to_utc(system_time);
-
-        // Convert timestamp (UTC+2)
-        let paris_offset = FixedOffset::east_opt(2 * 3600).unwrap();
         let start_paris = start_utc.with_timezone(&paris_offset);
-        let end_paris = end_utc.with_timezone(&paris_offset);
+        let config = self.config.clone();
+        let control_handle_clone = control_handle.clone();
+        let url_handle = self.shared_url.clone().expect("shared_url not initialized");
 
-        let url = build_kwollect_url(&self.config, &start_paris, &end_paris);
+        let async_runtime = alumet.async_runtime();
 
-        match fetch_data(&url, &self.config) {
-            Ok(data) => {
-                log::info!("Raw API data: {:?}", data); // To log API data
-                if let Some(measurements) = parse_measurements(data) {
-                    for measure in measurements {
-                        log::info!("MeasureKwollect: {:?}", measure); // To log measures of Kwollect
-                    }
+        event::end_consumer_measurement().subscribe(move |_evt| {
+            log::info!("End consumer measurement event received");
+            let end_alumet: OffsetDateTime = SystemTime::now().into();
+            let system_time: SystemTime = convert_to_system_time(end_alumet);
+            let end_utc = convert_to_utc(system_time);
+            let end_paris = end_utc.with_timezone(&paris_offset);
+            let url = build_kwollect_url(&config, &start_paris, &end_paris);
+            log::info!("API request should be triggered with URL: {}", url);
+
+            // THE PROBLEM COMES FROM THIS SHARED URL
+            let url_handle_clone = url_handle.clone();
+            async_runtime.spawn(async move {
+                let mut guard = url_handle_clone.lock().unwrap();
+                *guard = Some(url);
+            });
+
+            let control_handle = control_handle_clone.clone();
+            let task = async_runtime.spawn(async move {
+                match control_handle
+                    .send_wait(
+                        alumet::pipeline::control::request::source(SourceName::from_str(
+                            "kwollect-input",
+                            "kwollect_event_source",
+                        ))
+                        .trigger_now(),
+                        Duration::from_secs(1),
+                    )
+                    .await
+                {
+                    Ok(_) => log::info!("Successfully triggered source"),
+                    Err(e) => log::error!("Failed to trigger source: {}", e),
                 }
-            }
-            Err(e) => log::error!("Failed to fetch data: {}", e),
-        }
-        // Est -ce que c'est intéressant de définir des métriques?
-        // let metrics = alumet.create_metric::<u64>(
-        //     self.config.metrics.to_string(),
-        //     Unit::Unity,
-        //     self.config.metrics.to_string(),
-        // )?;
+            });
 
-        Ok(())
-    }
+            async_runtime.block_on(async {
+                if let Err(e) = task.await {
+                    log::error!("Task failed: {:?}", e);
+                }
+            });
 
-    fn pre_pipeline_start(&mut self, alumet: &mut AlumetPreStart<'_>) -> anyhow::Result<()> {
-        // config.clone() n'existe pas!!
-        //let mut source = KwollectSource::new(self.config.clone(), AlumetPreStart::metrics(alumet).clone());
-        Ok(())
-    }
+            Ok(())
+        });
 
-    fn post_pipeline_start(&mut self, alumet: &mut AlumetPostStart) -> anyhow::Result<()> {
-        // TODO: to chnage it is just the main idea
-        // IDEAS HERE: https://github.com/alumet-dev/alumet/blob/main/alumet/src/plugin/phases.rs#L65
-        //event::end_consumer_measurement().subscribe(listener);
         Ok(())
     }
 
@@ -144,7 +172,7 @@ fn fetch_data(url: &str, config: &Config) -> Result<Value, Box<dyn Error>> {
 }
 
 /// A structure that stocks the configuration parameters that are necessary to interact with grid'5000 API (to build the request)
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Config {
     pub site: String,
     pub hostname: String,

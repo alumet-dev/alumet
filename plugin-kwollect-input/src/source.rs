@@ -3,104 +3,94 @@ use crate::kwollect::parse_measurements;
 use crate::{Config, kwollect::MeasureKwollect};
 use alumet::{
     measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp, WrappedMeasurementValue},
-    metrics::{TypedMetricId, registry::MetricRegistry},
+    metrics::TypedMetricId,
     pipeline::elements::{error::PollError, source::Source},
     resources::{Resource, ResourceConsumer},
 };
-use chrono::FixedOffset;
 use log;
-use std::time::{Duration, SystemTime};
-use time::OffsetDateTime;
+use std::borrow::Cow::Borrowed;
+use std::borrow::Cow::Owned;
+use std::sync::Mutex;
 
 pub struct KwollectSource {
     pub config: Config,
-    pub metric_registry: MetricRegistry,
-    // pub metric: TypedMetricId<u64>,
+    pub metric: TypedMetricId<u64>,
+    pub url: Arc<Mutex<Option<String>>>,
 }
 
 impl KwollectSource {
-    pub fn new(config: Config, metric_registry: MetricRegistry) -> anyhow::Result<KwollectSource> {
-        Ok(KwollectSource {
-            config,
-            metric_registry,
-            //metric,
-        })
+    pub fn new(
+        config: Config,
+        metric: TypedMetricId<u64>,
+        url: Arc<Mutex<Option<String>>>,
+    ) -> anyhow::Result<KwollectSource> {
+        Ok(KwollectSource { config, metric, url })
     }
 }
 
 impl Source for KwollectSource {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator<'_>, timestamp: Timestamp) -> Result<(), PollError> {
-        log::info!("Kwollect-input plugin is starting");
+        log::info!("Polling KwollectSource");
 
         // To create a Measurement Point from the MeasureKwollect type data
         fn create_measurement_point(
             measure: &MeasureKwollect,
-            metric_registry: &MetricRegistry, // I used this because without it we cannot use "try_from" method to convert the metric_id to a TypedMetricId
+            metric: TypedMetricId<u64>,
             timestamp: Timestamp,
         ) -> Result<MeasurementPoint, PollError> {
-            let resource = Resource::LocalMachine;
+            let resource = Resource::Custom {
+                kind: Borrowed("device_id"),
+                id: Owned(measure.device_id.to_string()),
+            };
             let consumer = ResourceConsumer::LocalMachine;
-
-            let metric_id = create_f64_metric_id(measure, metric_registry)
-                .map_err(|e| PollError::Fatal(anyhow::anyhow!("{}", e)))?;
-            //let metric_id=metric;
-
+            let metric_id = metric;
             let value = match measure.value {
-                WrappedMeasurementValue::F64(v) => v,
-                WrappedMeasurementValue::U64(v) => v as f64,
+                WrappedMeasurementValue::F64(v) => v as u64,
+                WrappedMeasurementValue::U64(v) => v,
             };
 
             let measurement_point = MeasurementPoint::new(timestamp, metric_id, resource, consumer, value)
-                .with_attr("device_id", AttributeValue::String(measure.device_id.clone()))
                 .with_attr("metric_id", AttributeValue::String(measure.metric_id.clone()));
 
             Ok(measurement_point)
         }
 
-        fn create_f64_metric_id(
-            measure: &MeasureKwollect,
-            metric_registry: &MetricRegistry,
-        ) -> Result<TypedMetricId<f64>, anyhow::Error> {
-            TypedMetricId::<f64>::try_from(
-                alumet::metrics::def::RawMetricId::from_u64(measure.metric_id.parse::<u64>().unwrap_or_default()),
-                metric_registry,
-            )
-            .map_err(|e| anyhow::Error::new(e))
-        }
+        // THERE IS ALSO A PROBLEM HERE BECAUSE OF THE SHARED URL
+        let guard = self.url.try_lock();
 
-        let start_alumet: OffsetDateTime = SystemTime::now().into();
-        let system_time: SystemTime = convert_to_system_time(start_alumet);
-        let start_utc = convert_to_utc(system_time);
-
-        std::thread::sleep(Duration::from_secs(10));
-
-        let end_alumet: OffsetDateTime = SystemTime::now().into();
-        let system_time: SystemTime = convert_to_system_time(end_alumet);
-        let end_utc = convert_to_utc(system_time);
-
-        let paris_offset = FixedOffset::east_opt(2 * 3600).unwrap();
-        let start_paris = start_utc.with_timezone(&paris_offset);
-        let end_paris = end_utc.with_timezone(&paris_offset);
-
-        let url = build_kwollect_url(&self.config, &start_paris, &end_paris);
-
-        match fetch_data(&url, &self.config) {
-            Ok(data) => {
-                log::info!("Raw API data: {:?}", data);
-                if let Some(parsed) = parse_measurements(data) {
-                    for measure in parsed {
-                        match create_measurement_point(&measure, &self.metric_registry, timestamp) {
-                            Ok(measurement_point) => measurements.push(measurement_point),
-                            Err(e) => return Err(e),
+        if let Ok(guard) = guard {
+            if let Some(url) = &*guard {
+                match fetch_data(url, &self.config) {
+                    Ok(data) => {
+                        log::info!("Fetched data: {:?}", data);
+                        match parse_measurements(data) {
+                            Ok(parsed) => {
+                                for measure in parsed {
+                                    match create_measurement_point(&measure, self.metric, timestamp) {
+                                        Ok(mp) => measurements.push(mp),
+                                        Err(e) => return Err(e),
+                                    }
+                                }
+                                Ok(())
+                            }
+                            Err(e) => {
+                                log::error!("Parsing error: {}", e);
+                                Err(PollError::Fatal(anyhow::anyhow!("Failed to parse measurements")))
+                            }
                         }
                     }
+                    Err(e) => {
+                        log::error!("Fetch error: {}", e);
+                        Err(PollError::Fatal(anyhow::anyhow!("Failed to fetch data")))
+                    }
                 }
+            } else {
+                log::warn!("URL not set yet, skipping poll.");
                 Ok(())
             }
-            Err(e) => {
-                log::error!("Failed to fetch data: {}", e);
-                Err(PollError::Fatal(anyhow::anyhow!("{}", e)))
-            }
+        } else {
+            log::warn!("Could not acquire lock on URL (maybe in use), skipping poll.");
+            Ok(())
         }
     }
 }

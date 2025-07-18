@@ -1,11 +1,18 @@
-//! Kwollect plugin for input is inspired by his neighbor for output, especially this file
+//! Kwollect plugin for input is inspired by its neighbor for output, especially this file because of Serialize implementation.
+//! This module provides functionality to serialize and deserialize measurement data for Kwollect.
 
 use alumet::measurement::{AttributeValue, WrappedMeasurementValue};
-use serde::{Serialize, ser::SerializeMap};
-use serde_json::Value;
+use anyhow::Context;
+use serde::{
+    Deserialize, Deserializer, Serialize,
+    de::{self, MapAccess, Visitor},
+    ser::SerializeMap,
+};
+use serde_json::{Map, Value};
 use std::collections::HashMap;
+use std::fmt;
 
-/// A structure to represent a measure collected by Kwollect --> contains each fields of the measure
+/// A structure to represent a measure collected by Kwollect.
 #[derive(Debug)]
 pub struct MeasureKwollect {
     pub device_id: String,
@@ -15,8 +22,7 @@ pub struct MeasureKwollect {
     pub value: WrappedMeasurementValue,
 }
 
-// This is the serialize implementation used in Kwollect Plugin for output
-/// Serializes a MeasureKwollect instance into a JSON-like map format, including all fields (timestamp, metric_id, device_id, value, and labels).
+/// Implements serialization for MeasureKwollect which allows MeasureKwollect instances to be converted into a JSON-like map format.
 impl Serialize for MeasureKwollect {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -54,65 +60,116 @@ impl Serialize for MeasureKwollect {
     }
 }
 
-// Here, the main idea is to do contrary of the Kwollect Output Plugin : to deserialize JSON data into MeasureKwollect fields
+/// Visitor for deserializing MeasureKwollect from JSON that guides the deserialization process by defining how to interpret each field.
+struct MeasureKwollectVisitor;
 
-/// Converts a JSON Value (https://docs.rs/serde_json/latest/serde_json/value/enum.Value.html) into a AttributeValue (https://docs.rs/alumet/latest/alumet/measurement/enum.AttributeValue.html), depending on its type.
-/// We need it to be able to use MeasureKwollect with alumet
-fn convert_to_attribute_value(value: Value) -> Option<AttributeValue> {
-    match value {
-        Value::Bool(b) => Some(AttributeValue::Bool(b)),
-        Value::Number(n) if n.is_f64() => Some(AttributeValue::F64(n.as_f64().unwrap())),
-        Value::Number(n) if n.is_u64() => Some(AttributeValue::U64(n.as_u64().unwrap())),
-        Value::String(s) => Some(AttributeValue::String(s)),
-        _ => None,
+impl<'de> Visitor<'de> for MeasureKwollectVisitor {
+    type Value = MeasureKwollect;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("a map representing a MeasureKwollect")
+    }
+
+    fn visit_map<M>(self, mut access: M) -> Result<Self::Value, M::Error>
+    where
+        M: MapAccess<'de>,
+    {
+        let mut device_id = None;
+        let mut labels = None;
+        let mut metric_id = None;
+        let mut timestamp = None;
+        let mut value = None;
+
+        while let Some(key) = access.next_key::<String>()? {
+            match key.as_str() {
+                "device_id" => {
+                    if device_id.is_none() {
+                        device_id = Some(access.next_value()?);
+                    }
+                }
+                // labels is an HashMap<String, AttributeValue>  so we need to deserialize for each type of AttributeValue
+                "labels" => {
+                    if labels.is_none() {
+                        let label_map: Map<String, Value> = access.next_value()?;
+                        let mut labels_map = HashMap::new();
+                        for (k, v) in label_map {
+                            let attribute_value = match v {
+                                Value::Bool(b) => AttributeValue::Bool(b),
+                                Value::Number(n) if n.is_f64() => AttributeValue::F64(n.as_f64().unwrap()),
+                                Value::Number(n) if n.is_u64() => AttributeValue::U64(n.as_u64().unwrap()),
+                                Value::String(s) => AttributeValue::String(s),
+                                _ => return Err(de::Error::custom("Unsupported value type")),
+                            };
+                            labels_map.insert(k, attribute_value);
+                        }
+                        labels = Some(labels_map);
+                    }
+                }
+                "metric_id" => {
+                    if metric_id.is_none() {
+                        metric_id = Some(access.next_value()?);
+                    }
+                }
+                "timestamp" => {
+                    if timestamp.is_none() {
+                        timestamp = Some(access.next_value()?);
+                    }
+                }
+                "value" => {
+                    if value.is_none() {
+                        let val: Value = access.next_value()?;
+                        let measurement_value = if val.is_f64() {
+                            WrappedMeasurementValue::F64(val.as_f64().unwrap())
+                        } else if val.is_u64() {
+                            WrappedMeasurementValue::U64(val.as_u64().unwrap())
+                        } else {
+                            return Err(de::Error::custom("Unsupported value type for measurement value"));
+                        };
+                        value = Some(measurement_value);
+                    }
+                }
+                _ => {
+                    let _: de::IgnoredAny = access.next_value()?;
+                }
+            }
+        }
+
+        // Ensure all required fields are present
+        let device_id = device_id.ok_or_else(|| de::Error::custom("missing field device_id"))?;
+        let labels = labels.ok_or_else(|| de::Error::custom("missing field labels"))?;
+        let metric_id = metric_id.ok_or_else(|| de::Error::custom("missing field metric_id"))?;
+        let timestamp = timestamp.ok_or_else(|| de::Error::custom("missing field timestamp"))?;
+        let value = value.ok_or_else(|| de::Error::custom("missing field value"))?;
+
+        Ok(MeasureKwollect {
+            device_id,
+            labels,
+            metric_id,
+            timestamp,
+            value,
+        })
     }
 }
 
-/// Parses a JSON array of measurements and returns a vector of MeasureKwollect objects by iterating fn parse_measurements.
-pub fn parse_measurements(data: Value) -> Option<Vec<MeasureKwollect>> {
-    let measurements = data.as_array()?;
-    let mut result = Vec::new();
-    for measurement in measurements {
-        if let Some(measure) = parse_measurement(measurement) {
-            result.push(measure);
-        }
+/// Implements deserialization for MeasureKwollect which allows JSON data to be converted into a MeasureKwollect instance.
+impl<'de> Deserialize<'de> for MeasureKwollect {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_map(MeasureKwollectVisitor)
     }
-    Some(result)
 }
 
-/// Parses a single JSON object and converts it into a MeasureKwollect struct, extracting and converting its fields.
-fn parse_measurement(measurement: &Value) -> Option<MeasureKwollect> {
-    // Conversion to Strings
-    let device_id = measurement.get("device_id").and_then(Value::as_str).map(String::from);
-    let metric_id = measurement.get("metric_id").and_then(Value::as_str).map(String::from);
-    // Conversion to f64
-    let timestamp = measurement.get("timestamp").and_then(Value::as_f64);
-    // Conversion to a WrappedMeasurementValue (https://docs.rs/alumet/latest/alumet/measurement/enum.WrappedMeasurementValue.html)
-    // Similar to a lot of plugins (like csv)
-    let value = measurement.get("value").and_then(|v| {
-        if v.is_f64() {
-            Some(WrappedMeasurementValue::F64(v.as_f64().unwrap()))
-        } else if v.is_u64() {
-            Some(WrappedMeasurementValue::U64(v.as_u64().unwrap()))
-        } else {
-            None
-        }
-    });
-    // Conversion to an HashMap
-    let labels = measurement.get("labels").and_then(Value::as_object).map(|label_map| {
-        label_map
-            .iter()
-            .filter_map(|(k, v)| convert_to_attribute_value(v.clone()).map(|attr_value| (k.clone(), attr_value)))
-            .collect::<HashMap<String, AttributeValue>>()
-    });
-    // Constructs a MeasureKwollect with each value converted from JSON to a field of it
-    Some(MeasureKwollect {
-        device_id: device_id?,
-        labels: labels?,
-        metric_id: metric_id?,
-        timestamp: timestamp?,
-        value: value?,
-    })
+/// Parses a JSON array of measurements and returns a vector of MeasureKwollect objects.
+pub fn parse_measurements(data: Value) -> anyhow::Result<Vec<MeasureKwollect>> {
+    let measurements = data.as_array().context("Expected an array of measurements")?;
+    measurements
+        .iter()
+        .map(|measurement| {
+            serde_json::from_value::<MeasureKwollect>(measurement.clone()).context("Failed to deserialize measurement")
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -121,6 +178,7 @@ mod tests {
     use chrono::{DateTime, Utc};
 
     #[test]
+    /// Test for parsing a measurement with power consumption data.
     fn test_parse_measurement_with_power_consumption() {
         let power_consumption_measurement = serde_json::json!({
             "device_id": "taurus-7",
@@ -132,15 +190,20 @@ mod tests {
             }
         });
 
-        let parsed_measurement = parse_measurement(&power_consumption_measurement);
-        assert!(parsed_measurement.is_some(), "Failed to parse measurement");
+        let parsed_measurement = serde_json::from_value::<MeasureKwollect>(power_consumption_measurement);
+        assert!(
+            parsed_measurement.is_ok(),
+            "Failed to parse measurement: {:?}",
+            parsed_measurement.err()
+        );
         let parsed_measurement = parsed_measurement.unwrap();
 
         assert_eq!(parsed_measurement.device_id, "taurus-7");
         assert_eq!(parsed_measurement.metric_id, "wattmetre_power_watt");
-        assert_eq!(parsed_measurement.value, WrappedMeasurementValue::F64(131.7));
+        assert!(
+            matches!(parsed_measurement.value, WrappedMeasurementValue::F64(v) if (v - 131.7).abs() < f64::EPSILON)
+        );
 
-        // Convert timestamp to DateTime and check
         let timestamp = parsed_measurement.timestamp;
         let datetime_utc =
             DateTime::<Utc>::from_timestamp(timestamp as i64, (timestamp.fract() * 1_000_000_000.0) as u32);
