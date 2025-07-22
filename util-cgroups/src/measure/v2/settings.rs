@@ -303,4 +303,452 @@ mod tests {
         let keys = settings.enabled_keys().unwrap();
         assert_eq!(keys, vec!["key1"]);
     }
+
+    #[test]
+    fn test_serialize_bool() {
+        let serializer = EnabledKeysSerializer;
+        let true_serialized_res = serializer.serialize_bool(true);
+        assert!(true_serialized_res.is_ok());
+        let true_serialized = true_serialized_res.unwrap();
+        match true_serialized {
+            SerializedValue::Flag(bool) => assert_eq!(bool, true),
+            SerializedValue::EnabledSet(_) => assert!(false),
+        }
+
+        let serializer = EnabledKeysSerializer;
+        let false_serialized_res = serializer.serialize_bool(false);
+        assert!(false_serialized_res.is_ok());
+        let false_serialized = false_serialized_res.unwrap();
+        match false_serialized {
+            SerializedValue::Flag(bool) => assert_eq!(bool, false),
+            SerializedValue::EnabledSet(_) => assert!(false),
+        }
+    }
+
+    #[test]
+    fn test_serialize_i8() {
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_i8(1 as i8);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        };
+
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_i8(-1 as i8);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        };
+    }
+
+    #[test]
+    fn test_serialize_i16() {
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_i16(1 as i16);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        };
+
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_i16(-1 as i16);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        };
+    }
+
+    #[test]
+    fn test_serialize_i32() {
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_i32(1 as i32);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        };
+
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_i32(-1 as i32);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        };
+    }
+
+    #[test]
+    fn test_serialize_i64() {
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_i64(1 as i64);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        };
+
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_i64(-1 as i64);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        };
+    }
+
+    #[test]
+    fn test_serialize_u8() {
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_u8(1 as u8);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        };
+
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_u8(152 as u8);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        };
+    }
+
+    #[test]
+    fn test_serialize_u16() {
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_u16(1 as u16);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        };
+
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_u16(152 as u16);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        };
+    }
+
+    #[test]
+    fn test_serialize_u32() {
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_u32(1 as u32);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        };
+
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_u32(152 as u32);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        };
+    }
+
+    #[test]
+    fn test_serialize_u64() {
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_u64(1 as u64);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        };
+
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_u64(152 as u64);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        };
+    }
+
+    #[test]
+    fn test_serialize_f32() {
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_f32(1.0 as f32);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        };
+
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_f32(-152.58 as f32);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        };
+    }
+
+    #[test]
+    fn test_serialize_f64() {
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_f64(-87.0 as f64);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        };
+
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_f64(-789.0 as f64);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        };
+    }
+
+    #[test]
+    fn test_serialize_char() {
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_char('5');
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        };
+
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_char('a');
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        };
+    }
+
+    #[test]
+    fn test_serialize_str() {
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_str("Remus");
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        };
+
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_str("Romulus");
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        };
+    }
+
+    #[test]
+    fn test_serialize_bytes() {
+        let serializer = EnabledKeysSerializer;
+        let arr: [u8; 3] = [5, 7, 12];
+        let serialized_res = serializer.serialize_bytes(&arr);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        };
+
+        let serializer = EnabledKeysSerializer;
+        let arr: [u8; 0] = [];
+        let serialized_res = serializer.serialize_bytes(&arr);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        };
+    }
+
+    #[test]
+    fn test_serialize_none() {
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_none();
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        };
+
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_none();
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        };
+    }
+
+    #[test]
+    fn test_serialize_some() {
+        #[derive(Serialize)]
+        enum People {
+            _Claudius,
+            _Marcus,
+            _Meto,
+            _Paulus,
+            _Remus,
+            Romulus,
+        }
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_some(&People::Romulus);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        }
+    }
+
+    #[test]
+    fn test_serialize_unit() {
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_unit();
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        }
+    }
+
+    #[test]
+    fn test_serialize_unit_struct() {
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_unit_struct("name");
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        }
+    }
+
+    #[test]
+    fn test_serialize_unit_variant() {
+        let serializer = EnabledKeysSerializer;
+        let serialized_res = serializer.serialize_unit_variant("name", 1 as u32, "variant");
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        }
+    }
+
+    #[test]
+    fn test_serialize_newtype_struct() {
+        let serializer = EnabledKeysSerializer;
+        let value = 12 as i32;
+        let serialized_res = serializer.serialize_newtype_struct("name", &value);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        }
+    }
+
+    #[test]
+    fn test_serialize_newtype_variant() {
+        let serializer = EnabledKeysSerializer;
+        let arr: [i32; 3] = [1, 2, 3];
+        let serialized_res = serializer.serialize_newtype_variant("name", 18 as u32, "variant", &arr);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        }
+    }
+
+    #[test]
+    fn test_serialize_seq() {
+        let serializer = EnabledKeysSerializer;
+        let value= 500 as usize;
+        let serialized_res = serializer.serialize_seq(Some(value));
+        assert!(serialized_res.is_err());
+    }
+
+    #[test]
+    fn test_serialize_tuple() {
+        let serializer = EnabledKeysSerializer;
+        let value= 500 as usize;
+        let serialized_res = serializer.serialize_tuple(value);
+        assert!(serialized_res.is_err());
+    }
+
+    #[test]
+    fn test_serialize_tuple_struct() {
+        let serializer = EnabledKeysSerializer;
+        let value= 500 as usize;
+        let serialized_res = serializer.serialize_tuple_struct("name", value);
+        assert!(serialized_res.is_err());
+    }
+
+    #[test]
+    fn test_serialize_tuple_variant() {
+        let serializer = EnabledKeysSerializer;
+        let value= 500 as usize;
+        let serialized_res = serializer.serialize_tuple_variant("name", 14 as u32, "variant", value);
+        assert!(serialized_res.is_err());
+    }
+
+    #[test]
+    fn test_serialize_map() {
+        let serializer = EnabledKeysSerializer;
+        let value= 500 as usize;
+        let serialized_res = serializer.serialize_map(Some(value));
+        assert!(serialized_res.is_err());
+    }
+
+    #[test]
+    fn test_serialize_struct_variant() {
+        let serializer = EnabledKeysSerializer;
+        let value= 500 as usize;
+        let serialized_res = serializer.serialize_struct_variant("name", 5 as u32, "variant", value);
+        assert!(serialized_res.is_err());
+    }
 }
