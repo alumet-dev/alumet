@@ -25,3 +25,23 @@ impl From<LineIndex> for u8 {
         value.0
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::measure::v2::line_index::LineIndex;
+  
+    #[test]
+    pub fn test_from() -> anyhow::Result<()> {
+        let from_u8 = LineIndex::from(14 as u8);
+        let from_lineindex = LineIndex::from(LineIndex(67 as u8));
+        assert_eq!(from_u8.0, 14);
+        assert_eq!(from_lineindex.0, 67);
+
+        let default_lineindex = LineIndex::default();
+        let value: u8 = default_lineindex.into();
+        assert_eq!(value, u8::MAX);
+        Ok(())
+    }
+
+
+}

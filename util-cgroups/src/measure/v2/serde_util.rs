@@ -119,3 +119,18 @@ impl<T, E: serde::ser::Error> serde::ser::SerializeStructVariant for Impossible<
         unreachable!()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::measure::v2::serde_util::SerializationError; 
+
+    // Doesn't test for custom function from serde::ser::Error implementation for SerializationError
+    #[test]
+    pub fn test_custom() -> anyhow::Result<()> {
+        let msg = SerializationError::UnsupportedType;
+        assert_eq!(format!("{msg}"), "unsupported type");
+        let msg = SerializationError::Message("My SerializationError message".to_string());
+        assert_eq!(format!("{msg}"), "My SerializationError message");
+        Ok(())
+    }
+}

@@ -323,4 +323,358 @@ nr_bursts 123
 burst_usec 123456789";
         assert_eq!(s, EXPECTED);
     }
+
+    #[test]
+    fn test_serialize_bool() {
+        let serializer = StatSerializer;
+        // Test with true
+        let true_serialized_res = serializer.serialize_bool(true);
+        assert!(true_serialized_res.is_ok());
+        let true_serialized = true_serialized_res.unwrap();
+        assert_eq!(true_serialized, "true");
+
+        let serializer = StatSerializer;
+        // Test with false
+        let false_serialized_res = serializer.serialize_bool(false);
+        assert!(false_serialized_res.is_ok());
+        let false_serialized = false_serialized_res.unwrap();
+        assert_eq!(false_serialized, "false");
+    }
+
+    #[test]
+    fn test_serialize_i8() {
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_i8(15 as i8);
+        assert!(serialized_res.is_ok());
+        let true_serialized = serialized_res.unwrap();
+        assert_eq!(true_serialized, "15");
+
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_i8(-19 as i8);
+        assert!(serialized_res.is_ok());
+        let false_serialized = serialized_res.unwrap();
+        assert_eq!(false_serialized, "-19");
+    }
+
+    #[test]
+    fn test_serialize_i16() {
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_i16(150 as i16);
+        assert!(serialized_res.is_ok());
+        let true_serialized = serialized_res.unwrap();
+        assert_eq!(true_serialized, "150");
+
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_i16(-190 as i16);
+        assert!(serialized_res.is_ok());
+        let false_serialized = serialized_res.unwrap();
+        assert_eq!(false_serialized, "-190");
+    }
+
+    #[test]
+    fn test_serialize_i32() {
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_i32(12 as i32);
+        assert!(serialized_res.is_ok());
+        let true_serialized = serialized_res.unwrap();
+        assert_eq!(true_serialized, "12");
+
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_i32(-10 as i32);
+        assert!(serialized_res.is_ok());
+        let false_serialized = serialized_res.unwrap();
+        assert_eq!(false_serialized, "-10");
+    }
+
+    #[test]
+    fn test_serialize_i64() {
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_i64(0 as i64);
+        assert!(serialized_res.is_ok());
+        let true_serialized = serialized_res.unwrap();
+        assert_eq!(true_serialized, "0");
+
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_i64(-98 as i64);
+        assert!(serialized_res.is_ok());
+        let false_serialized = serialized_res.unwrap();
+        assert_eq!(false_serialized, "-98");
+    }
+
+    #[test]
+    fn test_serialize_u8() {
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_u8(150 as u8);
+        assert!(serialized_res.is_ok());
+        let true_serialized = serialized_res.unwrap();
+        assert_eq!(true_serialized, "150");
+
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_u8(0 as u8);
+        assert!(serialized_res.is_ok());
+        let false_serialized = serialized_res.unwrap();
+        assert_eq!(false_serialized, "0");
+    }
+
+    #[test]
+    fn test_serialize_u16() {
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_u16(1550 as u16);
+        assert!(serialized_res.is_ok());
+        let true_serialized = serialized_res.unwrap();
+        assert_eq!(true_serialized, "1550");
+
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_u16(0 as u16);
+        assert!(serialized_res.is_ok());
+        let false_serialized = serialized_res.unwrap();
+        assert_eq!(false_serialized, "0");
+    }
+
+    #[test]
+    fn test_serialize_u32() {
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_u32(191512 as u32);
+        assert!(serialized_res.is_ok());
+        let true_serialized = serialized_res.unwrap();
+        assert_eq!(true_serialized, "191512");
+
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_u32(0 as u32);
+        assert!(serialized_res.is_ok());
+        let false_serialized = serialized_res.unwrap();
+        assert_eq!(false_serialized, "0");
+    }
+
+    #[test]
+    fn test_serialize_u64() {
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_u64(8952 as u64);
+        assert!(serialized_res.is_ok());
+        let true_serialized = serialized_res.unwrap();
+        assert_eq!(true_serialized, "8952");
+
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_u64(0 as u64);
+        assert!(serialized_res.is_ok());
+        let false_serialized = serialized_res.unwrap();
+        assert_eq!(false_serialized, "0");
+    }
+
+    #[test]
+    fn test_serialize_f32() {
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_f32(3.14 as f32);
+        assert!(serialized_res.is_ok());
+        let true_serialized = serialized_res.unwrap();
+        assert_eq!(true_serialized, "3.14");
+
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_f32(-273.15 as f32);
+        assert!(serialized_res.is_ok());
+        let false_serialized = serialized_res.unwrap();
+        assert_eq!(false_serialized, "-273.15");
+    }
+
+    #[test]
+    fn test_serialize_f64() {
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_f64(3.14 as f64);
+        assert!(serialized_res.is_ok());
+        let true_serialized = serialized_res.unwrap();
+        assert_eq!(true_serialized, "3.14");
+
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_f64(-273.15 as f64);
+        assert!(serialized_res.is_ok());
+        let false_serialized = serialized_res.unwrap();
+        assert_eq!(false_serialized, "-273.15");
+    }
+
+    #[test]
+    fn test_serialize_char() {
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_char('c');
+        assert!(serialized_res.is_ok());
+        let true_serialized = serialized_res.unwrap();
+        assert_eq!(true_serialized, "c");
+
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_char('@');
+        assert!(serialized_res.is_ok());
+        let false_serialized = serialized_res.unwrap();
+        assert_eq!(false_serialized, "@");
+    }
+
+    #[test]
+    fn test_serialize_str() {
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_str("this is str");
+        assert!(serialized_res.is_ok());
+        let true_serialized = serialized_res.unwrap();
+        assert_eq!(true_serialized, "this is str");
+
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_str("an other str");
+        assert!(serialized_res.is_ok());
+        let false_serialized = serialized_res.unwrap();
+        assert_eq!(false_serialized, "an other str");
+    }
+
+    #[test]
+    fn test_serialize_bytes() {
+        let serializer = StatSerializer;
+        let byte_array: [u8; 5] = [0, 1, 2, 3, 4];
+        let serialized_res = serializer.serialize_bytes(&byte_array);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        }
+    }
+
+    #[test]
+    fn test_serialize_none() {
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_none();
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        }
+    }
+
+    #[test]
+    fn test_serialize_some() {
+        #[derive(Serialize)]
+        enum People {
+            _Claudius,
+            _Marcus,
+            _Meto,
+            _Paulus,
+            _Remus,
+            Romulus,
+        }
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_some(&People::Romulus);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        }
+    }
+
+    #[test]
+    fn test_serialize_unit() {
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_unit();
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        }
+    }
+
+    #[test]
+    fn test_serialize_unit_struct() {
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_unit_struct("name");
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        }
+    }
+
+    #[test]
+    fn test_serialize_unit_variant() {
+        let serializer = StatSerializer;
+        let serialized_res = serializer.serialize_unit_variant("name", 1 as u32, "variant");
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        }
+    }
+
+    #[test]
+    fn test_serialize_newtype_struct() {
+        let serializer = StatSerializer;
+        let value = 12 as i32;
+        let serialized_res = serializer.serialize_newtype_struct("name", &value);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        }
+    }
+
+    #[test]
+    fn test_serialize_newtype_variant() {
+        let serializer = StatSerializer;
+        let arr: [i32; 3] = [1, 2, 3];
+        let serialized_res = serializer.serialize_newtype_variant("name", 18 as u32, "variant", &arr);
+        assert!(serialized_res.is_err());
+        let error = serialized_res.expect_err("Expected an error of type SerializationError::UnsupportedType");
+        match error {
+            SerializationError::UnsupportedType => assert!(true),
+            SerializationError::Message(_) => assert!(false),
+        }
+    }
+
+    #[test]
+    fn test_serialize_seq() {
+        let serializer = StatSerializer;
+        let value= 500 as usize;
+        let serialized_res = serializer.serialize_seq(Some(value));
+        assert!(serialized_res.is_err());
+    }
+
+    #[test]
+    fn test_serialize_tuple() {
+        let serializer = StatSerializer;
+        let value= 500 as usize;
+        let serialized_res = serializer.serialize_tuple(value);
+        assert!(serialized_res.is_err());
+    }
+
+    #[test]
+    fn test_serialize_tuple_struct() {
+        let serializer = StatSerializer;
+        let value= 500 as usize;
+        let serialized_res = serializer.serialize_tuple_struct("name", value);
+        assert!(serialized_res.is_err());
+    }
+
+    #[test]
+    fn test_serialize_tuple_variant() {
+        let serializer = StatSerializer;
+        let value= 500 as usize;
+        let serialized_res = serializer.serialize_tuple_variant("name", 14 as u32, "variant", value);
+        assert!(serialized_res.is_err());
+    }
+
+    #[test]
+    fn test_serialize_map() {
+        let serializer = StatSerializer;
+        let value= 500 as usize;
+        let serialized_res = serializer.serialize_map(Some(value));
+        assert!(serialized_res.is_err());
+    }
+
+    #[test]
+    fn test_serialize_struct_variant() {
+        let serializer = StatSerializer;
+        let value= 500 as usize;
+        let serialized_res = serializer.serialize_struct_variant("name", 5 as u32, "variant", value);
+        assert!(serialized_res.is_err());
+    }
+    
 }
