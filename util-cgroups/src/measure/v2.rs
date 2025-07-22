@@ -142,3 +142,24 @@ mod common {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    pub fn test_new() -> anyhow::Result<()> {
+        let cgroup = Cgroup {
+            
+        }
+        
+        let mut io_buf = Vec::new();
+        let collector = V2Collector::new(
+            cgroup,
+            MemoryStatCollectorSettings::default(),
+            CpuStatCollectorSettings::default(),
+            &mut io_buf,
+        )?;
+
+
+    }
+}
