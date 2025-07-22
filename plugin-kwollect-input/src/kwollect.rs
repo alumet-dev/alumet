@@ -18,7 +18,7 @@ pub struct MeasureKwollect {
     pub device_id: String,
     pub labels: HashMap<String, AttributeValue>,
     pub metric_id: String,
-    pub timestamp: f64,
+    pub timestamp: String,
     pub value: WrappedMeasurementValue,
 }
 
@@ -94,12 +94,18 @@ impl<'de> Visitor<'de> for MeasureKwollectVisitor {
                         let mut labels_map = HashMap::new();
                         for (k, v) in label_map {
                             let attribute_value = match v {
-                                Value::Bool(b) => AttributeValue::Bool(b),
-                                Value::Number(n) if n.is_f64() => AttributeValue::F64(n.as_f64().unwrap()),
-                                Value::Number(n) if n.is_u64() => AttributeValue::U64(n.as_u64().unwrap()),
-                                Value::String(s) => AttributeValue::String(s),
-                                _ => return Err(de::Error::custom("Unsupported value type")),
-                            };
+                                Value::Bool(b) => Ok(AttributeValue::Bool(b)),
+                                Value::Number(n) if n.is_f64() => Ok(AttributeValue::F64(n.as_f64().unwrap())),
+                                Value::Number(n) if n.is_u64() => Ok(AttributeValue::U64(n.as_u64().unwrap())),
+                                Value::String(s) => Ok(AttributeValue::String(s)),
+                                Value::Array(arr) => {
+                                    // Convert array to a string representation
+                                    let array_as_string =
+                                        arr.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", ");
+                                    Ok(AttributeValue::String(array_as_string))
+                                }
+                                _ => Err(de::Error::custom("Unsupported value type")),
+                            }?;
                             labels_map.insert(k, attribute_value);
                         }
                         labels = Some(labels_map);
@@ -163,10 +169,12 @@ impl<'de> Deserialize<'de> for MeasureKwollect {
 
 /// Parses a JSON array of measurements and returns a vector of MeasureKwollect objects.
 pub fn parse_measurements(data: Value) -> anyhow::Result<Vec<MeasureKwollect>> {
+    log::info!("Raw data to parse: {:?}", data);
     let measurements = data.as_array().context("Expected an array of measurements")?;
     measurements
         .iter()
         .map(|measurement| {
+            log::info!("Parsing measurement: {:?}", measurement);
             serde_json::from_value::<MeasureKwollect>(measurement.clone()).context("Failed to deserialize measurement")
         })
         .collect()
@@ -175,7 +183,6 @@ pub fn parse_measurements(data: Value) -> anyhow::Result<Vec<MeasureKwollect>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{DateTime, Utc};
 
     #[test]
     /// Test for parsing a measurement with power consumption data.
@@ -183,13 +190,12 @@ mod tests {
         let power_consumption_measurement = serde_json::json!({
             "device_id": "taurus-7",
             "metric_id": "wattmetre_power_watt",
-            "timestamp": 1718892920.005984,
+            "timestamp": "2025-07-21T16:15:31+02:00",
             "value": 131.7,
             "labels": {
                 "_device_orig": "wattmetre1-port6"
             }
         });
-
         let parsed_measurement = serde_json::from_value::<MeasureKwollect>(power_consumption_measurement);
         assert!(
             parsed_measurement.is_ok(),
@@ -197,22 +203,106 @@ mod tests {
             parsed_measurement.err()
         );
         let parsed_measurement = parsed_measurement.unwrap();
-
         assert_eq!(parsed_measurement.device_id, "taurus-7");
         assert_eq!(parsed_measurement.metric_id, "wattmetre_power_watt");
         assert!(
             matches!(parsed_measurement.value, WrappedMeasurementValue::F64(v) if (v - 131.7).abs() < f64::EPSILON)
         );
-
-        let timestamp = parsed_measurement.timestamp;
-        let datetime_utc =
-            DateTime::<Utc>::from_timestamp(timestamp as i64, (timestamp.fract() * 1_000_000_000.0) as u32);
-        assert!(datetime_utc.is_some());
-
         assert!(parsed_measurement.labels.contains_key("_device_orig"));
         assert_eq!(
             parsed_measurement.labels.get("_device_orig"),
             Some(&AttributeValue::String("wattmetre1-port6".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_parse_measurement_with_different_value_types() {
+        let measurement_with_u64 = serde_json::json!({
+            "device_id": "taurus-7",
+            "metric_id": "wattmetre_power_watt",
+            "timestamp": "2025-07-21T16:15:31+02:00",
+            "value": 131,
+            "labels": {
+                "_device_orig": "wattmetre1-port6"
+            }
+        });
+        let parsed_measurement = serde_json::from_value::<MeasureKwollect>(measurement_with_u64);
+        assert!(
+            parsed_measurement.is_ok(),
+            "Failed to parse measurement: {:?}",
+            parsed_measurement.err()
+        );
+        let parsed_measurement = parsed_measurement.unwrap();
+        assert_eq!(parsed_measurement.device_id, "taurus-7");
+        assert_eq!(parsed_measurement.metric_id, "wattmetre_power_watt");
+        assert!(matches!(parsed_measurement.value, WrappedMeasurementValue::U64(131)));
+    }
+
+    #[test]
+    fn test_parse_measurement_with_different_timestamp_format() {
+        let measurement_with_string_timestamp = serde_json::json!({
+            "device_id": "taurus-7",
+            "metric_id": "wattmetre_power_watt",
+            "timestamp": "2025-07-21T16:15:31+02:00",
+            "value": 131.7,
+            "labels": {
+                "_device_orig": "wattmetre1-port6"
+            }
+        });
+        let parsed_measurement = serde_json::from_value::<MeasureKwollect>(measurement_with_string_timestamp);
+        assert!(
+            parsed_measurement.is_ok(),
+            "Expected to successfully parse measurement with string timestamp"
+        );
+    }
+
+    #[test]
+    fn test_parse_measurement_with_array_labels() {
+        let measurement_with_array_labels = serde_json::json!({
+            "device_id": "taurus-7",
+            "metric_id": "wattmetre_power_watt",
+            "timestamp": "2025-07-21T16:15:31+02:00",
+            "value": 131.7,
+            "labels": {
+                "_device_orig": ["wattmetre1-port6", "wattmetre2-port7"]
+            }
+        });
+        let parsed_measurement = serde_json::from_value::<MeasureKwollect>(measurement_with_array_labels);
+        assert!(
+            parsed_measurement.is_ok(),
+            "Failed to parse measurement: {:?}",
+            parsed_measurement.err()
+        );
+        let parsed_measurement = parsed_measurement.unwrap();
+        assert_eq!(parsed_measurement.device_id, "taurus-7");
+        assert_eq!(parsed_measurement.metric_id, "wattmetre_power_watt");
+        assert!(
+            matches!(parsed_measurement.value, WrappedMeasurementValue::F64(v) if (v - 131.7).abs() < f64::EPSILON)
+        );
+    }
+
+    #[test]
+    fn test_manual_deserialization() {
+        let json_data = serde_json::json!({
+            "device_id": "taurus-7",
+            "metric_id": "wattmetre_power_watt",
+            "timestamp": "2025-07-22T08:46:26+02:00",
+            "value": 3.8189189189189183,
+            "labels": {
+                "_device_orig": ["wattmetre1-port6"]
+            }
+        });
+        let parsed_measurement = serde_json::from_value::<MeasureKwollect>(json_data);
+        assert!(
+            parsed_measurement.is_ok(),
+            "Failed to parse measurement: {:?}",
+            parsed_measurement.err()
+        );
+        let parsed_measurement = parsed_measurement.unwrap();
+        assert_eq!(parsed_measurement.device_id, "taurus-7");
+        assert_eq!(parsed_measurement.metric_id, "wattmetre_power_watt");
+        assert!(
+            matches!(parsed_measurement.value, WrappedMeasurementValue::F64(v) if (v - 3.8189189189189183).abs() < f64::EPSILON)
         );
     }
 }

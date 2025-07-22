@@ -10,20 +10,15 @@ use alumet::{
 use log;
 use std::borrow::Cow::Borrowed;
 use std::borrow::Cow::Owned;
-use std::sync::Mutex;
 
 pub struct KwollectSource {
     pub config: Config,
-    pub metric: TypedMetricId<u64>,
-    pub url: Arc<Mutex<Option<String>>>,
+    pub metric: Vec<TypedMetricId<f64>>,
+    pub url: String,
 }
 
 impl KwollectSource {
-    pub fn new(
-        config: Config,
-        metric: TypedMetricId<u64>,
-        url: Arc<Mutex<Option<String>>>,
-    ) -> anyhow::Result<KwollectSource> {
+    pub fn new(config: Config, metric: Vec<TypedMetricId<f64>>, url: String) -> anyhow::Result<KwollectSource> {
         Ok(KwollectSource { config, metric, url })
     }
 }
@@ -35,18 +30,25 @@ impl Source for KwollectSource {
         // To create a Measurement Point from the MeasureKwollect type data
         fn create_measurement_point(
             measure: &MeasureKwollect,
-            metric: TypedMetricId<u64>,
+            metric: TypedMetricId<f64>,
             timestamp: Timestamp,
         ) -> Result<MeasurementPoint, PollError> {
             let resource = Resource::Custom {
                 kind: Borrowed("device_id"),
                 id: Owned(measure.device_id.to_string()),
             };
-            let consumer = ResourceConsumer::LocalMachine;
+            let consumer = if let Some(AttributeValue::String(device_orig)) = measure.labels.get("_device_orig") {
+                ResourceConsumer::Custom {
+                    kind: Borrowed("device_origin"),
+                    id: Owned(device_orig.to_string()),
+                }
+            } else {
+                ResourceConsumer::LocalMachine
+            };
             let metric_id = metric;
             let value = match measure.value {
-                WrappedMeasurementValue::F64(v) => v as u64,
-                WrappedMeasurementValue::U64(v) => v,
+                WrappedMeasurementValue::F64(v) => v,
+                WrappedMeasurementValue::U64(v) => v as f64,
             };
 
             let measurement_point = MeasurementPoint::new(timestamp, metric_id, resource, consumer, value)
@@ -55,42 +57,40 @@ impl Source for KwollectSource {
             Ok(measurement_point)
         }
 
-        // THERE IS ALSO A PROBLEM HERE BECAUSE OF THE SHARED URL
-        let guard = self.url.try_lock();
-
-        if let Ok(guard) = guard {
-            if let Some(url) = &*guard {
-                match fetch_data(url, &self.config) {
-                    Ok(data) => {
-                        log::info!("Fetched data: {:?}", data);
-                        match parse_measurements(data) {
-                            Ok(parsed) => {
-                                for measure in parsed {
-                                    match create_measurement_point(&measure, self.metric, timestamp) {
-                                        Ok(mp) => measurements.push(mp),
-                                        Err(e) => return Err(e),
+        // Retrieve the URL stored in KwollectPluginInput
+        match fetch_data(&self.url, &self.config) {
+            Ok(data) => {
+                log::info!("Fetched data: {:?}", data);
+                match parse_measurements(data) {
+                    Ok(parsed) => {
+                        log::info!("Parsed measurements: {:?}", parsed);
+                        for measure in parsed {
+                            for &metric in &self.metric {
+                                match create_measurement_point(&measure, metric, timestamp) {
+                                    Ok(mp) => {
+                                        log::info!("Created measurement point: {:?}", mp);
+                                        measurements.push(mp);
+                                    }
+                                    Err(e) => {
+                                        log::error!("Error creating measurement point: {}", e);
+                                        return Err(e);
                                     }
                                 }
-                                Ok(())
-                            }
-                            Err(e) => {
-                                log::error!("Parsing error: {}", e);
-                                Err(PollError::Fatal(anyhow::anyhow!("Failed to parse measurements")))
                             }
                         }
                     }
                     Err(e) => {
-                        log::error!("Fetch error: {}", e);
-                        Err(PollError::Fatal(anyhow::anyhow!("Failed to fetch data")))
+                        log::error!("Parsing error: {}", e);
+                        return Err(PollError::Fatal(anyhow::anyhow!("Failed to parse measurements")));
                     }
                 }
-            } else {
-                log::warn!("URL not set yet, skipping poll.");
-                Ok(())
             }
-        } else {
-            log::warn!("Could not acquire lock on URL (maybe in use), skipping poll.");
-            Ok(())
+            Err(e) => {
+                log::error!("Fetch error: {}", e);
+                return Err(PollError::Fatal(anyhow::anyhow!("Failed to fetch data")));
+            }
         }
+
+        Ok(())
     }
 }
