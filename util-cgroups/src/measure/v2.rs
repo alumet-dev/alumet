@@ -149,8 +149,10 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use crate::{measure::v2::{cpu::CpuStatCollectorSettings, memory::MemoryStatCollectorSettings, V2Collector}, Cgroup, CgroupHierarchy, CgroupVersion};
-
+    use crate::{
+        measure::v2::{cpu::CpuStatCollectorSettings, memory::MemoryStatCollectorSettings, V2Collector},
+        Cgroup, CgroupHierarchy, CgroupVersion,
+    };
 
     #[test]
     pub fn test_new_and_measure() -> anyhow::Result<()> {
@@ -183,7 +185,7 @@ mod tests {
 
         let hierarchy = CgroupHierarchy::manually_unchecked(root.path(), CgroupVersion::V2, vec!["cpu", "memory"]);
         let cgroup = Cgroup::from_fs_path(&hierarchy, root.path().to_path_buf());
-        
+
         let mut io_buf = Vec::new();
         let mut collector = V2Collector::new(
             cgroup,
@@ -200,7 +202,7 @@ mod tests {
         let cpu_stat = v2stat.cpu_stat.unwrap();
         let mem_stat = v2stat.memory_stat.unwrap();
         let mem_cur = v2stat.memory_current.unwrap();
-        
+
         assert_eq!(cpu_stat.system.unwrap_or(0), 456);
         assert_eq!(cpu_stat.user.unwrap_or(0), 123);
         assert_eq!(cpu_stat.usage.unwrap_or(0), 579);
@@ -238,7 +240,7 @@ mod tests {
 
         let hierarchy = CgroupHierarchy::manually_unchecked(root.path(), CgroupVersion::V2, vec!["cpu", "memory"]);
         let cgroup = Cgroup::from_fs_path(&hierarchy, root.path().to_path_buf());
-        
+
         let mut io_buf = Vec::new();
         let mut collector = V2Collector::new(
             cgroup,
@@ -266,10 +268,10 @@ mod tests {
     #[test]
     pub fn test_new_files_dont_exist() -> anyhow::Result<()> {
         let root = tempdir().expect("Failed to create a temporary directory");
-        
+
         let hierarchy = CgroupHierarchy::manually_unchecked(root.path(), CgroupVersion::V2, vec!["cpu", "memory"]);
         let cgroup = Cgroup::from_fs_path(&hierarchy, root.path().to_path_buf());
-        
+
         let mut io_buf = Vec::new();
         let mut collector = V2Collector::new(
             cgroup,
@@ -311,7 +313,7 @@ mod tests {
 
         let hierarchy = CgroupHierarchy::manually_unchecked(root.path(), CgroupVersion::V2, vec!["cpu", "memory"]);
         let cgroup = Cgroup::from_fs_path(&hierarchy, root.path().to_path_buf());
-        
+
         let mut io_buf = Vec::new();
         let mut collector = V2Collector::new(
             cgroup,
@@ -328,7 +330,7 @@ mod tests {
         let cpu_stat = v2stat.cpu_stat.unwrap();
         let mem_stat = v2stat.memory_stat.unwrap();
         let mem_cur = v2stat.memory_current.unwrap();
-    
+
         assert!(cpu_stat.system.is_none());
         assert!(cpu_stat.user.is_none());
         assert_eq!(cpu_stat.usage.unwrap_or(0), 579);
@@ -374,7 +376,7 @@ mod tests {
 
         let hierarchy = CgroupHierarchy::manually_unchecked(root.path(), CgroupVersion::V2, vec!["cpu", "memory"]);
         let cgroup = Cgroup::from_fs_path(&hierarchy, root.path().to_path_buf());
-        
+
         let mut io_buf = Vec::new();
         let mut collector_res = V2Collector::new(
             cgroup,
@@ -382,9 +384,8 @@ mod tests {
             CpuStatCollectorSettings::default(),
             &mut io_buf,
         );
-        
+
         assert!(collector_res.is_err());
         Ok(())
     }
-
 }

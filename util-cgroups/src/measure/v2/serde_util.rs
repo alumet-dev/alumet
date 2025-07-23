@@ -122,7 +122,7 @@ impl<T, E: serde::ser::Error> serde::ser::SerializeStructVariant for Impossible<
 
 #[cfg(test)]
 mod tests {
-    use crate::measure::v2::serde_util::SerializationError; 
+    use crate::measure::v2::serde_util::SerializationError;
 
     // Doesn't test for custom function from serde::ser::Error implementation for SerializationError
     #[test]
