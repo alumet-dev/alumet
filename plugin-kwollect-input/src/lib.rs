@@ -94,7 +94,7 @@ impl AlumetPlugin for KwollectPluginInput {
         let async_runtime = alumet.async_runtime().clone();
 
         event::end_consumer_measurement().subscribe(move |_evt| {
-            log::info!("End consumer measurement event received");
+            log::debug!("End consumer measurement event received");
 
             let config = config_cloned.lock().unwrap();
             let pipeline_control = control_handle.clone();
@@ -119,7 +119,7 @@ impl AlumetPlugin for KwollectPluginInput {
                 .expect("Failed to create KwollectSource");
             let mut builder = ManualTriggerBuilder::new();
             let trigger_spec = builder.build().expect("Failed to build trigger");
-            log::info!("Creating request...");
+            log::debug!("Creating request...");
             let request = request::create_one().add_source("kwollect_event_source", Box::new(source), trigger_spec);
 
             // Here we want the pipeline to wait for the reponse so we use block_on
@@ -128,7 +128,7 @@ impl AlumetPlugin for KwollectPluginInput {
                     let result = pipeline_control.send_wait(request, Duration::from_secs(1)).await;
 
                     if result.is_ok() {
-                        log::info!("Triggering Kwollect Source now");
+                        log::debug!("Triggering Kwollect Source now");
                         let source_name =
                             SourceName::new("kwollect-input".to_string(), "kwollect_event_source".to_string());
                         let source_matcher = SourceMatcher::Name(source_name.into());
@@ -137,7 +137,7 @@ impl AlumetPlugin for KwollectPluginInput {
                         let trigger_result = pipeline_control
                             .send_wait(trigger_now_request, Duration::from_secs(1))
                             .await;
-                        log::info!("Trigger now result: {:?}", trigger_result);
+                        log::debug!("Trigger now result: {:?}", trigger_result);
                     }
                     result
                 })
@@ -153,7 +153,7 @@ impl AlumetPlugin for KwollectPluginInput {
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
-        log::info!("Kwollect-input plugin is ending!");
+        log::debug!("Kwollect-input plugin is ending!");
         Ok(())
     }
 }

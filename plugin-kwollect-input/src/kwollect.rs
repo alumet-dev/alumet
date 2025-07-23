@@ -169,12 +169,12 @@ impl<'de> Deserialize<'de> for MeasureKwollect {
 
 /// Parses a JSON array of measurements and returns a vector of MeasureKwollect objects.
 pub fn parse_measurements(data: Value) -> anyhow::Result<Vec<MeasureKwollect>> {
-    log::info!("Raw data to parse: {:?}", data);
+    log::debug!("Raw data to parse: {:?}", data);
     let measurements = data.as_array().context("Expected an array of measurements")?;
     measurements
         .iter()
         .map(|measurement| {
-            log::info!("Parsing measurement: {:?}", measurement);
+            log::debug!("Parsing measurement: {:?}", measurement);
             serde_json::from_value::<MeasureKwollect>(measurement.clone()).context("Failed to deserialize measurement")
         })
         .collect()

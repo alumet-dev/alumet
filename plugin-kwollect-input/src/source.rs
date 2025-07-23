@@ -60,15 +60,15 @@ impl Source for KwollectSource {
         // Retrieve the URL stored in KwollectPluginInput
         match fetch_data(&self.url, &self.config) {
             Ok(data) => {
-                log::info!("Fetched data: {:?}", data);
+                log::debug!("Fetched data: {:?}", data);
                 match parse_measurements(data) {
                     Ok(parsed) => {
-                        log::info!("Parsed measurements: {:?}", parsed);
+                        log::debug!("Parsed measurements: {:?}", parsed);
                         for measure in parsed {
                             for &metric in &self.metric {
                                 match create_measurement_point(&measure, metric, timestamp) {
                                     Ok(mp) => {
-                                        log::info!("Created measurement point: {:?}", mp);
+                                        log::debug!("Created measurement point: {:?}", mp);
                                         measurements.push(mp);
                                     }
                                     Err(e) => {
