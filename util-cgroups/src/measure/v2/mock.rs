@@ -632,7 +632,7 @@ burst_usec 123456789";
     #[test]
     fn test_serialize_seq() {
         let serializer = StatSerializer;
-        let value= 500 as usize;
+        let value = 500 as usize;
         let serialized_res = serializer.serialize_seq(Some(value));
         assert!(serialized_res.is_err());
     }
@@ -640,7 +640,7 @@ burst_usec 123456789";
     #[test]
     fn test_serialize_tuple() {
         let serializer = StatSerializer;
-        let value= 500 as usize;
+        let value = 500 as usize;
         let serialized_res = serializer.serialize_tuple(value);
         assert!(serialized_res.is_err());
     }
@@ -648,7 +648,7 @@ burst_usec 123456789";
     #[test]
     fn test_serialize_tuple_struct() {
         let serializer = StatSerializer;
-        let value= 500 as usize;
+        let value = 500 as usize;
         let serialized_res = serializer.serialize_tuple_struct("name", value);
         assert!(serialized_res.is_err());
     }
@@ -656,7 +656,7 @@ burst_usec 123456789";
     #[test]
     fn test_serialize_tuple_variant() {
         let serializer = StatSerializer;
-        let value= 500 as usize;
+        let value = 500 as usize;
         let serialized_res = serializer.serialize_tuple_variant("name", 14 as u32, "variant", value);
         assert!(serialized_res.is_err());
     }
@@ -664,7 +664,7 @@ burst_usec 123456789";
     #[test]
     fn test_serialize_map() {
         let serializer = StatSerializer;
-        let value= 500 as usize;
+        let value = 500 as usize;
         let serialized_res = serializer.serialize_map(Some(value));
         assert!(serialized_res.is_err());
     }
@@ -672,9 +672,8 @@ burst_usec 123456789";
     #[test]
     fn test_serialize_struct_variant() {
         let serializer = StatSerializer;
-        let value= 500 as usize;
+        let value = 500 as usize;
         let serialized_res = serializer.serialize_struct_variant("name", 5 as u32, "variant", value);
         assert!(serialized_res.is_err());
     }
-    
 }

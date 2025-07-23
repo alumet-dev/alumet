@@ -430,7 +430,10 @@ mod tests {
 
     use std::time::Duration;
 
-    use crate::{detect::{callback, ClosureCallbacks, Config}, CgroupDetector, CgroupHierarchy, CgroupVersion};
+    use crate::{
+        CgroupDetector, CgroupHierarchy, CgroupVersion,
+        detect::{ClosureCallbacks, Config, callback},
+    };
 
     #[test]
     fn test_new() -> anyhow::Result<()> {
@@ -447,7 +450,7 @@ mod tests {
             println!("Cgroups deleted: {cgroups:?}");
             Ok(())
         });
-        let callback =  ClosureCallbacks  {
+        let callback = ClosureCallbacks {
             on_cgroups_created: f,
             on_cgroups_removed: g,
         };
@@ -474,10 +477,7 @@ mod tests {
     //         on_cgroups_removed: callback(|cgroups| {todo!()}),
     //     };
     //     let cgroup_detector = CgroupDetector::new(hierarchy, config, handler);
-        
 
     //     Ok(())
     // }
-
-    
 }

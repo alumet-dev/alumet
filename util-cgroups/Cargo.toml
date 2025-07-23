@@ -31,3 +31,4 @@ workspace = true
 [[bench]]
 name = "parse"
 harness = false # comment this line to run unit tests in benches
+test = true 
