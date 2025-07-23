@@ -83,11 +83,13 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use crate::{measure::v1::{V1Collector, V1Stats}, CgroupHierarchy, CgroupVersion};
+    use crate::{
+        measure::v1::{V1Collector, V1Stats},
+        CgroupHierarchy, CgroupVersion,
+    };
 
-    
     #[test]
-    fn test_across_hierarchies() -> anyhow::Result<()>{
+    fn test_across_hierarchies() -> anyhow::Result<()> {
         let root = tempdir().expect("Failed to create a temporary directory");
         // file 1
         let file_path = root.path().join("cpuacct.usage");
@@ -104,7 +106,7 @@ mod tests {
         // let hierarchy1 = CgroupHierarchy::manually_unchecked_v1_named(root.path(), "cpuacct".to_string());
         let hierarchy1 = CgroupHierarchy::manually_unchecked(root.path(), CgroupVersion::V2, vec!["cpuacct"]);
         let hierarchy2 = CgroupHierarchy::manually_unchecked(root.path(), CgroupVersion::V2, vec!["memory"]);
-        
+
         let res = V1Collector::across_hierarchies("/", &[&hierarchy1, &hierarchy2]);
         assert!(res.is_ok());
         let mut v1_collector = res.unwrap();
@@ -112,7 +114,6 @@ mod tests {
 
         assert!(v1_collector.cpuacct_usage.is_some());
         assert!(v1_collector.memory_stat.is_some());
-
 
         let res = v1_collector.measure(&mut buf);
         assert!(res.is_ok());

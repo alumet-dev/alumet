@@ -29,7 +29,7 @@ impl From<LineIndex> for u8 {
 #[cfg(test)]
 mod tests {
     use crate::measure::v2::line_index::LineIndex;
-  
+
     #[test]
     pub fn test_from() -> anyhow::Result<()> {
         let from_u8 = LineIndex::from(14 as u8);
@@ -42,6 +42,4 @@ mod tests {
         assert_eq!(value, u8::MAX);
         Ok(())
     }
-
-
 }
