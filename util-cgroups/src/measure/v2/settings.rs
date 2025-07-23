@@ -707,7 +707,7 @@ mod tests {
     #[test]
     fn test_serialize_seq() {
         let serializer = EnabledKeysSerializer;
-        let value= 500 as usize;
+        let value = 500 as usize;
         let serialized_res = serializer.serialize_seq(Some(value));
         assert!(serialized_res.is_err());
     }
@@ -715,7 +715,7 @@ mod tests {
     #[test]
     fn test_serialize_tuple() {
         let serializer = EnabledKeysSerializer;
-        let value= 500 as usize;
+        let value = 500 as usize;
         let serialized_res = serializer.serialize_tuple(value);
         assert!(serialized_res.is_err());
     }
@@ -723,7 +723,7 @@ mod tests {
     #[test]
     fn test_serialize_tuple_struct() {
         let serializer = EnabledKeysSerializer;
-        let value= 500 as usize;
+        let value = 500 as usize;
         let serialized_res = serializer.serialize_tuple_struct("name", value);
         assert!(serialized_res.is_err());
     }
@@ -731,7 +731,7 @@ mod tests {
     #[test]
     fn test_serialize_tuple_variant() {
         let serializer = EnabledKeysSerializer;
-        let value= 500 as usize;
+        let value = 500 as usize;
         let serialized_res = serializer.serialize_tuple_variant("name", 14 as u32, "variant", value);
         assert!(serialized_res.is_err());
     }
@@ -739,7 +739,7 @@ mod tests {
     #[test]
     fn test_serialize_map() {
         let serializer = EnabledKeysSerializer;
-        let value= 500 as usize;
+        let value = 500 as usize;
         let serialized_res = serializer.serialize_map(Some(value));
         assert!(serialized_res.is_err());
     }
@@ -747,7 +747,7 @@ mod tests {
     #[test]
     fn test_serialize_struct_variant() {
         let serializer = EnabledKeysSerializer;
-        let value= 500 as usize;
+        let value = 500 as usize;
         let serialized_res = serializer.serialize_struct_variant("name", 5 as u32, "variant", value);
         assert!(serialized_res.is_err());
     }
