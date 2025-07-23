@@ -1,12 +1,19 @@
 # Kwollect-input Plugin
 
 The **Kwollect-input** plugin creates a **source** in Alumet that collects processor energy usage measurements via [Kwollect](https://gitlab.inria.fr/grid5000/kwollect) on the Grid’5000 platform.  
-Currently, it mainly gathers power consumption data (in watts).
+Currently, it mainly gathers power consumption data (in watts) on only one node at a time.
 
 ## Requirements
 
 - You must have an account on Grid’5000.  
-- You want to collect Kwollect data, specifically wattmeter measurements, on a node or cluster.
+- You want to collect Kwollect data, specifically wattmeter measurements, on a node.
+
+The clusters & nodes that supports wattmeter are these ones:
+- **grenoble**: servan, troll, yeti, wattmetre1, wattmetre2
+- **lille**: chirop, wattmetrev3-1
+- **lyon**: gemini, neowise, nova, orion, pyxis, sagittaire, sirius, taurus, wattmetre1, wattmetrev3-1, wattmetrev3-2
+- **nancy**: gros⁺, gros-wattmetre2
+- **rennes**: paradoxe, wattmetrev3-1
 
 ## Example Metrics Collected
 
