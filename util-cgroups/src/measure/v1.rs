@@ -3,7 +3,7 @@
 use anyhow::Context;
 use std::io::{self};
 
-use crate::{Cgroup, CgroupHierarchy, measure::parse::U64File};
+use crate::{measure::parse::U64File, Cgroup, CgroupHierarchy};
 
 /// Collects cgroup v1 measurements.
 pub struct V1Collector {
@@ -50,7 +50,7 @@ impl V1Collector {
     ///
     /// # Available metrics
     /// The collector can only measure what is provided by the cgroup controllers attached to the given hierarchy.
-    pub fn in_single_hierarchy<'h>(cgroup: Cgroup<'h>) -> anyhow::Result<Self> {
+    pub fn in_single_hierarchy(cgroup: Cgroup) -> anyhow::Result<Self> {
         Self::across_hierarchies(cgroup.canonical_path(), &[cgroup.hierarchy()])
             .with_context(|| format!("collector creation failed for cgroup {}", cgroup.unique_name()))
     }
@@ -74,5 +74,55 @@ impl V1Collector {
             cpuacct_usage,
             memory_stat,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{fs::File, io::Write};
+
+    use tempfile::tempdir;
+
+    use crate::{
+        measure::v1::{V1Collector, V1Stats},
+        CgroupHierarchy, CgroupVersion,
+    };
+
+    #[test]
+    fn test_across_hierarchies() -> anyhow::Result<()> {
+        let root = tempdir().expect("Failed to create a temporary directory");
+        // file 1
+        let file_path = root.path().join("cpuacct.usage");
+        let value: u64 = 15;
+        let mut file1 = File::create(file_path)?;
+        writeln!(file1, "{}", value)?;
+        // file 2
+        let file_path = root.path().join("memory.stat");
+        let value: u64 = 19;
+        let mut file2 = File::create(file_path)?;
+        writeln!(file2, "{}", value)?;
+
+        // let hierarchy = CgroupHierarchy::manually_unchecked_v1_named(root.path(), CgroupVersion::V1, vec!["cpu", "memory"]);
+        // let hierarchy1 = CgroupHierarchy::manually_unchecked_v1_named(root.path(), "cpuacct".to_string());
+        let hierarchy1 = CgroupHierarchy::manually_unchecked(root.path(), CgroupVersion::V2, vec!["cpuacct"]);
+        let hierarchy2 = CgroupHierarchy::manually_unchecked(root.path(), CgroupVersion::V2, vec!["memory"]);
+
+        let res = V1Collector::across_hierarchies("/", &[&hierarchy1, &hierarchy2]);
+        assert!(res.is_ok());
+        let mut v1_collector = res.unwrap();
+        let mut buf: Vec<u8> = vec![];
+
+        assert!(v1_collector.cpuacct_usage.is_some());
+        assert!(v1_collector.memory_stat.is_some());
+
+        let res = v1_collector.measure(&mut buf);
+        assert!(res.is_ok());
+        let collector = res.unwrap();
+        assert!(collector.cpuacct_usage.is_some());
+        assert!(collector.memory_stat.is_some());
+        assert_eq!(collector.cpuacct_usage.unwrap(), 15);
+        assert_eq!(collector.memory_stat.unwrap(), 19);
+
+        Ok(())
     }
 }

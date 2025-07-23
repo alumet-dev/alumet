@@ -3,13 +3,13 @@
 use std::{
     path::{Path, PathBuf},
     sync::{
-        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
     },
     time::Duration,
 };
 
-use anyhow::{Context, anyhow};
+use anyhow::{anyhow, Context};
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use walkdir::WalkDir;
 
@@ -428,22 +428,56 @@ mod tests {
     // - creating new child cgroups in this cgroup
     // - checking that they are detected
 
+    use std::time::Duration;
+
+    use crate::{
+        detect::{callback, ClosureCallbacks, Config},
+        CgroupDetector, CgroupHierarchy, CgroupVersion,
+    };
+
+    #[test]
+    fn test_new() -> anyhow::Result<()> {
+        println!("starting");
+
+        let hierarchy = CgroupHierarchy::from_root_path("/sys/fs/cgroup")?;
+        println!("hierarchy: {hierarchy:?}");
+
+        let f = callback(|cgroups| {
+            println!("new cgroups detected: {cgroups:?}");
+            Ok(())
+        });
+        let g = callback(|cgroups| {
+            println!("Cgroups deleted: {cgroups:?}");
+            Ok(())
+        });
+        let callback = ClosureCallbacks {
+            on_cgroups_created: f,
+            on_cgroups_removed: g,
+        };
+        let _detector = CgroupDetector::new(hierarchy, Config::default(), callback)?;
+        println!("detector ready");
+
+        std::thread::sleep(Duration::from_secs(10));
+        println!("done");
+        Ok(())
+    }
+
     // #[test]
-    // fn test_new() -> anyhow::Result<()> {
-    //     println!("starting");
+    // fn test_is_known_by_path() -> anyhow::Result<()>{
+    //     let _ = env_logger::try_init_from_env(env_logger::Env::default());
+    //     let root = tempfile::tempdir()?;
 
-    //     let hierarchy = CgroupHierarchy::from_root_path("/sys/fs/cgroup")?;
-    //     println!("hierarchy: {hierarchy:?}");
+    //     let hierarchy = CgroupHierarchy::manually_unchecked(root.path(), CgroupVersion::V2, vec!["cpu", "memory"]);
+    //     let config = Config::default();
+    //     let handler = ClosureCallbacks {
+    //         on_cgroups_created: callback(|cgroups| {
+    //             println!("new cgroups detected: {cgroups:?}");
+    //             Ok(())
+    //         }),
+    //         on_cgroups_removed: callback(|cgroups| {todo!()}),
+    //     };
+    //     let cgroup_detector = CgroupDetector::new(hierarchy, config, handler);
 
-    //     let f = callback(|cgroups| {
-    //         println!("new cgroups detected: {cgroups:?}");
-    //         Ok(())
-    //     });
-    //     let _detector = CgroupDetector::new(hierarchy, f)?;
-    //     println!("detector ready");
-
-    //     std::thread::sleep(Duration::from_secs(10));
-    //     println!("done");
     //     Ok(())
     // }
 }
