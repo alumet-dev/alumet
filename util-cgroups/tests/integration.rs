@@ -2,6 +2,7 @@ use anyhow::anyhow;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::fs::{self, File};
+use std::os::unix::fs::{symlink, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicU8;
 use std::thread;
@@ -11,10 +12,6 @@ use util_cgroups::detect::{callback, ClosureCallbacks, Config};
 use util_cgroups::hierarchy::CgroupVersion;
 use util_cgroups::measure::v2::mock::{CpuStatMock, MemoryStatMock, MockFileCgroupKV};
 use util_cgroups::{CgroupDetector, CgroupHierarchy};
-use std::{fs, os::unix::fs::{symlink, PermissionsExt}, path::PathBuf};
-
-use util_cgroups::{detect::{callback, ClosureCallbacks, Config}, hierarchy, CgroupDetector, CgroupHierarchy, CgroupVersion};
-
 
 /// Check if a specific file is a dir. Used to know if cgroup v2 are used.
 ///
@@ -29,30 +26,6 @@ pub fn is_accessible_dir(path: &Path) -> Result<bool, std::io::Error> {
         Err(e) => Err(e),
     }
 }
-
-// \\\\\\\\\\\\\\\\\\\\\\\\\
-// Cgroupv1 based structures
-// \\\\\\\\\\\\\\\\\\\\\\\\\
-
-#[derive(Serialize, Debug, Default)]
-pub struct CpuacctUsageMock {
-    pub usage: u64,
-}
-// impl MockFileCgroupKV for CpuacctUsageMock {
-//     fn write_to_file(&self, mut file: File) -> io::Result<()> {
-//         writeln!(file, "{}", self.usage)
-//     }
-// }
-
-#[derive(Serialize, Debug, Default)]
-pub struct MemoryUsageInBytes {
-    pub usage: u64,
-}
-// impl MockFileCgroupKV for MemoryUsageInBytes {
-//     fn write_to_file(&self, mut file: File) -> io::Result<()> {
-//         writeln!(file, "{}", self.usage)
-//     }
-// }
 
 //
 // Functions used to create files and folders
@@ -88,20 +61,20 @@ pub fn create_files_cgroupv2(root: &PathBuf) -> Result<(), anyhow::Error> {
 
 pub fn create_files_cgroupv1(root: &PathBuf, hierarchy: CgroupHierarchy) -> Result<PathBuf, anyhow::Error> {
     if hierarchy.available_controllers().contains(&String::from("cpuacct")) {
-        let cpuacct_usage_mock_file = CpuacctUsageMock::default();
+        let cpu_stat_mock = CpuStatMock::default();
 
         let file_path_cpu = root.join("cpuacct.usage");
         let mut file_cpu = File::create(file_path_cpu.clone())?;
-        cpuacct_usage_mock_file.write_to_file(&mut file_cpu)?;
+        cpu_stat_mock.write_to_file(&mut file_cpu)?;
         assert!(file_path_cpu.exists());
 
         Ok(file_path_cpu)
     } else if hierarchy.available_controllers().contains(&String::from("memory")) {
-        let mem_usage_in_bytes_mock_file = MemoryUsageInBytes::default();
+        let memory_stat_mock = MemoryStatMock::default();
 
         let file_path_mem_stat = root.join("memory.usage_in_bytes");
         let mut file_mem_stat = File::create(file_path_mem_stat.clone())?;
-        mem_usage_in_bytes_mock_file.write_to_file(&mut file_mem_stat)?;
+        memory_stat_mock.write_to_file(&mut file_mem_stat)?;
         assert!(file_path_mem_stat.exists());
 
         Ok(file_path_mem_stat)
@@ -845,6 +818,7 @@ fn creation_of_cgroup_before_and_after_v2() {
 
     thread::sleep(Duration::from_secs(5));
     assert_eq!(3, cpt.load(std::sync::atomic::Ordering::SeqCst));
+}
 
 #[test]
 fn test_cgroup_detector_creation() -> anyhow::Result<()> {
@@ -858,7 +832,7 @@ fn test_cgroup_detector_creation() -> anyhow::Result<()> {
             println!("new cgroups detected: {cgroups:?}");
             Ok(())
         }),
-        on_cgroups_removed: callback(|cgroups| {todo!()}),
+        on_cgroups_removed: callback(|_| todo!()),
     };
     let cgroup_detector = CgroupDetector::new(hierarchy, config, handler);
     assert!(cgroup_detector.is_ok());
@@ -872,8 +846,8 @@ fn test_cgroup_detector_creation_bad_perms() -> anyhow::Result<()> {
     let file_path = root.path().join("toto");
     fs::create_dir(&file_path).expect("Failed to create temp directory");
     let bad_permissions = fs::Permissions::from_mode(0o000);
-    fs::set_permissions(&root, bad_permissions).expect("Failed to set permissions"); 
-    
+    fs::set_permissions(&root, bad_permissions).expect("Failed to set permissions");
+
     let hierarchy = CgroupHierarchy::manually_unchecked(file_path, CgroupVersion::V2, vec!["cpu", "memory"]);
     let config = Config::default();
     let handler = ClosureCallbacks {
@@ -881,12 +855,12 @@ fn test_cgroup_detector_creation_bad_perms() -> anyhow::Result<()> {
             println!("new cgroups detected: {cgroups:?}");
             Ok(())
         }),
-        on_cgroups_removed: callback(|_cgroups| {todo!()}),
+        on_cgroups_removed: callback(|_cgroups| todo!()),
     };
     let cgroup_detector = CgroupDetector::new(hierarchy, config, handler);
     assert!(cgroup_detector.is_err());
     let correct_permissions = fs::Permissions::from_mode(0o755);
-    fs::set_permissions(&root, correct_permissions).expect("Failed to set permissions"); 
+    fs::set_permissions(&root, correct_permissions).expect("Failed to set permissions");
     Ok(())
 }
 
@@ -909,7 +883,7 @@ fn test_cgroup_detector_creation_broken_symbolic_link() -> anyhow::Result<()> {
             println!("new cgroups detected: {cgroups:?}");
             Ok(())
         }),
-        on_cgroups_removed: callback(|cgroups| {todo!()}),
+        on_cgroups_removed: callback(|_| todo!()),
     };
     let cgroup_detector = CgroupDetector::new(hierarchy, config, handler);
     assert!(cgroup_detector.is_err());

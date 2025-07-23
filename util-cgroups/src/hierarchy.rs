@@ -63,7 +63,7 @@ pub enum CgroupVersion {
     V2,
 }
 
-impl Display for Cgroup<'_> {
+impl<'h> Display for Cgroup<'h> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.unique_name().as_ref())
     }
@@ -410,7 +410,7 @@ pub fn find_user_app_slice(v2_hierarchy_root: &Path) -> anyhow::Result<PathBuf> 
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::{fs, os::unix::fs::PermissionsExt, path::PathBuf};
 
     use mount_watcher::mount::LinuxMount;
 
@@ -434,7 +434,7 @@ mod tests {
         let sysfs_path = PathBuf::from("/some/root/a.slice/me");
         let cgroup = Cgroup::from_fs_path(&h, sysfs_path.clone());
         assert_eq!(cgroup.fs_path(), sysfs_path);
-        assert_eq!(cgroup.canonical_path(), "/a.slice/me");
+        assert_eq!(cgroup.cgroup_path, "/a.slice/me");
         assert_eq!(cgroup.unique_name(), "cpu,cpuacct:/a.slice/me");
         assert_eq!(cgroup.hierarchy().version(), CgroupVersion::V1);
     }
@@ -454,7 +454,7 @@ mod tests {
         let sysfs_path = PathBuf::from("/some/root/a.slice/me");
         let cgroup = Cgroup::from_fs_path(&h, sysfs_path.clone());
         assert_eq!(cgroup.fs_path(), sysfs_path);
-        assert_eq!(cgroup.canonical_path(), "/a.slice/me");
+        assert_eq!(cgroup.cgroup_path, "/a.slice/me");
         assert_eq!(cgroup.unique_name(), "/a.slice/me");
         assert_eq!(cgroup.hierarchy().version(), CgroupVersion::V2);
     }
@@ -499,5 +499,76 @@ mod tests {
             matches!(&h, Err(HierarchyError::NotCgroupfs(p)) if p == &does_not_exist),
             "unexpected result {h:?}"
         );
+    }
+
+    #[test]
+    fn test_cgroup_path_not_absolute() {
+        let path = PathBuf::from("./not_absolute_path");
+        let h = CgroupHierarchy::from_root_path(&path);
+        assert!(h.is_err());
+        let err = h.expect_err("Expected errror: HierarchyError::BadRoot(path)");
+        match err {
+            HierarchyError::BadRoot(path_buf) => {
+                assert_eq!(path, path_buf);
+            }
+            _ => assert!(false),
+        }
+    }
+
+    #[test]
+    fn test_cgroup_path_permission_denied() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path();
+        let file_path = path.join("toto");
+        fs::create_dir(&file_path).expect("Failed to create temp directory");
+        let bad_permissions = fs::Permissions::from_mode(0o000);
+        fs::set_permissions(&root, bad_permissions).expect("Failed to set permissions");
+        let h = CgroupHierarchy::from_root_path(&file_path);
+        assert!(h.is_err());
+        let err = h.expect_err("Expected errror: HierarchyError::File(e, path)");
+        match err {
+            HierarchyError::File(e, path_buf) => {
+                assert_eq!(std::io::ErrorKind::PermissionDenied, e.kind());
+                assert_eq!(file_path, path_buf);
+            }
+            _ => assert!(false),
+        }
+        let correct_permissions = fs::Permissions::from_mode(0o755);
+        fs::set_permissions(&root, correct_permissions).expect("Failed to set permissions");
+    }
+
+    #[test]
+    fn test_manually_unchecked_v1_named() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path();
+        let root = PathBuf::from(path);
+        let hier_name = String::from("myName");
+        let cgrp_hier = CgroupHierarchy::manually_unchecked_v1_named(root, hier_name.clone());
+        assert!(cgrp_hier.v1_name().is_some());
+        let v1_name = cgrp_hier.v1_name().unwrap();
+        assert_eq!(hier_name, v1_name.to_string());
+    }
+
+    #[test]
+    fn test_from_cgroup_path() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path();
+        let root = PathBuf::from(path);
+        let hier_name = String::from("myName");
+        let cgrp_hier = CgroupHierarchy::manually_unchecked_v1_named(&root, hier_name.clone());
+        let cgroup = Cgroup::from_cgroup_path(&cgrp_hier, "/".to_string());
+        assert_eq!("/", cgroup.canonical_path());
+        assert_eq!(cgrp_hier.root(), cgroup.hierarchy().root());
+    }
+
+    #[test]
+    fn test_display() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path();
+        let root = PathBuf::from(path);
+        let hier_name = String::from("myName");
+        let cgrp_hier = CgroupHierarchy::manually_unchecked_v1_named(&root, hier_name.clone());
+        let cgroup = Cgroup::from_cgroup_path(&cgrp_hier, "/".to_string());
+        assert_eq!(cgroup.unique_name(), format!("{}", cgroup));
     }
 }

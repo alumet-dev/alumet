@@ -420,7 +420,8 @@ mod tests {
 
         parse_space_kv_unchecked_cached_indices(data, &indices, |key, value| {
             results.push((key.to_string(), value));
-        }).unwrap();
+        })
+        .unwrap();
 
         assert_eq!(results.len(), 2);
         assert_eq!(results[0], ("key1".to_string(), 111));
@@ -435,7 +436,8 @@ mod tests {
 
         parse_space_kv_unchecked_cached_indices(data, &indices, |key, value| {
             results.push((key.to_string(), value));
-        }).unwrap();
+        })
+        .unwrap();
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0], ("key2".to_string(), 123));
@@ -463,7 +465,8 @@ mod tests {
 
         parse_space_kv_utf8_cached_indices(data, &indices, |key, value| {
             results.push((key.to_string(), value));
-        }).unwrap();
+        })
+        .unwrap();
 
         assert_eq!(results.len(), 2);
         assert_eq!(results[0], ("a1".to_string(), 111));
@@ -478,7 +481,8 @@ mod tests {
 
         parse_space_kv_utf8_cached_indices(data, &indices, |key, value| {
             results.push((key.to_string(), value));
-        }).unwrap();
+        })
+        .unwrap();
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0], ("key2".to_string(), 123));
@@ -506,7 +510,8 @@ mod tests {
 
         parse_space_kv_utf8_cached_indices(data, &indices, |key, value| {
             results.push((key.to_string(), value));
-        }).unwrap();
+        })
+        .unwrap();
 
         assert!(results.is_empty()); // Expect an empty result
     }
@@ -519,7 +524,8 @@ mod tests {
 
         parse_space_kv_utf8_cached_indices(data, &indices, |key, value| {
             results.push((key.to_string(), value));
-        }).unwrap();
+        })
+        .unwrap();
 
         assert!(results.is_empty()); // Expect an empty result
     }
@@ -532,7 +538,8 @@ mod tests {
 
         parse_space_kv_utf8_cached_indices(data, &indices, |key, value| {
             results.push((key.to_string(), value));
-        }).unwrap();
+        })
+        .unwrap();
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0], ("key1".to_string(), 100)); // Only the first pair should be processed
@@ -551,6 +558,4 @@ mod tests {
         assert!(result.is_err()); // Expect an error due to invalid UTF-8
         assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidData); // Check for specific error kind
     }
-
-
 }
