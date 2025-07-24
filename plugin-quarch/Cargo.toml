@@ -1,0 +1,16 @@
+[package]
+name = "plugin-quarch"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+alumet = { version = "0.8.1", path = "../alumet" }
+anyhow = "1.0.98"
+log = "0.4.27"
+serde = "1.0.219"
+serde_json = "1.0.141"
+time = "0.3.41"
+tokio = "1.46.1"
+
+[lints]
+workspace = true

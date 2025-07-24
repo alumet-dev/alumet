@@ -98,6 +98,7 @@ dependencies = [
  "plugin-process-to-cgroup-bridge",
  "plugin-procfs",
  "plugin-prometheus-exporter",
+ "plugin-quarch",
  "plugin-rapl",
  "plugin-raw-cgroups",
  "plugin-relay",
@@ -1717,6 +1718,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "io-uring"
+version = "0.7.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d93587f37623a1a17d94ef2bc9ada592f5465fe7732084ab7beefabe5c77c0c4"
+dependencies = [
+ "bitflags 2.9.0",
+ "cfg-if",
+ "libc",
+]
+
+[[package]]
 name = "ipconfig"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2820,6 +2832,19 @@ dependencies = [
  "pretty_assertions",
  "prometheus-client",
  "serde",
+ "time",
+ "tokio",
+]
+
+[[package]]
+name = "plugin-quarch"
+version = "0.1.0"
+dependencies = [
+ "alumet",
+ "anyhow",
+ "log",
+ "serde",
+ "serde_json",
  "time",
  "tokio",
 ]
