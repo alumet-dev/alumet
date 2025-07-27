@@ -70,5 +70,6 @@ pub mod builder;
 pub mod config;
 pub mod exec;
 pub mod plugin;
+pub mod watch;
 
 pub use builder::{Builder, RunningAgent};
