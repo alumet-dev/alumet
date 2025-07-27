@@ -17,9 +17,9 @@ use crate::{
 use super::{RunningAgent, builder::ShutdownError};
 use thiserror::Error;
 
-/// Error that can occur in [`watch_process`].
+/// Error that can occur in [`exec_process`].
 #[derive(Error, Debug)]
-pub enum WatchError {
+pub enum ExecError {
     /// The process could not be spawned.
     #[error("failed to spawn process {0}")]
     ProcessSpawn(String, #[source] std::io::Error),
@@ -36,12 +36,12 @@ pub enum WatchError {
 /// The measurement sources are triggered before the process spawns and after it exits.
 ///
 /// After the process exits, the pipeline must stop within `shutdown_timeout`, or an error is returned.
-pub fn watch_process(
+pub fn exec_process(
     agent: RunningAgent,
     program: String,
     args: Vec<String>,
     shutdown_timeout: Duration,
-) -> Result<(), WatchError> {
+) -> Result<(), ExecError> {
     // At least one measurement.
     if let Err(e) = trigger_measurement_now(&agent.pipeline) {
         log::error!("Could not trigger a first measurement before the child spawn: {e}");
@@ -62,16 +62,16 @@ pub fn watch_process(
 
     // Stop the pipeline
     agent.pipeline.control_handle().shutdown();
-    agent.wait_for_shutdown(shutdown_timeout).map_err(WatchError::Shutdown)
+    agent.wait_for_shutdown(shutdown_timeout).map_err(ExecError::Shutdown)
 }
 
 /// Spawns a child process and waits for it to exit.
-fn exec_child(external_command: String, args: Vec<String>) -> Result<ExitStatus, WatchError> {
+fn exec_child(external_command: String, args: Vec<String>) -> Result<ExitStatus, ExecError> {
     // Spawn the process.
     let mut p = Command::new(external_command.clone())
         .args(args)
         .spawn()
-        .map_err(|e| WatchError::ProcessSpawn(external_command.clone(), e))?;
+        .map_err(|e| ExecError::ProcessSpawn(external_command.clone(), e))?;
 
     // Notify the plugins that there is a process to observe.
     let pid = p.id();
@@ -80,7 +80,7 @@ fn exec_child(external_command: String, args: Vec<String>) -> Result<ExitStatus,
         .publish(StartConsumerMeasurement(vec![ResourceConsumer::Process { pid }]));
 
     // Wait for the process to terminate.
-    let status = p.wait().map_err(|e| WatchError::ProcessWait(pid, e))?;
+    let status = p.wait().map_err(|e| ExecError::ProcessWait(pid, e))?;
     Ok(status)
 }
 

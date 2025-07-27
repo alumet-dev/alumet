@@ -6,6 +6,7 @@ use alumet::{
         config::{AutoDefaultConfigProvider, DefaultConfigProvider, NoDefaultConfigProvider, merge_override},
         exec,
         plugin::{PluginFilter, PluginSet, UnknownPluginInConfigPolicy},
+        watch,
     },
     pipeline,
     plugin::PluginMetadata,
@@ -148,8 +149,8 @@ fn main() -> anyhow::Result<()> {
         }
         cli::Command::Exec(exec_args) => {
             let timeout = Duration::from_secs(5);
-            let res = exec::watch_process(agent, exec_args.program, exec_args.args, timeout);
-            if let Err(err @ exec::WatchError::ProcessSpawn(program, e)) = &res {
+            let res = exec::exec_process(agent, exec_args.program, exec_args.args, timeout);
+            if let Err(err @ exec::ExecError::ProcessSpawn(program, e)) = &res {
                 match e.kind() {
                     std::io::ErrorKind::NotFound => {
                         panic!("{}", exec_hints::handle_not_found(program.clone(), Vec::new()));
@@ -162,6 +163,23 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
             }
+        }
+        cli::Command::Watch(process) => {
+            let timeout = Duration::from_secs(5);
+            let res = watch::watch_process(agent, process.pid, timeout);
+            // if let Err(err @ exec::WatchError::ProcessSpawn(program, e)) = &res {
+            //     match e.kind() {
+            //         std::io::ErrorKind::NotFound => {
+            //             panic!("{}", exec_hints::handle_not_found(program.clone(), Vec::new()));
+            //         }
+            //         std::io::ErrorKind::PermissionDenied => {
+            //             panic!("{}", exec_hints::handle_permission_denied(program.clone()));
+            //         }
+            //         _ => {
+            //             panic!("{}", err);
+            //         }
+            //     }
+            // }
         }
         _ => unreachable!("every command should have been handled at this point"),
     }
@@ -369,6 +387,9 @@ mod cli {
         /// Execute a command and observe its process.
         Exec(ExecArgs),
 
+        /// Watch a PID and observe it until it's end
+        Watch(Process),
+
         /// Manipulate the configuration.
         Config(ConfigArgs),
 
@@ -386,6 +407,14 @@ mod cli {
         #[arg(trailing_var_arg = true)]
         pub args: Vec<String>,
     }
+
+    /// CLI arguments for the `watch` command.
+    #[derive(Args)]
+    pub struct Process {
+        /// The PID to watch.
+        pub pid: String,
+    }
+
 
     #[derive(Args)]
     pub struct ConfigArgs {
