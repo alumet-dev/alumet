@@ -1,7 +1,7 @@
 //! Watch processes through it's pid
 //! 
 use mio::{unix::SourceFd, Events, Interest, Poll, Token, Waker};
-use std::{fs::File, io::ErrorKind, num::ParseIntError, os::fd::AsRawFd, process::ExitStatus, time::Duration};
+use std::{fs::File, io::{ErrorKind, Read}, num::ParseIntError, os::fd::AsRawFd, process::ExitStatus, time::Duration};
 use thiserror::Error;
 
 use anyhow::Context;
@@ -97,7 +97,7 @@ fn wait_child(pid: String) -> Result<ExitStatus, WatchError> {
     let stop_waker = Waker::new(poll.registry(), STOP_TOKEN).map_err(WatchError::PollInit)?;
 
     poll.registry()
-        .register(&mut fd, MOUNT_TOKEN, Interest::READABLE)
+        .register(&mut fd, MOUNT_TOKEN, Interest::READABLE | Interest::PRIORITY)
         .map_err(WatchError::PollInit)?;
 
     let mut events = Events::with_capacity(8); // we don't expect many events
@@ -109,7 +109,7 @@ fn wait_child(pid: String) -> Result<ExitStatus, WatchError> {
         if let Err(e) = poll_res {
             if e.kind() == ErrorKind::Interrupted {
                 log::error!("Interrupted: continue");
-                continue; // retry
+                break; // retry
             } else {
                 log::error!("propagate error");
                 return Err(WatchError::PollPoll(e)); // propagate error
@@ -118,13 +118,27 @@ fn wait_child(pid: String) -> Result<ExitStatus, WatchError> {
 
         // Call next() because we are not interested in each individual event.
         // If the timeout elapses, the event list is empty.
-        if let Some(event) = events.iter().next() {
-            log::debug!("event on /proc/{pid}/mounts: {event:?}");
+        // println!("Event is: {:?}", events);
+        // if let Some(event) = events.iter().next() {
+        //     log::debug!("event on /proc/{pid}/mounts: {event:?}");
 
-            // the stop_waker has been triggered, which means that we must stop now
+        //     // the stop_waker has been triggered, which means that we must stop now
+        //     if event.token() == STOP_TOKEN {
+        //         log::error!("BREAK: Stop");
+        //         break; // stop
+        //     }
+        // }
+        for event in events.iter() {
             if event.token() == STOP_TOKEN {
-                log::error!("BREAK: Stop");
+                // Handle stop condition
                 break; // stop
+            }
+
+            if event.token() == MOUNT_TOKEN {
+                if event.is_readable() || event.is_priority() {
+                    // Read the contents of the mounts file
+                    println!("!!!!!!!!!!!!! Current mounts:\n");
+                }
             }
         }
     }
