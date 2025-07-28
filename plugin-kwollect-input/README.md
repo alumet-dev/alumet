@@ -9,11 +9,15 @@ Currently, it mainly gathers power consumption data (in watts) on only one node 
 - You want to collect Kwollect data, specifically wattmeter measurements, on a node.
 
 The clusters & nodes that supports wattmeter are these ones:
-- **grenoble**: servan, troll, yeti, wattmetre1, wattmetre2
-- **lille**: chirop, wattmetrev3-1
-- **lyon**: gemini, neowise, nova, orion, pyxis, sagittaire, sirius, taurus, wattmetre1, wattmetrev3-1, wattmetrev3-2
-- **nancy**: gros⁺, gros-wattmetre2
-- **rennes**: paradoxe, wattmetrev3-1
+- **grenoble**: servan, troll, yeti
+- **lille**: chirop
+- **lyon**: gemini, neowise, nova, orion, pyxis, sagittaire, sirius, taurus
+- **nancy**: gros⁺
+- **rennes**: paradoxe
+
+NB: think of verifying if the wattmeters works on the node you want to use before by looking at the API url with time format `year-month-dayThour:minutes:seconds` : 
+`https://api.grid5000.fr/stable/sites/{site}/metrics?nodes={node}&start_time={now}&end_time={at least +1s}`
+
 
 ## Example Metrics Collected
 

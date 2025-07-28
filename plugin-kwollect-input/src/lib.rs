@@ -125,8 +125,15 @@ impl AlumetPlugin for KwollectPluginInput {
             // Here we want the pipeline to wait for the reponse so we use block_on
             async_runtime
                 .block_on(async {
-                    let result = pipeline_control.send_wait(request, Duration::from_secs(1)).await;
-
+                    let result = pipeline_control.send_wait(request, Duration::from_secs(5)).await;
+                    match &result {
+                        Ok(_) => {
+                            log::debug!("Request registered successfully: source added.");
+                        }
+                        Err(e) => {
+                            log::error!("Failed to register request (add_source): {:?}", e);
+                        }
+                    }
                     if result.is_ok() {
                         log::debug!("Triggering Kwollect Source now");
                         let source_name =
@@ -135,9 +142,12 @@ impl AlumetPlugin for KwollectPluginInput {
                         let trigger_now_request =
                             alumet::pipeline::control::request::source(source_matcher).trigger_now();
                         let trigger_result = pipeline_control
-                            .send_wait(trigger_now_request, Duration::from_secs(1))
+                            .send_wait(trigger_now_request, Duration::from_secs(5))
                             .await;
-                        log::debug!("Trigger now result: {:?}", trigger_result);
+                        match &trigger_result {
+                            Ok(_) => log::debug!("Triggered kwollect source."),
+                            Err(e) => log::error!("Failed to trigger source: {:?}", e),
+                        }
                     }
                     result
                 })
@@ -174,8 +184,8 @@ fn build_kwollect_url(config: &Config, start: &DateTime<FixedOffset>, end: &Date
         config.site,
         config.hostname,
         config.metrics.join(","),
-        start.format("%Y-%m-%dT%H:%M:%S"),
-        end.format("%Y-%m-%dT%H:%M:%S"),
+        start.timestamp().to_string(),
+        end.timestamp().to_string(),
     )
 }
 
@@ -188,7 +198,6 @@ async fn fetch_data_async(url: &str, config: &Config) -> Result<Value, Box<dyn E
         .basic_auth(&config.login, Some(&config.password))
         .send()
         .await?;
-
     let response_text = response.text().await?;
     let data: Value = serde_json::from_str(&response_text)?;
     Ok(data)
