@@ -60,3 +60,25 @@ impl RaplDomainType {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rapl_domain_type_from_str() -> anyhow::Result<()> {
+        let expectations = vec![
+            ("package", Ok(RaplDomainType::Package)),
+            ("pkg", Ok(RaplDomainType::Package)),
+            ("pp0", Ok(RaplDomainType::PP0)),
+            ("pp1", Ok(RaplDomainType::PP1)),
+            ("dram", Ok(RaplDomainType::Dram)),
+            ("platform", Ok(RaplDomainType::Platform)),
+            ("unknown", Err("unknown".to_string())),
+        ];
+        for (input, expectation) in expectations {
+            assert_eq!(input.parse::<RaplDomainType>(), expectation);
+        }
+        Ok(())
+    }
+}

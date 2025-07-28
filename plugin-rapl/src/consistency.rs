@@ -2,8 +2,9 @@ use crate::{
     cpus::{self, CpuVendor},
     domains::RaplDomainType,
     perf_event::PowerEvent,
-    powercap::{PowerZone, PowerZoneHierarchy},
+    powercap::PowerZone,
 };
+use anyhow::anyhow;
 
 pub struct SafeSubset {
     pub domains: Vec<RaplDomainType>,
@@ -26,8 +27,7 @@ impl SafeSubset {
     }
 
     #[allow(dead_code)]
-    pub fn from_powercap_only(power_zones: PowerZoneHierarchy) -> Self {
-        let power_zones = power_zones.flat;
+    pub fn from_powercap_only(power_zones: Vec<PowerZone>) -> Self {
         let mut domains: Vec<RaplDomainType> = power_zones.iter().map(|z| z.domain).collect();
         domains.sort_by_key(|k| k.to_string());
         domains.dedup_by_key(|k| k.to_string());
@@ -42,14 +42,14 @@ impl SafeSubset {
 
 /// Checks the consistency of the RAPL domains reported by the different interfaces of the Linux kernel,
 /// and returns the list of domains that are available everywhere ("safe subset").
-pub fn check_domains_consistency(perf_events: &[PowerEvent], power_zones: &PowerZoneHierarchy) -> SafeSubset {
+pub fn check_domains_consistency(perf_events: &Vec<PowerEvent>, power_zones: &Vec<PowerZone>) -> SafeSubset {
     // get all the domains available via perf_events
     let mut perf_rapl_domains: Vec<RaplDomainType> = perf_events.iter().map(|e| e.domain).collect();
     perf_rapl_domains.sort_by_key(|k| k.to_string());
     perf_rapl_domains.dedup_by_key(|k| k.to_string());
 
     // get all the domains available via Powercap
-    let mut powercap_rapl_domains: Vec<RaplDomainType> = power_zones.flat.iter().map(|z| z.domain).collect();
+    let mut powercap_rapl_domains: Vec<RaplDomainType> = power_zones.iter().map(|z| z.domain).collect();
     powercap_rapl_domains.sort_by_key(|k| k.to_string());
     powercap_rapl_domains.dedup_by_key(|k| k.to_string());
 
@@ -96,7 +96,6 @@ pub fn check_domains_consistency(perf_events: &[PowerEvent], power_zones: &Power
             .cloned()
             .collect();
         let power_zones_subset = power_zones
-            .flat
             .iter()
             .filter(|z| domains_subset.contains(&z.domain))
             .cloned()
@@ -111,7 +110,7 @@ pub fn check_domains_consistency(perf_events: &[PowerEvent], power_zones: &Power
         SafeSubset {
             domains: perf_rapl_domains,
             perf_events: perf_events.to_owned(),
-            power_zones: power_zones.flat.to_owned(),
+            power_zones: power_zones.to_owned(),
             is_whole: true,
         }
     }
@@ -120,4 +119,150 @@ pub fn check_domains_consistency(perf_events: &[PowerEvent], power_zones: &Power
 /// Takes a slice of elements that can be converted to strings, converts them and joins them all.
 pub(crate) fn mkstring<A: ToString>(elems: &[A], sep: &str) -> String {
     elems.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(sep)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::check_domains_consistency;
+    use crate::{domains::RaplDomainType, perf_event::PowerEvent, powercap::PowerZone};
+    use std::path::Path;
+
+    #[test]
+    fn test_same_domain() -> anyhow::Result<()> {
+        let power_events = vec![PowerEvent {
+            name: "pkg".to_string(),
+            domain: RaplDomainType::Package,
+            code: 2,
+            unit: "Joules".to_string(),
+            scale: 2.3283064365386962890625e-10,
+        }];
+
+        let power_zones = vec![PowerZone {
+            name: "package-0".to_string(),
+            domain: RaplDomainType::Package,
+            path: Path::new("/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0").to_path_buf(),
+            socket_id: Some(0),
+            children: Vec::new(),
+        }];
+
+        let safe_subset = check_domains_consistency(&power_events, &power_zones);
+
+        assert_eq!(safe_subset.is_whole, true);
+        assert_eq!(safe_subset.domains, vec![RaplDomainType::Package]);
+        assert_eq!(safe_subset.perf_events, power_events);
+        assert_eq!(safe_subset.power_zones, power_zones);
+        Ok(())
+    }
+
+    #[test]
+    fn test_different_domain() -> anyhow::Result<()> {
+        let power_events = vec![PowerEvent {
+            name: "pkg".to_string(),
+            domain: RaplDomainType::Package,
+            code: 2,
+            unit: "Joules".to_string(),
+            scale: 2.3283064365386962890625e-10,
+        }];
+
+        let power_zones = vec![
+            PowerZone {
+                name: "package-0".to_string(),
+                domain: RaplDomainType::Package,
+                path: Path::new("/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0").to_path_buf(),
+                socket_id: Some(0),
+                children: Vec::new(),
+            },
+            PowerZone {
+                name: "core".to_string(),
+                domain: RaplDomainType::PP0,
+                path: Path::new("/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/intel-rapl:0:0").to_path_buf(),
+                socket_id: Some(0),
+                children: Vec::new(),
+            },
+        ];
+
+        let safe_subset = check_domains_consistency(&power_events, &power_zones);
+
+        assert_eq!(safe_subset.is_whole, false);
+        assert_eq!(safe_subset.domains, vec![RaplDomainType::Package]);
+        assert_eq!(safe_subset.perf_events, power_events);
+        assert_eq!(
+            safe_subset.power_zones,
+            vec![PowerZone {
+                name: "package-0".to_string(),
+                domain: RaplDomainType::Package,
+                path: Path::new("/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0").to_path_buf(),
+                socket_id: Some(0),
+                children: Vec::new(),
+            },]
+        );
+        Ok(())
+    }
+}
+
+pub fn get_available_domains(
+    power_events: anyhow::Result<Vec<PowerEvent>>,
+    power_zones: anyhow::Result<Vec<PowerZone>>,
+    check_consistency: bool,
+    use_perf: &mut bool,
+    use_powercap: &mut bool,
+) -> anyhow::Result<(SafeSubset, String)> {
+    Ok(match (power_events, power_zones) {
+        (Ok(power_events), Ok(power_zones)) => {
+            if !check_consistency {
+                // here it assumes that powercap is alive
+                (
+                    SafeSubset::from_powercap_only(power_zones),
+                    " (from powercap)".to_string(),
+                )
+            } else {
+                let mut safe_domains = check_domains_consistency(&power_events, &power_zones);
+                let mut domain_origin = String::from("");
+                if !safe_domains.is_whole {
+                    // If one of the domain set is smaller, it could be empty, which would prevent the plugin from measuring anything.
+                    // In that case, we fall back to the other interface, the one that reports a non-empty list of domains.
+                    if power_events.is_empty() && !power_zones.is_empty() {
+                        log::warn!("perf_events returned an empty list of RAPL domains, I will disable perf_events and use powercap instead.");
+                        *use_perf = false;
+                        safe_domains = SafeSubset::from_powercap_only(power_zones);
+                        domain_origin = " (from powercap)".to_string();
+                    } else if !power_events.is_empty() && power_zones.is_empty() {
+                        log::warn!("powercap returned an empty list of RAPL domains, I will disable powercap and use perf_events instead.");
+                        *use_powercap = false;
+                        safe_domains = SafeSubset::from_perf_only(power_events);
+                        domain_origin = " (from perf_events)".to_string();
+                    } else {
+                        domain_origin = " (\"safe subset\")".to_string();
+                    }
+                }
+                (safe_domains, domain_origin)
+            }
+        }
+        (Ok(power_events), Err(powercap_err)) => {
+            log::error!("Cannot read the list of RAPL domains available via the powercap interface: {powercap_err:?}.");
+            log::warn!("The consistency of the RAPL domains reported by the different interfaces of the Linux kernel cannot be checked (this is useful to work around bugs in some kernel versions on some machines).");
+            (
+                SafeSubset::from_perf_only(power_events),
+                " (from perf_events)".to_string(),
+            )
+        }
+        (Err(perf_err), Ok(power_zones)) => {
+            log::warn!("Cannot read the list of RAPL domains available via the perf_events interface: {perf_err:?}.");
+            log::warn!("The consistency of the RAPL domains reported by the different interfaces of the Linux kernel cannot be checked (this is useful to work around bugs in some kernel versions on some machines).");
+            if *use_perf {
+                log::warn!("Because of the previous error, I will disable perf_events and fall back to powercap.");
+            }
+            *use_perf = false;
+            (
+                SafeSubset::from_powercap_only(power_zones),
+                " (from powercap)".to_string(),
+            )
+        }
+        (Err(perf_err), Err(power_err)) => {
+            log::error!("I could use neither perf_events nor powercap.\nperf_events error: {perf_err:?}\npowercap error: {power_err:?}");
+            Err(anyhow!(
+                "Both perf_events and powercap failed, unable to read RAPL counters: {perf_err}\n{power_err}"
+            ))?
+        }
+    })
 }
