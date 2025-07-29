@@ -165,7 +165,7 @@ pub struct StartResourceMeasurement(pub Vec<Resource>);
 
 /// Event occurring when measurements should be performed at the end of the consumer experiment.
 #[derive(Clone)]
-pub struct EndConsumerMeasurement();
+pub struct EndConsumerMeasurement;
 
 impl Event for StartConsumerMeasurement {}
 impl Event for StartResourceMeasurement {}

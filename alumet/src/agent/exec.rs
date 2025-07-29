@@ -58,7 +58,7 @@ pub fn watch_process(
 
     // Publish an event to perform a measurement at the end of the experiment
     log::info!("Publishing EndConsumerMeasurement event");
-    crate::plugin::event::end_consumer_measurement().publish(EndConsumerMeasurement());
+    crate::plugin::event::end_consumer_measurement().publish(EndConsumerMeasurement);
 
     // Stop the pipeline
     agent.pipeline.control_handle().shutdown();
