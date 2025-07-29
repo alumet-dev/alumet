@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use alumet::measurement::AttributeValue;
+use alumet::{measurement::AttributeValue, pipeline::elements::source::trigger::TriggerSpec};
 use anyhow::Context;
 use regex::Regex;
 use thiserror::Error;
@@ -8,15 +8,26 @@ use util_cgroups::Cgroup;
 
 use crate::probe::{AugmentedMetrics, Metrics};
 
-/// Personalises the metrics and attributes to use for a cgroup probe.
+/// Personalises the metrics and attributes to use for a cgroup source.
 ///
 /// Note: personali**s**e is UK spelling, not a typo. Let's not rely on the USA for everything.
 pub trait ProbePersonaliser: Clone + Send + 'static {
-    fn personalise(&mut self, cgroup: &Cgroup<'_>, metrics: &Metrics) -> AugmentedMetrics;
+    fn personalise(&mut self, cgroup: &Cgroup<'_>, metrics: &Metrics) -> Personalised;
 }
 
-impl<F: FnMut(&Cgroup<'_>, &Metrics) -> AugmentedMetrics + Clone + Send + 'static> ProbePersonaliser for F {
-    fn personalise(&mut self, cgroup: &Cgroup<'_>, metrics: &Metrics) -> AugmentedMetrics {
+pub struct Personalised {
+    pub metrics: AugmentedMetrics,
+    pub source_settings: SourceSettings,
+}
+
+#[derive(Debug, Clone)]
+pub struct SourceSettings {
+    pub name: String,
+    pub trigger: TriggerSpec,
+}
+
+impl<F: FnMut(&Cgroup<'_>, &Metrics) -> Personalised + Clone + Send + 'static> ProbePersonaliser for F {
+    fn personalise(&mut self, cgroup: &Cgroup<'_>, metrics: &Metrics) -> Personalised {
         self(cgroup, metrics)
     }
 }
