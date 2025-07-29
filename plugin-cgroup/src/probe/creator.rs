@@ -1,6 +1,10 @@
 use std::{ops::ControlFlow, time::Duration};
 
-use alumet::pipeline::Source;
+use alumet::pipeline::{
+    control::{request, PluginControlHandle},
+    Source,
+};
+use anyhow::Context;
 use util_cgroups::{detect, mount_wait, Cgroup, CgroupDetector, CgroupHierarchy, CgroupMountWait, CgroupVersion};
 
 use super::{personalise::ProbePersonaliser, v1::CgroupV1Probe, v2::CgroupV2Probe};
@@ -36,8 +40,9 @@ impl CgroupProbeCreator {
         config: Config,
         metrics: Metrics,
         personaliser: impl ProbePersonaliser,
+        alumet_control: PluginControlHandle,
     ) -> anyhow::Result<CgroupProbeCreator> {
-        let callback = WaitCallback::new(metrics, personaliser);
+        let callback = WaitCallback::new(metrics, personaliser, alumet_control);
         let _wait = CgroupMountWait::new(config.v1_coalesce_delay, callback)?;
         Ok(Self { _wait })
     }
@@ -45,38 +50,77 @@ impl CgroupProbeCreator {
 
 /// A callback with a modifiable state.
 struct WaitCallback<P: ProbePersonaliser> {
-    // Store the detectors so that they keep working.
     detectors: Vec<CgroupDetector>,
+    rt: tokio::runtime::Runtime,
+    state: CloneableState<P>,
+}
+
+/// The state of the callback closure.
+/// In a sub-structure to make it easier to clone when moving into a closure.
+#[derive(Clone)]
+struct CloneableState<P: ProbePersonaliser> {
+    // Store the detectors so that they keep working.
     metrics: Metrics,
     personaliser: P,
+    alumet_control: PluginControlHandle,
 }
 
 impl<P: ProbePersonaliser> WaitCallback<P> {
-    fn new(metrics: Metrics, personaliser: P) -> Self {
+    fn new(metrics: Metrics, personaliser: P, alumet_control: PluginControlHandle) -> Self {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .expect("I need a current-thread runtime");
         Self {
             detectors: Vec::new(),
-            metrics,
-            personaliser,
+            state: CloneableState {
+                metrics,
+                personaliser,
+                alumet_control,
+            },
+            rt,
         }
     }
 }
 
 impl<P: ProbePersonaliser> mount_wait::Callback for WaitCallback<P> {
     fn on_cgroupfs_mounted(&mut self, hierarchies: Vec<CgroupHierarchy>) -> anyhow::Result<ControlFlow<()>> {
+        const DISPATCH_TIMEOUT: Duration = Duration::from_secs(1);
+
         for h in hierarchies {
-            let metrics = self.metrics.clone();
             let config = detect::Config::default();
-            let mut p = self.personaliser.clone();
+            let rt = self.rt.handle().clone();
+            let mut state = self.state.clone();
             let detector = CgroupDetector::new(
                 h,
                 config,
                 detect::callback(move |cgroups| {
+                    // create the sources
+                    let mut sources = Vec::with_capacity(cgroups.len());
                     for cgroup in cgroups {
-                        let augmented_metrics = p.personalise(&cgroup, &metrics);
-                        if let Err(e) = make_cgroup_source(cgroup, augmented_metrics) {
-                            log::error!("cgroup source creation failed: {e:?}");
+                        // personalise the source
+                        let personalised = state.personaliser.personalise(&cgroup, &state.metrics);
+                        // create the source
+                        match make_cgroup_source(cgroup, personalised.metrics) {
+                            Ok(source) => {
+                                sources.push((source, personalised.source_settings));
+                            }
+                            Err(e) => {
+                                // don't fail if only one source fails to be created, try the other ones
+                                log::error!("cgroup source creation failed: {e:?}")
+                            }
                         }
-                        // TODO spawn the source!
+                    }
+
+                    // spawn the sources on the Alumet pipeline
+                    for (source, pers) in sources {
+                        // TODO spawn the source in a Paused state if requested by the personaliser
+                        let dispatch_task = state.alumet_control.dispatch(
+                            request::create_one().add_source(&pers.name, source, pers.trigger),
+                            DISPATCH_TIMEOUT,
+                        );
+                        rt.block_on(dispatch_task)
+                            .context("dispatch of source creation request failed")?;
                     }
                     Ok(())
                 }),
