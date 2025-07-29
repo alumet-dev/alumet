@@ -126,6 +126,7 @@ impl<E: Event> EventBus<E> {
 struct EventBuses {
     start_consumer_measurement: EventBus<StartConsumerMeasurement>,
     start_resource_measurement: EventBus<StartResourceMeasurement>,
+    end_consumer_measurement: EventBus<EndConsumerMeasurement>,
 }
 
 /// Global variable, initialized only once, containing the event buses.
@@ -145,6 +146,13 @@ pub fn start_resource_measurement() -> &'static EventBus<StartResourceMeasuremen
         .start_resource_measurement
 }
 
+/// Returns the global event bus for the event [`EndConsumerMeasurement`].
+pub fn end_consumer_measurement() -> &'static EventBus<EndConsumerMeasurement> {
+    &GLOBAL_EVENT_BUSES
+        .get_or_init(EventBuses::default)
+        .end_consumer_measurement
+}
+
 /// Event occurring when new [resource consumers](ResourceConsumer) are detected
 /// and should be measured.
 #[derive(Clone)]
@@ -155,8 +163,13 @@ pub struct StartConsumerMeasurement(pub Vec<ResourceConsumer>);
 #[derive(Clone)]
 pub struct StartResourceMeasurement(pub Vec<Resource>);
 
+/// Event occurring when measurements should be performed at the end of the consumer experiment.
+#[derive(Clone)]
+pub struct EndConsumerMeasurement;
+
 impl Event for StartConsumerMeasurement {}
 impl Event for StartResourceMeasurement {}
+impl Event for EndConsumerMeasurement {}
 
 #[cfg(test)]
 mod tests {
