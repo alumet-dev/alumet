@@ -49,7 +49,7 @@ dependencies = [
  "indoc",
  "libc",
  "log",
- "nix",
+ "nc",
  "num_enum",
  "ordered-float",
  "rustc-hash",
@@ -2085,6 +2085,15 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "tempfile",
+]
+
+[[package]]
+name = "nc"
+version = "0.9.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56c6d92d33b290df8a962fbf778711d529b11c92dc060cd675f1ce45a9a50977"
+dependencies = [
+ "cc",
 ]
 
 [[package]]
