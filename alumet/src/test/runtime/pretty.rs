@@ -13,6 +13,6 @@ impl Debug for PrettyAny {
         if let Some(str) = self.0.downcast_ref::<String>() {
             return f.write_str(str);
         }
-        return self.0.fmt(f);
+        self.0.fmt(f)
     }
 }

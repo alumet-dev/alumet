@@ -1,9 +1,6 @@
-use std::{collections::HashMap, fmt::Debug};
+use std::collections::HashMap;
 
-use alumet::{
-    measurement::MeasurementBuffer,
-    pipeline::{control::request, elements::output::OutputContext},
-};
+use alumet::{measurement::MeasurementBuffer, pipeline::elements::output::OutputContext};
 use anyhow::Context;
 use reqwest::{
     header::{HeaderMap, HeaderValue, InvalidHeaderValue},

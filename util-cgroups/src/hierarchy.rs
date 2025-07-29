@@ -264,7 +264,7 @@ impl CgroupHierarchy {
         let relative_path = if let Some(relative) = canonical_path.strip_prefix("/") {
             relative
         } else {
-            &canonical_path
+            canonical_path
         };
         self.root.join(relative_path)
     }

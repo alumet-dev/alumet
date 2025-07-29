@@ -8,7 +8,7 @@ use alumet::{
 };
 
 use mongodb::{
-    bson::{doc, Bson, Document},
+    bson::{doc, Document},
     sync::Client,
 };
 use mongodb2::convert_timestamp;

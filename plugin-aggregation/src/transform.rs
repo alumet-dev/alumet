@@ -67,11 +67,11 @@ impl AggregationTransform {
             loop {
                 let min_timestamp = compute_min_timestamp(values[0].timestamp, self.interval);
 
-                if !contains_enough_data(self.interval, &values, min_timestamp) {
+                if !contains_enough_data(self.interval, values, min_timestamp) {
                     break;
                 }
 
-                let (i, j) = get_ids(self.interval, &values, min_timestamp)?;
+                let (i, j) = get_ids(self.interval, values, min_timestamp)?;
 
                 let sub_vec: Vec<MeasurementPoint> = values.drain(i..=j).collect();
 
@@ -213,7 +213,7 @@ fn compute_min_timestamp(reference_timestamp: Timestamp, interval: Duration) -> 
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, SystemTime};
     use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
     use alumet::{
@@ -371,7 +371,7 @@ pub(crate) mod tests {
         use anyhow::anyhow;
 
         use alumet::{
-            measurement::{AttributeValue, MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementValue},
+            measurement::{AttributeValue, MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue},
             metrics::RawMetricId,
             pipeline::elements::error::TransformError,
             resources::{Resource, ResourceConsumer},
@@ -601,7 +601,7 @@ pub(crate) mod tests {
             let builder: Builder = Builder::new();
             let inspector = builder.inspect();
             let test_tranform_context: TransformContext = TransformContext {
-                metrics: &inspector.metrics(),
+                metrics: inspector.metrics(),
             };
 
             let mut transform_plugin = AggregationTransform::new(
@@ -720,7 +720,7 @@ pub(crate) mod tests {
             let builder: Builder = Builder::new();
             let inspector = builder.inspect();
             let test_tranform_context: TransformContext = TransformContext {
-                metrics: &inspector.metrics(),
+                metrics: inspector.metrics(),
             };
 
             let metric_correspondence_table_clone = Arc::clone(&transform_plugin.metric_correspondence_table.clone());
