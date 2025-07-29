@@ -51,7 +51,7 @@ dependencies = [
  "indoc",
  "libc",
  "log",
- "nix",
+ "nc",
  "num_enum",
  "ordered-float",
  "serde",
@@ -2102,15 +2102,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "nix"
-version = "0.30.1"
+name = "nc"
+version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74523f3a35e05aba87a1d978330aef40f67b0304ac79c1c00b294c9830543db6"
+checksum = "56c6d92d33b290df8a962fbf778711d529b11c92dc060cd675f1ce45a9a50977"
 dependencies = [
- "bitflags 2.9.0",
- "cfg-if",
- "cfg_aliases",
- "libc",
+ "cc",
 ]
 
 [[package]]

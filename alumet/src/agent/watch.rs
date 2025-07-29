@@ -1,7 +1,6 @@
 //! Watch processes through it's pid
-//! 
-use mio::{unix::SourceFd, Events, Interest, Poll, Token, Waker};
-use std::{fs::File, io::{ErrorKind, Read}, num::ParseIntError, os::fd::AsRawFd, process::ExitStatus, time::Duration};
+use std::{fs::{self, File}, io::{self, ErrorKind, Read}, num::ParseIntError, os::fd::AsRawFd, path::PathBuf, process::ExitStatus, ptr, thread, time::Duration};
+use nc::pid_t;
 use thiserror::Error;
 
 use anyhow::Context;
@@ -39,9 +38,6 @@ pub enum WatchError {
     Stop(#[source] std::io::Error),
 }
 
-const MOUNT_TOKEN: Token = Token(0);
-const TIMER_TOKEN: Token = Token(1);
-const STOP_TOKEN: Token = Token(2);
 const POLL_TIMEOUT: Duration = Duration::from_secs(5);
 const PROC_MOUNTS_PATH: &str = "/proc/mounts";
 const TRIGGER_TIMEOUT: Duration = Duration::from_secs(1);
@@ -62,7 +58,7 @@ pub fn watch_process(
 
     // Check if we can convert the pid to u332
     let pid_u32 = pid
-        .parse::<u32>()
+        .parse::<i32>()
         .map_err(|e| WatchError::PidCheck(pid.to_string(), e))?;
 
     if let Err(e) = trigger_measurement_now(&agent.pipeline) {
@@ -70,7 +66,7 @@ pub fn watch_process(
     }
 
     // Spawn the process and wait for it to exit.
-    let exit_status = wait_child(pid)?;
+    let exit_status = wait_child(pid_u32)?;
     log::info!("Child process exited with status {exit_status}, Alumet will now stop.");
 
     // One last measurement.
@@ -84,84 +80,48 @@ pub fn watch_process(
 }
 
 /// Spawns a child process and waits for it to exit.
-fn wait_child(pid: String) -> Result<ExitStatus, WatchError> {
-    // According to `man proc_mounts`, a filesystem mount or unmount causes
-    // `poll` and `epoll_wait` to mark the file as having a PRIORITY event.
-    let path = format!("/proc/{pid}/mounts");
-    let fd = File::open(&path).map_err( |e | WatchError::PidFilesCheck(pid.clone(), path, e))?;
-    let binding = fd.as_raw_fd();
-    let mut fd = SourceFd(&binding);
-    
-    // Prepare epoll.
-    let mut poll = Poll::new().map_err(WatchError::PollInit)?;
-    let stop_waker = Waker::new(poll.registry(), STOP_TOKEN).map_err(WatchError::PollInit)?;
-
-    poll.registry()
-        .register(&mut fd, MOUNT_TOKEN, Interest::READABLE | Interest::PRIORITY)
-        .map_err(WatchError::PollInit)?;
-
-    let mut events = Events::with_capacity(8); // we don't expect many events
-    // let mut state = State::new(callback);
-
-    loop {
-        let poll_res = poll.poll(&mut events, Some(POLL_TIMEOUT));
-        println!("^^^^^^^^^^^^^^^^^ poll res: {:?}\n", poll_res);
-        if let Err(e) = poll_res {
-            if e.kind() == ErrorKind::Interrupted {
-                log::error!("Interrupted: continue");
-                break; // retry
-            } else {
-                log::error!("propagate error");
-                return Err(WatchError::PollPoll(e)); // propagate error
-            }
-        }
-
-        // Call next() because we are not interested in each individual event.
-        // If the timeout elapses, the event list is empty.
-        // println!("Event is: {:?}", events);
-        // if let Some(event) = events.iter().next() {
-        //     log::debug!("event on /proc/{pid}/mounts: {event:?}");
-
-        //     // the stop_waker has been triggered, which means that we must stop now
-        //     if event.token() == STOP_TOKEN {
-        //         log::error!("BREAK: Stop");
-        //         break; // stop
-        //     }
-        // }
-        for event in events.iter() {
-            if event.token() == STOP_TOKEN {
-                // Handle stop condition
-                break; // stop
-            }
-
-            if event.token() == MOUNT_TOKEN {
-                if event.is_readable() || event.is_priority() {
-                    // Read the contents of the mounts file
-                    println!("!!!!!!!!!!!!! Current mounts:\n");
-                }
-            }
-        }
+fn wait_child(pid: i32) -> Result<ExitStatus, WatchError> {
+    let pidfd = unsafe { nc::pidfd_open(pid, 0) };
+    if pidfd == Err(nc::errno::ENOSYS) {
+        log::warn!("PIDFD_OPEN syscall not supported in this system use of another way");
+        return Ok(ExitStatus::default());
     }
+    let pidfd = pidfd.unwrap();
+    
+    loop {
+        // Attempt to read from the file descriptor
+        let mut timeout = libc::timeval {
+            tv_sec: Duration::from_secs(5).as_secs() as i64,
+            tv_usec: 0,
+        };
+        let mut read_fds = unsafe { std::mem::zeroed::<libc::fd_set>() }; // Initialize fd_set
+        unsafe { libc::FD_SET(pidfd, &mut read_fds) }; // Add the pidfd to the read set
+        let result = unsafe { libc::select(pidfd + 1, &mut read_fds, ptr::null_mut(), ptr::null_mut(), &mut timeout) };
+        
+        if result < 0 {
+            // An error occurred
+            log::error!("Error occurred in select: {}", io::Error::last_os_error());
+            break;
+        } else if result == 0 {
+            // Timeout occurred
+            continue;
+        } else {
+            // At least one file descriptor is ready
+            if unsafe { libc::FD_ISSET(pidfd, &read_fds) } {
+                // The process has terminated
+                log::info!("Process {} has terminated", pid);
+                break;
+            }
+        }
+        // Reset the read file descriptor set for the next select call
+        unsafe { libc::FD_SET(pidfd, &mut read_fds) };
+    }
+    unsafe { libc::close(pidfd) };
 
-    //Await, attendre... ?
 
     log::error!("WAITING");
     let status = 1;
 
-    // // Spawn the process.
-    // let mut p = Command::new(external_command.clone())
-    //     .args(args)
-    //     .spawn()
-    //     .map_err(|e| WatchError::ProcessSpawn(external_command.clone(), e))?;
-
-    // // Notify the plugins that there is a process to observe.
-    // let pid = p.id();
-    // log::info!("Child process '{external_command}' spawned with pid {pid}.");
-    // crate::plugin::event::start_consumer_measurement()
-    //     .publish(StartConsumerMeasurement(vec![ResourceConsumer::Process { pid }]));
-
-    // // Wait for the process to terminate.
-    // let status = p.wait().map_err(|e| WatchError::ProcessWait(pid, e))?;
     Ok(ExitStatus::default())
 }
 
