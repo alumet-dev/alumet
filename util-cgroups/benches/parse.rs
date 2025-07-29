@@ -6,7 +6,7 @@ use criterion::BenchmarkId;
 
 use crate::alternatives::{
     parse_space_kv_unchecked, parse_space_kv_unchecked_cached_indices, parse_space_kv_utf8, parse_space_kv_utf8_basic,
-    parse_space_kv_utf8_cached_indices, BitSet128, BitSet64, IndiceCache,
+    parse_space_kv_utf8_cached_indices, BitSet128, BitSet64, IndexCache,
 };
 
 use criterion::{criterion_group, criterion_main, Criterion};
@@ -94,11 +94,11 @@ fn consume_line_cpu_stat(key: &str, value: u64) {
     };
 }
 
-fn prepare_cache_memory_stat<C: IndiceCache>() -> C {
+fn prepare_cache_memory_stat<C: IndexCache>() -> C {
     C::new(&[0, 1, 3, 4])
 }
 
-fn prepare_cache_memory_cpu<C: IndiceCache>() -> C {
+fn prepare_cache_memory_cpu<C: IndexCache>() -> C {
     C::new(&[0, 1, 2])
 }
 
@@ -154,7 +154,7 @@ Found 11 outliers among 100 measurements (11.00%)
 pub fn criterion_benchmark(c: &mut Criterion) {
     let io_buf = MEMORY_STAT.as_bytes();
 
-    // === without the indice cache ==
+    // === without the index cache ==
     c.bench_function("utf8_basic", |b| {
         b.iter(|| parse_space_kv_utf8_basic(io_buf, consume_line_memory_stat))
     });
@@ -165,7 +165,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         b.iter(|| parse_space_kv_unchecked(io_buf, consume_line_memory_stat))
     });
 
-    // === with an indice cache ===
+    // === with an index cache ===
     let cache_vec = prepare_cache_memory_stat::<Vec<usize>>();
     let cache_hash = prepare_cache_memory_stat::<HashSet<usize>>();
     let cache_b64 = prepare_cache_memory_stat::<BitSet64>();
@@ -228,7 +228,7 @@ mod alternatives {
 
     pub fn parse_space_kv_unchecked_cached_indices(
         io_buf: &[u8],
-        indices: &impl IndiceCache,
+        indices: &impl IndexCache,
         mut on_kv: impl FnMut(&str, u64),
     ) -> io::Result<()> {
         let content = unsafe { std::str::from_utf8_unchecked(&io_buf) };
@@ -245,7 +245,7 @@ mod alternatives {
 
     pub fn parse_space_kv_utf8_cached_indices(
         io_buf: &[u8],
-        indices: &impl IndiceCache,
+        indices: &impl IndexCache,
         mut on_kv: impl FnMut(&str, u64),
     ) -> io::Result<()> {
         let content = std::str::from_utf8(&io_buf).map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
@@ -298,12 +298,12 @@ mod alternatives {
         Ok(())
     }
 
-    pub trait IndiceCache {
+    pub trait IndexCache {
         fn new(set: &[usize]) -> Self;
         fn contains(&self, i: usize) -> bool;
     }
 
-    impl IndiceCache for HashSet<usize> {
+    impl IndexCache for HashSet<usize> {
         fn new(set: &[usize]) -> Self {
             HashSet::from_iter(set.iter().cloned())
         }
@@ -313,7 +313,7 @@ mod alternatives {
         }
     }
 
-    impl IndiceCache for Vec<usize> {
+    impl IndexCache for Vec<usize> {
         fn new(set: &[usize]) -> Self {
             Vec::from_iter(set.iter().cloned())
         }
@@ -326,7 +326,7 @@ mod alternatives {
     pub struct BitSet64(u64);
     pub struct BitSet128(u128);
 
-    impl IndiceCache for BitSet64 {
+    impl IndexCache for BitSet64 {
         fn new(set: &[usize]) -> Self {
             let mut v = 0;
             for i in set {
@@ -340,7 +340,7 @@ mod alternatives {
         }
     }
 
-    impl IndiceCache for BitSet128 {
+    impl IndexCache for BitSet128 {
         fn contains(&self, i: usize) -> bool {
             self.0 & (1 << i) != 0
         }
@@ -356,10 +356,10 @@ mod alternatives {
 
     // #[cfg(test)]
     // mod tests {
-    //     use crate::alternatives::{BitSet64, BitSet128, IndiceCache};
+    //     use crate::alternatives::{BitSet128, BitSet64};
 
     //     #[test]
-    //     fn testb64() {
+    //     fn test_b64() {
     //         let b64 = BitSet64::new(&[]);
     //         for i in 0..64 {
     //             assert!(!b64.contains(i));
@@ -377,7 +377,7 @@ mod alternatives {
     //     }
 
     //     #[test]
-    //     fn testb128() {
+    //     fn test_b128() {
     //         let b128 = BitSet128::new(&[]);
     //         for i in 0..128 {
     //             assert!(!b128.contains(i));

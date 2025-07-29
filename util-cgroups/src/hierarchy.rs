@@ -2,7 +2,7 @@
 //!
 //! # Differences between cgroup v1 and cgroup v2
 //!
-//! In cgroup v1, each controller can get a separate hierachy.
+//! In cgroup v1, each controller can get a separate hierarchy.
 //! In addition, one can create "named hierarchies" that have no controller.
 //!
 //! In cgroup v2, there is a single, unified hierarchy for the whole system.

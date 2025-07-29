@@ -104,7 +104,7 @@ fn prepare_watcher(
     Ok(watcher)
 }
 
-/// For each mount that correspond to a cgoup filesystem (v1 or v2), builds a [`CgroupHierarchy`].
+/// For each mount that correspond to a cgroup filesystem (v1 or v2), builds a [`CgroupHierarchy`].
 fn extract_cgroup_hierarchies(mounts: &[LinuxMount]) -> Vec<CgroupHierarchy> {
     mounts
         .iter()
