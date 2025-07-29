@@ -1,9 +1,9 @@
 //! Wait for the cgroupfs to be mounted.
 
-use mount_watcher::{MountWatcher, WatchControl, mount::LinuxMount};
+use mount_watcher::{mount::LinuxMount, MountWatcher, WatchControl};
 use std::{any::Any, ops::ControlFlow, time::Duration};
 
-use super::hierarchy::{CgroupHierarchy, HierarchyError, CgroupVersion};
+use super::hierarchy::{CgroupHierarchy, CgroupVersion, HierarchyError};
 
 /// `CgroupMountWait` represents a handle to a background thread that waits for a cgroup filesystem to be mounted.
 ///
