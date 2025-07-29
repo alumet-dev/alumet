@@ -164,7 +164,7 @@ impl StatFileBuilder {
         read_fully(&mut self.file, io_buf)?;
 
         // this is initialization time, we can afford to check that the file is valid to avoid problems later (even though there should not be any issue)
-        std::str::from_utf8(&io_buf).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        std::str::from_utf8(io_buf).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         if io_buf.lines().count() >= BitSet128::LIMIT.into() {
             return Err(io::Error::other("too many lines in file, the BitSet will not work"));
         }
@@ -174,7 +174,7 @@ impl StatFileBuilder {
         let mut key_to_line = FxHashMap::with_capacity_and_hasher(self.keys_to_get.len(), FxBuildHasher);
         // SAFETY: we have checked that the file is valid utf-8
         unsafe {
-            parse_space_kv(&io_buf, |i, k, _| {
+            parse_space_kv(io_buf, |i, k, _| {
                 if let Some(pos) = self.keys_to_get.iter().position(|key| key == k) {
                     // update the bitset to ignore the lines we don't want very quickly
                     cached_indices.add(i as u8);

@@ -231,7 +231,7 @@ mod alternatives {
         indices: &impl IndexCache,
         mut on_kv: impl FnMut(&str, u64),
     ) -> io::Result<()> {
-        let content = unsafe { std::str::from_utf8_unchecked(&io_buf) };
+        let content = unsafe { std::str::from_utf8_unchecked(io_buf) };
         for (i, line) in content.split('\n').enumerate() {
             if indices.contains(i) {
                 if let Some((key, value)) = line.split_once(' ') {
@@ -248,7 +248,7 @@ mod alternatives {
         indices: &impl IndexCache,
         mut on_kv: impl FnMut(&str, u64),
     ) -> io::Result<()> {
-        let content = std::str::from_utf8(&io_buf).map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
+        let content = std::str::from_utf8(io_buf).map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
         for (i, line) in content.split('\n').enumerate() {
             if indices.contains(i) {
                 if let Some((key, value)) = line.split_once(' ') {
@@ -261,7 +261,7 @@ mod alternatives {
     }
 
     pub fn parse_space_kv_unchecked(io_buf: &[u8], mut on_kv: impl FnMut(&str, u64)) -> io::Result<()> {
-        let content = unsafe { std::str::from_utf8_unchecked(&io_buf) };
+        let content = unsafe { std::str::from_utf8_unchecked(io_buf) };
         for line in content.split('\n') {
             if let Some((key, value)) = line.split_once(' ') {
                 let value: u64 = value.parse().map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
@@ -272,7 +272,7 @@ mod alternatives {
     }
 
     pub fn parse_space_kv_utf8(io_buf: &[u8], mut on_kv: impl FnMut(&str, u64)) -> io::Result<()> {
-        let content = std::str::from_utf8(&io_buf).map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
+        let content = std::str::from_utf8(io_buf).map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
         for line in content.split('\n') {
             if let Some((key, value)) = line.split_once(' ') {
                 let value: u64 = value.parse().map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
@@ -283,7 +283,7 @@ mod alternatives {
     }
 
     pub fn parse_space_kv_utf8_basic(io_buf: &[u8], mut on_kv: impl FnMut(&str, u64)) -> io::Result<()> {
-        let content = std::str::from_utf8(&io_buf).map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
+        let content = std::str::from_utf8(io_buf).map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
         for line in content.lines() {
             let parts = line.split_ascii_whitespace().collect::<Vec<_>>();
             if parts.len() < 2 {
@@ -309,7 +309,7 @@ mod alternatives {
         }
 
         fn contains(&self, i: usize) -> bool {
-            HashSet::contains(&self, &i)
+            HashSet::contains(self, &i)
         }
     }
 
@@ -319,7 +319,7 @@ mod alternatives {
         }
 
         fn contains(&self, i: usize) -> bool {
-            <[usize]>::contains(&self, &i)
+            <[usize]>::contains(self, &i)
         }
     }
 

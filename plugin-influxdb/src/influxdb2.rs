@@ -263,7 +263,7 @@ mod tests {
         let line = builder.build();
 
         tested_lines.push(TestedLineProtocolData {
-            line: line,
+            line,
             expected_str: r#"myMeasurement,tag1=value1,tag2=value2 fieldKey="fieldValue" 1556813561098000000"#,
         });
 
@@ -284,7 +284,7 @@ mod tests {
             .timestamp(Timestamp::from(UNIX_EPOCH + Duration::from_nanos(1556813561098000000)));
         let line = builder.build();
         tested_lines.push(TestedLineProtocolData {
-            line: line,
+            line,
             expected_str: r#"myMeasurement,tag1=value1,tag2=value2 fieldKey="fieldValue" 1556813561098000000
 measurement_without_tags fieldKey="fieldValue",bool=T,float=123,int=-123i,uint=123u 1556813561098000000"#,
         });
