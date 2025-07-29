@@ -2,4 +2,5 @@
 #[cfg(not(target_os = "linux"))]
 compile_error!("only Linux is supported");
 
+pub mod plugins;
 pub mod probe;
