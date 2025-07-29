@@ -91,7 +91,7 @@ impl AlumetPlugin for OarPlugin {
             },
             alumet.pipeline_control(),
         )
-        .context("failed to init CgroupProbeCreator")?;
+        .context("failed to init CgroupReactor")?;
         self.reactor = Some(reactor);
         Ok(())
     }

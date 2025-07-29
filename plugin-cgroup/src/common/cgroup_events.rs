@@ -29,6 +29,7 @@ pub trait CgroupSetupCallback: Clone + Send + 'static {
     fn setup_new_probe(&mut self, cgroup: &Cgroup, metrics: &Metrics) -> Option<ProbeSetup>;
 }
 
+/// A [`CgroupRemovalCallback`] that does nothing.
 #[derive(Clone, Copy)]
 pub struct NoCallback;
 
