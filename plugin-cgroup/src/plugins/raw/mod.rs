@@ -91,7 +91,7 @@ struct StartingState {
 #[derive(Serialize, Deserialize)]
 pub struct Config {
     #[serde(with = "humantime_serde")]
-    poll_interval: Duration,
+    pub poll_interval: Duration,
 }
 
 impl Default for Config {
