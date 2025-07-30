@@ -168,19 +168,16 @@ fn main() -> anyhow::Result<()> {
         cli::Command::Watch(process) => {
             let timeout = Duration::from_secs(5);
             let res = watch::watch_process(agent, process.pid, timeout);
-            // if let Err(err @ exec::WatchError::ProcessSpawn(program, e)) = &res {
-            //     match e.kind() {
-            //         std::io::ErrorKind::NotFound => {
-            //             panic!("{}", exec_hints::handle_not_found(program.clone(), Vec::new()));
-            //         }
-            //         std::io::ErrorKind::PermissionDenied => {
-            //             panic!("{}", exec_hints::handle_permission_denied(program.clone()));
-            //         }
-            //         _ => {
-            //             panic!("{}", err);
-            //         }
-            //     }
-            // }
+            if let Err(err @ watch::WatchError::ProcessWait(pid, e)) = &res {
+                match e.kind() {
+                    std::io::ErrorKind::NotFound => {
+                        panic!("PID: {pid} seems to be not found, error: {e}");
+                    }
+                    _ => {
+                        panic!("{}", err);
+                    }
+                }
+            }
         }
         _ => unreachable!("every command should have been handled at this point"),
     }
@@ -388,7 +385,7 @@ mod cli {
         /// Execute a command and observe its process.
         Exec(ExecArgs),
 
-        /// Watch a PID and observe it until it's end
+        /// Watch a PID and observe it until its end
         Watch(Process),
 
         /// Manipulate the configuration.
@@ -415,7 +412,6 @@ mod cli {
         /// The PID to watch.
         pub pid: String,
     }
-
 
     #[derive(Args)]
     pub struct ConfigArgs {
