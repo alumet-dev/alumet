@@ -8,9 +8,9 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 use crate::common::{
-        cgroup_events::{CgroupReactor, NoCallback, ReactorCallbacks, ReactorConfig},
-        metrics::Metrics,
-    };
+    cgroup_events::{CgroupReactor, NoCallback, ReactorCallbacks, ReactorConfig},
+    metrics::Metrics,
+};
 
 mod attr;
 mod source;

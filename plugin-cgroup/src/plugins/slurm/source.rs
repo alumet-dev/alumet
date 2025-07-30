@@ -8,7 +8,7 @@ use crate::{
         metrics::{AugmentedMetrics, Metrics},
         regex::RegexAttributesExtrator,
     },
-    plugins::slurm::attr::{find_jobid_in_attrs, JOB_REGEX_SLURM1, JOB_REGEX_SLURM2},
+    plugins::slurm::attr::{JOB_REGEX_SLURM1, JOB_REGEX_SLURM2, find_jobid_in_attrs},
 };
 
 #[derive(Clone)]
@@ -47,14 +47,11 @@ impl CgroupSetupCallback for JobSourceSetup {
 
         let is_job = !attrs.is_empty();
         let name: String;
-        
+
         if is_job {
             let job_id = find_jobid_in_attrs(&attrs).expect("job_id should be set");
             // give a nice name
-            name = format!(
-                "slurm-job-{}",
-                job_id
-            );
+            name = format!("slurm-job-{}", job_id);
         } else {
             // not a job, just a cgroup (for ex. a systemd service)
             if self.jobs_only {

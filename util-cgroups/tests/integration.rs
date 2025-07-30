@@ -7,7 +7,7 @@ use std::sync::atomic::AtomicU8;
 use std::thread;
 use std::time::Duration;
 use tempfile::tempdir;
-use util_cgroups::detect::{callback, ClosureCallbacks, Config};
+use util_cgroups::detect::{ClosureCallbacks, Config, callback};
 use util_cgroups::hierarchy::CgroupVersion;
 use util_cgroups::measure::v2::mock::{CpuStatMock, MemoryStatMock, MockFileCgroupKV};
 use util_cgroups::{CgroupDetector, CgroupHierarchy};

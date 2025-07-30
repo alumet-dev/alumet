@@ -102,9 +102,7 @@ impl CpuStatCollector {
                 i if i == self.mapping.system.0 => {
                     res.system = Some(v);
                 }
-                 _ => {
-                    ()
-                },
+                _ => (),
             })
         }?;
         Ok(res)

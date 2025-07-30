@@ -33,4 +33,9 @@ mod tests {
         assert_eq!(find_jobid_in_attrs(&attrs), None);
     }
 
+    #[test]
+    fn test_find_jobid_in_empty_vec() {
+        let attrs: Vec<(String, AttributeValue)> = vec![];
+        assert_eq!(find_jobid_in_attrs(&attrs), None);
+    }
 }
