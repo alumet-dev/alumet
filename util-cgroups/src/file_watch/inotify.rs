@@ -177,7 +177,7 @@ impl<E: EventHandler> WatchLoop<E> {
                         self.unmark_watched(&path);
                     }
                     Err(e) => {
-                        return Err(anyhow::Error::new(e).context(format!("could not add watch to path {path:?}")));
+                        log::error!("could not add watch to path {path:?}: {e:#}");
                     }
                 }
             } else if metadata.is_file() {
