@@ -71,17 +71,28 @@ pub fn start_quarch_measurement(ip: &IpAddr, _port: u16) -> Result<()> {
             r#"
 from quarchpy import *
 from quarchpy.qis import *
+import builtins
+import time
 
-con_string = f"rest:{device_ip}"
-device = getQuarchDevice(con_string, ConType="QIS")
-ppm = quarchPPM(device, con_string)
+if not isQisRunning():
+    startLocalQis()
+    time.sleep(2)
+    if not isQisRunning():
+        raise RuntimeError("QIS failed to start properly")
+    closeQisAtEndOfTest = True
+else:
+    closeQisAtEndOfTest = False
 
-ppm.sendCommand("stream mode header v3")
-ppm.sendCommand("stream mode power enable")
-ppm.sendCommand("stream mode power total enable")
-ppm.sendCommand("record:trigger:mode manual")
-ppm.sendCommand("record:averaging 32k")
-ppm.streamResampleMode("1ms")"#,
+con_string = f"tcp:{device_ip}"
+device = get_quarch_device(con_string, ConType="QIS")
+
+device.send_command("CONFig:DEFault STATE")
+device.send_command("RECord:TRIGger:MODE MANUAL")
+device.send_command("RECord:AVEraging 32K")
+device.send_command("RECord:RUN")
+
+builtins.quarch_device = device
+"#,
         )?;
         py.run(&code, None, Some(&locals))?;
 
@@ -100,11 +111,25 @@ pub fn get_quarch_measurement(ip: &IpAddr, _port: u16) -> Result<MeasureQuarch> 
             r#"
 from quarchpy import *
 from quarchpy.qis import *
+import builtins
+import re
 
-con_string = f"rest:{device_ip}"
-device = getQuarchDevice(con_string, ConType="QIS")
-ppm = quarchPPM(device, con_string)
-measure = ppm.getMeasurement()"#,
+device = builtins.quarch_device
+
+def extract_value(resp):
+    import re
+    m = re.search(r'\d+', resp)
+    return float(m.group()) if m else 0.0
+
+v_resp = device.send_command("MEASure:VOLTage +12V?")
+c_resp = device.send_command("MEASure:CURRent +12V?")
+
+voltage = extract_value(v_resp) / 1000
+current = extract_value(c_resp) / 1000000
+power = voltage * current
+
+measure = {'power': power}
+"#,
         )?;
         py.run(&code, None, Some(&locals))?;
 
@@ -126,6 +151,7 @@ mod tests {
 
     #[test]
     fn test_start_quarch_measurement_success() {
+        pyo3::prepare_freethreaded_python();
         let ip = IpAddr::from_str("127.0.0.1").unwrap();
         let res = start_quarch_measurement(&ip, 1234);
         assert!(res.is_ok() || res.is_err());
@@ -133,6 +159,7 @@ mod tests {
 
     #[test]
     fn test_get_quarch_measurement_success() -> Result<()> {
+        pyo3::prepare_freethreaded_python();
         let ip = IpAddr::from_str("127.0.0.1").unwrap();
         let res = get_quarch_measurement(&ip, 1234);
         match res {
