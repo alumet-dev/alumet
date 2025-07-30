@@ -17,6 +17,7 @@ use std::{
 };
 
 use mount_watcher::mount::{list_current_mounts, LinuxMount};
+use nix::unistd::Uid;
 use thiserror::Error;
 
 /// A control group, v1 or v2.
@@ -386,6 +387,25 @@ pub enum HierarchyError {
     BadRoot(PathBuf),
     #[error("{0:?} is not a cgroup filesystem")]
     NotCgroupfs(PathBuf),
+}
+
+/// Returns the (sysfs) path of the special user slice unit `app.slice` for the current (effective) user, if it exists.
+///
+/// This path can be used to create new cgroups with user-level permissions (no privileges needed).
+///
+/// # Example
+/// If your user id is `1000`, this returns `{v2_hierarchy_root}/user.slice/user-1000.slice/user@1000.service/app.slice`.
+pub fn find_user_app_slice(v2_hierarchy_root: &Path) -> anyhow::Result<PathBuf> {
+    // get the effective user id
+    let euid = Uid::effective();
+    // check if the the `app.slice` cgroup, which contains cgroups for user applications, exists
+    let path = v2_hierarchy_root.join(format!("user.slice/user-{euid}.slice/user@{euid}.service/app.slice"));
+    match std::fs::exists(&path) {
+        Ok(true) => Ok(path),
+        Ok(false) => Err(anyhow::Error::new(std::io::Error::from(ErrorKind::NotFound))
+            .context(format!("not found in cgroupfs: {path:?}"))),
+        Err(e) => Err(anyhow::Error::new(e).context(format!("failed to check the existence of {path:?}"))),
+    }
 }
 
 #[cfg(test)]
