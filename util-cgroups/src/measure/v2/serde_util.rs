@@ -21,9 +21,9 @@ impl<T, E: serde::ser::Error> serde::ser::SerializeSeq for Impossible<T, E> {
     type Ok = T;
     type Error = E;
 
-    fn serialize_element<U: ?Sized>(&mut self, _value: &U) -> Result<(), Self::Error>
+    fn serialize_element<U>(&mut self, _value: &U) -> Result<(), Self::Error>
     where
-        U: serde::Serialize,
+        U: serde::Serialize + ?Sized,
     {
         unreachable!()
     }
@@ -37,9 +37,9 @@ impl<T, E: serde::ser::Error> serde::ser::SerializeTuple for Impossible<T, E> {
     type Ok = T;
     type Error = E;
 
-    fn serialize_element<U: ?Sized>(&mut self, _value: &U) -> Result<(), Self::Error>
+    fn serialize_element<U>(&mut self, _value: &U) -> Result<(), Self::Error>
     where
-        U: serde::Serialize,
+        U: serde::Serialize + ?Sized,
     {
         unreachable!()
     }
@@ -53,9 +53,9 @@ impl<T, E: serde::ser::Error> serde::ser::SerializeTupleStruct for Impossible<T,
     type Ok = T;
     type Error = E;
 
-    fn serialize_field<U: ?Sized>(&mut self, _value: &U) -> Result<(), Self::Error>
+    fn serialize_field<U>(&mut self, _value: &U) -> Result<(), Self::Error>
     where
-        U: serde::Serialize,
+        U: serde::Serialize + ?Sized,
     {
         unreachable!()
     }
@@ -69,9 +69,9 @@ impl<T, E: serde::ser::Error> serde::ser::SerializeTupleVariant for Impossible<T
     type Ok = T;
     type Error = E;
 
-    fn serialize_field<U: ?Sized>(&mut self, _value: &U) -> Result<(), Self::Error>
+    fn serialize_field<U>(&mut self, _value: &U) -> Result<(), Self::Error>
     where
-        U: serde::Serialize,
+        U: serde::Serialize + ?Sized,
     {
         unreachable!()
     }
@@ -85,16 +85,16 @@ impl<T, E: serde::ser::Error> serde::ser::SerializeMap for Impossible<T, E> {
     type Ok = T;
     type Error = E;
 
-    fn serialize_key<U: ?Sized>(&mut self, _key: &U) -> Result<(), Self::Error>
+    fn serialize_key<U>(&mut self, _key: &U) -> Result<(), Self::Error>
     where
-        U: serde::Serialize,
+        U: serde::Serialize + ?Sized,
     {
         unreachable!()
     }
 
-    fn serialize_value<U: ?Sized>(&mut self, _value: &U) -> Result<(), Self::Error>
+    fn serialize_value<U>(&mut self, _value: &U) -> Result<(), Self::Error>
     where
-        U: serde::Serialize,
+        U: serde::Serialize + ?Sized,
     {
         unreachable!()
     }
@@ -108,14 +108,29 @@ impl<T, E: serde::ser::Error> serde::ser::SerializeStructVariant for Impossible<
     type Ok = T;
     type Error = E;
 
-    fn serialize_field<U: ?Sized>(&mut self, _key: &'static str, _value: &U) -> Result<(), Self::Error>
+    fn serialize_field<U>(&mut self, _key: &'static str, _value: &U) -> Result<(), Self::Error>
     where
-        U: serde::Serialize,
+        U: serde::Serialize + ?Sized,
     {
         unreachable!()
     }
 
     fn end(self) -> Result<T, E> {
         unreachable!()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::measure::v2::serde_util::SerializationError;
+
+    // Doesn't test for custom function from serde::ser::Error implementation for SerializationError
+    #[test]
+    pub fn test_custom() -> anyhow::Result<()> {
+        let msg = SerializationError::UnsupportedType;
+        assert_eq!(format!("{msg}"), "unsupported type");
+        let msg = SerializationError::Message("My SerializationError message".to_string());
+        assert_eq!(format!("{msg}"), "My SerializationError message");
+        Ok(())
     }
 }
