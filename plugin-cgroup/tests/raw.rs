@@ -21,8 +21,8 @@ const TOLERANCE: Duration = Duration::from_millis(500);
 
 #[test]
 fn test_raw_cgroupv2() -> anyhow::Result<()> {
-    if std::env::var_os("SKIP_CGROUP_TESTS").is_some() {
-        println!("skipped because SKIP_CGROUP_TESTS is set");
+    if std::env::var_os("SKIP_CGROUPFS_TESTS").is_some() {
+        println!("skipped because SKIP_CGROUPFS_TESTS is set");
         return Ok(());
     }
 

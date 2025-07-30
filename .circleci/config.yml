@@ -58,7 +58,7 @@ jobs:
           no_output_timeout: 30s
           environment:
             # tests that manipulate the cgroupfs don't work in the CI container, because it has no systemd user slice, so the tests cannot create cgroups
-            SKIP_CGROUP_TESTS: true
+            SKIP_CGROUPFS_TESTS: true
 
       # Caching "target" is not worth it because it is costly to extract the huge cache.
       # So, we only cache some cargo data.
