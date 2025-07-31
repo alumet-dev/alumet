@@ -14,9 +14,28 @@ const DEFAULT_SECRET_TOKEN_PATH: &str = "/var/run/secrets/kubernetes.io/servicea
 const DEFAULT_SERVICE_ACCOUNT: &str = "alumet-reader";
 const DEFAULT_NAMESPACE: &str = "alumet";
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+/// A [`TokenRetrieval`] that has been modified to simplify the configuration file.
+///
+/// # Examples
+/// ```toml
+/// # run 'kubectl create token'
+/// token_retrieval = "kubectl"
+///
+/// # read /var/run/secrets/kubernetes.io/serviceaccount/token
+/// token_retrieval = "file"
+///
+/// # custom file
+/// token_retrieval.file = "/path/to/token"
+///
+/// # custom kubectl
+/// token_retrieval.kubectl = {
+///     service_account = "alumet-account"
+///     namespace = "alumet-ns"
+/// }
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum TokenRetrievalConfig {
-    Simple(SimpleRetrievalMethod),
     Kubectl {
         #[serde(default = "default_sa")]
         service_account: String,
@@ -24,10 +43,12 @@ pub enum TokenRetrievalConfig {
         namespace: String,
     },
     File(String),
+    #[serde(untagged)]
+    Simple(SimpleRetrievalMethod),
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(rename_all = "lowercase")]
 pub enum SimpleRetrievalMethod {
     Kubectl,
     File,
@@ -63,6 +84,7 @@ impl From<TokenRetrievalConfig> for TokenRetrieval {
     }
 }
 
+/// A way of obtaining a Kubernetes token.
 #[derive(Clone, PartialEq, Debug)]
 pub enum TokenRetrieval {
     Kubectl { service_account: String, namespace: String },
@@ -402,5 +424,122 @@ mod tests {
         let result = token.refresh();
         assert!(result.is_ok());
         assert!(token.data.read().unwrap().is_alive());
+    }
+
+    fn serialize_toml_value(value: &impl Serialize) -> Result<String, toml::ser::Error> {
+        let mut dst = String::new();
+        let ser = toml::ser::ValueSerializer::new(&mut dst);
+        let () = serde::Serialize::serialize(value, ser)?;
+        Ok(dst)
+    }
+
+    fn deserialize_toml_value<'de, T: Deserialize<'de>>(value: &str) -> Result<T, toml::de::Error> {
+        let de = toml::de::ValueDeserializer::new(value);
+        T::deserialize(de)
+    }
+
+    #[test]
+    fn test_config_serialize_simple() {
+        assert_eq!(
+            serialize_toml_value(&TokenRetrievalConfig::Simple(SimpleRetrievalMethod::Auto)).unwrap(),
+            "\"auto\""
+        );
+        assert_eq!(
+            serialize_toml_value(&TokenRetrievalConfig::Simple(SimpleRetrievalMethod::File)).unwrap(),
+            "\"file\""
+        );
+        assert_eq!(
+            serialize_toml_value(&TokenRetrievalConfig::Simple(SimpleRetrievalMethod::Kubectl)).unwrap(),
+            "\"kubectl\""
+        );
+    }
+
+    #[test]
+    fn test_config_serialize_advanced() {
+        assert_eq!(
+            serialize_toml_value(&TokenRetrievalConfig::File("/a/b".to_string())).unwrap(),
+            "{ file = \"/a/b\" }"
+        );
+        assert_eq!(
+            serialize_toml_value(&TokenRetrievalConfig::Kubectl {
+                service_account: "svac".to_string(),
+                namespace: "ns".to_string()
+            })
+            .unwrap(),
+            "{ kubectl = { service_account = \"svac\", namespace = \"ns\" } }"
+        );
+    }
+
+    #[test]
+    fn test_config_parsing_simple() {
+        let config: TokenRetrievalConfig = deserialize_toml_value("\"kubectl\"").unwrap();
+        assert_eq!(config, TokenRetrievalConfig::Simple(SimpleRetrievalMethod::Kubectl));
+
+        let r = TokenRetrieval::from(config);
+        assert!(
+            matches!(
+                &r,
+                TokenRetrieval::Kubectl {
+                    service_account,
+                    namespace
+                }
+                if service_account == DEFAULT_SERVICE_ACCOUNT && namespace == DEFAULT_NAMESPACE
+            ),
+            "{r:?}"
+        );
+
+        let config: TokenRetrievalConfig = deserialize_toml_value("\"file\"").unwrap();
+        assert_eq!(config, TokenRetrievalConfig::Simple(SimpleRetrievalMethod::File));
+
+        let r = TokenRetrieval::from(config);
+        assert!(
+            matches!(
+                &r,
+                TokenRetrieval::File(path) if path == DEFAULT_SECRET_TOKEN_PATH
+            ),
+            "{r:?}"
+        );
+    }
+
+    #[test]
+    fn test_config_parsing_advanced_kubectl() {
+        let config: TokenRetrievalConfig =
+            deserialize_toml_value(r#"{ kubectl = { service_account = "svac", namespace = "ns"} }"#).unwrap();
+        assert_eq!(
+            config,
+            TokenRetrievalConfig::Kubectl {
+                service_account: String::from("svac"),
+                namespace: String::from("ns")
+            }
+        );
+
+        let r = TokenRetrieval::from(config);
+        assert!(
+            matches!(
+                &r,
+                TokenRetrieval::Kubectl {
+                    service_account,
+                    namespace
+                }
+                if service_account == "svac" && namespace == "ns"
+            ),
+            "{r:?}"
+        );
+    }
+
+    #[test]
+    fn test_config_parsing_advanced_file() -> anyhow::Result<()> {
+        let config: TokenRetrievalConfig = deserialize_toml_value(r#"{ file = "/a/b" }"#).unwrap();
+        assert_eq!(config, TokenRetrievalConfig::File(String::from("/a/b")));
+
+        let r = TokenRetrieval::from(config);
+        assert!(
+            matches!(
+                &r,
+                TokenRetrieval::File(path) if path == "/a/b"
+            ),
+            "{r:?}"
+        );
+        Ok(())
     }
 }
