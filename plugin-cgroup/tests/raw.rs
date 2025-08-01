@@ -26,7 +26,7 @@ fn test_raw_cgroupv2() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    env_logger::Builder::from_default_env().init();
+    let _ = env_logger::Builder::from_default_env().try_init();
 
     let app_slice = find_user_app_slice(Path::new(SYSFS_CGROUP))?;
 

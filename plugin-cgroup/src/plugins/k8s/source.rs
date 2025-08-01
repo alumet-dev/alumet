@@ -38,8 +38,8 @@ impl CgroupSetupCallback for SourceSetup {
         // setup the trigger according to the plugin's config
         let trigger = self.trigger.clone();
 
-        // use the cgroup name as the source name
-        let name = cgroup.unique_name().to_string();
+        // use the cgroup's "file stem" as the source name (it contains the pod uid)
+        let name = cgroup.fs_path().file_stem().unwrap().to_str().unwrap().to_string();
 
         // ready!
         let source_settings = SourceSettings { name, trigger };

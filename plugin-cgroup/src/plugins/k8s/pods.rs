@@ -163,6 +163,14 @@ impl AutoNodePodRegistry {
 pub fn extract_pod_uid_from_cgroup(cgroup_fs_path: &Path) -> Option<String> {
     let cgroup_name = cgroup_fs_path.file_name()?.to_str()?;
     let (_prefix, suffix) = cgroup_name.rsplit_once("pod")?;
+    if suffix.starts_with('s') {
+        // we actually have "pods" and not "pod"
+        return None;
+    }
+    if suffix.len() < 32 {
+        // this cannot be a UUID
+        return None;
+    }
     let uid = suffix.strip_suffix(".slice")?.replace('_', "-");
     Some(uid.to_owned())
 }
