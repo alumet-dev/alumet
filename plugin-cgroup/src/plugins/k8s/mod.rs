@@ -115,20 +115,25 @@ struct StartingState {
 #[derive(Serialize, Deserialize)]
 pub struct Config {
     /// Name of the curent K8S node, defaults to the hostname.
-    k8s_node: Option<String>,
+    pub k8s_node: Option<String>,
     /// URL to the K8S API.
-    k8s_api_url: String,
-    token_retrieval: TokenRetrievalConfig,
+    #[serde(default = "default_k8s_api_url")]
+    pub k8s_api_url: String,
+    pub token_retrieval: TokenRetrievalConfig,
 
     #[serde(with = "humantime_serde")]
     pub poll_interval: Duration,
+}
+
+fn default_k8s_api_url() -> String {
+    String::from("https://127.0.0.1:8080")
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             k8s_node: None,
-            k8s_api_url: String::from("https://127.0.0.1:8080"),
+            k8s_api_url: default_k8s_api_url(),
             token_retrieval: TokenRetrievalConfig::Simple(token::SimpleRetrievalMethod::Auto),
             poll_interval: Duration::from_secs(5),
         }
