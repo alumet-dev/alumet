@@ -2617,6 +2617,7 @@ dependencies = [
  "hostname",
  "humantime-serde",
  "log",
+ "mockito",
  "pretty_assertions",
  "regex",
  "reqwest",
