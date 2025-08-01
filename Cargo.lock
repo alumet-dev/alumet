@@ -2614,6 +2614,7 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "env_logger",
+ "hostname",
  "humantime-serde",
  "log",
  "pretty_assertions",
