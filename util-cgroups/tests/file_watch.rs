@@ -5,6 +5,7 @@ use std::{
 };
 
 use util_cgroups::file_watch::{inotify::InotifyWatcher, Event, EventHandler, PathKind};
+use walkdir::WalkDir;
 
 const TOLERANCE: Duration = Duration::from_millis(250);
 
@@ -334,6 +335,41 @@ fn recursive_already_existing() -> anyhow::Result<()> {
             (tmp.path().join("dir1/sub/little/leaf"), PathKind::Directory),
             (tmp.path().join("dir1/sub/little/some_file.tmp"), PathKind::File),
         ],
+    );
+    Ok(())
+}
+
+#[test]
+fn recursive_bad_root_inexistent() -> anyhow::Result<()> {
+    let _ = env_logger::try_init_from_env(env_logger::Env::default());
+
+    let tmp = tempfile::tempdir()?;
+    let inexistent = tmp.path().join("i do not exist");
+
+    // start the watcher on the bad root
+    let event_handler = InotifyEventCheck::new();
+    let res = InotifyWatcher::new(event_handler, vec![inexistent]);
+    assert!(
+        res.is_err(),
+        "InotifyWatcher::new should fail because the root path does not exist"
+    );
+    Ok(())
+}
+
+#[test]
+fn recursive_bad_root_file() -> anyhow::Result<()> {
+    let _ = env_logger::try_init_from_env(env_logger::Env::default());
+
+    let tmp = tempfile::tempdir()?;
+    let file = tmp.path().join("i am a file");
+    std::fs::write(&file, "")?;
+
+    // start the watcher on the bad root
+    let event_handler = InotifyEventCheck::new();
+    let res = InotifyWatcher::new(event_handler, vec![file]);
+    assert!(
+        res.is_err(),
+        "InotifyWatcher::new should fail because the root path is not a directory"
     );
     Ok(())
 }

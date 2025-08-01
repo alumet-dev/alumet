@@ -16,7 +16,7 @@ use nix::{
     sys::inotify::{AddWatchFlags, InitFlags, Inotify, InotifyEvent, WatchDescriptor},
 };
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
-use walkdir::WalkDir;
+use walkdir::{DirEntry, WalkDir};
 
 pub struct InotifyWatcher {
     thread_handle: Option<JoinHandle<()>>,
@@ -41,7 +41,7 @@ impl InotifyWatcher {
         let mut deleted = Vec::new();
         for path in paths_to_watch {
             match path.metadata().map(|m| m.is_dir()) {
-                Ok(true) => watch.watch_recursively(path, &mut created, &mut deleted)?,
+                Ok(true) => watch.watch_recursively(path, &mut created, &mut deleted),
                 Ok(false) => return Err(anyhow::anyhow!("cannot watch {path:?} because it is not a directory")),
                 Err(e) => return Err(e).context(format!("cannot watch {path:?}")),
             }
@@ -146,12 +146,16 @@ impl<E: EventHandler> WatchLoop<E> {
         Ok((s, stop_waker))
     }
 
+    /// Watches a directory recursively.
+    ///
+    /// We assume that `path` is a directory and that we can access it.
+    /// This should be checked before calling the function, because it will not return any error.
     fn watch_recursively(
         &mut self,
         path: PathBuf,
         created: &mut Vec<(PathBuf, PathKind)>,
         deleted: &mut Vec<(PathBuf, PathKind)>,
-    ) -> anyhow::Result<()> {
+    ) {
         log::trace!("watch_recursively {path:?}");
         // Iterate on `path` and its sub-directories (the first item yielded by the iterator is `path`).
         // WHY: Doing `add_watch_dir` is not enough, because the directory can be modified (e.g. sub-directories can be created) between the inotify event and the registration of the directory. To avoid missing any event, we need to recursively list the sub-directories.
@@ -190,7 +194,6 @@ impl<E: EventHandler> WatchLoop<E> {
                 }
             }
         }
-        Ok(())
     }
 
     fn run(mut self) -> anyhow::Result<()> {
@@ -263,7 +266,7 @@ impl<E: EventHandler> WatchLoop<E> {
                 };
                 log::trace!("(+) {kind:?} {path:?}");
                 if kind == PathKind::Directory && watched_dir.watch_recursively {
-                    self.watch_recursively(path, &mut created, &mut deleted)?;
+                    self.watch_recursively(path, &mut created, &mut deleted);
                 } else {
                     if self.mark_watched(path.clone()) {
                         log::trace!("(file) created: {path:?}");
