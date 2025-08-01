@@ -50,7 +50,7 @@ impl WrappedTransform {
         match self.set_rx.try_recv() {
             Ok(check) => {
                 log::trace!("applying check");
-                (check.0)(&measurements);
+                (check.0)(measurements);
 
                 log::trace!("wrapped transform done");
                 self.done_tx.try_send(TransformDone).unwrap();

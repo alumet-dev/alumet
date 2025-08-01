@@ -54,7 +54,7 @@ mod tests {
     #[test]
     fn test_is_accessible_dir_permission_error() {
         let root = Path::new("/root/protected");
-        let result = is_accessible_dir(&root);
+        let result = is_accessible_dir(root);
         assert!(result.is_err());
         if let Err(e) = result {
             assert_eq!(e.kind(), std::io::ErrorKind::PermissionDenied);

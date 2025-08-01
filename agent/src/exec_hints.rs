@@ -248,11 +248,10 @@ mod tests {
         let path_file_string = path_file.clone().into_os_string().into_string().unwrap();
         std::fs::write(
             path_file.clone(),
-            format!(
-                "#!/bin/sh\n
+            "#!/bin/sh\n
                 echo \"Hello\"\n
                 sleep 2"
-            ),
+                .to_string(),
         )
         .unwrap();
 
@@ -362,11 +361,10 @@ mod tests {
         let path_non_existing_file_string = path_non_existing_file.clone().into_os_string().into_string().unwrap();
         std::fs::write(
             path_file.clone(),
-            format!(
-                "#!/bin/sh\n
+            "#!/bin/sh\n
                 echo \"Hello\"\n
                 sleep 2"
-            ),
+                .to_string(),
         )
         .unwrap();
         let file = match File::open(&path_file) {
@@ -401,11 +399,10 @@ mod tests {
         let path_file_distance2 = root.join("scriptAA.sh");
         std::fs::write(
             path_file_distance2.clone(),
-            format!(
-                "#!/bin/sh\n
+            "#!/bin/sh\n
             echo \"Bye\"\n
             sleep 2"
-            ),
+                .to_string(),
         )
         .unwrap();
         assert_eq!(

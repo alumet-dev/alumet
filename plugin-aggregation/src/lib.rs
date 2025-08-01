@@ -71,7 +71,7 @@ impl AlumetPlugin for AggregationPlugin {
 
         for metric_name in self.config.metrics.iter() {
             let (raw_metric_id, metric) = metrics
-                .by_name(&metric_name)
+                .by_name(metric_name)
                 .with_context(|| format!("metric \"{}\" not found", &metric_name))?;
             self.old_ids.push(raw_metric_id);
             let new_metric = Metric {

@@ -362,9 +362,6 @@ impl From<(RawMetricId, alumet::metrics::Metric)> for Metric {
 
 #[cfg(test)]
 mod tests {
-    use bytes::BytesMut;
-
-    use super::{MessageBody, MessageStream, PROTOCOL_VERSION};
 
     #[test]
     fn test_message_rw_simple() -> anyhow::Result<()> {

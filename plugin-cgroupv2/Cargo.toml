@@ -16,6 +16,8 @@ serde_json = "1.0"
 humantime-serde = "1.1.1"
 notify = "6.1.1"
 base64 = "0.22.1"
+walkdir = "2.5.0"
+regex = "1.11.1"
 
 # Use RusTLS instead of OpenSSL on musl
 [target.'cfg(target_env = "musl")'.dependencies]
@@ -30,3 +32,4 @@ workspace = true
 [dev-dependencies]
 tempfile = "3.5"
 mockito = "1.7.0"
+toml = "0.8.22"

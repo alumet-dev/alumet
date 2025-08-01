@@ -1,4 +1,4 @@
-use std::{io::Write, os::unix::net::UnixStream, path::PathBuf, time::Duration};
+use std::{io::Write, os::unix::net::UnixStream, time::Duration};
 
 use alumet::{
     agent::{

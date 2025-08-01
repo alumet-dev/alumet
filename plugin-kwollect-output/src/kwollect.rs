@@ -40,6 +40,7 @@ impl Serialize for Measure {
                         AttributeValue::U64(v) => labels_map.serialize_entry(key, v)?,
                         AttributeValue::Str(v) => labels_map.serialize_entry(key, v)?,
                         AttributeValue::String(v) => labels_map.serialize_entry(key, v)?,
+                        AttributeValue::ListU64(v) => labels_map.serialize_entry(key, v)?,
                     }
                 }
                 labels_map.end()

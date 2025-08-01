@@ -25,7 +25,7 @@ impl EnergyAttributionTransform {
             metrics,
             hardware_usage_buffer: HashMap::<u64, Vec<MeasurementPoint>>::new(),
             consumed_energy_buffer: HashMap::<u64, MeasurementPoint>::new(),
-            hardware_usage_metric_filter: hardware_usage_metric_filter,
+            hardware_usage_metric_filter,
         }
     }
 

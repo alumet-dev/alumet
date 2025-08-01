@@ -108,27 +108,46 @@ impl Serialize for DocMeasurement<'_> {
         S: serde::Serializer,
     {
         let mut map = serializer.serialize_map(Some(6))?;
+        // timestamp
         let datetime = UtcDateTime::from(SystemTime::from(self.measurement.timestamp));
         let datetime = datetime.format(&Rfc3339).map_err(S::Error::custom)?;
         map.serialize_entry("@timestamp", &datetime)?;
+
+        // resource and consumer
         map.serialize_entry("resource_kind", self.measurement.resource.kind())?;
         // TODO there should be a nicer way to get a &str from a resource id without allocating a string
         map.serialize_entry("resource_id", &self.measurement.resource.id_display().to_string())?;
         map.serialize_entry("consumer_kind", &self.measurement.consumer.kind())?;
         map.serialize_entry("consumer_id", &self.measurement.consumer.id_display().to_string())?;
+
+        // value
         match self.measurement.value {
             WrappedMeasurementValue::F64(v) => map.serialize_entry("value", &v)?,
             WrappedMeasurementValue::U64(v) => map.serialize_entry("value", &v)?,
         };
 
-        for (key, value) in self.measurement.attributes() {
-            match value {
-                AttributeValue::Bool(v) => map.serialize_entry(key, &v)?,
-                AttributeValue::F64(v) => map.serialize_entry(key, &v)?,
-                AttributeValue::U64(v) => map.serialize_entry(key, &v)?,
-                AttributeValue::Str(v) => map.serialize_entry(key, &v)?,
-                AttributeValue::String(v) => map.serialize_entry(key, &v)?,
-            }
+        // attributes
+        const RESERVED_KEYS: [&str; 5] = [
+            "@timestamp",
+            "resource_kind",
+            "resource_id",
+            "consumer_kind",
+            "consumer_id",
+        ];
+        for (key, attr) in self.measurement.attributes() {
+            let key = if RESERVED_KEYS.contains(&key) {
+                &format!("__{key}")
+            } else {
+                key
+            };
+            match attr {
+                AttributeValue::F64(v) => map.serialize_entry(key, v)?,
+                AttributeValue::U64(v) => map.serialize_entry(key, v)?,
+                AttributeValue::Bool(v) => map.serialize_entry(key, v)?,
+                AttributeValue::Str(v) => map.serialize_entry(key, v)?,
+                AttributeValue::String(v) => map.serialize_entry(key, v)?,
+                AttributeValue::ListU64(v) => map.serialize_entry(key, v)?,
+            };
         }
 
         map.end()
