@@ -19,13 +19,14 @@ util-cgroups = { path = "../util-cgroups", features = ["manually"]}
 # k8s-only deps
 base64 = "0.22.1"
 serde_json = "1.0.141"
+hostname = "0.4.0"
 
 # Use RusTLS instead of OpenSSL on musl
 [target.'cfg(target_env = "musl")'.dependencies]
-reqwest = { version = "0.12.12", default-features = false, features = ["http2", "json", "rustls-tls"] }
+reqwest = { version = "0.12.12", default-features = false, features = ["http2", "json", "rustls-tls", "blocking"] }
 
 [target.'cfg(not(target_env = "musl"))'.dependencies]
-reqwest = { version = "0.12.12", default-features = false, features = ["http2", "json", "native-tls"] }
+reqwest = { version = "0.12.12", default-features = false, features = ["http2", "json", "native-tls", "blocking"] }
 
 [dev-dependencies]
 tempfile = "3.20.0"

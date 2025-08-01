@@ -135,7 +135,7 @@ impl TokenRetrieval {
 }
 
 /// Kubernetes token and way to retrieve it.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Token {
     /// Way to obtain a token, in file or with Kubectl command.
     retrieval: TokenRetrieval,
