@@ -101,7 +101,8 @@ impl ApiClient {
 
         // send and parse response
         let response = req.send().context("failed to send http request")?;
-        let pods: PodList = response.json().context("failed to parse json response")?;
+        println!("response: {response:?}");
+        let pods: PodList = response.json().context(format!("failed to parse json response"))?;
 
         // turn the response into the format we want
         let pods = pods.items.into_iter().map(PodInfos::from);
@@ -171,6 +172,10 @@ mod tests {
     use pretty_assertions::assert_eq;
     use std::path::PathBuf;
 
+    use mockito::{Server, ServerGuard};
+    use serde_json::json;
+    use tempfile::tempdir;
+
     use super::*;
 
     #[test]
@@ -187,5 +192,192 @@ mod tests {
         let non_k8s_app_path =
             PathBuf::from(".../user.slice/user-1000.slice/user@1000.service/app.slice/app-org.gnome.Terminal.slice");
         assert_eq!(extract_pod_uid_from_cgroup(non_k8s_app_path.as_path()), None);
+    }
+
+    const TOKEN_CONTENT: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo0MTAyNDQ0ODAwLCJuYW1lIjoiVDNzdDFuZyBUMGszbiJ9.3vho4u0hx9QobMNbpDPvorWhTHsK9nSg2pZAGKxeVxA";
+
+    fn get_node_pod_infos(
+        server: &ServerGuard,
+        auth_token: Token,
+        node: &str,
+    ) -> anyhow::Result<FxHashMap<String, PodInfos>> {
+        let k8s_api_url = server.url();
+        let client = ApiClient::new(&k8s_api_url, auth_token)?;
+        let result: FxHashMap<_, _> = client.list_pods(Some(node))?.map(|p| (p.uid.clone(), p)).collect();
+        Ok(result)
+    }
+
+    // Test `get_node_pods_infos` with JSON send in fake server to a specific token
+    #[test]
+    fn test_get_node_pods_infos_with_valid_data() {
+        let tempdir = tempdir().unwrap();
+        let root = tempdir.path();
+
+        let dir = root.join("run/secrets/kubernetes.io/serviceaccount/");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let path = dir.join("token_4");
+        std::fs::write(&path, TOKEN_CONTENT).unwrap();
+
+        let node = "pod1";
+        let url = format!("/api/v1/pods?fieldSelector=spec.nodeName%3D{}", node);
+        let mut server = Server::new();
+        let _mock = server
+            .mock("GET", url.as_str())
+            .with_status(200)
+            .with_header("Content-Type", "application/json")
+            .with_body(
+                json!({
+                    "items": [
+                        {
+                            "metadata": {
+                                "name": "pod1",
+                                "namespace": "default",
+                                "uid": "5f32d849-6210-4886-a48d-e0d90e1d0206",
+                                "annotations": {
+                                    "kubernetes.io/config.hash": "5f32d849-6210-4886-a48d-e0d90e1d0206"
+                                }
+                            },
+                            "spec": {
+                                "nodeName": "node1"
+                            }
+                        },
+                        {
+                            "metadata": {
+                                "name": "pod2",
+                                "namespace": "default",
+                                "uid": "5fffd849-6210-4886-aaaa-e0d90e1d0206"
+                            },
+                            "spec": {
+                                "nodeName": "node2"
+                            }
+                        }
+                    ]
+                })
+                .to_string(),
+            )
+            .create();
+
+        let auth_token = Token::with_file(path.to_str().unwrap().to_owned());
+        let result = get_node_pod_infos(&server, auth_token, node).unwrap();
+
+        let pod_infos_5f32 = result.get("5f32d849-6210-4886-a48d-e0d90e1d0206").unwrap();
+        let pod_infos_5fff = result.get("5fffd849-6210-4886-aaaa-e0d90e1d0206").unwrap();
+
+        assert_eq!(pod_infos_5f32.name, "pod1");
+        assert_eq!(pod_infos_5f32.namespace, "default");
+        assert_eq!(pod_infos_5f32.node, "node1");
+        assert_eq!(pod_infos_5fff.name, "pod2");
+        assert_eq!(pod_infos_5fff.namespace, "default");
+        assert_eq!(pod_infos_5fff.node, "node2");
+    }
+
+    //// Test `get_node_pods_infos` with JSON send in fake server to a specific token,
+    //// with some of them missing in the JSON
+    #[test]
+    fn test_get_node_pods_infos_with_half_valid_data() {
+        let tempdir = tempdir().unwrap();
+        let root = tempdir.path();
+
+        let dir = root.join("run/secrets/kubernetes.io/serviceaccount/");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let path = dir.join("token_5");
+        std::fs::write(&path, TOKEN_CONTENT).unwrap();
+
+        let node = "pod1";
+        let url = format!("/api/v1/pods?fieldSelector=spec.nodeName%3D{}", node);
+        let mut server = Server::new();
+        let _mock = server
+            .mock("GET", url.as_str())
+            .with_status(200)
+            .with_header("Content-Type", "application/json")
+            .with_body(
+                json!({
+                    "items": [
+                        {
+                            "metadata": {
+                                "namespace": "default",
+                                "uid": "hash1",
+                            },
+                            "nodeName": "node1",
+                            // missing nodeSpec
+                        },
+                    ]
+                })
+                .to_string(),
+            )
+            .create();
+
+        let auth_token = Token::with_file(path.to_str().unwrap().to_owned());
+        get_node_pod_infos(&server, auth_token, node).expect_err("should fail");
+    }
+
+    // Test `get_node_pods_infos` with JSON parsing and URL error
+    #[test]
+    fn test_get_node_pods_infos_with_url_and_json_error() {
+        let tempdir = tempdir().unwrap();
+        let root = tempdir.path();
+
+        let dir = root.join("run/secrets/kubernetes.io/serviceaccount/");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let path = dir.join("token_6");
+        std::fs::write(&path, TOKEN_CONTENT).unwrap();
+
+        let node = "pod1";
+        let mut server = Server::new();
+        let _mock = server
+            .mock("GET", "invalid")
+            .with_status(200)
+            .with_header("Content-Type", "application/json")
+            .with_body(
+                json!({
+                    "items": [
+                        {
+                            "invalid": {
+                                "invalid": "invalid"
+                            },
+                        },
+                    ]
+                })
+                .to_string(),
+            )
+            .create();
+
+        let auth_token = Token::with_file(path.to_str().unwrap().to_owned());
+        get_node_pod_infos(&server, auth_token, node).expect_err("should fail");
+    }
+
+    // Test `get_node_pods_infos` with JSON reading cursor error
+    #[test]
+    fn test_get_node_pods_infos_with_cursor_error() {
+        let tempdir = tempdir().unwrap();
+        let root = tempdir.path();
+
+        let dir = root.join("run/secrets/kubernetes.io/serviceaccount/");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let path = dir.join("token_7");
+        std::fs::write(&path, TOKEN_CONTENT).unwrap();
+
+        let node = "pod1";
+        let url = format!("/api/v1/pods?fieldSelector=spec.nodeName%3D{}", node);
+        let mut server = Server::new();
+        let _mock = server
+            .mock("GET", url.as_str())
+            .with_status(200)
+            .with_header("Content-Type", "application/json")
+            .with_body(
+                json!({
+                    "items": []
+                })
+                .to_string(),
+            )
+            .create();
+
+        let auth_token = Token::with_file(path.to_str().unwrap().to_owned());
+        let result = get_node_pod_infos(&server, auth_token, node).unwrap();
+        assert!(result.is_empty());
     }
 }
