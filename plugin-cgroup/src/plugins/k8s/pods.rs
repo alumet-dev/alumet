@@ -219,10 +219,10 @@ mod tests {
         let path = dir.join("token_4");
         std::fs::write(&path, TOKEN_CONTENT).unwrap();
 
-        let node = "pod1";
+        let node = "node1";
         let url = format!("/api/v1/pods?fieldSelector=spec.nodeName%3D{}", node);
         let mut server = Server::new();
-        let _mock = server
+        let mock = server
             .mock("GET", url.as_str())
             .with_status(200)
             .with_header("Content-Type", "application/json")
@@ -256,20 +256,158 @@ mod tests {
                 })
                 .to_string(),
             )
+            .expect(1)
             .create();
 
         let auth_token = Token::with_file(path.to_str().unwrap().to_owned());
-        let result = get_node_pod_infos(&server, auth_token, node).unwrap();
+        let result = get_node_pod_infos(&server, auth_token.clone(), node).unwrap();
 
         let pod_infos_5f32 = result.get("5f32d849-6210-4886-a48d-e0d90e1d0206").unwrap();
         let pod_infos_5fff = result.get("5fffd849-6210-4886-aaaa-e0d90e1d0206").unwrap();
-
         assert_eq!(pod_infos_5f32.name, "pod1");
         assert_eq!(pod_infos_5f32.namespace, "default");
         assert_eq!(pod_infos_5f32.node, "node1");
         assert_eq!(pod_infos_5fff.name, "pod2");
         assert_eq!(pod_infos_5fff.namespace, "default");
         assert_eq!(pod_infos_5fff.node, "node2");
+        mock.assert();
+    }
+
+    #[test]
+    fn test_registry_with_valid_data() {
+        let tempdir = tempdir().unwrap();
+        let root = tempdir.path();
+
+        let dir = root.join("run/secrets/kubernetes.io/serviceaccount/");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let path = dir.join("token_4");
+        std::fs::write(&path, TOKEN_CONTENT).unwrap();
+
+        let node = "node1";
+        let url = format!("/api/v1/pods?fieldSelector=spec.nodeName%3D{}", node);
+        let mut server = Server::new();
+        let mock = server
+            .mock("GET", url.as_str())
+            .with_status(200)
+            .with_header("Content-Type", "application/json")
+            .with_body(
+                json!({
+                    "items": [
+                        {
+                            "metadata": {
+                                "name": "pod1",
+                                "namespace": "default",
+                                "uid": "5f32d849-6210-4886-a48d-e0d90e1d0206",
+                                "annotations": {
+                                    "kubernetes.io/config.hash": "5f32d849-6210-4886-a48d-e0d90e1d0206"
+                                }
+                            },
+                            "spec": {
+                                "nodeName": "node1"
+                            }
+                        },
+                        {
+                            "metadata": {
+                                "name": "pod2",
+                                "namespace": "default",
+                                "uid": "5fffd849-6210-4886-aaaa-e0d90e1d0206"
+                            },
+                            "spec": {
+                                "nodeName": "node1"
+                            }
+                        }
+                    ]
+                })
+                .to_string(),
+            )
+            .expect(1)
+            .create();
+
+        let auth_token = Token::with_file(path.to_str().unwrap().to_owned());
+        let k8s_api_url = server.url();
+        let k8s_api_client = ApiClient::new(&k8s_api_url, auth_token).unwrap();
+        let mut registry = AutoNodePodRegistry::new(node.to_owned(), k8s_api_client);
+        assert!(registry.pods.is_empty());
+
+        // This is the only request we've got
+        registry.refresh().expect("refresh should work");
+        mock.assert();
+
+        println!("refreshed: {:?}", registry.pods);
+
+        // These should NOT generate more requests, because we've already got the pod infos
+        let pod_infos_5f32 = registry.get("5f32d849-6210-4886-a48d-e0d90e1d0206").unwrap().unwrap();
+        let pod_infos_5fff = registry.get("5fffd849-6210-4886-aaaa-e0d90e1d0206").unwrap().unwrap();
+        assert_eq!(pod_infos_5f32.name, "pod1");
+        assert_eq!(pod_infos_5f32.namespace, "default");
+        assert_eq!(pod_infos_5f32.node, "node1");
+        assert_eq!(pod_infos_5fff.name, "pod2");
+        assert_eq!(pod_infos_5fff.namespace, "default");
+        assert_eq!(pod_infos_5fff.node, "node1");
+        mock.assert();
+    }
+
+    #[test]
+    fn test_registry_with_missing_pod() {
+        let tempdir = tempdir().unwrap();
+        let root = tempdir.path();
+
+        let dir = root.join("run/secrets/kubernetes.io/serviceaccount/");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let path = dir.join("token_4");
+        std::fs::write(&path, TOKEN_CONTENT).unwrap();
+
+        let node = "node1";
+        let url = format!("/api/v1/pods?fieldSelector=spec.nodeName%3D{}", node);
+        let mut server = Server::new();
+        let mock = server
+            .mock("GET", url.as_str())
+            .with_status(200)
+            .with_header("Content-Type", "application/json")
+            .with_body(
+                json!({
+                    "items": [
+                        {
+                            "metadata": {
+                                "name": "pod1",
+                                "namespace": "default",
+                                "uid": "5f32d849-6210-4886-a48d-e0d90e1d0206",
+                                "annotations": {
+                                    "kubernetes.io/config.hash": "5f32d849-6210-4886-a48d-e0d90e1d0206"
+                                }
+                            },
+                            "spec": {
+                                "nodeName": "node1"
+                            }
+                        },
+                    ]
+                })
+                .to_string(),
+            )
+            .expect(2)
+            .create();
+
+        let auth_token = Token::with_file(path.to_str().unwrap().to_owned());
+        let k8s_api_url = server.url();
+        let k8s_api_client = ApiClient::new(&k8s_api_url, auth_token).unwrap();
+        let mut registry = AutoNodePodRegistry::new(node.to_owned(), k8s_api_client);
+        assert!(registry.pods.is_empty());
+
+        println!("refreshed: {:?}", registry.pods);
+
+        // These should generate TWO requests
+        let pod_infos_5f32 = registry
+            .get("5f32d849-6210-4886-a48d-e0d90e1d0206")
+            .unwrap()
+            .expect("pod 5f32 should exist"); // ok, one request
+        let pod_infos_5fff = registry.get("5fffd849-6210-4886-aaaa-e0d90e1d0206").unwrap(); // missing, another request (it checks the API again, in case the pod is new)
+        assert_eq!(pod_infos_5f32.name, "pod1");
+        assert_eq!(pod_infos_5f32.namespace, "default");
+        assert_eq!(pod_infos_5f32.node, "node1");
+        assert!(pod_infos_5fff.is_none());
+        mock.assert();
     }
 
     //// Test `get_node_pods_infos` with JSON send in fake server to a specific token,
