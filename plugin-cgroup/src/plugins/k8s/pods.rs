@@ -102,7 +102,7 @@ impl ApiClient {
         // send and parse response
         let response = req.send().context("failed to send http request")?;
         println!("response: {response:?}");
-        let pods: PodList = response.json().context(format!("failed to parse json response"))?;
+        let pods: PodList = response.json().context("failed to parse json response")?;
 
         // turn the response into the format we want
         let pods = pods.items.into_iter().map(PodInfos::from);
@@ -194,8 +194,16 @@ mod tests {
             Some(String::from("5f32d849-6210-4886-a48d-e0d90e1d0206"))
         );
 
+        let pod_parent_path = PathBuf::from("/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice");
+        assert_eq!(extract_pod_uid_from_cgroup(pod_parent_path.as_path()), None);
+
         let container_path = PathBuf::from("/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-pod5f32d849_6210_4886_a48d_e0d90e1d0206.slice/crio-85b951fd_6954_491d_bcf4_c7490e49e399.scope");
         assert_eq!(extract_pod_uid_from_cgroup(container_path.as_path()), None);
+
+        let pod_bad_uid_path = PathBuf::from(
+            "/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-podBAD!BAD.slice",
+        );
+        assert_eq!(extract_pod_uid_from_cgroup(pod_bad_uid_path.as_path()), None);
 
         let non_k8s_app_path =
             PathBuf::from(".../user.slice/user-1000.slice/user@1000.service/app.slice/app-org.gnome.Terminal.slice");
