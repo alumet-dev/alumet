@@ -8,14 +8,14 @@ mod tests {
         measurement::WrappedMeasurementValue,
         pipeline::naming::SourceName,
         plugin::{
+            rust::{deserialize_config, serialize_config, AlumetPlugin},
             PluginMetadata,
-            rust::{AlumetPlugin, deserialize_config, serialize_config},
         },
         resources::ResourceConsumer,
         test::RuntimeExpectations,
         units::{PrefixedUnit, Unit},
     };
-    use plugin_cgroup::plugins::{SlurmPlugin, slurm::Config};
+    use plugin_cgroup::plugins::{slurm::Config, SlurmPlugin};
 
     use alumet::test::StartupExpectations;
     use anyhow::Result;

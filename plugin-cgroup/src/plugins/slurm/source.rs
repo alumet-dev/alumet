@@ -8,7 +8,7 @@ use crate::{
         metrics::{AugmentedMetrics, Metrics},
         regex::RegexAttributesExtrator,
     },
-    plugins::slurm::attr::{JOB_REGEX_SLURM1, JOB_REGEX_SLURM2, find_jobid_in_attrs},
+    plugins::slurm::attr::{find_jobid_in_attrs, JOB_REGEX_SLURM1, JOB_REGEX_SLURM2},
 };
 
 #[derive(Clone)]
