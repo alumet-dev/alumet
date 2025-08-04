@@ -434,7 +434,7 @@ mod tests {
         let sysfs_path = PathBuf::from("/some/root/a.slice/me");
         let cgroup = Cgroup::from_fs_path(&h, sysfs_path.clone());
         assert_eq!(cgroup.fs_path(), sysfs_path);
-        assert_eq!(cgroup.cgroup_path, "/a.slice/me");
+        assert_eq!(cgroup.canonical_path(), "/a.slice/me");
         assert_eq!(cgroup.unique_name(), "cpu,cpuacct:/a.slice/me");
         assert_eq!(cgroup.hierarchy().version(), CgroupVersion::V1);
     }
@@ -454,7 +454,7 @@ mod tests {
         let sysfs_path = PathBuf::from("/some/root/a.slice/me");
         let cgroup = Cgroup::from_fs_path(&h, sysfs_path.clone());
         assert_eq!(cgroup.fs_path(), sysfs_path);
-        assert_eq!(cgroup.cgroup_path, "/a.slice/me");
+        assert_eq!(cgroup.canonical_path(), "/a.slice/me");
         assert_eq!(cgroup.unique_name(), "/a.slice/me");
         assert_eq!(cgroup.hierarchy().version(), CgroupVersion::V2);
     }
@@ -505,14 +505,10 @@ mod tests {
     fn test_cgroup_path_not_absolute() {
         let path = PathBuf::from("./not_absolute_path");
         let h = CgroupHierarchy::from_root_path(&path);
-        assert!(h.is_err());
-        let err = h.expect_err("Expected errror: HierarchyError::BadRoot(path)");
-        match err {
-            HierarchyError::BadRoot(path_buf) => {
-                assert_eq!(path, path_buf);
-            }
-            _ => assert!(false),
-        }
+        assert!(
+            matches!(&h, Err(HierarchyError::BadRoot(path_buf)) if &path == path_buf),
+            "unexpected result {h:?}"
+        );
     }
 
     #[test]
@@ -524,15 +520,10 @@ mod tests {
         let bad_permissions = fs::Permissions::from_mode(0o000);
         fs::set_permissions(&root, bad_permissions).expect("Failed to set permissions");
         let h = CgroupHierarchy::from_root_path(&file_path);
-        assert!(h.is_err());
-        let err = h.expect_err("Expected errror: HierarchyError::File(e, path)");
-        match err {
-            HierarchyError::File(e, path_buf) => {
-                assert_eq!(std::io::ErrorKind::PermissionDenied, e.kind());
-                assert_eq!(file_path, path_buf);
-            }
-            _ => assert!(false),
-        }
+        assert!(
+            matches!(&h, Err(HierarchyError::File(e, path_buf)) if (&file_path == path_buf) && (e.kind() == std::io::ErrorKind::PermissionDenied) ),
+            "unexpected result {h:?}"
+        );
         let correct_permissions = fs::Permissions::from_mode(0o755);
         fs::set_permissions(&root, correct_permissions).expect("Failed to set permissions");
     }
