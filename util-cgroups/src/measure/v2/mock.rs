@@ -329,196 +329,144 @@ burst_usec 123456789";
         let serializer = StatSerializer;
         // Test with true
         let true_serialized_res = serializer.serialize_bool(true);
-        assert!(true_serialized_res.is_ok());
-        let true_serialized = true_serialized_res.unwrap();
-        assert_eq!(true_serialized, "true");
+        assert_eq!(true_serialized_res.unwrap(), "true");
 
         let serializer = StatSerializer;
         // Test with false
         let false_serialized_res = serializer.serialize_bool(false);
-        assert!(false_serialized_res.is_ok());
-        let false_serialized = false_serialized_res.unwrap();
-        assert_eq!(false_serialized, "false");
+        assert_eq!(false_serialized_res.unwrap(), "false");
     }
 
     #[test]
     fn test_serialize_i8() {
         let serializer = StatSerializer;
         let serialized_res = serializer.serialize_i8(15 as i8);
-        assert!(serialized_res.is_ok());
-        let true_serialized = serialized_res.unwrap();
-        assert_eq!(true_serialized, "15");
+        assert_eq!(serialized_res.unwrap(), "15");
 
         let serializer = StatSerializer;
         let serialized_res = serializer.serialize_i8(-19 as i8);
-        assert!(serialized_res.is_ok());
-        let false_serialized = serialized_res.unwrap();
-        assert_eq!(false_serialized, "-19");
+        assert_eq!(serialized_res.unwrap(), "-19");
     }
 
     #[test]
     fn test_serialize_i16() {
         let serializer = StatSerializer;
         let serialized_res = serializer.serialize_i16(150 as i16);
-        assert!(serialized_res.is_ok());
-        let true_serialized = serialized_res.unwrap();
-        assert_eq!(true_serialized, "150");
+        assert_eq!(serialized_res.unwrap(), "150");
 
         let serializer = StatSerializer;
         let serialized_res = serializer.serialize_i16(-190 as i16);
-        assert!(serialized_res.is_ok());
-        let false_serialized = serialized_res.unwrap();
-        assert_eq!(false_serialized, "-190");
+        assert_eq!(serialized_res.unwrap(), "-190");
     }
 
     #[test]
     fn test_serialize_i32() {
         let serializer = StatSerializer;
         let serialized_res = serializer.serialize_i32(12 as i32);
-        assert!(serialized_res.is_ok());
-        let true_serialized = serialized_res.unwrap();
-        assert_eq!(true_serialized, "12");
+        assert_eq!(serialized_res.unwrap(), "12");
 
         let serializer = StatSerializer;
         let serialized_res = serializer.serialize_i32(-10 as i32);
-        assert!(serialized_res.is_ok());
-        let false_serialized = serialized_res.unwrap();
-        assert_eq!(false_serialized, "-10");
+        assert_eq!(serialized_res.unwrap(), "-10");
     }
 
     #[test]
     fn test_serialize_i64() {
         let serializer = StatSerializer;
         let serialized_res = serializer.serialize_i64(0 as i64);
-        assert!(serialized_res.is_ok());
-        let true_serialized = serialized_res.unwrap();
-        assert_eq!(true_serialized, "0");
+        assert_eq!(serialized_res.unwrap(), "0");
 
         let serializer = StatSerializer;
         let serialized_res = serializer.serialize_i64(-98 as i64);
-        assert!(serialized_res.is_ok());
-        let false_serialized = serialized_res.unwrap();
-        assert_eq!(false_serialized, "-98");
+        assert_eq!(serialized_res.unwrap(), "-98");
     }
 
     #[test]
     fn test_serialize_u8() {
         let serializer = StatSerializer;
         let serialized_res = serializer.serialize_u8(150 as u8);
-        assert!(serialized_res.is_ok());
-        let true_serialized = serialized_res.unwrap();
-        assert_eq!(true_serialized, "150");
+        assert_eq!(serialized_res.unwrap(), "150");
 
         let serializer = StatSerializer;
         let serialized_res = serializer.serialize_u8(0 as u8);
-        assert!(serialized_res.is_ok());
-        let false_serialized = serialized_res.unwrap();
-        assert_eq!(false_serialized, "0");
+        assert_eq!(serialized_res.unwrap(), "0");
     }
 
     #[test]
     fn test_serialize_u16() {
         let serializer = StatSerializer;
         let serialized_res = serializer.serialize_u16(1550 as u16);
-        assert!(serialized_res.is_ok());
-        let true_serialized = serialized_res.unwrap();
-        assert_eq!(true_serialized, "1550");
+        assert_eq!(serialized_res.unwrap(), "1550");
 
         let serializer = StatSerializer;
         let serialized_res = serializer.serialize_u16(0 as u16);
-        assert!(serialized_res.is_ok());
-        let false_serialized = serialized_res.unwrap();
-        assert_eq!(false_serialized, "0");
+        assert_eq!(serialized_res.unwrap(), "0");
     }
 
     #[test]
     fn test_serialize_u32() {
         let serializer = StatSerializer;
         let serialized_res = serializer.serialize_u32(191512 as u32);
-        assert!(serialized_res.is_ok());
-        let true_serialized = serialized_res.unwrap();
-        assert_eq!(true_serialized, "191512");
+        assert_eq!(serialized_res.unwrap(), "191512");
 
         let serializer = StatSerializer;
         let serialized_res = serializer.serialize_u32(0 as u32);
-        assert!(serialized_res.is_ok());
-        let false_serialized = serialized_res.unwrap();
-        assert_eq!(false_serialized, "0");
+        assert_eq!(serialized_res.unwrap(), "0");
     }
 
     #[test]
     fn test_serialize_u64() {
         let serializer = StatSerializer;
         let serialized_res = serializer.serialize_u64(8952 as u64);
-        assert!(serialized_res.is_ok());
-        let true_serialized = serialized_res.unwrap();
-        assert_eq!(true_serialized, "8952");
+        assert_eq!(serialized_res.unwrap(), "8952");
 
         let serializer = StatSerializer;
         let serialized_res = serializer.serialize_u64(0 as u64);
-        assert!(serialized_res.is_ok());
-        let false_serialized = serialized_res.unwrap();
-        assert_eq!(false_serialized, "0");
+        assert_eq!(serialized_res.unwrap(), "0");
     }
 
     #[test]
     fn test_serialize_f32() {
         let serializer = StatSerializer;
         let serialized_res = serializer.serialize_f32(3.14 as f32);
-        assert!(serialized_res.is_ok());
-        let true_serialized = serialized_res.unwrap();
-        assert_eq!(true_serialized, "3.14");
+        assert_eq!(serialized_res.unwrap(), "3.14");
 
         let serializer = StatSerializer;
         let serialized_res = serializer.serialize_f32(-273.15 as f32);
-        assert!(serialized_res.is_ok());
-        let false_serialized = serialized_res.unwrap();
-        assert_eq!(false_serialized, "-273.15");
+        assert_eq!(serialized_res.unwrap(), "-273.15");
     }
 
     #[test]
     fn test_serialize_f64() {
         let serializer = StatSerializer;
         let serialized_res = serializer.serialize_f64(3.14 as f64);
-        assert!(serialized_res.is_ok());
-        let true_serialized = serialized_res.unwrap();
-        assert_eq!(true_serialized, "3.14");
+        assert_eq!(serialized_res.unwrap(), "3.14");
 
         let serializer = StatSerializer;
         let serialized_res = serializer.serialize_f64(-273.15 as f64);
-        assert!(serialized_res.is_ok());
-        let false_serialized = serialized_res.unwrap();
-        assert_eq!(false_serialized, "-273.15");
+        assert_eq!(serialized_res.unwrap(), "-273.15");
     }
 
     #[test]
     fn test_serialize_char() {
         let serializer = StatSerializer;
         let serialized_res = serializer.serialize_char('c');
-        assert!(serialized_res.is_ok());
-        let true_serialized = serialized_res.unwrap();
-        assert_eq!(true_serialized, "c");
+        assert_eq!(serialized_res.unwrap(), "c");
 
         let serializer = StatSerializer;
         let serialized_res = serializer.serialize_char('@');
-        assert!(serialized_res.is_ok());
-        let false_serialized = serialized_res.unwrap();
-        assert_eq!(false_serialized, "@");
+        assert_eq!(serialized_res.unwrap(), "@");
     }
 
     #[test]
     fn test_serialize_str() {
         let serializer = StatSerializer;
         let serialized_res = serializer.serialize_str("this is str");
-        assert!(serialized_res.is_ok());
-        let true_serialized = serialized_res.unwrap();
-        assert_eq!(true_serialized, "this is str");
+        assert_eq!(serialized_res.unwrap(), "this is str");
 
         let serializer = StatSerializer;
         let serialized_res = serializer.serialize_str("an other str");
-        assert!(serialized_res.is_ok());
-        let false_serialized = serialized_res.unwrap();
-        assert_eq!(false_serialized, "an other str");
+        assert_eq!(serialized_res.unwrap(), "an other str");
     }
 
     #[test]

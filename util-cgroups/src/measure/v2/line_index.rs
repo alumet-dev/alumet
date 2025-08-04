@@ -33,9 +33,9 @@ mod tests {
     #[test]
     pub fn test_from() -> anyhow::Result<()> {
         let from_u8 = LineIndex::from(14 as u8);
-        let from_lineindex = LineIndex::from(LineIndex(67 as u8));
+        let from_lineindex = u8::from(LineIndex::default());
         assert_eq!(from_u8.0, 14);
-        assert_eq!(from_lineindex.0, 67);
+        assert_eq!(from_lineindex, u8::MAX);
 
         let default_lineindex = LineIndex::default();
         let value: u8 = default_lineindex.into();
