@@ -69,14 +69,3 @@ impl CgroupSetupCallback for JobSourceSetup {
         })
     }
 }
-
-#[cfg(test)]
-mod tests {
-    // use super::*;
-
-    // #[test]
-    // fn test_username_from_id() {
-    //     let username = username_from_id(1000).unwrap();
-    //     println!("{username}");
-    // }
-}
