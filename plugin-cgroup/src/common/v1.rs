@@ -65,7 +65,7 @@ impl Source for CgroupV1Probe {
         }
 
         // Memory statistics
-        if let Some(mem) = data.memory_stat {
+        if let Some(mem) = data.memory_usage {
             measurements.push(self.new_point(&self.metrics.memory_usage, t, &resource, mem));
         }
         Ok(())
