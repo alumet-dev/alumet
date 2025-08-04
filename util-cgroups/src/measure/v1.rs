@@ -8,13 +8,13 @@ use crate::{measure::parse::U64File, Cgroup, CgroupHierarchy};
 /// Collects cgroup v1 measurements.
 pub struct V1Collector {
     cpuacct_usage: Option<U64File>,
-    memory_stat: Option<U64File>,
+    memory_usage: Option<U64File>,
 }
 
 /// The result of a cgroupv1 measurement operation.
 pub struct V1Stats {
     pub cpuacct_usage: Option<u64>,
-    pub memory_stat: Option<u64>,
+    pub memory_usage: Option<u64>,
 }
 
 impl V1Collector {
@@ -26,7 +26,7 @@ impl V1Collector {
     /// the probe reads both `cpuacct.usage` and `memory.stat` (in their respective hierarchies).
     pub fn across_hierarchies(cgroup_path: &str, hierarchies: &[&CgroupHierarchy]) -> anyhow::Result<Self> {
         let mut cpuacct_usage = None;
-        let mut memory_stat = None;
+        let mut memory_usage = None;
         for h in hierarchies {
             let cgroup_in_sysfs = h.cgroup_fs_path(cgroup_path);
             if h.available_controllers().iter().any(|c| c == "cpuacct") {
@@ -35,14 +35,14 @@ impl V1Collector {
                 cpuacct_usage = Some(file)
             }
             if h.available_controllers().iter().any(|c| c == "memory") {
-                let data_path = cgroup_in_sysfs.join("memory.stat");
+                let data_path = cgroup_in_sysfs.join("memory.usage_in_bytes");
                 let file = U64File::open(&data_path).with_context(|| format!("failed to open {data_path:?}"))?;
-                memory_stat = Some(file)
+                memory_usage = Some(file)
             }
         }
         Ok(Self {
             cpuacct_usage,
-            memory_stat,
+            memory_usage,
         })
     }
 
@@ -64,15 +64,15 @@ impl V1Collector {
             .map(|f| unsafe { f.read(io_buf) })
             .transpose()?;
 
-        let memory_stat = self
-            .memory_stat
+        let memory_usage = self
+            .memory_usage
             .as_mut()
             .map(|f| unsafe { f.read(io_buf) })
             .transpose()?;
 
         Ok(V1Stats {
             cpuacct_usage,
-            memory_stat,
+            memory_usage,
         })
     }
 }
