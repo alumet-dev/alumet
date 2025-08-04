@@ -10,6 +10,7 @@ use crate::pipeline::{
         source::{
             self,
             builder::{AutonomousSourceBuilder, ManagedSource, ManagedSourceBuilder, SendSourceBuilder},
+            control::TaskState,
             trigger::TriggerSpec,
         },
     },
@@ -49,11 +50,25 @@ pub fn create_one() -> SingleCreationRequestBuilder {
 }
 
 impl SingleCreationRequestBuilder {
-    /// Requests the creation of a (managed) measurement source.
+    /// Requests the creation of a (managed) measurement source with Run initial state.
     ///
     /// The source will be triggered according to the `trigger` specification.
     pub fn add_source(mut self, name: &str, source: Box<dyn Source>, trigger: TriggerSpec) -> CreationRequest {
-        self.inner.add_source(name, source, trigger);
+        self.add_source_with_state(name, source, trigger, TaskState::Run)
+    }
+
+    /// Requests the creation of a (managed) measurement source.
+    ///
+    /// The source will be started according to the `state` parameter.
+    /// The source will be triggered according to the `trigger` specification.
+    pub fn add_source_with_state(
+        mut self,
+        name: &str,
+        source: Box<dyn Source>,
+        trigger: TriggerSpec,
+        state: TaskState,
+    ) -> CreationRequest {
+        self.inner.add_source_with_state(name, source, trigger, state);
         self.inner.build()
     }
 
@@ -97,9 +112,20 @@ impl MultiCreationRequestBuilder {
     }
 
     pub fn add_source(&mut self, name: &str, source: Box<dyn Source>, trigger: TriggerSpec) -> &mut Self {
+        self.add_source_with_state(name, source, trigger, TaskState::Run)
+    }
+
+    pub fn add_source_with_state(
+        &mut self,
+        name: &str,
+        source: Box<dyn Source>,
+        trigger: TriggerSpec,
+        state: TaskState,
+    ) -> &mut Self {
         // TODO what about the SourceKey?
-        self.add_source_builder(name, |_| {
+        self.add_source_builder(name, move |_| {
             Ok(ManagedSource {
+                initial_state: state,
                 trigger_spec: trigger,
                 source,
             })
