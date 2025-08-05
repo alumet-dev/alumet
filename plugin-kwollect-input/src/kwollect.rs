@@ -1,4 +1,9 @@
-//! This module provides functionality to serialize and deserialize measurement data for Kwollect.
+// Copyright 2025 Marie-Line DA COSTA BENTO.
+// Licensed under the EUPL-1.2 or later.
+//
+// This file is part of Alumet Kwollect-Input Plugin.
+//
+// This module provides functionality to serialize and deserialize measurement data for Kwollect.
 
 use alumet::measurement::{AttributeValue, WrappedMeasurementValue};
 use anyhow::Context;

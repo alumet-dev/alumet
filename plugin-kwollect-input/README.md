@@ -74,6 +74,12 @@ Here’s an excerpt from the logs showing that the API is called successfully:
 - Verify if the wattmeters work on the node you want to use by looking at the API URL with the time format `year-month-dayThour:minutes:seconds`:
 `https://api.grid5000.fr/stable/sites/{site}/metrics?nodes={node}&start_time={now}&end_time={at least +1s}`
 
+## License
+
+Copyright 2025 Marie-Line DA COSTA BENTO.
+
+Alumet project is licensed under the European Union Public Licence (EUPL). See the [LICENSE](https://github.com/alumet-dev/alumet/blob/main/LICENSE) file for more details.
+
 ## More Information
 
 For further details, please check the [Kwollect documentation](https://www.grid5000.fr/w/Monitoring_Using_Kwollect).

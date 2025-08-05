@@ -1,3 +1,10 @@
+// Copyright 2025 Marie-Line DA COSTA BENTO.
+// Licensed under the EUPL-1.2 or later.
+//
+// This file is part of Alumet Kwollect-Input Plugin.
+//
+// This file implements the source functionality for the Kwollect input plugin.
+
 use super::*;
 use crate::kwollect::parse_measurements;
 use crate::{Config, kwollect::MeasureKwollect};
