@@ -9,6 +9,7 @@ use anyhow::Context;
 
 use crate::{
     pipeline::{control::request, naming::matching::SourceNamePattern, MeasurementPipeline},
+    plugin::event::EndConsumerMeasurement,
     plugin::event::StartConsumerMeasurement,
     resources::ResourceConsumer,
 };
@@ -54,6 +55,10 @@ pub fn watch_process(
     if let Err(e) = trigger_measurement_now(&agent.pipeline) {
         log::error!("Could not trigger one last measurement after the child exit: {e}");
     }
+
+    // Publish an event to perform a measurement at the end of the experiment
+    log::info!("Publishing EndConsumerMeasurement event");
+    crate::plugin::event::end_consumer_measurement().publish(EndConsumerMeasurement);
 
     // Stop the pipeline
     agent.pipeline.control_handle().shutdown();
