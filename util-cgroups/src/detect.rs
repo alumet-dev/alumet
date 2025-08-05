@@ -54,6 +54,7 @@ pub struct CgroupDetector {
     hierarchy: CgroupHierarchy,
 }
 
+#[derive(Debug, Clone)]
 pub struct Config {
     /// Time between each refresh of the filesystem watcher.
     ///
