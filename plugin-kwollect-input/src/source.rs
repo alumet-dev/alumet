@@ -7,9 +7,9 @@ use alumet::{
     pipeline::elements::{error::PollError, source::Source},
     resources::{Resource, ResourceConsumer},
 };
-use log;
-use std::borrow::Cow::Borrowed;
-use std::borrow::Cow::Owned;
+use chrono::DateTime;
+use std::borrow::Cow::{Borrowed, Owned};
+use std::time::SystemTime;
 
 pub struct KwollectSource {
     pub config: Config,
@@ -24,19 +24,19 @@ impl KwollectSource {
 }
 
 impl Source for KwollectSource {
-    fn poll(&mut self, measurements: &mut MeasurementAccumulator<'_>, timestamp: Timestamp) -> Result<(), PollError> {
+    fn poll(&mut self, measurements: &mut MeasurementAccumulator<'_>, _timestamp: Timestamp) -> Result<(), PollError> {
         log::info!("Polling KwollectSource");
 
-        // To create a Measurement Point from the MeasureKwollect type data
+        // Creates a Measurement Point from the MeasureKwollect type data
         fn create_measurement_point(
             measure: &MeasureKwollect,
             metric: TypedMetricId<f64>,
-            timestamp: Timestamp,
-        ) -> Result<MeasurementPoint, PollError> {
+        ) -> anyhow::Result<MeasurementPoint> {
             let resource = Resource::Custom {
                 kind: Borrowed("device_id"),
                 id: Owned(measure.device_id.to_string()),
             };
+
             let consumer = if let Some(AttributeValue::String(device_orig)) = measure.labels.get("_device_orig") {
                 ResourceConsumer::Custom {
                     kind: Borrowed("device_origin"),
@@ -45,11 +45,17 @@ impl Source for KwollectSource {
             } else {
                 ResourceConsumer::LocalMachine
             };
+
             let metric_id = metric;
             let value = match measure.value {
                 WrappedMeasurementValue::F64(v) => v,
                 WrappedMeasurementValue::U64(v) => v as f64,
             };
+
+            let datetime = DateTime::parse_from_str(&measure.timestamp, "%Y-%m-%dT%H:%M:%S%:z")
+                .map_err(|e| anyhow::anyhow!("Failed to parse datetime: {}", e))?;
+            let system_time: SystemTime = datetime.into();
+            let timestamp = Timestamp::from(system_time);
 
             let measurement_point = MeasurementPoint::new(timestamp, metric_id, resource, consumer, value)
                 .with_attr("metric_id", AttributeValue::String(measure.metric_id.clone()));
@@ -58,36 +64,25 @@ impl Source for KwollectSource {
         }
 
         // Retrieve the URL stored in KwollectPluginInput
-        match fetch_data(&self.url, &self.config) {
-            Ok(data) => {
-                log::debug!("Fetched data: {:?}", data);
-                match parse_measurements(data) {
-                    Ok(parsed) => {
-                        log::debug!("Parsed measurements: {:?}", parsed);
-                        for measure in parsed {
-                            for &metric in &self.metric {
-                                match create_measurement_point(&measure, metric, timestamp) {
-                                    Ok(mp) => {
-                                        log::debug!("Created measurement point: {:?}", mp);
-                                        measurements.push(mp);
-                                    }
-                                    Err(e) => {
-                                        log::error!("Error creating measurement point: {}", e);
-                                        return Err(e);
-                                    }
-                                }
-                            }
-                        }
+        let data = fetch_data(&self.url, &self.config)
+            .map_err(|e| PollError::Fatal(anyhow::anyhow!("Failed to fetch data: {}", e)))?;
+        log::debug!("Full API response: {data:?}");
+
+        let parsed = parse_measurements(data)
+            .map_err(|e| PollError::Fatal(anyhow::anyhow!("Failed to parse measurements: {}", e)))?;
+
+        for measure in parsed {
+            for &metric in &self.metric {
+                match create_measurement_point(&measure, metric) {
+                    Ok(mp) => {
+                        log::debug!("Created measurement point: {mp:?}");
+                        measurements.push(mp);
                     }
                     Err(e) => {
-                        log::error!("Parsing error: {}", e);
-                        return Err(PollError::Fatal(anyhow::anyhow!("Failed to parse measurements")));
+                        log::error!("Failed to create measurement point: {e}");
+                        return Err(PollError::Fatal(anyhow::anyhow!(e)));
                     }
                 }
-            }
-            Err(e) => {
-                log::error!("Fetch error: {}", e);
-                return Err(PollError::Fatal(anyhow::anyhow!("Failed to fetch data")));
             }
         }
 

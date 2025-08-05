@@ -1,39 +1,36 @@
 # Kwollect-input Plugin
 
-The **Kwollect-input** plugin creates a **source** in Alumet that collects processor energy usage measurements via [Kwollect](https://gitlab.inria.fr/grid5000/kwollect) on the Grid’5000 platform.  
+The **Kwollect-input** plugin creates a **source** in Alumet that collects processor energy usage measurements via [Kwollect](https://gitlab.inria.fr/grid5000/kwollect) on the Grid’5000 platform.
 Currently, it mainly gathers power consumption data (in watts) on only one node at a time.
 
 ## Requirements
 
-- You must have an account on Grid’5000.  
+- You must have an account on Grid’5000.
 - You want to collect Kwollect data, specifically wattmeter measurements, on a node.
 
-The clusters & nodes that supports wattmeter are these ones:
+The clusters & nodes that support wattmeter are as follows:
+
 - **grenoble**: servan, troll, yeti
-- **lille**: chirop
+- **lille**: chiroptera
 - **lyon**: gemini, neowise, nova, orion, pyxis, sagittaire, sirius, taurus
 - **nancy**: gros⁺
 - **rennes**: paradoxe
-
-NB: think of verifying if the wattmeters works on the node you want to use before by looking at the API url with time format `year-month-dayThour:minutes:seconds` : 
-`https://api.grid5000.fr/stable/sites/{site}/metrics?nodes={node}&start_time={now}&end_time={at least +1s}`
-
 
 ## Example Metrics Collected
 
 Here is an example of the metrics collected by the plugin:
 
-| Metric                   | Timestamp                      | Value (W)    | Resource Type | Resource ID  | Consumer Type   | Consumer ID        | Metric ID              |
-| ------------------------ | ------------------------------ | ------------ | ------------- | ------------ | --------------- | ------------------ | ---------------------- |
-| wattmetre_power_watt_W   | 2025-07-22T08:28:12.657Z       | 129.69       | device_id     | taurus-7     | device_origin   | wattmetre1-port6   | wattmetre_power_watt   |
-| wattmetre_power_watt_W   | 2025-07-22T08:28:12.657Z       | 128.80       | device_id     | taurus-7     | device_origin   | wattmetre1-port6   | wattmetre_power_watt   |
-| ...                      | ...                            | ...          | ...           | ...          | ...             | ...                | ...                    |
+| Metric | Timestamp | Value (W) | Resource Type | Resource ID | Consumer Type | Consumer ID | Metric ID |
+|--------|-----------|-----------|---------------|-------------|---------------|-------------|-----------|
+| wattmetre_power_watt_W | 2025-07-22T08:28:12.657Z | 129.69 | device_id | taurus-7 | device_origin | wattmetre1-port6 | wattmetre_power_watt |
+| wattmetre_power_watt_W | 2025-07-22T08:28:12.657Z | 128.80 | device_id | taurus-7 | device_origin | wattmetre1-port6 | wattmetre_power_watt |
+| ... | ... | ... | ... | ... | ... | ... | ... |
 
 Each entry represents a power measurement in watts, with a precise timestamp, node name (e.g., "taurus-7"), and device identifier (e.g., "wattmetre1-port6").
 
-## Plugin Configuration
+## Configuration
 
-Example configuration for the Kwollect-input plugin in Alumet’s config file (`alumet-config.toml`):
+Here is a configuration example of the plugin. It's part of the Alumet configuration file (e.g., alumet-config.toml):
 
 ```toml
 [plugins.kwollect-input]
@@ -42,7 +39,7 @@ hostname = "taurus-7"             # Target node hostname
 metrics = "wattmetre_power_watt"  # Metric to collect, DO NOT CHANGE IT
 login = "YOUR_G5K_LOGIN"          # Your Grid'5000 username
 password = "YOUR_G5K_PASSWORD"    # Your Grid'5000 password
-````
+```
 
 ## Usage
 
@@ -60,17 +57,22 @@ alumet-agent --output-file "measurements-kwollect.csv" --plugins csv,kwollect-in
 
 ## Example Output
 
-Here’s an excerpt from the logs showing that measurements are being collected successfully:
+Here’s an excerpt from the logs showing that the API is called successfully:
 
 ```text
-[2025-07-22T11:05:25Z INFO  alumet_agent] Starting Alumet agent 'alumet-agent' v0.8.4-528f57b...
-[2025-07-22T11:05:25Z INFO  plugin_kwollect_input] Kwollect-input plugin is starting
 ...
-[2025-07-22T11:05:35Z INFO  plugin_kwollect_input::source] Parsed measurements: [
-  { "timestamp": "2025-07-22T13:05:25+02:00", "device_id": "taurus-7", "metric_id": "wattmetre_power_watt", "value": 90.18, "labels": {"_device_orig": ["wattmetre1-port6"]} },
-  ...
-]
+[2025-08-05T07:44:46Z INFO  alumet::agent::exec] Child process exited with status exit status: 0, Alumet will now stop.
+[2025-08-05T07:44:46Z INFO  alumet::agent::exec] Publishing EndConsumerMeasurement event
+[2025-08-05T07:44:46Z INFO  plugin_kwollect_input] API request should be triggered with URL: https://api.grid5000.fr/stable/sites/lyon/metrics?nodes=taurus-7&metrics=wattmetre_power_watt&start_time=1754379876&end_time=1754379886
+[2025-08-05T07:44:46Z INFO  plugin_kwollect_input::source] Polling KwollectSource
+[2025-08-05T07:44:48Z INFO  alumet::agent::builder] Stopping the plugins...
+...
 ```
+
+## Some advice
+- Verify the Kwollect API is active for your node and not under maintenance with the [status tool](https://www.grid5000.fr/status/).
+- Verify if the wattmeters work on the node you want to use by looking at the API URL with the time format `year-month-dayThour:minutes:seconds`:
+`https://api.grid5000.fr/stable/sites/{site}/metrics?nodes={node}&start_time={now}&end_time={at least +1s}`
 
 ## More Information
 
