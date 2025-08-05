@@ -34,6 +34,7 @@ plugin-kwollect-output = { path = "../plugin-kwollect-output" }
 
 # Linux-only dependencies
 [target.'cfg(target_os = "linux")'.dependencies]
+plugin-cgroup = { path = "../plugin-cgroup" }
 plugin-cgroupv1 = { path = "../plugin-cgroupv1" }
 plugin-cgroupv2 = { path = "../plugin-cgroupv2" }
 plugin-grace-hopper = { path = "../plugin-grace-hopper" }
