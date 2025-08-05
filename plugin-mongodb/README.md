@@ -28,4 +28,4 @@ password = "Nothomb"
 
 ## More information
 
-About attributes, they're all translated into MongoDB fields; if their name is a reserved one, it's formated as `name_field`.
+About attributes, they're all translated into MongoDB fields; if their name is a reserved one, it's formatted as `name_field`.
