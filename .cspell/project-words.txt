@@ -37,6 +37,9 @@ Raffin
 RAPL
 regen
 rustfmt
+slurm
+slurmstep
+slurmstepd
 statm
 subconfig
 sublicensable
