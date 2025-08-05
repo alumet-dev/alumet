@@ -96,6 +96,9 @@ impl AlumetPlugin for SlurmPlugin {
 pub struct Config {
     #[serde(with = "humantime_serde")]
     pub poll_interval: Duration,
+    #[serde(default)]
+    #[serde(with = "humantime_serde")]
+    pub cgroupv1_refresh_interval: Option<Duration>,
     pub jobs_only: bool,
 }
 
@@ -103,6 +106,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             poll_interval: Duration::from_secs(1),
+            cgroupv1_refresh_interval: None,
             jobs_only: true,
         }
     }

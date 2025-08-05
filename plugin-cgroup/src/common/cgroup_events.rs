@@ -34,7 +34,7 @@ pub trait CgroupSetupCallback: Clone + Send + 'static {
 pub struct NoCallback;
 
 impl CgroupRemovalCallback for NoCallback {
-    fn on_cgroups_removed(&mut self, cgroups: Vec<Cgroup>) -> anyhow::Result<()> {
+    fn on_cgroups_removed(&mut self, _cgroups: Vec<Cgroup>) -> anyhow::Result<()> {
         Ok(())
     }
 }
@@ -63,16 +63,23 @@ pub struct CgroupReactor {
 pub struct ReactorConfig {
     /// If None, every cgroupfs v1 immediately triggers the callback.
     ///
-    /// If Some, the detection events of cgroupfs v1 are coalesced together if they are close enough. Since multiple cgroupfs v1 are often mounted together, it is generally a good idea to use this parameter. The default value is 1 second.
+    /// If Some, the detection events of cgroupfs v1 are coalesced together if they are close enough. Since multiple cgroupfs v1 are often mounted together, it is generally a good idea to use this parameter. The **default value** is 1 second.
     ///
     /// When the first cgroupfs v1 is detected, a timer starts. It is stopped after the given delay. Every cgroupfs v1 detected before the timer stops is pushed to the same list as the first cgroupfs v1. When the timer stops, the callback is triggered with the list, only once for all the detected cgroupfs v1.
     pub v1_coalesce_delay: Option<Duration>,
+
+    /// Interval between two scans of the cgroup v1 hierarchies.
+    ///
+    /// The cgroup v1 filesystem does not support notifications (inotify), we must rely on manually inspecting the cgroups at regular intervals.
+    /// If `None` (the default), uses the default value of [`detect::Config`].
+    pub v1_refresh_interval: Option<Duration>,
 }
 
 impl Default for ReactorConfig {
     fn default() -> Self {
         Self {
             v1_coalesce_delay: Some(Duration::from_secs(1)),
+            v1_refresh_interval: None,
         }
     }
 }
@@ -130,6 +137,7 @@ struct CloneableState<S: CgroupSetupCallback, R: CgroupRemovalCallback> {
     metrics: Metrics,
     callbacks: ReactorCallbacks<S, R>,
     alumet_control: PluginControlHandle,
+    detector_config: detect::Config,
 }
 
 impl CgroupReactor {
@@ -144,7 +152,11 @@ impl CgroupReactor {
         alumet_control: PluginControlHandle,
     ) -> anyhow::Result<Self> {
         let detectors = AliveDetectors::new();
-        let callback = WaitCallback::new(metrics, callbacks, alumet_control, detectors.clone());
+        let mut detector_config = detect::Config::default();
+        if let Some(refresh_interval) = config.v1_refresh_interval {
+            detector_config.v1_refresh_interval = refresh_interval;
+        }
+        let callback = WaitCallback::new(metrics, callbacks, alumet_control, detectors.clone(), detector_config);
         let wait = CgroupMountWait::new(config.v1_coalesce_delay, callback)?;
         Ok(Self { wait, detectors })
     }
@@ -156,6 +168,7 @@ impl<S: CgroupSetupCallback, R: CgroupRemovalCallback> WaitCallback<S, R> {
         callbacks: ReactorCallbacks<S, R>,
         alumet_control: PluginControlHandle,
         detectors: AliveDetectors,
+        detector_config: detect::Config,
     ) -> Self {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_time()
@@ -167,6 +180,7 @@ impl<S: CgroupSetupCallback, R: CgroupRemovalCallback> WaitCallback<S, R> {
                 metrics,
                 callbacks,
                 alumet_control,
+                detector_config,
             },
             rt,
         }
@@ -176,7 +190,7 @@ impl<S: CgroupSetupCallback, R: CgroupRemovalCallback> WaitCallback<S, R> {
 impl<S: CgroupSetupCallback, R: CgroupRemovalCallback> mount_wait::Callback for WaitCallback<S, R> {
     fn on_cgroupfs_mounted(&mut self, hierarchies: Vec<CgroupHierarchy>) -> anyhow::Result<ControlFlow<()>> {
         for h in hierarchies {
-            let config = detect::Config::default();
+            let config = self.state.detector_config.clone();
             let callback = DetectionCallback {
                 rt: self.rt.handle().clone(),
                 state: self.state.clone(),

@@ -80,6 +80,7 @@ fn test_correct_run_with_no_jobs() {
     let config = Config {
         poll_interval: Duration::from_secs(1),
         jobs_only: true,
+        ..Default::default()
     };
     plugins.add_plugin(PluginInfo {
         metadata: PluginMetadata::from_static::<SlurmPlugin>(),
