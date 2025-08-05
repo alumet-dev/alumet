@@ -1,3 +1,10 @@
+// Copyright 2025 Marie-Line DA COSTA BENTO.
+// Licensed under the EUPL-1.2 or later.
+//
+// This file is part of Alumet Kwollect-Input Plugin.
+//
+// This file contains the main implementation of the Kwollect input plugin for Alumet.
+
 use alumet::{
     metrics::TypedMetricId,
     pipeline::{
@@ -67,12 +74,20 @@ impl AlumetPlugin for KwollectPluginInput {
         let mut config = self.config.lock().unwrap();
         let mut metric_ids = Vec::with_capacity(config.metrics.len());
         for metric_name in &config.metrics {
-            let kwollect_metric = alumet.create_metric::<f64>(
-                metric_name,
-                Unit::Watt,
-                format!("Power consumption metric: {metric_name}"),
-            )?;
-            metric_ids.push(kwollect_metric);
+            if metric_name == "wattmetre_power_watt" {
+                let kwollect_metric = alumet
+                    .create_metric::<f64>(
+                        metric_name,
+                        Unit::Watt,
+                        format!("Power consumption metric: {metric_name}"),
+                    )
+                    .expect("Failed to create metric");
+                metric_ids.push(kwollect_metric);
+            } else {
+                panic!(
+                    "This plugin is only designed for the 'wattmetre_power_watt' metric at the moment. Please use it."
+                );
+            }
         }
         config.metric_ids = metric_ids;
         Ok(())
