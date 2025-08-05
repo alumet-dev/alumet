@@ -77,6 +77,7 @@ dependencies = [
  "libc",
  "log",
  "plugin-aggregation",
+ "plugin-cgroup",
  "plugin-cgroupv1",
  "plugin-cgroupv2",
  "plugin-csv",
