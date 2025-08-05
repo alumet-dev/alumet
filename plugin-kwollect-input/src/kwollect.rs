@@ -1,4 +1,3 @@
-//! Kwollect plugin for input is inspired by its neighbor for output, especially this file because of Serialize implementation.
 //! This module provides functionality to serialize and deserialize measurement data for Kwollect.
 
 use alumet::measurement::{AttributeValue, WrappedMeasurementValue};
@@ -32,11 +31,14 @@ impl Serialize for MeasureKwollect {
         map.serialize_entry("timestamp", &self.timestamp)?;
         map.serialize_entry("metric_id", &self.metric_id)?;
         map.serialize_entry("device_id", &self.device_id)?;
+
         match self.value {
             WrappedMeasurementValue::F64(v) => map.serialize_entry("value", &v)?,
             WrappedMeasurementValue::U64(v) => map.serialize_entry("value", &v)?,
         };
+
         struct LabelsSerializer<'a>(&'a HashMap<String, AttributeValue>);
+
         impl Serialize for LabelsSerializer<'_> {
             fn serialize<T>(&self, serializer: T) -> Result<T::Ok, T::Error>
             where
@@ -55,6 +57,7 @@ impl Serialize for MeasureKwollect {
                 labels_map.end()
             }
         }
+
         map.serialize_entry("labels", &LabelsSerializer(&self.labels))?;
         map.end()
     }
@@ -87,7 +90,7 @@ impl<'de> Visitor<'de> for MeasureKwollectVisitor {
                         device_id = Some(access.next_value()?);
                     }
                 }
-                // labels is an HashMap<String, AttributeValue>  so we need to deserialize for each type of AttributeValue
+                // labels is a HashMap<String, AttributeValue>: deserialize for each type of AttributeValue
                 "labels" => {
                     if labels.is_none() {
                         let label_map: Map<String, Value> = access.next_value()?;
@@ -97,6 +100,7 @@ impl<'de> Visitor<'de> for MeasureKwollectVisitor {
                                 Value::Bool(b) => Ok(AttributeValue::Bool(b)),
                                 Value::Number(n) if n.is_f64() => Ok(AttributeValue::F64(n.as_f64().unwrap())),
                                 Value::Number(n) if n.is_u64() => Ok(AttributeValue::U64(n.as_u64().unwrap())),
+                                Value::Number(n) if n.is_i64() => Ok(AttributeValue::U64(n.as_i64().unwrap() as u64)),
                                 Value::String(s) => Ok(AttributeValue::String(s)),
                                 Value::Array(arr) => {
                                     // Convert array to a string representation
@@ -169,12 +173,13 @@ impl<'de> Deserialize<'de> for MeasureKwollect {
 
 /// Parses a JSON array of measurements and returns a vector of MeasureKwollect objects.
 pub fn parse_measurements(data: Value) -> anyhow::Result<Vec<MeasureKwollect>> {
-    log::debug!("Raw data to parse: {:?}", data);
+    log::debug!("Raw data to parse: {data:?}");
     let measurements = data.as_array().context("Expected an array of measurements")?;
+    log::debug!("Total measurements in JSON array: {}", measurements.len());
     measurements
         .iter()
         .map(|measurement| {
-            log::debug!("Parsing measurement: {:?}", measurement);
+            log::debug!("Parsing measurement: {measurement:?}");
             serde_json::from_value::<MeasureKwollect>(measurement.clone()).context("Failed to deserialize measurement")
         })
         .collect()
@@ -196,18 +201,21 @@ mod tests {
                 "_device_orig": "wattmetre1-port6"
             }
         });
+
         let parsed_measurement = serde_json::from_value::<MeasureKwollect>(power_consumption_measurement);
         assert!(
             parsed_measurement.is_ok(),
             "Failed to parse measurement: {:?}",
             parsed_measurement.err()
         );
+
         let parsed_measurement = parsed_measurement.unwrap();
         assert_eq!(parsed_measurement.device_id, "taurus-7");
         assert_eq!(parsed_measurement.metric_id, "wattmetre_power_watt");
         assert!(
             matches!(parsed_measurement.value, WrappedMeasurementValue::F64(v) if (v - 131.7).abs() < f64::EPSILON)
         );
+
         assert!(parsed_measurement.labels.contains_key("_device_orig"));
         assert_eq!(
             parsed_measurement.labels.get("_device_orig"),
@@ -226,12 +234,14 @@ mod tests {
                 "_device_orig": "wattmetre1-port6"
             }
         });
+
         let parsed_measurement = serde_json::from_value::<MeasureKwollect>(measurement_with_u64);
         assert!(
             parsed_measurement.is_ok(),
             "Failed to parse measurement: {:?}",
             parsed_measurement.err()
         );
+
         let parsed_measurement = parsed_measurement.unwrap();
         assert_eq!(parsed_measurement.device_id, "taurus-7");
         assert_eq!(parsed_measurement.metric_id, "wattmetre_power_watt");
@@ -249,6 +259,7 @@ mod tests {
                 "_device_orig": "wattmetre1-port6"
             }
         });
+
         let parsed_measurement = serde_json::from_value::<MeasureKwollect>(measurement_with_string_timestamp);
         assert!(
             parsed_measurement.is_ok(),
@@ -267,12 +278,14 @@ mod tests {
                 "_device_orig": ["wattmetre1-port6", "wattmetre2-port7"]
             }
         });
+
         let parsed_measurement = serde_json::from_value::<MeasureKwollect>(measurement_with_array_labels);
         assert!(
             parsed_measurement.is_ok(),
             "Failed to parse measurement: {:?}",
             parsed_measurement.err()
         );
+
         let parsed_measurement = parsed_measurement.unwrap();
         assert_eq!(parsed_measurement.device_id, "taurus-7");
         assert_eq!(parsed_measurement.metric_id, "wattmetre_power_watt");
@@ -292,12 +305,14 @@ mod tests {
                 "_device_orig": ["wattmetre1-port6"]
             }
         });
+
         let parsed_measurement = serde_json::from_value::<MeasureKwollect>(json_data);
         assert!(
             parsed_measurement.is_ok(),
             "Failed to parse measurement: {:?}",
             parsed_measurement.err()
         );
+
         let parsed_measurement = parsed_measurement.unwrap();
         assert_eq!(parsed_measurement.device_id, "taurus-7");
         assert_eq!(parsed_measurement.metric_id, "wattmetre_power_watt");
