@@ -164,7 +164,7 @@ impl Output for MongoDbOutput {
 #[serde(deny_unknown_fields)]
 struct Config {
     host: String,
-    port: String,
+    port: u16,
     database: String,
     collection: String,
     username: Option<String>,
@@ -175,7 +175,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             host: String::from("localhost"),
-            port: String::from("27017"),
+            port: 27017 as u16,
             database: String::from("FILL ME"),
             collection: String::from("FILL ME"),
             username: Some(String::from("FILL ME")),

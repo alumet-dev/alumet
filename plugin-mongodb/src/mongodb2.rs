@@ -41,7 +41,7 @@ mod tests {
     fn build_mongo_uri_test() {
         let config = Config {
             host: String::from("localhost"),
-            port: String::from("27017"),
+            port: 27017 as u16,
             database: String::from("test1"),
             collection: String::from("test2"),
             username: None,
@@ -51,7 +51,7 @@ mod tests {
 
         let config = Config {
             host: String::from("localhost"),
-            port: String::from("27017"),
+            port: 27017 as u16,
             database: String::from("test1"),
             collection: String::from("test2"),
             username: Some(String::from("user")),
