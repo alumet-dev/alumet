@@ -2628,7 +2628,7 @@ dependencies = [
 
 [[package]]
 name = "plugin-nvidia-jetson"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "alumet",
  "anyhow",
@@ -2636,9 +2636,11 @@ dependencies = [
  "log",
  "pretty_assertions",
  "regex",
+ "rustc-hash",
  "serde",
  "tempfile",
  "thiserror 2.0.12",
+ "walkdir",
 ]
 
 [[package]]

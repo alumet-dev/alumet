@@ -21,7 +21,8 @@ pub struct JetsonInaSource {
 
 /// A sensor that has been "opened" for reading.
 pub struct OpenedInaSensor {
-    i2c_id: String,
+    i2c_address: u32,
+    device_number: u32,
     channels: Vec<OpenedInaChannel>,
 }
 
@@ -85,7 +86,8 @@ impl JetsonInaSource {
                 sensor_opened_channels.push(opened_chan);
             }
             opened_sensors.push(OpenedInaSensor {
-                i2c_id: sensor.i2c_id,
+                i2c_address: sensor.metadata.i2c_address,
+                device_number: sensor.metadata.number,
                 channels: sensor_opened_channels,
             })
         }
@@ -101,6 +103,7 @@ impl alumet::pipeline::Source for JetsonInaSource {
             for chan in &mut sensor.channels {
                 for m in &mut chan.metrics {
                     // read the file from the beginning
+                    reading_buf.clear();
                     m.file.rewind()?;
                     m.file.read_to_end(&mut reading_buf)?;
 
@@ -111,18 +114,18 @@ impl alumet::pipeline::Source for JetsonInaSource {
                         .parse()
                         .with_context(|| format!("failed to parse {:?}: '{content}", m.file))?;
 
-                    // store the value and clear the buffer
+                    // produce a measurement point
                     let consumer = ResourceConsumer::LocalMachine;
                     measurements.push(
                         MeasurementPoint::new(timestamp, m.metric_id, m.resource_id.clone(), consumer, value)
-                            .with_attr("jetson_ina_sensor", AttributeValue::String(sensor.i2c_id.clone()))
-                            .with_attr("jetson_ina_channel_label", AttributeValue::String(chan.label.clone()))
+                            .with_attr("ina_device_number", AttributeValue::U64(sensor.device_number.into()))
+                            .with_attr("ina_i2c_address", AttributeValue::U64(sensor.i2c_address.into()))
+                            .with_attr("ina_channel_label", AttributeValue::String(chan.label.clone()))
                             .with_attr(
-                                "jetson_ina_channel_description",
+                                "ina_channel_description",
                                 AttributeValue::String(chan.description.clone()),
                             ),
                     );
-                    reading_buf.clear();
                 }
             }
         }

@@ -1,7 +1,7 @@
 mod ina;
 mod source;
 
-use anyhow::anyhow;
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -37,24 +37,33 @@ impl AlumetPlugin for JetsonPlugin {
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
-        let mut sensors = ina::detect_ina_sensors()?;
-        if sensors.is_empty() {
-            return Err(anyhow!("No INA sensor found. If you are not running on a Jetson device, disable the `jetson` feature of the plugin."));
-        }
+        let (mut sensors, errs) =
+            ina::detect_ina_sensors().context("no INA-3221 sensor found, are you running on a Jetson device?")?;
         ina::sort_sensors_recursively(&mut sensors);
 
+        // print errors to help the admin
+        log::warn!(
+            "Some errors happened during the detection of INA-3221 sensors. Nevertheless, the plugin will continue."
+        );
+        for err in errs {
+            log::warn!("  - {err}");
+        }
+
+        // print valid sensors
         for sensor in &sensors {
-            log::info!("Found INA sensor {} at {}", sensor.i2c_id, sensor.path.display());
+            log::info!("Found INA-3221 sensor {}", sensor.metadata);
             for chan in &sensor.channels {
-                let description = chan.description.as_deref().unwrap_or("?");
+                let description = chan.label.as_deref().unwrap_or("?");
                 log::debug!(
-                    "\t- channel {} \"{}\": {}",
+                    "  - channel {} \"{}\": {}",
                     chan.id,
                     chan.label.as_deref().unwrap_or("?"),
                     description
                 );
             }
         }
+
+        // prepare the measurement source
         let source = source::JetsonInaSource::open_sensors(sensors, alumet)?;
         let trigger = TriggerSpec::builder(self.config.poll_interval)
             .flush_interval(self.config.flush_interval)
