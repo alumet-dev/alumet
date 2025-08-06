@@ -29,8 +29,10 @@ Mispredicted
 miri
 monitorable
 mpoint
+neowise
 NVML
 pagetables
+paradoxe
 PERFMON
 POWERCAP
 psys
@@ -51,8 +53,11 @@ subtraits
 SYSFS
 thiserror
 timerfd
+Thour
 Trystram
 UCUM
 uncore
 VERGEN
+wattmetre
+wattmeters
 zcat
