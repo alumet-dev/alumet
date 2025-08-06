@@ -2,8 +2,8 @@ use alumet::{
     metrics::TypedMetricId,
     pipeline::elements::source::trigger,
     plugin::{
+        rust::{deserialize_config, serialize_config, AlumetPlugin},
         AlumetPostStart, ConfigTable,
-        rust::{AlumetPlugin, deserialize_config, serialize_config},
     },
     units::Unit,
 };
