@@ -5,7 +5,7 @@ use alumet::{
     pipeline::elements::source::{PollError, Source},
     resources::{Resource, ResourceConsumer},
 };
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use log;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;

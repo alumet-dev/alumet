@@ -20,6 +20,7 @@ members = [
     "plugins/process-to-cgroup-bridge",
     "plugins/procfs",
     "plugins/prometheus-exporter",
+    "plugins/quarch", 
     "plugins/rapl",
     "plugins/relay",
     "plugins/socket-control",
