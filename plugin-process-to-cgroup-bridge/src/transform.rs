@@ -95,18 +95,26 @@ impl ProcessToCgroupBridgeTransform {
 
     fn find_cgroup_path_from_process_id(&self, pid: u32) -> anyhow::Result<String> {
         let procfs_cgroup_base_path = self.get_proc_path();
-        println!("PROC PATH: {procfs_cgroup_base_path:?}");
 
         let procfs_cgroup_filepath = procfs_cgroup_base_path.join(pid.to_string()).join("cgroup");
 
         let contents = fs::read_to_string(&procfs_cgroup_filepath)
             .with_context(|| format!("failed to read {:?}", procfs_cgroup_filepath))?;
 
-        // a typical procfs cgroup file will contain only one line
+        // a typical procfs cgroupv2 file will contain only one line
         // eg: 0::/system.slice/docker-7c7fc86f5f2a609c41c6edd65bd1b64135124a687fa6516f6b177b040d6e3b68.scope
+        // a procfs cgroupv2 file will contains multiple lines
+        // eg:
+        //     2:memory:/daemons
+        //     5:cpuacct,cpu:/daemons
+        // in this case we take the first one arbitrary and log a warning
+        // todo: implement a matrix between metric names and cgroup v1 controllers to be able to select the right cgroup line
         for line in contents.lines() {
             let parts: Vec<&str> = line.split(':').collect();
             if parts.len() >= 3 {
+                if parts[1] != "" {
+                    log::warn!("detected that process {pid} is managed by cgroup v1, selecting the cgroup arbitrarily");
+                }
                 let cgroup_path = parts[2];
                 if !cgroup_path.is_empty() {
                     return Ok(cgroup_path.to_string());
