@@ -1,8 +1,3 @@
-// Copyright 2025 Marie-Line DA COSTA BENTO.
-// Licensed under the EUPL-1.2 or later.
-//
-// This file is part of Alumet Kwollect-Input Plugin.
-//
 // This file contains the main implementation of the Kwollect input plugin for Alumet.
 
 use alumet::{

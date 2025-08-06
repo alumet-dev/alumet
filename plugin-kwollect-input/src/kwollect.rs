@@ -1,16 +1,11 @@
-// Copyright 2025 Marie-Line DA COSTA BENTO.
-// Licensed under the EUPL-1.2 or later.
-//
-// This file is part of Alumet Kwollect-Input Plugin.
-//
 // This module provides functionality to serialize and deserialize measurement data for Kwollect.
 
 use alumet::measurement::{AttributeValue, WrappedMeasurementValue};
 use anyhow::Context;
 use serde::{
-    Deserialize, Deserializer, Serialize,
     de::{self, MapAccess, Visitor},
     ser::SerializeMap,
+    Deserialize, Deserializer, Serialize,
 };
 use serde_json::{Map, Value};
 use std::collections::HashMap;
