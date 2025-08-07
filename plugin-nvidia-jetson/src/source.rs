@@ -54,10 +54,7 @@ impl JetsonInaSource {
         for sensor in sensors {
             let mut sensor_opened_channels = Vec::with_capacity(sensor.channels.len());
             for channel in sensor.channels {
-                let channel_label = channel
-                    .label
-                    .clone()
-                    .map_or_else(|| channel.id.to_string(), |v| v.replace(' ', "_").to_ascii_uppercase());
+                let channel_label = channel.label.unwrap_or_else(|| format!("channel_{}", channel.id));
                 let metrics: anyhow::Result<Vec<OpenedInaMetric>> = channel
                     .metrics
                     .into_iter()
@@ -69,7 +66,7 @@ impl JetsonInaSource {
                         // Create a metric in Alumet. Duplicates are ok (Alumet will only create each metric once).
                         let metric_id = alumet
                             .create_metric(&m.name, m.unit, format!("{} (see attributes for channel info)", m.name))
-                            .with_context(|| format!("could not create metric for channel {channel_label}"))?;
+                            .with_context(|| format!("could not create metric for channel '{channel_label}'"))?;
 
                         Ok(OpenedInaMetric {
                             metric_id,

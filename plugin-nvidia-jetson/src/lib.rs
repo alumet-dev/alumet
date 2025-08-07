@@ -57,24 +57,29 @@ impl AlumetPlugin for JetsonPlugin {
         ina::sort_sensors_recursively(&mut sensors);
 
         // print errors to help the admin
-        log::warn!(
-            "Some errors happened during the detection of INA-3221 sensors. Nevertheless, the plugin will continue."
-        );
-        for err in errs {
-            log::warn!("  - {err}");
+        if !errs.is_empty() {
+            let mut msg = String::from("Some errors happened during the detection of INA-3221 sensors:");
+            for err in errs {
+                msg.push_str(&format!("\n- {err:#}"));
+            }
+            log::warn!("{msg}");
+        }
+
+        // ensure that there is at least one sensor with at least one valid channel
+        let n_channels: usize = sensors.iter().map(|s| s.channels.len()).sum();
+        if n_channels == 0 {
+            return Err(anyhow::Error::msg(
+                "no INA-3221 channel could be read, are the permissions set properly?",
+            ));
         }
 
         // print valid sensors
         for sensor in &sensors {
             log::info!("Found INA-3221 sensor {}", sensor.metadata);
             for chan in &sensor.channels {
-                let description = chan.label.as_deref().unwrap_or("?");
-                log::debug!(
-                    "  - channel {} \"{}\": {}",
-                    chan.id,
-                    chan.label.as_deref().unwrap_or("?"),
-                    description
-                );
+                let id = chan.id;
+                let label = chan.label.as_deref().unwrap_or("?");
+                log::debug!("  - channel {id}: {label}");
             }
         }
 

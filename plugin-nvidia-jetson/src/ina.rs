@@ -4,7 +4,6 @@ use std::{
 };
 
 use alumet::units::PrefixedUnit;
-use anyhow::Context;
 use rustc_hash::FxHashMap;
 
 use modern::ModernInaExplorer;
@@ -84,7 +83,7 @@ impl std::fmt::Display for InaDeviceMetadata {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "device {} (i2c {}) at {}",
+            "device {} (i2c {:#02x}) at {}",
             self.number,
             self.i2c_address,
             self.path.display()
@@ -138,13 +137,7 @@ pub fn explore_ina_devices(explorer: impl InaExplorer) -> anyhow::Result<(Vec<In
     let mut errors = Vec::new();
 
     for device in explorer.devices()? {
-        // resolve symlinks now
-        let canonical_path = device
-            .path
-            .canonicalize()
-            .with_context(|| format!("failed to canonicalize {:?}", device.path))?;
-
-        match std::fs::read_dir(&canonical_path) {
+        match std::fs::read_dir(&device.path) {
             Ok(ls) => {
                 let channels = detect_device_channels(&explorer, ls, &mut errors);
                 let sensor = InaSensor {
@@ -153,10 +146,12 @@ pub fn explore_ina_devices(explorer: impl InaExplorer) -> anyhow::Result<(Vec<In
                 };
                 sensors.push(sensor);
             }
-            Err(e) => errors
-                .push(anyhow::Error::from(e).context(format!("could not list the content of {:?}", &canonical_path))),
+            Err(e) => {
+                errors.push(anyhow::Error::from(e).context(format!("could not list the content of {:?}", &device.path)))
+            }
         }
     }
+
     Ok((sensors, errors))
 }
 
@@ -234,7 +229,7 @@ mod tests {
         std::fs::create_dir_all(&hwmon1).unwrap();
 
         // Create the files that contains the label and metrics
-        std::fs::write(hwmon0.join("in0_label"), "Sensor 0, channel 0").unwrap();
+        std::fs::write(hwmon0.join("in0_label"), "Sensor 0, channel 0\n").unwrap(); // the newline will be trimmed
         std::fs::write(hwmon0.join("curr0_input"), "0").unwrap();
         std::fs::write(hwmon0.join("in0_input"), "1").unwrap();
         std::fs::write(hwmon0.join("curr0_crit"), "2").unwrap();
@@ -395,12 +390,12 @@ mod tests {
             label: Some(String::from("Sensor 0, channel 0")),
             metrics: vec![
                 InaRailMetric {
-                    path: hwmon0.join("curr0_input"),
+                    path: hwmon0_link.join("curr0_input"),
                     unit: PrefixedUnit::milli(Unit::Ampere),
                     name: String::from(METRIC_CURRENT),
                 },
                 InaRailMetric {
-                    path: hwmon0.join("in0_input"),
+                    path: hwmon0_link.join("in0_input"),
                     unit: PrefixedUnit::milli(Unit::Volt),
                     name: String::from(METRIC_VOLTAGE),
                 },
@@ -417,12 +412,12 @@ mod tests {
             label: Some(String::from("Sensor 0, channel 1")),
             metrics: vec![
                 InaRailMetric {
-                    path: hwmon0.join("curr1_input"),
+                    path: hwmon0_link.join("curr1_input"),
                     unit: PrefixedUnit::milli(Unit::Ampere),
                     name: String::from(METRIC_CURRENT),
                 },
                 InaRailMetric {
-                    path: hwmon0.join("in1_input"),
+                    path: hwmon0_link.join("in1_input"),
                     unit: PrefixedUnit::milli(Unit::Volt),
                     name: String::from(METRIC_VOLTAGE),
                 },
@@ -439,12 +434,12 @@ mod tests {
             label: Some(String::from("Sensor 1, channel 0")),
             metrics: vec![
                 InaRailMetric {
-                    path: hwmon1.join("curr0_input"),
+                    path: hwmon1_link.join("curr0_input"),
                     unit: PrefixedUnit::milli(Unit::Ampere),
                     name: String::from(METRIC_CURRENT),
                 },
                 InaRailMetric {
-                    path: hwmon1.join("in0_input"),
+                    path: hwmon1_link.join("in0_input"),
                     unit: PrefixedUnit::milli(Unit::Volt),
                     name: String::from(METRIC_VOLTAGE),
                 },
@@ -469,12 +464,12 @@ mod tests {
             label: None,
             metrics: vec![
                 InaRailMetric {
-                    path: hwmon1.join("curr5_input"),
+                    path: hwmon1_link.join("curr5_input"),
                     unit: PrefixedUnit::milli(Unit::Ampere),
                     name: String::from(METRIC_CURRENT),
                 },
                 InaRailMetric {
-                    path: hwmon1.join("in5_input"),
+                    path: hwmon1_link.join("in5_input"),
                     unit: PrefixedUnit::milli(Unit::Volt),
                     name: String::from(METRIC_VOLTAGE),
                 },

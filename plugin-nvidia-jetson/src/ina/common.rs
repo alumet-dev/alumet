@@ -35,7 +35,7 @@ impl ChannelEntryAnalyzer {
             // this file contains the label of the I2C channel
             let channel_id_match = c.name("N").unwrap();
             let channel_id: u32 = channel_id_match.as_str().parse()?;
-            let label = std::fs::read_to_string(channel_entry_path)?;
+            let label = std::fs::read_to_string(channel_entry_path)?.trim_ascii().to_owned();
             return Ok(EntryAnalysis::Label { channel_id, label });
         }
 
