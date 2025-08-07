@@ -61,7 +61,7 @@ dependencies = [
  "tokio-stream",
  "tokio-timerfd",
  "tokio-util",
- "toml",
+ "toml 0.8.22",
 ]
 
 [[package]]
@@ -102,7 +102,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.12",
  "tokio",
- "toml",
+ "toml 0.8.22",
  "vergen",
  "vergen-gitcl",
 ]
@@ -117,7 +117,7 @@ dependencies = [
  "libc",
  "libloading",
  "log",
- "toml",
+ "toml 0.8.22",
 ]
 
 [[package]]
@@ -436,7 +436,7 @@ dependencies = [
  "serde_json",
  "syn 2.0.100",
  "tempfile",
- "toml",
+ "toml 0.8.22",
 ]
 
 [[package]]
@@ -2544,7 +2544,7 @@ dependencies = [
  "serde",
  "serde_json",
  "time",
- "toml",
+ "toml 0.8.22",
 ]
 
 [[package]]
@@ -2579,7 +2579,7 @@ dependencies = [
  "log",
  "serde",
  "tempfile",
- "toml",
+ "toml 0.8.22",
 ]
 
 [[package]]
@@ -2593,7 +2593,7 @@ dependencies = [
  "reqwest",
  "serde",
  "tokio",
- "toml",
+ "toml 0.8.22",
 ]
 
 [[package]]
@@ -2611,7 +2611,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "toml",
+ "toml 0.8.22",
 ]
 
 [[package]]
@@ -2628,7 +2628,7 @@ dependencies = [
 
 [[package]]
 name = "plugin-nvidia-jetson"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "alumet",
  "anyhow",
@@ -2636,9 +2636,12 @@ dependencies = [
  "log",
  "pretty_assertions",
  "regex",
+ "rustc-hash",
  "serde",
  "tempfile",
  "thiserror 2.0.12",
+ "toml 0.9.5",
+ "walkdir",
 ]
 
 [[package]]
@@ -2697,7 +2700,7 @@ dependencies = [
  "rlimit",
  "serde",
  "tokio",
- "toml",
+ "toml 0.8.22",
 ]
 
 [[package]]
@@ -2730,7 +2733,7 @@ dependencies = [
  "regex",
  "serde",
  "tempfile",
- "toml",
+ "toml 0.8.22",
 ]
 
 [[package]]
@@ -3496,6 +3499,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_spanned"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "40734c41988f7306bb04f0ecf60ec0f3f1caa34290e4e8ea471dcd3346483b83"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "serde_urlencoded"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3757,7 +3769,7 @@ dependencies = [
  "log",
  "pretty_assertions",
  "regex",
- "toml",
+ "toml 0.8.22",
 ]
 
 [[package]]
@@ -3982,9 +3994,24 @@ checksum = "05ae329d1f08c4d17a59bed7ff5b5a769d062e64a62d34a3261b219e62cd5aae"
 dependencies = [
  "indexmap 2.8.0",
  "serde",
- "serde_spanned",
- "toml_datetime",
+ "serde_spanned 0.6.8",
+ "toml_datetime 0.6.9",
  "toml_edit",
+]
+
+[[package]]
+name = "toml"
+version = "0.9.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75129e1dc5000bfbaa9fee9d1b21f974f9fbad9daec557a521ee6e080825f6e8"
+dependencies = [
+ "indexmap 2.8.0",
+ "serde",
+ "serde_spanned 1.0.0",
+ "toml_datetime 0.7.0",
+ "toml_parser",
+ "toml_writer",
+ "winnow",
 ]
 
 [[package]]
@@ -3997,6 +4024,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "toml_datetime"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bade1c3e902f58d73d3f294cd7f20391c1cb2fbcb643b73566bc773971df91e3"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "toml_edit"
 version = "0.22.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4004,9 +4040,18 @@ checksum = "310068873db2c5b3e7659d2cc35d21855dbafa50d1ce336397c666e3cb08137e"
 dependencies = [
  "indexmap 2.8.0",
  "serde",
- "serde_spanned",
- "toml_datetime",
+ "serde_spanned 0.6.8",
+ "toml_datetime 0.6.9",
  "toml_write",
+ "winnow",
+]
+
+[[package]]
+name = "toml_parser"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b551886f449aa90d4fe2bdaa9f4a2577ad2dde302c61ecf262d80b116db95c10"
+dependencies = [
  "winnow",
 ]
 
@@ -4015,6 +4060,12 @@ name = "toml_write"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfb942dfe1d8e29a7ee7fcbde5bd2b9a25fb89aa70caea2eba3bee836ff41076"
+
+[[package]]
+name = "toml_writer"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fcc842091f2def52017664b53082ecbbeb5c7731092bad69d2c63050401dfd64"
 
 [[package]]
 name = "tonic"

@@ -21,14 +21,15 @@ pub struct JetsonInaSource {
 
 /// A sensor that has been "opened" for reading.
 pub struct OpenedInaSensor {
-    i2c_id: String,
+    i2c_address: u32,
+    device_number: u32,
     channels: Vec<OpenedInaChannel>,
 }
 
 /// A channel that has been "opened" for reading.
 pub struct OpenedInaChannel {
+    id: u32,
     label: String,
-    description: String,
     metrics: Vec<OpenedInaMetric>,
 }
 
@@ -53,23 +54,20 @@ impl JetsonInaSource {
         for sensor in sensors {
             let mut sensor_opened_channels = Vec::with_capacity(sensor.channels.len());
             for channel in sensor.channels {
-                let channel_string_id = channel.label.clone().map_or_else(
-                    || format!("channel_{}", channel.id),
-                    |v| v.replace(' ', "_").to_ascii_lowercase(),
-                );
+                let channel_label = channel.label.unwrap_or_else(|| format!("channel_{}", channel.id));
                 let metrics: anyhow::Result<Vec<OpenedInaMetric>> = channel
                     .metrics
                     .into_iter()
                     .map(|m| {
-                        let metric_description = match &channel.description {
-                            Some(desc) => format!("channel {} ({}); {}", channel.id, desc, m.name),
-                            None => format!("channel {}; {}", channel.id, m.name),
-                        };
-                        let metric_id = alumet
-                            .create_metric(format!("{}::{}", channel_string_id, m.name), m.unit, metric_description)
-                            .with_context(|| format!("could not create metric for channel {channel_string_id}"))?;
+                        // Open the file for the measurement operation.
                         let file = File::open(&m.path)
                             .with_context(|| format!("could not open virtual file {}", m.path.display()))?;
+
+                        // Create a metric in Alumet. Duplicates are ok (Alumet will only create each metric once).
+                        let metric_id = alumet
+                            .create_metric(&m.name, m.unit, format!("{} (see attributes for channel info)", m.name))
+                            .with_context(|| format!("could not create metric for channel '{channel_label}'"))?;
+
                         Ok(OpenedInaMetric {
                             metric_id,
                             resource_id: Resource::LocalMachine,
@@ -78,14 +76,15 @@ impl JetsonInaSource {
                     })
                     .collect();
                 let opened_chan = OpenedInaChannel {
-                    label: channel_string_id,
-                    description: channel.description.unwrap_or(String::from("")),
+                    id: channel.id,
+                    label: channel_label,
                     metrics: metrics?,
                 };
                 sensor_opened_channels.push(opened_chan);
             }
             opened_sensors.push(OpenedInaSensor {
-                i2c_id: sensor.i2c_id,
+                i2c_address: sensor.metadata.i2c_address,
+                device_number: sensor.metadata.number,
                 channels: sensor_opened_channels,
             })
         }
@@ -101,6 +100,7 @@ impl alumet::pipeline::Source for JetsonInaSource {
             for chan in &mut sensor.channels {
                 for m in &mut chan.metrics {
                     // read the file from the beginning
+                    reading_buf.clear();
                     m.file.rewind()?;
                     m.file.read_to_end(&mut reading_buf)?;
 
@@ -111,18 +111,15 @@ impl alumet::pipeline::Source for JetsonInaSource {
                         .parse()
                         .with_context(|| format!("failed to parse {:?}: '{content}", m.file))?;
 
-                    // store the value and clear the buffer
+                    // produce a measurement point
                     let consumer = ResourceConsumer::LocalMachine;
                     measurements.push(
                         MeasurementPoint::new(timestamp, m.metric_id, m.resource_id.clone(), consumer, value)
-                            .with_attr("jetson_ina_sensor", AttributeValue::String(sensor.i2c_id.clone()))
-                            .with_attr("jetson_ina_channel_label", AttributeValue::String(chan.label.clone()))
-                            .with_attr(
-                                "jetson_ina_channel_description",
-                                AttributeValue::String(chan.description.clone()),
-                            ),
+                            .with_attr("ina_device_number", AttributeValue::U64(sensor.device_number.into()))
+                            .with_attr("ina_i2c_address", AttributeValue::U64(sensor.i2c_address.into()))
+                            .with_attr("ina_channel_id", AttributeValue::U64(chan.id.into()))
+                            .with_attr("ina_channel_label", AttributeValue::String(chan.label.clone())),
                     );
-                    reading_buf.clear();
                 }
             }
         }
