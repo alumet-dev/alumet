@@ -130,7 +130,11 @@ impl Default for Config {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{HashMap, HashSet};
+    use std::{
+        collections::{HashMap, HashSet},
+        fs::Permissions,
+        os::unix::fs::PermissionsExt,
+    };
 
     use alumet::{
         agent::plugin::{PluginInfo, PluginSet},
@@ -249,5 +253,118 @@ mod tests {
             .build_and_start()
             .expect("agent should start");
         agent.wait_for_shutdown(TIMEOUT).expect("pipeline should run fine");
+    }
+
+    #[test]
+    fn bad_permissions_1() {
+        let tmp = tempdir().unwrap();
+
+        // Create the fake sysfs hierarchy
+        let root = tmp.path().join("test-alumet-plugin-nvidia/ina-modern");
+        let hwmon6 = root.join("1-0040/hwmon/hwmon6");
+        std::fs::create_dir_all(&hwmon6).unwrap();
+        std::fs::write(hwmon6.join("in0_label"), "Sensor 0, channel 0").unwrap();
+        std::fs::write(hwmon6.join("curr0_input"), "0").unwrap();
+        std::fs::write(hwmon6.join("in0_input"), "1").unwrap();
+
+        // Make the channel files unreadable
+        std::fs::set_permissions(hwmon6.join("in0_label"), Permissions::from_mode(0)).unwrap();
+        std::fs::set_permissions(hwmon6.join("curr0_input"), Permissions::from_mode(0)).unwrap();
+        std::fs::set_permissions(hwmon6.join("in0_input"), Permissions::from_mode(0)).unwrap();
+
+        // Create the config
+        let sysfs_root = root.to_str().unwrap();
+        let config = toml::from_str(&format!(
+            r#"
+                poll_interval = "1s"
+                flush_interval = "1s"
+                sysfs_ina_modern = "{sysfs_root}"
+                sysfs_ina_old = ""
+            "#
+        ))
+        .unwrap();
+
+        // Start Alumet with the plugin.
+        let mut plugins = PluginSet::new();
+        plugins.add_plugin(PluginInfo {
+            metadata: PluginMetadata::from_static::<JetsonPlugin>(),
+            enabled: true,
+            config: Some(config),
+        });
+
+        let agent = alumet::agent::Builder::new(plugins).build_and_start();
+        assert!(agent.is_err(), "plugin should not start");
+    }
+
+    #[test]
+    fn bad_permissions_2() {
+        let tmp = tempdir().unwrap();
+
+        // Create the fake sysfs hierarchy
+        let root = tmp.path().join("test-alumet-plugin-nvidia/ina-modern");
+        let hwmon6 = root.join("1-0040/hwmon/hwmon6");
+        std::fs::create_dir_all(&hwmon6).unwrap();
+        std::fs::write(hwmon6.join("in0_label"), "Sensor 0, channel 0").unwrap();
+        std::fs::write(hwmon6.join("curr0_input"), "0").unwrap();
+        std::fs::write(hwmon6.join("in0_input"), "1").unwrap();
+
+        // Make the hwmon dir unreadable
+        std::fs::set_permissions(hwmon6, Permissions::from_mode(0)).unwrap();
+
+        // Create the config
+        let sysfs_root = root.to_str().unwrap();
+        let config = toml::from_str(&format!(
+            r#"
+                poll_interval = "1s"
+                flush_interval = "1s"
+                sysfs_ina_modern = "{sysfs_root}"
+                sysfs_ina_old = ""
+            "#
+        ))
+        .unwrap();
+
+        // Start Alumet with the plugin.
+        let mut plugins = PluginSet::new();
+        plugins.add_plugin(PluginInfo {
+            metadata: PluginMetadata::from_static::<JetsonPlugin>(),
+            enabled: true,
+            config: Some(config),
+        });
+
+        let agent = alumet::agent::Builder::new(plugins).build_and_start();
+        assert!(agent.is_err(), "plugin should not start");
+    }
+
+    #[test]
+    fn bad_permissions_3() {
+        let tmp = tempdir().unwrap();
+
+        // Create the fake sysfs root, but unreadable
+        let root = tmp.path().join("test-alumet-plugin-nvidia/ina-modern");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::set_permissions(&root, Permissions::from_mode(0)).unwrap();
+
+        // Create the config
+        let sysfs_root = root.to_str().unwrap();
+        let config = toml::from_str(&format!(
+            r#"
+                poll_interval = "1s"
+                flush_interval = "1s"
+                sysfs_ina_modern = "{sysfs_root}"
+                sysfs_ina_old = ""
+            "#
+        ))
+        .unwrap();
+
+        // Start Alumet with the plugin.
+        let mut plugins = PluginSet::new();
+        plugins.add_plugin(PluginInfo {
+            metadata: PluginMetadata::from_static::<JetsonPlugin>(),
+            enabled: true,
+            config: Some(config),
+        });
+
+        let agent = alumet::agent::Builder::new(plugins).build_and_start();
+        assert!(agent.is_err(), "plugin should not start");
     }
 }
