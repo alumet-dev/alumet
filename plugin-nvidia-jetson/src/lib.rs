@@ -13,6 +13,9 @@ use alumet::{
     },
 };
 
+#[cfg(not(target_os = "linux"))]
+compile_error!("This plugin only works on Linux.");
+
 pub struct JetsonPlugin {
     config: Config,
 }
@@ -178,7 +181,7 @@ mod tests {
         // Create the config
         let sysfs_root = root.to_str().unwrap();
         let config = toml::from_str(&format!(
-            r#"
+            r#" 
                 poll_interval = "1s"
                 flush_interval = "1s"
                 sysfs_ina_modern = "{sysfs_root}"
