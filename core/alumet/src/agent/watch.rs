@@ -3,13 +3,16 @@ use anyhow::Context;
 use std::{fs, io, path::PathBuf, ptr, time::Duration};
 use thiserror::Error;
 
-use crate::pipeline::{control::request, matching::SourceNamePattern, MeasurementPipeline};
+use crate::pipeline::{MeasurementPipeline, control::request, matching::SourceNamePattern};
 
-use super::{builder::ShutdownError, RunningAgent};
+use super::{RunningAgent, builder::ShutdownError};
 
 /// Error that can occur in [`watch_process`].
 #[derive(Error, Debug)]
 pub enum WatchError {
+    /// The process could not be spawned.
+    #[error("failed to use process with pid {0}")]
+    PidValue(String),
     /// The process could not be spawned.
     #[error("failed to check process with pid {0}")]
     PidCheck(String, #[source] std::num::ParseIntError),
@@ -28,23 +31,25 @@ const TRIGGER_TIMEOUT: Duration = Duration::from_secs(1);
 /// The measurement sources are triggered before the process spawns and after it exits.
 ///
 /// After the process exits, the pipeline must stop within `shutdown_timeout`, or an error is returned.
-pub fn watch_process(agent: RunningAgent, pid: String, shutdown_timeout: Duration) -> Result<(), WatchError> {
-    // Check if we can convert the pid to i332
-    let pid_u32 = pid
-        .parse::<i32>()
-        .map_err(|e| WatchError::PidCheck(pid.to_string(), e))?;
+pub fn watch_process(agent: RunningAgent, pid: u32, shutdown_timeout: Duration) -> Result<(), WatchError> {
+    // Check if we can convert the pid to i32, from u32 because we don't want a negative value
+    let pid_i32 = if pid <= i32::MAX as u32 {
+        pid as i32
+    } else {
+        return Err(WatchError::PidValue(String::from("Value exceeds i32::MAX")));
+    };
 
-    if let Err(e) = trigger_measurement_now(&agent.pipeline) {
-        log::error!("Could not trigger a first measurement before the child spawn: {e}");
+    if let Err(e) = trigger_poll_now(&agent.pipeline) {
+        log::error!("Could not trigger a first time poll before the child spawn: {e}");
     }
 
     // Spawn the process and wait for it to exit.
-    wait_child(pid_u32)?;
+    wait_child(pid_i32)?;
     log::info!("Watched process exited, Alumet will now stop.");
 
     // One last measurement.
-    if let Err(e) = trigger_measurement_now(&agent.pipeline) {
-        log::error!("Could not trigger one last measurement after the child exit: {e}");
+    if let Err(e) = trigger_poll_now(&agent.pipeline) {
+        log::error!("Could not trigger one last time poll after the child exit: {e}");
     }
 
     // Stop the pipeline
@@ -54,28 +59,33 @@ pub fn watch_process(agent: RunningAgent, pid: String, shutdown_timeout: Duratio
 
 /// Spawns a child process and waits for it to exit.
 fn wait_child(pid: i32) -> Result<(), WatchError> {
-    let pidfd = unsafe { nc::pidfd_open(pid, 0) };
-    if pidfd == Err(nc::errno::ENOSYS) {
-        log::warn!("PIDFD_OPEN syscall not supported in this system use of another way");
-        let path = PathBuf::from(format!("/proc/{pid}/"));
-
-        loop {
-            if !fs::metadata(&path).is_ok() {
-                break;
-            }
-            // Wait 5s to avoid too much load
-            std::thread::sleep(std::time::Duration::from_secs(5));
-        }
-        return Ok(());
-    }
-    let pidfd = match pidfd {
-        Ok(pidfd) => pidfd,
+    match unsafe { nc::pidfd_open(pid, 0) } {
+        Ok(pidfd) => wait_child_syscall(pid, pidfd),
         Err(e) => {
-            log::error!("Can't look for the process, exiting now");
-            return Err(WatchError::ProcessWait(e, io::Error::last_os_error()));
+            log::warn!(
+                "PIDFD_OPEN returned an error: {}, syscall may not be supported on this system: - use of another way",
+                e
+            );
+            wait_child_sysfs(pid)
         }
-    };
+    }
+}
 
+// Wait for process exit using sysfs file
+fn wait_child_sysfs(pid: i32) -> Result<(), WatchError> {
+    let path = PathBuf::from(format!("/proc/{pid}/"));
+    loop {
+        if !fs::metadata(&path).is_ok() {
+            break;
+        }
+        // Wait 5s to avoid too much load
+        std::thread::sleep(std::time::Duration::from_secs(5));
+    }
+    Ok(())
+}
+
+// Wait for process exit using a syscall
+fn wait_child_syscall(pid: i32, pidfd: i32) -> Result<(), WatchError> {
     loop {
         // Attempt to read from the file descriptor
         let mut timeout = libc::timeval {
@@ -91,7 +101,7 @@ fn wait_child(pid: i32) -> Result<(), WatchError> {
             log::error!("Error occurred in select: {}", io::Error::last_os_error());
             break;
         } else if result == 0 {
-            // Timeout occurred
+            // Timeout occurred - It means the process is still running
             continue;
         } else {
             // At least one file descriptor is ready
@@ -108,8 +118,8 @@ fn wait_child(pid: i32) -> Result<(), WatchError> {
     Ok(())
 }
 
-// Triggers one measurement (on all sources that support manual trigger).
-fn trigger_measurement_now(pipeline: &MeasurementPipeline) -> anyhow::Result<()> {
+// Triggers one poll (on all sources that support manual trigger).
+fn trigger_poll_now(pipeline: &MeasurementPipeline) -> anyhow::Result<()> {
     let control_handle = pipeline.control_handle();
     let send_task = control_handle.send_wait(
         request::source(SourceNamePattern::wildcard()).trigger_now(),

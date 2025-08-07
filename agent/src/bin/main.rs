@@ -166,8 +166,8 @@ fn main() -> anyhow::Result<()> {
             }
         }
         cli::Command::Watch(process) => {
-            let timeout = Duration::from_secs(5);
-            let res = watch::watch_process(agent, process.pid, timeout);
+            let shutdown_timeout = Duration::from_secs(5);
+            let res = watch::watch_process(agent, process.pid, shutdown_timeout);
             if let Err(err @ watch::WatchError::ProcessWait(pid, e)) = &res {
                 match e.kind() {
                     std::io::ErrorKind::NotFound => {
@@ -410,7 +410,7 @@ mod cli {
     #[derive(Args)]
     pub struct Process {
         /// The PID to watch.
-        pub pid: String,
+        pub pid: u32,
     }
 
     #[derive(Args)]
