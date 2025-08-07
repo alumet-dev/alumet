@@ -18,5 +18,7 @@ walkdir = "2.5.0"
 workspace = true
 
 [dev-dependencies]
+alumet = { path = "../alumet", features = ["test"] }
 pretty_assertions = "1.4.1"
 tempfile = "3.19.1"
+toml = "0.9.5"

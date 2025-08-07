@@ -47,15 +47,15 @@ impl ChannelEntryAnalyzer {
 
                 // test the file, if it doesn't work, don't measure it in the future
                 let content = std::fs::read_to_string(channel_entry_path)?;
-                if content.is_empty() {
-                    return Err(anyhow::Error::msg("empty file"));
+                return if content.is_empty() {
+                    Err(anyhow::Error::msg("empty file"))
                 } else {
-                    return Ok(EntryAnalysis::MeasurementNode {
+                    Ok(EntryAnalysis::MeasurementNode {
                         channel_id,
                         unit: unit.clone(),
                         metric_name: metric_name.to_string(),
-                    });
-                }
+                    })
+                };
             }
         }
 

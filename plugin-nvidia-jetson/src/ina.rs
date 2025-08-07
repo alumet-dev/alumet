@@ -7,12 +7,13 @@ use alumet::units::PrefixedUnit;
 use anyhow::Context;
 use rustc_hash::FxHashMap;
 
-use modern::{ModernInaExplorer, SYSFS_INA_MODERN};
-use old::{OldInaExplorer, SYSFS_INA_OLD};
+use modern::ModernInaExplorer;
+use old::OldInaExplorer;
+use serde::{Deserialize, Serialize};
 
 mod common;
-mod modern;
-mod old;
+pub mod modern;
+pub mod old;
 
 /// Detected INA sensor.
 #[derive(Debug, PartialEq)]
@@ -30,8 +31,6 @@ pub struct InaChannel {
     pub id: u32,
     pub label: Option<String>,
     pub metrics: Vec<InaRailMetric>,
-    // Added in a second pass based on the Jetson documentation. (TODO: fill it)
-    pub description: Option<String>,
 }
 
 /// Detected metric available in a channel.
@@ -99,7 +98,21 @@ impl InaChannel {
             id,
             label: None,
             metrics: Vec::new(),
-            description: None,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct InaSysfsPath<'a> {
+    pub sysfs_ina_modern: &'a str,
+    pub sysfs_ina_old: &'a str,
+}
+
+impl Default for InaSysfsPath<'_> {
+    fn default() -> Self {
+        Self {
+            sysfs_ina_modern: modern::SYSFS_INA_MODERN,
+            sysfs_ina_old: old::SYSFS_INA_OLD,
         }
     }
 }
@@ -107,15 +120,15 @@ impl InaChannel {
 /// Returns a list of all the INA sensors available on the machine.
 ///
 /// This function supports multiple version of the NVIDIA Jetpack SDK.
-pub fn detect_ina_sensors() -> anyhow::Result<(Vec<InaSensor>, Vec<anyhow::Error>)> {
-    if let Ok(true) = std::fs::exists(modern::SYSFS_INA_MODERN) {
-        explore_ina_devices(ModernInaExplorer::new(modern::SYSFS_INA_MODERN))
-    } else if let Ok(true) = std::fs::exists(old::SYSFS_INA_OLD) {
-        explore_ina_devices(OldInaExplorer::new(old::SYSFS_INA_OLD))
+pub fn detect_ina_sensors(paths: InaSysfsPath) -> anyhow::Result<(Vec<InaSensor>, Vec<anyhow::Error>)> {
+    if let Ok(true) = std::fs::exists(paths.sysfs_ina_modern) {
+        explore_ina_devices(ModernInaExplorer::new(paths.sysfs_ina_modern))
+    } else if let Ok(true) = std::fs::exists(paths.sysfs_ina_old) {
+        explore_ina_devices(OldInaExplorer::new(paths.sysfs_ina_old))
     } else {
         Err(anyhow::Error::msg(format!(
             "no INA-3221 sensor detected: neither {} nor {} exist",
-            SYSFS_INA_MODERN, SYSFS_INA_OLD
+            paths.sysfs_ina_modern, paths.sysfs_ina_old
         )))
     }
 }
@@ -392,7 +405,6 @@ mod tests {
                     name: String::from(METRIC_VOLTAGE),
                 },
             ],
-            description: None,
         };
 
         std::fs::write(hwmon0.join("in1_label"), "Sensor 0, channel 1").unwrap();
@@ -415,7 +427,6 @@ mod tests {
                     name: String::from(METRIC_VOLTAGE),
                 },
             ],
-            description: None,
         };
 
         std::fs::write(hwmon1.join("in0_label"), "Sensor 1, channel 0").unwrap();
@@ -438,7 +449,6 @@ mod tests {
                     name: String::from(METRIC_VOLTAGE),
                 },
             ],
-            description: None,
         };
 
         // no label for channel 5
@@ -469,7 +479,6 @@ mod tests {
                     name: String::from(METRIC_VOLTAGE),
                 },
             ],
-            description: None,
         };
 
         // Build what we expect
