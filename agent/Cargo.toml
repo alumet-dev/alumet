@@ -34,7 +34,6 @@ plugin-energy-estimation-tdp = { path = "../plugins/energy-estimation-tdp" }
 plugin-elasticsearch = { path = "../plugins/elasticsearch" }
 plugin-kwollect-input = { path = "../plugins/kwollect-input" }
 plugin-kwollect-output = { path = "../plugins/kwollect-output" }
-plugin-quarch = { version = "0.1.0", path = "../plugins/quarch" }
 
 # Linux-only dependencies
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -44,6 +43,7 @@ plugin-nvidia-nvml = { path = "../plugins/nvidia-nvml" }
 plugin-process-to-cgroup-bridge = { path = "../plugins/process-to-cgroup-bridge" }
 plugin-perf = { path = "../plugins/perf" }
 plugin-procfs = { path = "../plugins/procfs" }
+plugin-quarch = { version = "0.1.0", path = "../plugins/quarch" }
 plugin-rapl = { path = "../plugins/rapl" }
 plugin-socket-control = { path = "../plugins/socket-control" }
 # cgroup-based plugins
