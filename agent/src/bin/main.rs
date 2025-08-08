@@ -43,9 +43,9 @@ fn load_plugins_metadata() -> Vec<PluginMetadata> {
         plugins.extend(static_plugins![
             plugin_socket_control::SocketControlPlugin,
             plugin_cgroup::plugins::SlurmPlugin,
-            plugin_cgroupv2::K8sPlugin,
-            plugin_cgroupv2::OARPlugin,
-            plugin_cgroupv1::Oar2Plugin,
+            plugin_cgroup::plugins::K8sPlugin,
+            plugin_cgroup::plugins::OarPlugin,
+            plugin_cgroup::plugins::RawCgroupPlugin,
             plugin_grace_hopper::GraceHopperPlugin,
             plugin_rapl::RaplPlugin,
             plugin_perf::PerfPlugin,
