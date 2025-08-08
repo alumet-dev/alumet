@@ -1,5 +1,6 @@
 alumet
 alpes
+amdsmi
 ASCIINEMA
 astring
 Atos
@@ -25,6 +26,7 @@ hwmon
 indice
 ITLB
 kwollect
+libdrm
 Mispredicted
 miri
 monitorable
@@ -37,6 +39,7 @@ psys
 Raffin
 RAPL
 regen
+rocm
 rustfmt
 slurm
 slurmstep
