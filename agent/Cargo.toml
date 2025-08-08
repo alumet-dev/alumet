@@ -2,7 +2,7 @@
 name = "alumet-agent"
 version = "0.8.4"
 edition = "2021"
-rust-version = "1.78"
+rust-version = "1.82"
 description = "Agent that collects energy and performance metrics."
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -34,8 +34,7 @@ plugin-kwollect-output = { path = "../plugin-kwollect-output" }
 
 # Linux-only dependencies
 [target.'cfg(target_os = "linux")'.dependencies]
-plugin-cgroupv1 = { path = "../plugin-cgroupv1" }
-plugin-cgroupv2 = { path = "../plugin-cgroupv2" }
+plugin-cgroup = { path = "../plugin-cgroup" }
 plugin-grace-hopper = { path = "../plugin-grace-hopper" }
 plugin-nvidia-jetson = { path = "../plugin-nvidia-jetson" }
 plugin-nvidia-nvml = { path = "../plugin-nvidia-nvml" }

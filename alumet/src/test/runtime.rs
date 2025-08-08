@@ -257,6 +257,9 @@ impl TestExpectations for RuntimeExpectations {
                 }
             });
 
+            // TODO Assert that all the sources that we want to test already exist?
+            // assert!(self.sources.is_empty(), "these sources should exist on startup: {}", self.sources.iter().map(|s| s.0.to_string()).collect::<Vec<_>>().join(", "));
+
             // Add a special source that we will manually trigger in order to trigger transforms and outputs.
             log::debug!("adding test-controlled source {TESTER_SOURCE_NAME}");
             pipeline

@@ -674,7 +674,7 @@ mod tests {
         let zone = PowerZone {
             name: "package-0".to_string(),
             domain: RaplDomainType::Package,
-            path: PathBuf::from(format!("/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0")),
+            path: PathBuf::from("/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0".to_string()),
             socket_id: Some(0),
             children: Vec::new(),
         };
@@ -688,7 +688,7 @@ mod tests {
         let zone = PowerZone {
             name: "package-0".to_string(),
             domain: RaplDomainType::Package,
-            path: PathBuf::from(format!("/i/do/not/exists")),
+            path: PathBuf::from("/i/do/not/exists".to_string()),
             socket_id: Some(0),
             children: Vec::new(),
         };

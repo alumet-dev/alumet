@@ -5,8 +5,7 @@ members = [
     "alumet",
     "alumet-ffi",
     "plugin-aggregation",
-    "plugin-cgroupv1",
-    "plugin-cgroupv2",
+    "plugin-cgroup",
     "plugin-csv",
     "plugin-elasticsearch",
     "plugin-energy-attribution",
@@ -24,7 +23,9 @@ members = [
     "plugin-rapl",
     "plugin-relay",
     "plugin-socket-control",
-    "test-dynamic-plugins", 
+    "plugin-mongodb",
+    "test-dynamic-plugins",
+    "util-cgroups",
 ]
 
 # To apply the following lint settings to a workspace member,

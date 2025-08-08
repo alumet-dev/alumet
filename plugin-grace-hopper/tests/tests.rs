@@ -20,7 +20,7 @@ fn test_correct_plugin_with_no_data() {
     let mut plugins = PluginSet::new();
     let config = Config {
         poll_interval: Duration::from_secs(1),
-        root_path: root_path,
+        root_path,
     };
 
     plugins.add_plugin(alumet::agent::plugin::PluginInfo {
@@ -38,7 +38,6 @@ fn test_correct_plugin_with_no_data() {
 
     agent.pipeline.control_handle().shutdown();
     agent.wait_for_shutdown(TIMEOUT).unwrap();
-    return;
 }
 
 #[test]
@@ -59,7 +58,7 @@ fn test_correct_plugin_init_with_one_source_empty_value() {
     let mut plugins = PluginSet::new();
     let config = Config {
         poll_interval: Duration::from_secs(1),
-        root_path: root_path,
+        root_path,
     };
 
     plugins.add_plugin(alumet::agent::plugin::PluginInfo {
@@ -92,7 +91,6 @@ fn test_correct_plugin_init_with_one_source_empty_value() {
         .unwrap();
 
     agent.wait_for_shutdown(TIMEOUT).unwrap();
-    return;
 }
 
 #[test]
@@ -145,7 +143,7 @@ fn test_correct_plugin_init_with_several_sources() {
     let mut plugins = PluginSet::new();
     let config = Config {
         poll_interval: Duration::from_secs(1),
-        root_path: root_path,
+        root_path,
     };
 
     plugins.add_plugin(alumet::agent::plugin::PluginInfo {
@@ -266,8 +264,6 @@ fn test_correct_plugin_init_with_several_sources() {
         .unwrap();
 
     agent.wait_for_shutdown(TIMEOUT).unwrap();
-
-    return;
 }
 
 fn config_to_toml_table(config: &Config) -> toml::Table {

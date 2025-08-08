@@ -3,9 +3,12 @@ alpes
 ASCIINEMA
 astring
 Atos
+Burstable
 cbindgen
 cdylib
+cgroup
 Cgroups
+cgroupfs
 cgroupv
 cguest
 CNRS
@@ -19,6 +22,7 @@ giga
 humantime
 hwinfo
 hwmon
+indice
 ITLB
 kwollect
 Mispredicted
@@ -34,6 +38,9 @@ Raffin
 RAPL
 regen
 rustfmt
+slurm
+slurmstep
+slurmstepd
 statm
 subconfig
 sublicensable

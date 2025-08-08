@@ -1,0 +1,42 @@
+[package]
+name = "plugin-cgroup"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+
+[dependencies]
+alumet = { path = "../alumet" }
+anyhow = "1.0.98"
+humantime-serde = "1.1.1"
+log = "0.4.27"
+regex = { version = "1.11.1", default-features = false, features = ["std", "perf"] }
+rustc-hash = "2.1.1"
+serde = { version = "1.0.219", features = ["derive"] }
+thiserror = "2.0.12"
+tokio = { version = "1.45.1", features = ["rt"] }
+util-cgroups = { path = "../util-cgroups", features = ["manually"]}
+
+# k8s-only deps
+base64 = "0.22.1"
+serde_json = "1.0.141"
+hostname = "0.4.0"
+
+# Use RusTLS instead of OpenSSL on musl
+[target.'cfg(target_env = "musl")'.dependencies]
+reqwest = { version = "0.12.12", default-features = false, features = ["http2", "json", "rustls-tls", "blocking"] }
+
+[target.'cfg(not(target_env = "musl"))'.dependencies]
+reqwest = { version = "0.12.12", default-features = false, features = ["http2", "json", "native-tls", "blocking"] }
+
+[dev-dependencies]
+tempfile = "3.20.0"
+toml = "0.8.0"
+alumet = { path = "../alumet", features = ["test"]}
+env_logger = "0.11.0"
+pretty_assertions = "1.4.1"
+
+# K8S-only deps
+mockito = "1.7.0"
+
+[lints]
+workspace = true
