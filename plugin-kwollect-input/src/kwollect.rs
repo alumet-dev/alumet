@@ -2,172 +2,120 @@
 
 use alumet::measurement::{AttributeValue, WrappedMeasurementValue};
 use anyhow::Context;
-use serde::{
-    de::{self, MapAccess, Visitor},
-    ser::SerializeMap,
-    Deserialize, Deserializer, Serialize,
-};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
-use std::fmt;
 
 /// A structure to represent a measure collected by Kwollect.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct MeasureKwollect {
     pub device_id: String,
+    #[serde(with = "labels")]
     pub labels: HashMap<String, AttributeValue>,
     pub metric_id: String,
     pub timestamp: String,
+    #[serde(with = "value")]
     pub value: WrappedMeasurementValue,
 }
 
-/// Implements serialization for MeasureKwollect which allows MeasureKwollect instances to be converted into a JSON-like map format.
-impl Serialize for MeasureKwollect {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut map = serializer.serialize_map(Some(5))?;
-        map.serialize_entry("timestamp", &self.timestamp)?;
-        map.serialize_entry("metric_id", &self.metric_id)?;
-        map.serialize_entry("device_id", &self.device_id)?;
+// MeasurementValue is not define (de)serializable by serde so we need to do a wrapper
+/// Serializable wrappers for measurement value
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SerializableMeasurementValue {
+    U64(u64),
+    F64(f64),
+}
 
-        match self.value {
-            WrappedMeasurementValue::F64(v) => map.serialize_entry("value", &v)?,
-            WrappedMeasurementValue::U64(v) => map.serialize_entry("value", &v)?,
-        };
-
-        struct LabelsSerializer<'a>(&'a HashMap<String, AttributeValue>);
-
-        impl Serialize for LabelsSerializer<'_> {
-            fn serialize<T>(&self, serializer: T) -> Result<T::Ok, T::Error>
-            where
-                T: serde::Serializer,
-            {
-                let mut labels_map = serializer.serialize_map(Some(self.0.len()))?;
-                for (key, value) in self.0 {
-                    match value {
-                        AttributeValue::Bool(v) => labels_map.serialize_entry(key, v)?,
-                        AttributeValue::F64(v) => labels_map.serialize_entry(key, v)?,
-                        AttributeValue::U64(v) => labels_map.serialize_entry(key, v)?,
-                        AttributeValue::Str(v) => labels_map.serialize_entry(key, v)?,
-                        AttributeValue::String(v) => labels_map.serialize_entry(key, v)?,
-                    }
-                }
-                labels_map.end()
-            }
+impl From<WrappedMeasurementValue> for SerializableMeasurementValue {
+    fn from(value: WrappedMeasurementValue) -> Self {
+        match value {
+            WrappedMeasurementValue::U64(v) => Self::U64(v),
+            WrappedMeasurementValue::F64(v) => Self::F64(v),
         }
-
-        map.serialize_entry("labels", &LabelsSerializer(&self.labels))?;
-        map.end()
     }
 }
 
-/// Visitor for deserializing MeasureKwollect from JSON that guides the deserialization process by defining how to interpret each field.
-struct MeasureKwollectVisitor;
-
-impl<'de> Visitor<'de> for MeasureKwollectVisitor {
-    type Value = MeasureKwollect;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("a map representing a MeasureKwollect")
-    }
-
-    fn visit_map<M>(self, mut access: M) -> Result<Self::Value, M::Error>
-    where
-        M: MapAccess<'de>,
-    {
-        let mut device_id = None;
-        let mut labels = None;
-        let mut metric_id = None;
-        let mut timestamp = None;
-        let mut value = None;
-
-        while let Some(key) = access.next_key::<String>()? {
-            match key.as_str() {
-                "device_id" => {
-                    if device_id.is_none() {
-                        device_id = Some(access.next_value()?);
-                    }
-                }
-                // labels is a HashMap<String, AttributeValue>: deserialize for each type of AttributeValue
-                "labels" => {
-                    if labels.is_none() {
-                        let label_map: Map<String, Value> = access.next_value()?;
-                        let mut labels_map = HashMap::new();
-                        for (k, v) in label_map {
-                            let attribute_value = match v {
-                                Value::Bool(b) => Ok(AttributeValue::Bool(b)),
-                                Value::Number(n) if n.is_f64() => Ok(AttributeValue::F64(n.as_f64().unwrap())),
-                                Value::Number(n) if n.is_u64() => Ok(AttributeValue::U64(n.as_u64().unwrap())),
-                                Value::Number(n) if n.is_i64() => Ok(AttributeValue::U64(n.as_i64().unwrap() as u64)),
-                                Value::String(s) => Ok(AttributeValue::String(s)),
-                                Value::Array(arr) => {
-                                    // Convert array to a string representation
-                                    let array_as_string =
-                                        arr.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", ");
-                                    Ok(AttributeValue::String(array_as_string))
-                                }
-                                _ => Err(de::Error::custom("Unsupported value type")),
-                            }?;
-                            labels_map.insert(k, attribute_value);
-                        }
-                        labels = Some(labels_map);
-                    }
-                }
-                "metric_id" => {
-                    if metric_id.is_none() {
-                        metric_id = Some(access.next_value()?);
-                    }
-                }
-                "timestamp" => {
-                    if timestamp.is_none() {
-                        timestamp = Some(access.next_value()?);
-                    }
-                }
-                "value" => {
-                    if value.is_none() {
-                        let val: Value = access.next_value()?;
-                        let measurement_value = if val.is_f64() {
-                            WrappedMeasurementValue::F64(val.as_f64().unwrap())
-                        } else if val.is_u64() {
-                            WrappedMeasurementValue::U64(val.as_u64().unwrap())
-                        } else {
-                            return Err(de::Error::custom("Unsupported value type for measurement value"));
-                        };
-                        value = Some(measurement_value);
-                    }
-                }
-                _ => {
-                    let _: de::IgnoredAny = access.next_value()?;
-                }
-            }
+impl From<SerializableMeasurementValue> for WrappedMeasurementValue {
+    fn from(value: SerializableMeasurementValue) -> Self {
+        match value {
+            SerializableMeasurementValue::U64(v) => Self::U64(v),
+            SerializableMeasurementValue::F64(v) => Self::F64(v),
         }
-
-        // Ensure all required fields are present
-        let device_id = device_id.ok_or_else(|| de::Error::custom("missing field device_id"))?;
-        let labels = labels.ok_or_else(|| de::Error::custom("missing field labels"))?;
-        let metric_id = metric_id.ok_or_else(|| de::Error::custom("missing field metric_id"))?;
-        let timestamp = timestamp.ok_or_else(|| de::Error::custom("missing field timestamp"))?;
-        let value = value.ok_or_else(|| de::Error::custom("missing field value"))?;
-
-        Ok(MeasureKwollect {
-            device_id,
-            labels,
-            metric_id,
-            timestamp,
-            value,
-        })
     }
 }
 
-/// Implements deserialization for MeasureKwollect which allows JSON data to be converted into a MeasureKwollect instance.
-impl<'de> Deserialize<'de> for MeasureKwollect {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+// We needed (de)serializer to implement Value for MeasureKwollect so we used a module to simplify
+/// Serde helper for WrappedMeasurementValue
+mod value {
+    use super::*;
+
+    pub fn serialize<S>(value: &WrappedMeasurementValue, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        SerializableMeasurementValue::from(value.clone()).serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<WrappedMeasurementValue, D::Error>
     where
         D: Deserializer<'de>,
     {
-        deserializer.deserialize_map(MeasureKwollectVisitor)
+        Ok(SerializableMeasurementValue::deserialize(deserializer)?.into())
+    }
+}
+
+// We needed (de)serializer to implement Label for MeasureKwollect so we used a module to simplify
+/// Serde helper to convert HashMap<String, AttributeValue> to & from JSON.
+mod labels {
+    use super::*;
+
+    pub fn serialize<S>(value: &HashMap<String, AttributeValue>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let map: Map<String, Value> = value
+            .iter()
+            .map(|(k, v)| {
+                let json_val = match v {
+                    AttributeValue::Bool(b) => Value::Bool(*b),
+                    AttributeValue::F64(f) => {
+                        Value::Number(serde_json::Number::from_f64(*f).unwrap_or_else(|| serde_json::Number::from(0)))
+                    }
+                    AttributeValue::U64(u) => Value::Number(serde_json::Number::from(*u)),
+                    AttributeValue::Str(s) => Value::String(s.to_string()),
+                    AttributeValue::String(s) => Value::String(s.clone()),
+                };
+                (k.clone(), json_val)
+            })
+            .collect();
+        map.serialize(serializer)
+    }
+
+    // labels is a HashMap<String, AttributeValue>: deserialize for each type of AttributeValue
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<HashMap<String, AttributeValue>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let label_map: Map<String, Value> = Map::deserialize(deserializer)?;
+        let mut labels_map = HashMap::with_capacity(label_map.len());
+
+        for (k, v) in label_map {
+            let attribute_value = match v {
+                Value::Bool(b) => AttributeValue::Bool(b),
+                Value::Number(n) if n.is_f64() => AttributeValue::F64(n.as_f64().unwrap()),
+                Value::Number(n) if n.is_u64() => AttributeValue::U64(n.as_u64().unwrap()),
+                Value::Number(n) if n.is_i64() => AttributeValue::U64(n.as_i64().unwrap() as u64),
+                Value::String(s) => AttributeValue::String(s),
+                Value::Array(arr) => {
+                    let array_as_string = arr.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(", ");
+                    AttributeValue::String(array_as_string)
+                }
+                _ => AttributeValue::String(v.to_string()),
+            };
+            labels_map.insert(k, attribute_value);
+        }
+        Ok(labels_map)
     }
 }
 
