@@ -31,3 +31,8 @@ keep_processed_measurements = true
 ### Cgroup not found
 
 In case the transform plugin doesn't find a cgroup for a process measurement, it will silently skip the transformation step for this measurement.
+
+### Cgroup v1
+
+The plugin currently does not handle processes managed by cgroup v1 correctly.
+If a process is associated with multiple cgroups (that's the case in cgroup v1), the plugin will arbitrarily select one from the list found in the /proc/[pid]/cgroup file.

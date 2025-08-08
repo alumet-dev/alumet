@@ -101,9 +101,10 @@ impl ProcessToCgroupBridgeTransform {
         let contents = fs::read_to_string(&procfs_cgroup_filepath)
             .with_context(|| format!("failed to read {:?}", procfs_cgroup_filepath))?;
 
-        // a typical procfs cgroupv2 file will contain only one line
+        // a procfs cgroupv2 file will contain only one line
         // eg: 0::/system.slice/docker-7c7fc86f5f2a609c41c6edd65bd1b64135124a687fa6516f6b177b040d6e3b68.scope
-        // a procfs cgroupv2 file will contains multiple lines
+        //
+        // a procfs cgroupv1 file will contains multiple lines
         // eg:
         //     2:memory:/daemons
         //     5:cpuacct,cpu:/daemons
