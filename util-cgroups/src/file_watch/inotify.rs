@@ -16,7 +16,7 @@ use nix::{
     sys::inotify::{AddWatchFlags, InitFlags, Inotify, InotifyEvent, WatchDescriptor},
 };
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
-use walkdir::{DirEntry, WalkDir};
+use walkdir::WalkDir;
 
 pub struct InotifyWatcher {
     thread_handle: Option<JoinHandle<()>>,

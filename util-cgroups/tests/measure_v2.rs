@@ -6,11 +6,6 @@ use util_cgroups::{
     Cgroup, CgroupHierarchy, CgroupVersion,
 };
 
-// use crate::{
-//     util_cgroups::measure::v2::{cpu::CpuStatCollectorSettings, memory::MemoryStatCollectorSettings, V2Collector},
-//     Cgroup, CgroupHierarchy, CgroupVersion,
-// };
-
 #[test]
 pub fn test_new_and_measure() -> anyhow::Result<()> {
     let root = tempdir().expect("Failed to create a temporary directory");

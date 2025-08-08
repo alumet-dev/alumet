@@ -5,7 +5,6 @@ use std::{
 };
 
 use util_cgroups::file_watch::{inotify::InotifyWatcher, Event, EventHandler, PathKind};
-use walkdir::WalkDir;
 
 const TOLERANCE: Duration = Duration::from_millis(250);
 
