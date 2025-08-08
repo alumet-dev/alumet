@@ -12,7 +12,7 @@ use alumet::{
     pipeline::{elements::error::PollError, Source},
     plugin::AlumetPluginStart,
     resources::{Resource, ResourceConsumer},
-    units::{PrefixedUnit, Unit},
+    units::Unit,
 };
 
 use crate::Sensor;
@@ -22,19 +22,34 @@ pub struct GraceHopperProbe {
     kind: String,
     file: File,
     consumer: ResourceConsumer,
-    metric: Option<TypedMetricId<u64>>,
-    _power_stats_interval: Duration,
+    metric: TypedMetricId<f64>,
+    last_measure: Option<PowerMeasure>,
+}
+
+struct PowerMeasure {
+    timestamp: Timestamp,
+    power: u64,
+}
+
+impl PowerMeasure {
+    /// Compute an energy from a power of a `PowerMeasure`. Using as time the time elapsed between
+    /// self's timestamp and the timestamp of `PowerMeasure`.
+    ///
+    /// This function first computes the time elapsed between two timestamps.
+    /// It return an error if ot's not possible
+    /// Finally it compute the energy using the formula: Energy(J) = ((Power_old(W) + Power_new(W)) / 2) * Time(s)
+    ///
+    /// Returns the computed energy
+    pub fn compute_energy(&self, measure: &PowerMeasure) -> anyhow::Result<f64> {
+        let time_elapsed = measure.timestamp.duration_since(self.timestamp)?.as_secs_f64();
+        let energy_consumed = (((self.power + measure.power) / 1_000_000) as f64 / 2.0) * time_elapsed; // Divided by 10e6 because of µW
+        Ok(energy_consumed)
+    }
 }
 
 impl GraceHopperProbe {
-    pub fn new(alumet: &mut AlumetPluginStart, sensor: Sensor) -> Result<Self, anyhow::Error> {
-        let metric = alumet
-            .create_metric::<u64>(
-                "consumption",
-                PrefixedUnit::micro(Unit::Watt),
-                "Power consumption of the sensor",
-            )
-            .ok();
+    pub fn new(alumet: &mut AlumetPluginStart, sensor: Sensor) -> anyhow::Result<Self> {
+        let metric = alumet.create_metric::<f64>("energy_consumed", Unit::Joule, "Energy consumption of the sensor")?;
 
         if !sensor.file.exists() {
             return Err(anyhow!("can't find the file: {:?} so no probe created", sensor.file));
@@ -52,7 +67,7 @@ impl GraceHopperProbe {
             file,
             metric,
             consumer: ResourceConsumer::LocalMachine,
-            _power_stats_interval: sensor.average_interval,
+            last_measure: None,
         };
         Ok(probe)
     }
@@ -61,19 +76,26 @@ impl GraceHopperProbe {
 impl Source for GraceHopperProbe {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         let mut buffer = String::new();
-        let power = read_power_value(&mut buffer, &mut self.file)?;
-        measurements.push(
-            MeasurementPoint::new(
-                timestamp,
-                self.metric
-                    .expect("can't push to the MeasurementAccumulator because can't retrieve the metric"),
-                Resource::CpuPackage { id: self.socket },
-                self.consumer.clone(),
-                power,
-            )
-            .with_attr("sensor", self.kind.clone()),
-        );
+        let power = read_power_value(&mut buffer, &mut self.file).map_err(PollError::from)?;
+        let new_measure = PowerMeasure { timestamp, power };
 
+        if let Some(last_measure) = &self.last_measure {
+            let computed_energy = last_measure.compute_energy(&new_measure)?;
+            measurements.push(
+                MeasurementPoint::new(
+                    timestamp,
+                    self.metric,
+                    Resource::CpuPackage { id: self.socket },
+                    self.consumer.clone(),
+                    computed_energy,
+                )
+                .with_attr("sensor", self.kind.clone()),
+            );
+        }
+        self.last_measure = Some(PowerMeasure {
+            timestamp: new_measure.timestamp,
+            power: new_measure.power,
+        });
         Ok(())
     }
 }
@@ -102,12 +124,16 @@ pub fn read_power_value(buffer: &mut String, file: &mut File) -> Result<u64, any
 
 #[cfg(test)]
 mod tests {
+    use alumet::measurement::Timestamp;
     use anyhow::Context;
     use std::fs::File;
     use std::io::Write;
+    use std::time::Duration;
     use tempfile::tempdir;
 
+    // use crate::probe::{compute_energy, read_power_value};
     use crate::probe::read_power_value;
+    use crate::probe::PowerMeasure;
 
     #[test]
     fn test_read_power_value() {
@@ -134,5 +160,67 @@ mod tests {
             // Check content
             assert_eq!(power, expected_sensor, "Incorrect sensor for input '{}'", line);
         }
+    }
+
+    #[test]
+    fn test_compute_energy() {
+        let ts0 = Timestamp::now();
+        let mut lm_init = PowerMeasure {
+            timestamp: ts0,
+            power: 0,
+        };
+        // timestamp diff is 0, can't compute energy -> 0
+        let mut measure = PowerMeasure {
+            timestamp: ts0,
+            power: 140_000000,
+        };
+        assert_eq!(0.0, lm_init.compute_energy(&measure).unwrap());
+        lm_init.power = measure.power;
+
+        let ts6 = ts0 + Duration::from_secs(6);
+        measure = PowerMeasure {
+            timestamp: ts6,
+            power: 25_000000,
+        };
+        assert_eq!(495.0, lm_init.compute_energy(&measure).unwrap());
+        lm_init.power = measure.power;
+        lm_init.timestamp = measure.timestamp;
+
+        lm_init.timestamp = ts0 + Duration::from_secs(5);
+        lm_init.power = 70_000000;
+        let ts55 = ts0 + Duration::from_millis(5500);
+        measure = PowerMeasure {
+            timestamp: ts55,
+            power: 130_000000,
+        };
+        assert_eq!(50.0, lm_init.compute_energy(&measure).unwrap());
+        lm_init.timestamp = measure.timestamp;
+
+        lm_init.timestamp = lm_init.timestamp + Duration::from_millis(500);
+        lm_init.power = 50_000000;
+        let ts10 = ts0 + Duration::from_secs(10);
+        measure = PowerMeasure {
+            timestamp: ts10,
+            power: 75_000000,
+        };
+        assert_eq!(250.0, lm_init.compute_energy(&measure).unwrap());
+
+        lm_init.timestamp = ts0 + Duration::from_secs(9);
+        lm_init.power = 80_000000;
+        let ts97 = ts0 + Duration::from_millis(9700);
+        measure = PowerMeasure {
+            timestamp: ts97,
+            power: 63_000000,
+        };
+        assert_eq!(50.05, lm_init.compute_energy(&measure).unwrap());
+
+        lm_init.timestamp = ts0 + Duration::from_secs(15);
+        lm_init.power = 70_000000;
+        let ts19 = ts0 + Duration::from_secs(19);
+        measure = PowerMeasure {
+            timestamp: ts19,
+            power: 71_000000,
+        };
+        assert_eq!(282.0, lm_init.compute_energy(&measure).unwrap());
     }
 }

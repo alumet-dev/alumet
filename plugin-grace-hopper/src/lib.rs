@@ -29,7 +29,7 @@ pub struct Sensor {
     /// Socket associated to the sensor
     socket: u32,
     /// How often value are updated
-    average_interval: Duration,
+    // TODO: average_interval: Duration,*
     /// PathBuf to the file which contain values
     file: PathBuf,
 }
@@ -118,11 +118,16 @@ fn get_sensor_from_dir(entry: DirEntry) -> Result<Option<Sensor>, anyhow::Error>
         return Ok(None);
     }
     let file = File::open(&device_file).context("failed to open the file")?;
-    let (kind, socket) = get_sensor_information_from_file(file)?;
+    let (kind, socket) = get_sensor_information_from_file(&file)?;
+    log::info!(
+        "Power stats interval is {:?}, for sensor {} on socket {:?}",
+        interval,
+        kind,
+        socket
+    );
     Ok(Some(Sensor {
         kind,
         socket,
-        average_interval: interval,
         file: device_file,
     }))
 }
@@ -135,8 +140,8 @@ fn get_sensor_from_dir(entry: DirEntry) -> Result<Option<Sensor>, anyhow::Error>
 /// Returns a [Result] containing a tuple `(String, u32)` on success
 /// - The first element of the tuple (`String`) represents the sensor type (e.g., "grace", "cpu").
 /// - The second element (`u32`) represents the associated socket number.
-fn get_sensor_information_from_file(file: File) -> Result<(String, u32), anyhow::Error> {
-    let reader = io::BufReader::new(&file);
+fn get_sensor_information_from_file(file: &File) -> Result<(String, u32), anyhow::Error> {
+    let reader = io::BufReader::new(file);
     let mut lines = reader.lines();
     let kind: String;
     let socket: u32;
@@ -187,8 +192,8 @@ mod tests {
     use super::*;
     use crate::GraceHopperPlugin;
     use anyhow::Result;
-    use std::fs::File;
-    use std::io::Write;
+    use std::fs::{File, OpenOptions};
+    use std::io::{Seek, Write};
     use std::time::Duration;
     use tempfile::tempdir;
 
@@ -221,7 +226,7 @@ mod tests {
             let file = File::open(&file_path)
                 .context("Failed to open the file")
                 .expect("Can't open the file when testing");
-            let result = get_sensor_information_from_file(file);
+            let result = get_sensor_information_from_file(&file);
             assert!(result.is_ok(), "Expected Ok for input '{}'", line);
             let sensor_struct = result.unwrap();
             // Check content
@@ -275,5 +280,127 @@ mod tests {
         let mut plugin = fake_grace_hopper_plugin();
         let result = plugin.stop();
         assert!(result.is_ok(), "Stop should complete without errors.");
+    }
+
+    #[test]
+    fn test_get_sensor_from_dir_not_dir() {
+        let root = tempdir().unwrap();
+        let root_path = root.path();
+        let file_path = root.path().join("Clara_Oswald");
+        let mut _file = File::create(&file_path).unwrap();
+        // std::thread::sleep(Duration::from_secs(30));
+
+        let entries = fs::read_dir(root_path).unwrap();
+        for entry in entries {
+            let result = get_sensor_from_dir(entry.unwrap());
+            match result {
+                Ok(_) => assert!(false),
+                Err(e) => {
+                    assert_eq!(e.to_string(), "path is not a directory");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_get_sensor_from_dir_missing_file_interval() {
+        let root = tempdir().unwrap();
+        let root_path = root.path();
+        let file_path_info = root_path.join("mySensor/device/power1_oem_info");
+        let file_path_average = root_path.join("mySensor/device/power1_average");
+        std::fs::create_dir_all(file_path_info.parent().unwrap()).unwrap();
+        let mut file = File::create(&file_path_info).unwrap();
+        let mut file_avg = File::create(&file_path_average).unwrap();
+        writeln!(file, "Module Power Socket 0").unwrap();
+        writeln!(file_avg, "123456789").unwrap();
+
+        let entries = fs::read_dir(root_path).unwrap();
+        for entry in entries {
+            let Ok(entry) = entry else { continue };
+            let result = get_sensor_from_dir(entry);
+            match result {
+                Ok(sensor) => {
+                    assert_eq!("Module", sensor.as_ref().unwrap().kind);
+                    assert_eq!(0, sensor.as_ref().unwrap().socket);
+                    assert_eq!(file_path_info, sensor.as_ref().unwrap().file);
+                }
+                Err(_) => assert!(false),
+            }
+        }
+    }
+
+    #[test]
+    fn test_get_sensor_from_dir_missing_file_device() {
+        let root = tempdir().unwrap();
+        let root_path = root.path();
+        let file_path_average = root_path.join("mySensor/device/power1_average");
+        std::fs::create_dir_all(file_path_average.parent().unwrap()).unwrap();
+        let mut file_avg = File::create(&file_path_average).unwrap();
+        writeln!(file_avg, "11558822").unwrap();
+
+        let entries = fs::read_dir(root_path).unwrap();
+        for entry in entries {
+            let Ok(entry) = entry else { continue };
+            let result = get_sensor_from_dir(entry);
+            match result {
+                Ok(sensor) => {
+                    assert!(sensor.is_none());
+                }
+                Err(_) => assert!(false),
+            }
+        }
+    }
+
+    #[test]
+    fn test_get_sensor_information_from_file() {
+        let root = tempdir().unwrap();
+        let root_path = root.path();
+        let file_average = root_path.join("myFile");
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(&file_average)
+            .unwrap();
+
+        // Check for correct parsing
+        writeln!(file, "Grace Power Socket 3").unwrap();
+        file.rewind().expect("Can't rewind to the beginning of a stream");
+        let (kind, socket) = get_sensor_information_from_file(&file).unwrap();
+        assert_eq!("Grace", kind);
+        assert_eq!(3, socket);
+
+        // Check error when trying to parse line with missing informations
+        file.set_len(0).expect("Can't set the file size to 0");
+        writeln!(file, "Grace Power 3").unwrap();
+        file.rewind().expect("Can't rewind to the beginning of a stream");
+        let res = get_sensor_information_from_file(&file);
+        match res {
+            Ok(_) => assert!(false),
+            Err(e) => {
+                assert!(e.to_string().contains("can't parse the content of the file: "));
+            }
+        }
+
+        // Check error when trying to parse empty file
+        file.set_len(0).expect("Can't set the file size to 0");
+        let res = get_sensor_information_from_file(&file);
+        match res {
+            Ok(_) => assert!(false),
+            Err(e) => {
+                assert_eq!(e.to_string(), "failed to read the line from file");
+            }
+        }
+
+        // Check error when trying to parse file with more than one line
+        writeln!(file, "Grace Power Socket 3\n another line").unwrap();
+        file.rewind().expect("Can't rewind to the beginning of a stream");
+        let res = get_sensor_information_from_file(&file);
+        match res {
+            Ok(_) => assert!(false),
+            Err(e) => {
+                assert!(e.to_string().contains(", there is at least one line too many"));
+            }
+        }
     }
 }
