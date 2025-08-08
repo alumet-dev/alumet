@@ -96,7 +96,7 @@ builtins.quarch_device = device
         )?;
         py.run(&code, None, Some(&locals))?;
 
-        log::info!("Successfully started Quarch measurement");
+        log::info!("Successfully started quarch measurement");
         Ok(())
     })
 }
@@ -175,7 +175,7 @@ mod tests {
 
     #[test]
     fn test_get_quarch_measurement_invalid_ip() {
-        let ip = IpAddr::from_str("256.256.256.256"); // IP invalide
+        let ip = IpAddr::from_str("256.256.256.256"); // invalid IP
         assert!(ip.is_err());
     }
 }

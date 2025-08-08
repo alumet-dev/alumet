@@ -13,7 +13,7 @@ shift
 IFS=',' read -ra PLUGINS <<< "$1"
 shift
 
-# By default, add always "quarch" at the beggining
+# By default, add always "quarch" at the beginning
 PLUGIN_LIST="quarch"
 for p in "${PLUGINS[@]}"; do
   [[ "$p" != "quarch" ]] && PLUGIN_LIST+=",${p}"
