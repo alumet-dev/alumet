@@ -8,6 +8,7 @@ use super::points::{error_point, panic_point};
 use alumet::measurement::{MeasurementAccumulator, MeasurementBuffer, Timestamp};
 use alumet::pipeline::elements::error::PollError;
 use alumet::pipeline::elements::output::{OutputContext, WriteError};
+use alumet::pipeline::elements::source::control::TaskState;
 use alumet::pipeline::elements::source::{builder::ManagedSource, trigger::TriggerSpec};
 use alumet::pipeline::elements::transform::{TransformContext, TransformError};
 use alumet::pipeline::{Output, Source, Transform};
@@ -51,6 +52,7 @@ impl AlumetPlugin for BadPlugin {
             .add_source_builder("source1", |_| {
                 error_point!(source1_build);
                 Ok(ManagedSource {
+                    initial_state: TaskState::Run,
                     trigger_spec: TriggerSpec::at_interval(Duration::from_millis(100)),
                     source: Box::new(BadSource1),
                 })
@@ -82,6 +84,7 @@ impl AlumetPlugin for BadPlugin {
         let create_source2 = request::create_one().add_source_builder("source2", |_| {
             error_point!(source2_build);
             Ok(ManagedSource {
+                initial_state: TaskState::Run,
                 trigger_spec: TriggerSpec::at_interval(Duration::from_millis(100)),
                 source: Box::new(BadSource2),
             })
@@ -89,6 +92,7 @@ impl AlumetPlugin for BadPlugin {
         let create_source3 = request::create_one().add_source_builder("source3", |_| {
             error_point!(source3_build);
             Ok(ManagedSource {
+                initial_state: TaskState::Run,
                 trigger_spec: TriggerSpec::at_interval(Duration::from_millis(100)),
                 source: Box::new(BadSource3),
             })

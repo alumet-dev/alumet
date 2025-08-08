@@ -10,6 +10,7 @@ use crate::{
     },
 };
 
+use super::control::TaskState;
 use super::interface::{AutonomousSource, Source};
 use super::trigger::TriggerSpec;
 
@@ -26,6 +27,7 @@ use super::trigger::TriggerSpec;
 /// use std::time::Duration;
 /// use alumet::pipeline::elements::source::builder::{ManagedSource, ManagedSourceBuilder, ManagedSourceBuildContext};
 /// use alumet::pipeline::elements::source::trigger;
+/// use alumet::pipeline::elements::source::control::TaskState;
 /// use alumet::pipeline::Source;
 ///
 /// fn build_my_source() -> anyhow::Result<Box<dyn Source>> {
@@ -35,6 +37,7 @@ use super::trigger::TriggerSpec;
 /// let builder: &dyn ManagedSourceBuilder = &|ctx: &mut dyn ManagedSourceBuildContext| {
 ///     let source = build_my_source()?;
 ///     Ok(ManagedSource {
+///         initial_state: TaskState::Run,
 ///         trigger_spec: trigger::TriggerSpec::at_interval(Duration::from_secs(1)),
 ///         source,
 ///     })
@@ -139,6 +142,7 @@ impl std::fmt::Debug for SendSourceBuilder {
 
 /// Information required to register a new managed source to the measurement pipeline.
 pub struct ManagedSource {
+    pub initial_state: TaskState,
     pub trigger_spec: TriggerSpec,
     pub source: Box<dyn Source>,
 }

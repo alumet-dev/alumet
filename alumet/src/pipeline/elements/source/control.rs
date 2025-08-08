@@ -80,7 +80,7 @@ pub(super) enum Reconfiguration {
 /// State of a (managed) source task.
 #[derive(Clone, Debug, PartialEq, Eq, Copy, IntoPrimitive, FromPrimitive)]
 #[repr(u8)]
-pub(super) enum TaskState {
+pub enum TaskState {
     Run,
     Pause,
     #[num_enum(default)]
@@ -274,7 +274,12 @@ impl TaskManager {
                 let mut source = build(ctx).context("managed source creation failed")?;
 
                 // Apply constraints on the source trigger
-                log::trace!("New managed source: {} with spec {:?}", name, source.trigger_spec);
+                log::trace!(
+                    "New managed source: {} with spec {:?} and initial state {:?}",
+                    name,
+                    source.trigger_spec,
+                    source.initial_state
+                );
                 source.trigger_spec.constrain(&self.trigger_constraints);
                 log::trace!("spec after constraints: {:?}", source.trigger_spec);
 
@@ -296,7 +301,7 @@ impl TaskManager {
                 log::trace!("new trigger created from the spec");
 
                 // Create a controller to control the async task.
-                let (controller, config) = super::task_controller::new_managed(trigger);
+                let (controller, config) = super::task_controller::new_managed(trigger, source.initial_state);
                 self.controllers.push((name.clone(), controller));
                 log::trace!("new controller initialized");
 

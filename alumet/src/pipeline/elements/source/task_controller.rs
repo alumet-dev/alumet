@@ -32,11 +32,14 @@ pub struct SharedSourceConfig {
     pub manual_trigger: Option<ManualTrigger>,
 }
 
-pub fn new_managed(initial_trigger: Trigger) -> (SingleSourceController, Arc<SharedSourceConfig>) {
+pub fn new_managed(
+    initial_trigger: Trigger,
+    initial_state: TaskState,
+) -> (SingleSourceController, Arc<SharedSourceConfig>) {
     let manual_trigger = initial_trigger.manual_trigger();
     let config = Arc::new(SharedSourceConfig {
         change_notifier: Notify::new(),
-        atomic_state: AtomicU8::new(TaskState::Run as u8),
+        atomic_state: AtomicU8::new(initial_state as u8),
         new_trigger: Mutex::new(Some(initial_trigger)),
         manual_trigger,
     });

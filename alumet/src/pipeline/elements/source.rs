@@ -1,7 +1,7 @@
 //! Implementation and control of source tasks.
 
 pub mod builder;
-pub(crate) mod control;
+pub mod control;
 pub mod error;
 pub mod interface;
 pub mod run;
