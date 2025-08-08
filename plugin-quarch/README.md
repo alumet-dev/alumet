@@ -2,8 +2,8 @@
 
 ## Requirements
 
-- Have a account on Grid'5000.
-- Have the debian file of Alumet, `scripts-configuration.txt`, `set.sh`, `run.sh`, and `exec.sh` file in the same folder on your computer.
+- Have an account on Grid'5000.
+- Have the Debian file of Alumet, `scripts-configuration.txt`, `set.sh`, `run.sh`, and `exec.sh` file in the same folder on your computer.
 
 ## Metrics
 
@@ -18,7 +18,7 @@ Here are examples of the metrics collected by the plugin source.
 
 ## Configuration
 
-Here is a configuration example of the plugin. It's part of the Alumet configuration file (eg: `alumet-config.toml`).
+Here is a configuration example of the plugin. It's part of the Alumet configuration file (e.g., `alumet-config.toml`).
 
 ```toml
 [plugins.quarch]
@@ -31,13 +31,13 @@ flush_interval = "5s"
 
 ## Usage
 
-### Inital commands
+### Initial commands
 
-``` bash
+```bash
 # Example on how to put the files on g5k
 $ scp -r -i `ssh_key_g5k` `repo with the files` grenoble.g5k:/home/login/
 
-# To set up node yeti-x :
+# To set up node yeti-x:
 login@fgrenoble$ ./set.sh yeti-x
 
 # Every time you want to exec alumet:
@@ -48,10 +48,11 @@ login@fgrenoble$ ./run.sh yeti-x
 
 # If you need, you can access node by
 login@fgrenoble$ ssh root@yeti-x
-``` 
+```
+
 ### Outputs examples
 
-``` bash
+```bash
 login@fgrenoble$ ./set.sh yeti-4
 # Include exotic resources in the set of reservable resources (this does NOT exclude non-exotic resources).
 OAR_JOB_ID=2522461
@@ -67,10 +68,11 @@ Deploying environment on yeti-4 with kadeploy...
 ...
 Setting up node yeti-4...
 ...
-... # Dowloading tools the plugin needs on yeti-4
+... # Downloading tools the plugin needs on yeti-4
 ...
-``` 
-``` bash
+```
+
+```bash
 login@fgrenoble$ ./exec.sh yeti-3 csv sleep 10
 Do you want to keep the current config for the result directory?
 -----
@@ -94,14 +96,15 @@ PLUGIN_LIST: quarch,csv
 COMMAND_TO_EXEC: sleep 10
 [2025-08-07T13:28:59Z INFO  alumet_agent] Starting Alumet agent 'alumet-agent' v0.8.4-a4c62a2-dirty (2025-08-07T09:45:00.904535984Z, rustc 1.81.0, debug=false)
 ...
-... #Alumet execution
+... # Alumet execution
     📥 1 source, 🔀 0 transform and 📝 1 output registered.
 ...
- Gathering experiment results...
+Gathering experiment results...
 alumet-output.csv                                          100% 1562   466.4KB/s   00:00
- Done.
+Done.
 ```
-``` bash
+
+```bash
 login@fgrenoble$ ./run.sh yeti-3 csv
 Do you want to keep the current config for the result directory?
 -----
@@ -109,7 +112,7 @@ Do you want to keep the current config for the result directory?
 -----
 Use this config? [Y/n] y
 [2025-08-07T13:30:27Z INFO  alumet_agent] Starting Alumet agent 'alumet-agent' v0.8.4-a4c62a2-dirty (2025-08-07T09:45:00.904535984Z, rustc 1.81.0, debug=false)
-[2025-08-07T13:30:27Z WARN  plugin_cgroupv2::k8s::plugin] Error : Path '/sys/fs/cgroup/kubepods.slice/' not exist.
+[2025-08-07T13:30:27Z WARN  plugin_cgroupv2::k8s::plugin] Error: Path '/sys/fs/cgroup/kubepods.slice/' does not exist.
 [2025-08-07T13:30:27Z INFO  alumet_agent] Default configuration file written to: /etc/alumet/alumet-config.toml
 Do you want to keep the current config for alumet?
 -----
@@ -127,13 +130,12 @@ PLUGIN_LIST: quarch,csv
 ... # Alumet execution
     📥 1 source, 🔀 0 transform and 📝 1 output registered.
 ^C
-
- Gathering experiment results...
+Gathering experiment results...
 alumet-output.csv                                          100%  573   226.9KB/s   00:00
- Done.
+Done.
 ```
 
-### Getting datas
+### Getting data
 
 wget pour recup ??
 
