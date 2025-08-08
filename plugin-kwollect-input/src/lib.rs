@@ -21,7 +21,6 @@ use serde_json::Value;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use time::OffsetDateTime;
-use tokio::task;
 
 mod kwollect;
 mod source;
@@ -194,26 +193,16 @@ fn build_kwollect_url(config: &Config, start: &DateTime<FixedOffset>, end: &Date
 }
 
 /// Performs an asynchronous HTTP GET request with basic authentication to the provided URL and returns the parsed JSON response.
-async fn fetch_data_async(url: &str, config: &Config) -> Result<Value, anyhow::Error> {
-    let client = reqwest::Client::new();
+fn fetch_data(url: &str, config: &Config) -> Result<Value, anyhow::Error> {
+    let client = reqwest::blocking::Client::new();
     let response = client
         .get(url)
         .basic_auth(&config.login, Some(&config.password))
         .send()
-        .await
         .context("Failed to send HTTP request")?;
-    let response_text = response.text().await.context("Failed to read response text")?;
+    let response_text = response.text().context("Failed to read response text")?;
     let data: Value = serde_json::from_str(&response_text).context("Failed to parse JSON")?;
     Ok(data)
-}
-
-/// Synchronous function that creates a Tokio runtime and uses block_on to run the asynchronous fetch_data_async function
-// Useful to integrate asynchronous operations into a synchronous context (exec.rs)
-fn fetch_data(url: &str, config: &Config) -> Result<Value, anyhow::Error> {
-    task::block_in_place(|| {
-        let runtime = tokio::runtime::Runtime::new().context("Failed to create Tokio runtime")?;
-        runtime.block_on(fetch_data_async(url, config))
-    })
 }
 
 /// A structure that stores the configuration parameters necessary to interact with the Grid'5000 API (to build the request)
