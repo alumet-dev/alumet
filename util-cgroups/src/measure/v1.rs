@@ -112,7 +112,6 @@ mod tests {
         assert!(v1_collector.memory_usage.is_some());
 
         let res = v1_collector.measure(&mut buf);
-        assert!(res.is_ok());
         let collector = res.unwrap();
         assert_eq!(collector.cpuacct_usage, Some(15));
         assert_eq!(collector.memory_usage, Some(19));
