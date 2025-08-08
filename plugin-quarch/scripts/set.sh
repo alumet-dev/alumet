@@ -39,10 +39,9 @@ setup_node() {
         /root/venv-quarchpy/bin/pip install --upgrade quarchpy
     "
 
-    # Exécution fix_perm dans le venv
     #ssh root@${hostname} "/root/venv-quarchpy/bin/python -m quarchpy.run fix_perm"
 
-    # Montage du disque (idem)
+    # Mount of the disk
     ssh root@${hostname} "
         if [ -b /dev/nvme1n1 ]; then
             if [ ! -b /dev/nvme1n1p1 ]; then
