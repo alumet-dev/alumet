@@ -42,4 +42,4 @@ cargo build --release -p "alumet-agent" --bins --all-features
 
 The binary was finally created and is located in your ALUMET repository in "../target/release/alumet-agent" folder. To start correctly ALUMET program on the machine intended to collect NVIDIA GPU metrics, we need to install nvidia-driver on system, and just run the binary `alumet-agent`.
 
-Also, to be able to see the parameters of complex tasks like the streaming multiprocessors, and especially the video decoding and encoding activities on your GPU, you can use the `ffmpeg` software with a video file, or an NVIDIA benchmark (<https://catalog.ngc.nvidia.com/orgs/nvidia/containers/hpc-benchmarks>). 
+Also, to be able to see the parameters of complex tasks like the streaming multiprocessors, and especially the video decoding and encoding activities on your GPU, you can use the `ffmpeg` software with a video file, or an NVIDIA benchmark (<https://catalog.ngc.nvidia.com/orgs/nvidia/containers/hpc-benchmarks>).
