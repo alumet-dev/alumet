@@ -3,7 +3,7 @@
 ## Requirements
 
 - Have a account on Grid'5000.
-- Have the debian file of Alumet, `set.sh`, `run.sh`, and `exec.sh` file in the same folder on your computer.
+- Have the debian file of Alumet, `scripts-configuration.txt`, `set.sh`, `run.sh`, and `exec.sh` file in the same folder on your computer.
 
 ## Metrics
 
