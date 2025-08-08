@@ -46,6 +46,7 @@ impl AlumetPlugin for QuarchPlugin {
             flush_interval: config.flush_interval,
             metric_ids: Vec::new(),
         };
+        pyo3::prepare_freethreaded_python(); // to force init of python interpretor
         Ok(Box::new(QuarchPlugin {
             config: Arc::new(Mutex::new(parsed_config)),
         }))
