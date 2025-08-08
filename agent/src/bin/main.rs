@@ -55,7 +55,7 @@ fn load_plugins_metadata() -> Vec<PluginMetadata> {
             plugin_nvidia_nvml::NvmlPlugin,
             plugin_process_to_cgroup_bridge::ProcessToCgroupBridgePlugin,
             plugin_nvidia_jetson::JetsonPlugin,
-	    plugin_quarch::QuarchPlugin,
+            plugin_quarch::QuarchPlugin,
         ]);
     }
 
