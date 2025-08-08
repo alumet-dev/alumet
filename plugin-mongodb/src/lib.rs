@@ -175,7 +175,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             host: String::from("localhost"),
-            port: 27017 as u16,
+            port: 27017,
             database: String::from("FILL ME"),
             collection: String::from("FILL ME"),
             username: Some(String::from("FILL ME")),
