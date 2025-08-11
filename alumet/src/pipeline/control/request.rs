@@ -22,7 +22,7 @@ pub mod any;
 mod create;
 pub(super) mod introspect;
 mod output;
-mod source;
+pub mod source;
 mod transform;
 
 pub use create::{create_many, create_one, CreationRequest, MultiCreationRequestBuilder, SingleCreationRequestBuilder};

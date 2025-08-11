@@ -11,6 +11,7 @@ use crate::metrics::online::{MetricReader, MetricSender};
 use crate::metrics::registry::MetricRegistry;
 use crate::pipeline::control::key::{OutputKey, SourceKey, TransformKey};
 use crate::pipeline::elements::source::builder::{ManagedSource, SourceBuilder};
+use crate::pipeline::elements::source::control::TaskState;
 use crate::pipeline::elements::source::trigger::TriggerSpec;
 use crate::pipeline::elements::{output, source, transform};
 use crate::pipeline::naming::{namespace::DuplicateNameError, PluginName};
@@ -112,7 +113,23 @@ impl<'a> AlumetPluginStart<'a> {
         source: Box<dyn Source>,
         trigger_spec: TriggerSpec,
     ) -> Result<SourceKey, DuplicateNameError> {
-        self.add_source_builder(name, |_| Ok(ManagedSource { trigger_spec, source }))
+        self.add_source_with_state(name, source, TaskState::Run, trigger_spec)
+    }
+
+    pub fn add_source_with_state(
+        &mut self,
+        name: &str,
+        source: Box<dyn Source>,
+        initial_state: TaskState,
+        trigger_spec: TriggerSpec,
+    ) -> Result<SourceKey, DuplicateNameError> {
+        self.add_source_builder(name, move |_| {
+            Ok(ManagedSource {
+                trigger_spec,
+                initial_state,
+                source,
+            })
+        })
     }
 
     /// Adds the builder of a _managed_ measurement source to the Alumet pipeline.

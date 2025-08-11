@@ -74,6 +74,32 @@ pub(crate) async fn run_managed(
     // by the control loop.
     let config_change = &config.change_notifier;
 
+    let mut run = false;
+    while !run {
+        let initial_state = config.atomic_state.load(Ordering::Relaxed);
+        match initial_state.into() {
+            TaskState::Run => {
+                run = true; // start the main loop
+            }
+            TaskState::Pause => {
+                let pause_timeout = tokio::time::Duration::from_secs(60); // todo: make it configurable
+                if let Err(_) = tokio::time::timeout(pause_timeout, config_change.notified()).await {
+                    log::info!(
+                        "Source {source_name} has been started in Pause state and not be resumed in {:?} - Stopping it",
+                        pause_timeout
+                    );
+                    return Ok(());
+                }
+            }
+            TaskState::Stop => {
+                return Err(PipelineError::for_element(
+                    source_name.clone(),
+                    anyhow::anyhow!("Cannot start {source_name} source in Stop mode"),
+                ));
+            }
+        }
+    }
+
     // main loop
     let mut i = 1usize;
     'run: loop {
