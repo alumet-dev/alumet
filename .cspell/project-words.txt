@@ -1,5 +1,5 @@
-alumet
 alpes
+alumet
 ASCIINEMA
 astring
 Atos
@@ -7,8 +7,8 @@ Burstable
 cbindgen
 cdylib
 cgroup
-Cgroups
 cgroupfs
+Cgroups
 cgroupv
 cguest
 CNRS
@@ -25,15 +25,17 @@ hwmon
 indice
 ITLB
 kwollect
-Mispredicted
 miri
+Mispredicted
 monitorable
 mpoint
+niced
 NVML
 pagetables
 PERFMON
 POWERCAP
 psys
+ptraceable
 Raffin
 RAPL
 regen
