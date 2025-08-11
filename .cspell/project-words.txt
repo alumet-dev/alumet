@@ -40,6 +40,8 @@ Raffin
 RAPL
 regen
 rustfmt
+sagittaire
+servan
 slurm
 slurmstep
 slurmstepd

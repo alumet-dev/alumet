@@ -85,6 +85,13 @@ mod labels {
                     AttributeValue::U64(u) => Value::Number(serde_json::Number::from(*u)),
                     AttributeValue::Str(s) => Value::String(s.to_string()),
                     AttributeValue::String(s) => Value::String(s.clone()),
+                    AttributeValue::ListU64(list) => {
+                        let list_as_vec: Vec<Value> = list
+                            .iter()
+                            .map(|u| Value::Number(serde_json::Number::from(*u)))
+                            .collect();
+                        Value::Array(list_as_vec)
+                    }
                 };
                 (k.clone(), json_val)
             })
