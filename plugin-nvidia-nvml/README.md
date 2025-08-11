@@ -1,29 +1,34 @@
 # NVIDIA NVML GPU plugin
 
-The `plugin-nvidia-nvml` allows to detect GPUs based on NVIDIA architecture installed on a machine, measures them utilization, and retrieves various metrics about each of them.
+The `plugin-nvidia-nvml` allows to detect GPUs based on NVIDIA architecture installed on a machine, measures there utilization, and retrieves various metrics about each of them.
+
+## Requirements
+
+To be able to run the NVML library, it is required to have previously installed NVIDIA drivers on your equipment, and have access to them:
+<https://www.nvidia.com/fr-fr/drivers/unix/>
 
 ## Metrics
 
 Here are the metrics collected by the plugin source.
 
-|Name|Type|Unit|Description|
-|----|----|----|-----------|
-|`total_energy_consumption`|Counter Diff|MilliJoule|Calculates the average between 2 measurement point base on the consumed energy since the last boot|
-|`instant_power`|u64|Watt|Calculates the electrical power instantly consumed|
-|`temperature_gpu`|u64|Celsius|Retrieves the main temperature emitted by a given device.|
-|`major_utilization_gpu`|u64|Percentage|GPU rate utilization|
-|`major_utilization_memory`|u64|Percentage|GPU memory utilization|
-|`decoder_utilization`|u64|Percentage|GPU video decoding property|
-|`decoder_sampling_period_us`|u64|microSeconds|Get the current utilization and sampling size for the decoder GPU unit|
-|`encoder_utilization`|u64|Percentage|GPU video encoding property|
-|`encoder_sampling_period_us`|u64|microSeconds|Get the current utilization and sampling size for the encoder GPU unit|
-|`sm_utilization`|u64|Percentage|Time consumed by the streaming multiprocessors of a GPU (3D task and rendering, etc...)|
-|`running_compute_processes`|u64|Percentage|Relevant currently running computing processes data|
-|`running_graphics_processes`|u64|Percentage|Relevant currently running graphical processes data|
+|Name|Type|Unit|Description|Ressource|RessourceConsumer|Attributes|
+|----|----|----|-----------|---------|-----------------|----------|
+|`nvml_energy_consumption`|Counter Diff|Joule|Calculates the average between 2 measurement point base on the consumed energy since the last boot|GPU|LocalMachine||
+|`nvml_instant_power`|Gauge|milliWatt|Calculates the electrical power instantly consumed|GPU|LocalMachine||
+|`nvml_temperature_gpu`|Gauge|Celsius|Retrieves the main temperature emitted by a given device|GPU|LocalMachine||
+|`nvml_gpu_utilization`|Gauge|Percentage|GPU rate utilization|GPU|LocalMachine||
+|`nvml_encoder_sampling_period`|Gauge|microSeconds|Get the current utilization and sampling size for the decoder|GPU|LocalMachine||
+|`nvml_encoder_sampling_period`|Gauge|microSeconds|Get the current utilization and sampling size for the encoder|GPU|LocalMachine||
+|`nvml_n_compute_processes`|Gauge|None|Relevant currently running computing processes data|GPU|LocalMachine||
+|`nvml_n_graphic_processes`|Gauge|None|Relevant currently running graphical processes data|GPU|LocalMachine||
+|`nvml_memory_utilization`|Gauge|Percentage|Utilization of the GPU memory by a process|Process|LocalMachine||
+|`encoder_utilization`|Gauge|Percentage|Utilization of the GPU video encoder by a process|Process|LocalMachine||
+|`decoder_utilization`|Gauge|Percentage|Utilization of the GPU video decoder by a process|Process|LocalMachine||
+|`sm_utilization`|Gauge|Percentage|Utilization of the GPU streaming multiprocessors by a process (3D task and rendering, etc...)|Process|LocalMachine||
 
 ## Configuration
 
-Here is a configuration example of the NVML NVIDIA plugin. It's part of the ALUMET configuration file (eg: `alumet-config.toml`).
+Here is a configuration example of the plugin. It's part of the ALUMET configuration file (eg: `alumet-config.toml`).
 
 ```rust
 [plugins.nvml]
@@ -33,13 +38,4 @@ flush_interval = "5s"
 
 ## More information
 
-We can compiling ALUMET to generate the usable **alumet-agent** binary file, without other requirements that the `nvml` Rust crate.
-
-```bash
-cd alumet/agent/
-cargo build --release -p "alumet-agent" --bins --all-features
-```
-
-The binary was finally created and is located in your ALUMET repository in "../target/release/alumet-agent" folder. To start correctly ALUMET program on the machine intended to collect NVIDIA GPU metrics, we need to install nvidia-driver on system, and just run the binary `alumet-agent`.
-
-Also, to be able to see the parameters of complex tasks like the streaming multiprocessors, and especially the video decoding and encoding activities on your GPU, you can use the `ffmpeg` software with a video file, or an NVIDIA benchmark (<https://catalog.ngc.nvidia.com/orgs/nvidia/containers/hpc-benchmarks>).
+To be able to see all metrics, included those concerning complex tasks like the streaming multiprocessors, and especially the video decoding and encoding activities on your GPU, you can use the `ffmpeg` software with a video file, or an NVIDIA benchmark (<https://catalog.ngc.nvidia.com/orgs/nvidia/containers/hpc-benchmarks>).
