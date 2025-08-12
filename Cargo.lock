@@ -1718,17 +1718,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "io-uring"
-version = "0.7.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d93587f37623a1a17d94ef2bc9ada592f5465fe7732084ab7beefabe5c77c0c4"
-dependencies = [
- "bitflags 2.9.0",
- "cfg-if",
- "libc",
-]
-
-[[package]]
 name = "ipconfig"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2542,6 +2531,30 @@ dependencies = [
  "tokio",
  "tokio-util",
 ]
+[[package]]
+name = "plugin-cgroup"
+version = "0.1.0"
+dependencies = [
+ "alumet",
+ "anyhow",
+ "base64 0.22.1",
+ "env_logger",
+ "hostname",
+ "humantime-serde",
+ "log",
+ "mockito",
+ "pretty_assertions",
+ "regex",
+ "reqwest",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.14",
+ "tokio",
+ "toml 0.8.23",
+ "util-cgroups",
+]
 
 [[package]]
 name = "plugin-csv"
@@ -3214,7 +3227,7 @@ dependencies = [
  "proc-macro2",
  "pyo3-macros-backend",
  "quote",
- "syn 2.0.100",
+ "syn 2.0.104",
 ]
 
 [[package]]
@@ -3227,7 +3240,7 @@ dependencies = [
  "proc-macro2",
  "pyo3-build-config",
  "quote",
- "syn 2.0.100",
+ "syn 2.0.104",
 ]
 
 [[package]]

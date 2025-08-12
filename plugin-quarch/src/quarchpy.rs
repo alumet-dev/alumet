@@ -1,4 +1,4 @@
-// HERE IT IS JUST LIKE PERF_EVENTS, but for the disk so its pyo3
+// Implementation of a source for quarch
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
@@ -6,7 +6,6 @@ use alumet::{
     resources::{Resource, ResourceConsumer},
 };
 use anyhow::{anyhow, Result};
-use log;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use std::{ffi::CString, net::IpAddr};
@@ -19,11 +18,11 @@ pub struct MeasureQuarch {
 pub struct QuarchSource {
     quarch_ip: IpAddr,
     quarch_port: u16,
-    metric: Vec<TypedMetricId<f64>>,
+    metric: TypedMetricId<f64>,
 }
 
 impl QuarchSource {
-    pub fn new(ip: IpAddr, port: u16, metric: Vec<TypedMetricId<f64>>) -> Self {
+    pub fn new(ip: IpAddr, port: u16, metric: TypedMetricId<f64>) -> Self {
         QuarchSource {
             quarch_ip: ip,
             quarch_port: port,
@@ -39,18 +38,15 @@ impl Source for QuarchSource {
         match get_quarch_measurement(&self.quarch_ip, self.quarch_port) {
             Ok(data) => {
                 log::debug!("Fetched data: {:?}", data);
-
-                for metric in &self.metric {
-                    let value = data.power;
-                    let point = MeasurementPoint::new(
-                        timestamp,
-                        *metric,
-                        Resource::LocalMachine,
-                        ResourceConsumer::LocalMachine,
-                        value,
-                    );
-                    measurements.push(point);
-                }
+                let value = data.power;
+                let point = MeasurementPoint::new(
+                    timestamp,
+                    self.metric,
+                    Resource::LocalMachine,
+                    ResourceConsumer::LocalMachine,
+                    value,
+                );
+                measurements.push(point);
             }
             Err(e) => {
                 log::error!("Fetch error: {}", e);
