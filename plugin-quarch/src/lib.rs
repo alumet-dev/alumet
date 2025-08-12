@@ -1,3 +1,5 @@
+// This file contains the main implementation of the Quarch plugin for Alumet.
+
 use alumet::{
     pipeline::elements::source::trigger,
     plugin::{
@@ -18,6 +20,7 @@ pub struct QuarchPlugin {
     config: Config,
 }
 
+/// Implementation of Quarch plugin as an Alumet plugin
 impl AlumetPlugin for QuarchPlugin {
     fn name() -> &'static str {
         "quarch"
@@ -48,6 +51,7 @@ impl AlumetPlugin for QuarchPlugin {
             return Err(e);
         }
 
+        // We create a Source for Quarch
         let source = QuarchSource::new(self.config.quarch_ip, self.config.quarch_port, metric_id);
 
         let trigger = trigger::builder::time_interval(self.config.poll_interval)

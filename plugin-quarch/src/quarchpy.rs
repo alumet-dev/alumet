@@ -1,4 +1,5 @@
-// Implementation of a source for quarch
+// This file implements the source functionality for the Quarch input plugin.
+
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
@@ -39,6 +40,7 @@ impl Source for QuarchSource {
             Ok(data) => {
                 log::debug!("Fetched data: {:?}", data);
                 let value = data.power;
+                // Creates a Measurement Point from the MeasureQuarch type data
                 let point = MeasurementPoint::new(
                     timestamp,
                     self.metric,
@@ -57,6 +59,7 @@ impl Source for QuarchSource {
     }
 }
 
+/// Start the connection with the module by TCP/IP. It also send commands to the module to init configurations.
 pub fn start_quarch_measurement(ip: &IpAddr, _port: u16) -> Result<()> {
     Python::with_gil(|py| {
         let device_ip = format!("{}", ip);
@@ -97,6 +100,8 @@ builtins.quarch_device = device
     })
 }
 
+/// Used to GET data from the python API.
+/// It gets the current and the voltages and then calculate the power consumption.
 pub fn get_quarch_measurement(ip: &IpAddr, _port: u16) -> Result<MeasureQuarch> {
     Python::with_gil(|py| {
         let device_ip = format!("{}", ip);
