@@ -34,6 +34,7 @@ fn load_plugins_metadata() -> Vec<PluginMetadata> {
         plugin_energy_attribution::EnergyAttributionPlugin,
         plugin_energy_estimation_tdp::EnergyEstimationTdpPlugin,
         plugin_elasticsearch::ElasticSearchPlugin,
+        plugin_kwollect_input::KwollectPluginInput,
         plugin_kwollect_output::KwollectPlugin,
     ];
 
