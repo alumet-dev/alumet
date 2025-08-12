@@ -135,6 +135,6 @@ wget --user="..." --password="..."  -r -np -nH --cut-dirs=1 https://api.grid5000
 
 ## More information
 
-Quarch module commands are absed on the [SCPI](https://www.ivifoundation.org/specifications/default.html)
+Quarch module commands are based on the [SCPI](https://www.ivifoundation.org/specifications/default.html) specification.
 
 Quarch Module is installed on yeti-4 but you can access to it from every node of Grenoble.
