@@ -1,0 +1,16 @@
+[package]
+name = "plugin-process-to-cgroup-bridge"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alumet.workspace = true
+anyhow = "1.0.79"
+log = "*"
+serde = { version = "1.0.198", features = ["derive"] }
+
+[dev-dependencies]
+alumet = { workspace = true, features = ["test"] }
+toml = "0.8.19"
+tempfile = "3.20.0"
+lazy_static = "1.5.0"
