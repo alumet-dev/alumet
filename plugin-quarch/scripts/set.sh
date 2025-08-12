@@ -39,8 +39,6 @@ setup_node() {
         /root/venv-quarchpy/bin/pip install --upgrade quarchpy
     "
 
-    #ssh root@${hostname} "/root/venv-quarchpy/bin/python -m quarchpy.run fix_perm"
-
     # Mount of the disk
     ssh root@${hostname} "
         if [ -b /dev/nvme1n1 ]; then
@@ -72,7 +70,6 @@ setup_node() {
 
     ssh root@${hostname} "grep -qxF '172.17.30.102   qtl2312-01-122' /etc/hosts || echo '172.17.30.102   qtl2312-01-122' | sudo tee -a /etc/hosts"
 
-	#scp python_for_rust.py root@${hostname}:/python_for_rust.py
     scp alumet-agent_0.1.2-1_amd64.deb root@${hostname}:/usr/local/bin/alumet-agent.deb
     check_success "SCP script files"
     ssh root@${hostname} "cd /usr/local/bin; sudo apt install ./alumet-agent.deb"

@@ -2,8 +2,8 @@
 
 source scripts-configuration.txt
 
-if [ $# -lt 3 ]; then
-  echo "Usage: bash $0 HOSTNAME [PLUGIN1,PLUGIN2,...] COMMAND_TO_EXEC [ARGS...]"
+if [ $# -lt 2 ]; then
+  echo "Usage: bash $0 HOSTNAME [PLUGIN1,PLUGIN2,...]"
   exit 1
 fi
 
@@ -47,21 +47,9 @@ else
     CONFIG_ARG="" 
 fi
 
-OUTPUT_FILE="${EXPERIMENT_DIRECTORY}/alumet-output.csv"
-echo "Do you want to keep the current output file name?"
-echo "-----"
-echo "$OUTPUT_FILE"
-echo "-----"
-read -p "Use this output file name? [Y/n] " CONFIRM
-if [[ "$CONFIRM" =~ ^[Nn]$ ]]; then
-    read -p "Enter the new output file name: " CUSTOM_OUTPUT_FILE
-    OUTPUT_FILE="${EXPERIMENT_DIRECTORY}/${CUSTOM_OUTPUT_FILE}"
-fi
-
 echo "PLUGIN_LIST: $PLUGIN_LIST"
 
-ssh root@${HOSTNAME} "source /root/venv-quarchpy/bin/activate && alumet-agent ${CONFIG_ARG} --output-file "${OUTPUT_FILE}" --plugins \"${PLUGIN_LIST}\" run"
-#ssh root@${HOSTNAME} "cd ~ && python3 python_for_rust.py > ${EXPERIMENT_DIRECTORY}/power.log"
+ssh root@${HOSTNAME} "source /root/venv-quarchpy/bin/activate && alumet-agent ${CONFIG_ARG} --plugins \"${PLUGIN_LIST}\" run"
 
 echo -e "\n\n Gathering experiment results..."
 scp -r root@${HOSTNAME}:${EXPERIMENT_DIRECTORY}/* ${EXPERIMENT_DIRECTORY}/
