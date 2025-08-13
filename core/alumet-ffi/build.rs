@@ -79,14 +79,14 @@ fn main() {
 /// - https://github.com/rust-lang/rust/issues/43364
 fn with_rustc_bootstrap<R>(f: impl FnOnce() -> R) -> R {
     let previous_bootstrap = env::var("RUSTC_BOOTSTRAP").ok();
-    env::set_var("RUSTC_BOOTSTRAP", "1");
+    unsafe { env::set_var("RUSTC_BOOTSTRAP", "1") ; }
 
     let res = f();
 
     if let Some(prev) = previous_bootstrap {
-        env::set_var("RUSTC_BOOTSTRAP", prev);
+        unsafe { env::set_var("RUSTC_BOOTSTRAP", prev); }
     } else {
-        env::remove_var("RUSTC_BOOTSTRAP");
+        unsafe { env::remove_var("RUSTC_BOOTSTRAP"); }
     }
 
     res

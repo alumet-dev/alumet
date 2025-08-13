@@ -1,19 +1,19 @@
 [package]
 name = "plugin-influxdb"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 alumet.workspace = true
-anyhow = "1.0.88"
+anyhow.workspace = true
 itertools = "0.14.0"
-log = "0.4.22"
-serde = { version = "1.0.210", features = ["derive"] }
+log.workspace = true
+serde = { workspace = true, features = ["derive"] }
 tokio = { version = "1.40.0", features = ["rt"] }
 
 [dev-dependencies]
 alumet = { workspace = true, features = ["test"] }
-toml = "0.8.19"
+toml.workspace = true
 mockito = "1.7.0"
 
 # Use RusTLS instead of OpenSSL on musl

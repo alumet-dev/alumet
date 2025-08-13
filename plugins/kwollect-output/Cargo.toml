@@ -1,16 +1,16 @@
 [package]
 name = "plugin-kwollect-output"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 alumet.workspace = true
-anyhow = "1.0.98"
+anyhow.workspace = true
 base64 = "0.22.1"
 hostname = "0.4.0"
 humantime-serde = "1.1.1"
-log = "0.4.27"
-serde = { version = "1.0.219", features = ["derive"] }
+log.workspace = true
+serde = { workspace = true, features = ["derive"] }
 serde_json = "1.0.140"
 tokio = "1.45.1"
 
@@ -32,7 +32,7 @@ reqwest = { version = "0.12.15", default-features = false, features = [
 
 [dev-dependencies]
 alumet = { workspace = true, features = ["test"] }
-toml = "0.8.19"
+toml.workspace = true
 mockito = "1.7.0"
 
 [lints]

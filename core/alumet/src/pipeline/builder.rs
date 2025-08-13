@@ -2,7 +2,7 @@
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context};
-use fxhash::FxHashMap;
+use rustc_hash::FxHashMap;
 use tokio::{
     runtime::Runtime,
     sync::{broadcast, mpsc},

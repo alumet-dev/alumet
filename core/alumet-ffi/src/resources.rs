@@ -48,22 +48,22 @@ impl From<FfiConsumerId> for ResourceConsumer {
 
 // TODO find a way to generate these automatically?
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn resource_new_local_machine() -> FfiResourceId {
     Resource::LocalMachine.into()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn resource_new_cpu_package(pkg_id: u32) -> FfiResourceId {
     Resource::CpuPackage { id: pkg_id }.into()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn consumer_new_local_machine() -> FfiConsumerId {
     ResourceConsumer::LocalMachine.into()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn consumer_new_process(pid: u32) -> FfiConsumerId {
     ResourceConsumer::Process { pid }.into()
 }

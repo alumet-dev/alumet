@@ -26,7 +26,7 @@
 //! ```
 
 use core::fmt;
-use fxhash::FxBuildHasher;
+use rustc_hash::FxBuildHasher;
 use ordered_float::OrderedFloat;
 use smallvec::SmallVec;
 use std::borrow::Cow;

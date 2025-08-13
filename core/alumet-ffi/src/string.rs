@@ -99,7 +99,7 @@ impl<'a> NullableAStr<'a> {
 ///
 /// The returned `AString` is a copy of the C string.
 /// To free the `AString`, use [`astring_free`].
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn astring(chars: *const c_char) -> AString {
     let string = unsafe { CStr::from_ptr(chars) }
         .to_str()
@@ -115,17 +115,17 @@ pub unsafe extern "C" fn astring(chars: *const c_char) -> AString {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn astr_copy(astr: AStr) -> AString {
     AString::from(astr.as_str())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn astr_copy_nonnull(astr: NullableAStr) -> AString {
     AString::from(astr.as_str().expect("astr should be non-null for astr_copy_nonnull()"))
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn astr<'a>(chars: *const c_char) -> AStr<'a> {
     let cstring = unsafe { CStr::from_ptr(chars) };
     let str = cstring
@@ -138,7 +138,7 @@ pub unsafe extern "C" fn astr<'a>(chars: *const c_char) -> AStr<'a> {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn astring_ref<'a>(string: AString) -> AStr<'a> {
     let string = ManuallyDrop::new(string);
     AStr {
@@ -149,7 +149,7 @@ pub extern "C" fn astring_ref<'a>(string: AString) -> AStr<'a> {
 }
 
 /// Frees a `AString`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn astring_free(string: AString) {
     drop(string); // see impl Drop for AString
 }

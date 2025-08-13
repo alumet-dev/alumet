@@ -13,7 +13,7 @@ use super::units::FfiUnit;
 use super::{pipeline::FfiSource, string::AStr, NullableDropFn, SourcePollFn};
 use super::{OutputWriteFn, TransformApplyFn};
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn alumet_create_metric(
     alumet: &mut AlumetPluginStart,
     name: AStr,
@@ -30,7 +30,7 @@ pub extern "C" fn alumet_create_metric(
         .unwrap()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn alumet_create_metric_c(
     alumet: &mut AlumetPluginStart,
     name: *const c_char,
@@ -47,7 +47,7 @@ pub unsafe extern "C" fn alumet_create_metric_c(
         .unwrap()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn alumet_add_source(
     alumet: &mut AlumetPluginStart,
     source_data: *mut c_void,
@@ -73,7 +73,7 @@ pub extern "C" fn alumet_add_source(
         .expect("FIXME: the C API only supports one source per plugin for the moment");
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn alumet_add_transform(
     alumet: &mut AlumetPluginStart,
     transform_data: *mut c_void,
@@ -90,7 +90,7 @@ pub extern "C" fn alumet_add_transform(
         .expect("FIXME: the C API only supports one transform per plugin for the moment");
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn alumet_add_output(
     alumet: &mut AlumetPluginStart,
     output_data: *mut c_void,

@@ -105,20 +105,20 @@ pub struct PluginRegistry {
 /// # Declaration in Rust
 /// Declaring such variables and symbols in the Rust language would look like the following:
 /// ```ignore
-/// #[no_mangle]
+/// #[unsafe(no_mangle)]
 /// pub static PLUGIN_NAME: &[u8] = b"my-plugin\0";
-/// #[no_mangle]
+/// #[unsafe(no_mangle)]
 /// pub static PLUGIN_VERSION: &[u8] = b"0.0.1\0";
-/// #[no_mangle]
+/// #[unsafe(no_mangle)]
 /// pub static ALUMET_VERSION: &[u8] = b"0.1.0\0";
 ///
-/// #[no_mangle]
+/// #[unsafe(no_mangle)]
 /// pub extern "C" fn plugin_init(config: &ConfigTable) -> *mut MyPluginStruct {}
-/// #[no_mangle]
+/// #[unsafe(no_mangle)]
 /// pub extern "C" fn plugin_start(plugin: &mut MyPluginStruct, alumet: &mut AlumetPluginStart) {}
-/// #[no_mangle]
+/// #[unsafe(no_mangle)]
 /// pub extern "C" fn plugin_stop(plugin: &mut MyPluginStruct) {}
-/// #[no_mangle]
+/// #[unsafe(no_mangle)]
 /// pub extern "C" fn plugin_drop(plugin: *mut MyPluginStruct) {}
 /// ```
 ///
@@ -146,7 +146,7 @@ pub struct PluginRegistry {
 /// [lib]
 /// crate-type = ["cdylib"]
 /// ```
-/// and to prefix the symbols to export with `#[no_mangle]`, as shown above.
+/// and to prefix the symbols to export with `#[unsafe(no_mangle)]`, as shown above.
 ///
 /// In C, the recommended way to do that is to compile with the following flags:
 /// ```ignore

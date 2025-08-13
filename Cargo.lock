@@ -46,21 +46,21 @@ dependencies = [
  "anyhow",
  "env_logger",
  "futures",
- "fxhash",
  "indoc",
  "libc",
  "log",
  "num_enum",
  "ordered-float",
+ "rustc-hash",
  "serde",
  "serial_test",
  "smallvec",
- "thiserror 1.0.69",
+ "thiserror 2.0.14",
  "tokio",
  "tokio-stream",
  "tokio-timerfd",
  "tokio-util",
- "toml 0.8.23",
+ "toml 0.9.5",
 ]
 
 [[package]]
@@ -104,7 +104,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.14",
  "tokio",
- "toml 0.8.23",
+ "toml 0.9.5",
  "vergen",
  "vergen-gitcl",
 ]
@@ -119,7 +119,7 @@ dependencies = [
  "libc",
  "libloading",
  "log",
- "toml 0.8.23",
+ "toml 0.9.5",
 ]
 
 [[package]]
@@ -195,9 +195,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.98"
+version = "1.0.99"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e16d2d3311acee920a9eb8d33b8cbc1787ce4a264e85f964c2404b969bdcd487"
+checksum = "b0674a1ddeecb70197781e945de4b3b8ffb61fa939a5597bcf48503737663100"
 
 [[package]]
 name = "assert-json-diff"
@@ -1086,15 +1086,6 @@ dependencies = [
  "pin-project-lite",
  "pin-utils",
  "slab",
-]
-
-[[package]]
-name = "fxhash"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c31b6d751ae2c7f11320402d34e41349dd1016f8d5d45e48c4312bc8625af50c"
-dependencies = [
- "byteorder",
 ]
 
 [[package]]
@@ -2511,7 +2502,7 @@ dependencies = [
  "serde",
  "serde_json",
  "time",
- "toml 0.8.23",
+ "toml 0.9.5",
 ]
 
 [[package]]
@@ -2546,7 +2537,7 @@ dependencies = [
  "log",
  "serde",
  "tempfile",
- "toml 0.8.23",
+ "toml 0.9.5",
 ]
 
 [[package]]
@@ -2561,7 +2552,7 @@ dependencies = [
  "reqwest",
  "serde",
  "tokio",
- "toml 0.8.23",
+ "toml 0.9.5",
 ]
 
 [[package]]
@@ -2585,7 +2576,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.14",
  "tokio",
- "toml 0.8.23",
+ "toml 0.9.5",
  "util-cgroups",
  "util-cgroups-plugins",
 ]
@@ -2605,7 +2596,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "toml 0.8.23",
+ "toml 0.9.5",
 ]
 
 [[package]]
@@ -2670,7 +2661,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.14",
  "tokio",
- "toml 0.8.23",
+ "toml 0.9.5",
  "util-cgroups",
  "util-cgroups-plugins",
 ]
@@ -2711,7 +2702,7 @@ dependencies = [
  "log",
  "serde",
  "tempfile",
- "toml 0.8.23",
+ "toml 0.9.5",
 ]
 
 [[package]]
@@ -2728,7 +2719,7 @@ dependencies = [
  "rlimit",
  "serde",
  "tokio",
- "toml 0.8.23",
+ "toml 0.9.5",
 ]
 
 [[package]]
@@ -2761,7 +2752,7 @@ dependencies = [
  "regex",
  "serde",
  "tempfile",
- "toml 0.8.23",
+ "toml 0.9.5",
 ]
 
 [[package]]
@@ -2780,7 +2771,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.14",
  "tokio",
- "toml 0.8.23",
+ "toml 0.9.5",
  "util-cgroups",
  "util-cgroups-plugins",
 ]
@@ -2822,7 +2813,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.14",
  "tokio",
- "toml 0.8.23",
+ "toml 0.9.5",
  "util-cgroups",
  "util-cgroups-plugins",
 ]
@@ -3919,7 +3910,7 @@ dependencies = [
  "log",
  "pretty_assertions",
  "regex",
- "toml 0.8.23",
+ "toml 0.9.5",
 ]
 
 [[package]]
@@ -4154,7 +4145,6 @@ version = "0.8.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc1beb996b9d83529a9e75c17a1686767d148d70663143c7854d8b4a09ced362"
 dependencies = [
- "indexmap 2.10.0",
  "serde",
  "serde_spanned 0.6.9",
  "toml_datetime 0.6.11",
@@ -4464,7 +4454,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.14",
  "tokio",
- "toml 0.8.23",
+ "toml 0.9.5",
  "util-cgroups",
 ]
 

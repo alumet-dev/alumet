@@ -429,12 +429,12 @@ mod tests {
     fn serialize_toml_value(value: &impl Serialize) -> Result<String, toml::ser::Error> {
         let mut dst = String::new();
         let ser = toml::ser::ValueSerializer::new(&mut dst);
-        let () = serde::Serialize::serialize(value, ser)?;
+        let _ = serde::Serialize::serialize(value, ser)?;
         Ok(dst)
     }
 
-    fn deserialize_toml_value<'de, T: Deserialize<'de>>(value: &str) -> Result<T, toml::de::Error> {
-        let de = toml::de::ValueDeserializer::new(value);
+    fn deserialize_toml_value<'de, T: Deserialize<'de>>(value: &'de str) -> Result<T, toml::de::Error> {
+        let de = toml::de::ValueDeserializer::parse(value)?;
         T::deserialize(de)
     }
 

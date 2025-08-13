@@ -1,14 +1,14 @@
 [package]
 name = "plugin-opentelemetry"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 alumet.workspace = true
-anyhow = "1.0.88"
-serde = { version = "1.0.210", features = ["derive"] }
+anyhow.workspace = true
+serde = { workspace = true, features = ["derive"] }
 opentelemetry = { version = "*" }
 opentelemetry_sdk = { version = "*" }
 opentelemetry-otlp = { version = "*", features = ["grpc-tonic"]}

@@ -1,7 +1,7 @@
 [package]
 name = "plugin-relay"
 version = "0.6.0"
-edition = "2021"
+edition = "2024"
 
 [features]
 default = ["client", "server"]
@@ -10,10 +10,10 @@ server = []
 
 [dependencies]
 alumet.workspace = true
-anyhow = "1.0.88"
+anyhow.workspace = true
 hostname = "0.4.0"
-log = "0.4.22"
-serde = { version = "1.0.210", features = ["derive"] }
+log.workspace = true
+serde = { workspace = true, features = ["derive"] }
 tokio = { version = "1.40.0", features = ["rt", "net", "io-util"] }
 tokio-stream = "0.1.16"
 futures = "0.3.30"
@@ -21,7 +21,7 @@ humantime-serde = "1.1.1"
 postcard = { version = "1.0.10", features = ["alloc"] }
 bytes = "1.8.0"
 tokio-util = "0.7.12"
-thiserror = "2.0.3"
+thiserror.workspace = true
 nohash-hasher = "0.2.0"
 
 [build-dependencies]

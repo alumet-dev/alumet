@@ -1,7 +1,7 @@
 [package]
 name = "alumet_ffi"
 version = "0.2.0"
-edition = "2021"
+edition = "2024"
 description = "bindings for writing plugins in foreign languages"
 links = "alumet_h"
 
@@ -13,11 +13,11 @@ dynamic = ["dep:libloading"]
 
 [dependencies]
 alumet.workspace = true
-anyhow = "1.0.95"
+anyhow.workspace = true
 libc = "0.2.169"
 libloading = { version = "0.8.5", optional = true }
-log = "0.4.25"
-toml = { version = "0.8.20", default-features = false }
+log.workspace = true
+toml = { version = "0.9.5", default-features = false }
 
 [lints]
 workspace = true

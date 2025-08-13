@@ -9,7 +9,7 @@ type ConfigTable = toml::Table;
 
 type ConfigArray = toml::value::Array;
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn config_string_in<'a>(table: &'a ConfigTable, key: AStr<'a>) -> NullableAStr<'a> {
     match &table.get(key.as_str()) {
         Some(Value::String(str)) => NullableAStr::from(str),
@@ -17,7 +17,7 @@ pub extern "C" fn config_string_in<'a>(table: &'a ConfigTable, key: AStr<'a>) ->
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn config_int_in(table: &ConfigTable, key: AStr) -> *const i64 {
     match &table.get(key.as_str()) {
         Some(Value::Integer(v)) => v,
@@ -25,7 +25,7 @@ pub extern "C" fn config_int_in(table: &ConfigTable, key: AStr) -> *const i64 {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn config_bool_in(table: &ConfigTable, key: AStr) -> *const bool {
     match &table.get(key.as_str()) {
         Some(Value::Boolean(v)) => v,
@@ -33,7 +33,7 @@ pub extern "C" fn config_bool_in(table: &ConfigTable, key: AStr) -> *const bool 
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn config_float_in(table: &ConfigTable, key: AStr) -> *const f64 {
     match &table.get(key.as_str()) {
         Some(Value::Float(v)) => v,
@@ -41,7 +41,7 @@ pub extern "C" fn config_float_in(table: &ConfigTable, key: AStr) -> *const f64 
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn config_array_in(table: &ConfigTable, key: AStr) -> *const ConfigArray {
     match &table.get(key.as_str()) {
         Some(Value::Array(a)) => a,
@@ -49,7 +49,7 @@ pub extern "C" fn config_array_in(table: &ConfigTable, key: AStr) -> *const Conf
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn config_table_in(table: &ConfigTable, key: AStr) -> *const ConfigTable {
     match &table.get(key.as_str()) {
         Some(Value::Table(t)) => t,
@@ -57,7 +57,7 @@ pub extern "C" fn config_table_in(table: &ConfigTable, key: AStr) -> *const Conf
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn config_string_at(array: &ConfigArray, index: usize) -> NullableAStr {
     match &array.get(index) {
         Some(Value::String(str)) => NullableAStr::from(str),
@@ -65,7 +65,7 @@ pub extern "C" fn config_string_at(array: &ConfigArray, index: usize) -> Nullabl
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn config_int_at(array: &ConfigArray, index: usize) -> *const i64 {
     match &array.get(index) {
         Some(Value::Integer(v)) => v,
@@ -73,7 +73,7 @@ pub extern "C" fn config_int_at(array: &ConfigArray, index: usize) -> *const i64
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn config_bool_at(array: &ConfigArray, index: usize) -> *const bool {
     match &array.get(index) {
         Some(Value::Boolean(v)) => v,
@@ -81,7 +81,7 @@ pub extern "C" fn config_bool_at(array: &ConfigArray, index: usize) -> *const bo
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn config_float_at(array: &ConfigArray, index: usize) -> *const f64 {
     match &array.get(index) {
         Some(Value::Float(v)) => v,
@@ -89,7 +89,7 @@ pub extern "C" fn config_float_at(array: &ConfigArray, index: usize) -> *const f
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn config_array_at(array: &ConfigArray, index: usize) -> *const ConfigArray {
     match &array.get(index) {
         Some(Value::Array(a)) => a,
@@ -97,7 +97,7 @@ pub extern "C" fn config_array_at(array: &ConfigArray, index: usize) -> *const C
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn config_table_at(array: &ConfigArray, index: usize) -> *const ConfigTable {
     match &array.get(index) {
         Some(Value::Table(t)) => t,

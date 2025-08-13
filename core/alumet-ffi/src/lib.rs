@@ -3,7 +3,7 @@
 //! To be usable by plugins in a reliable way, every exposed
 //! function needs to be declared like this:
 //! ```ignore
-//! #[no_mangle]
+//! #[unsafe(no_mangle)]
 //! pub extern "C" fn(...) -> ... {
 //!     // ...
 //! }
@@ -70,7 +70,7 @@ mod cbindgen_workaround {
     macro_rules! opaque_type {
         ($t:ident, $f:ident) => {
             pub struct $t;
-            #[no_mangle]
+            #[unsafe(no_mangle)]
             fn $f(_x: $t) {}
         };
     }
@@ -93,6 +93,6 @@ mod cbindgen_workaround {
 
     #[repr(C)]
     pub struct RawMetricId(usize);
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub fn __workaround_raw_metric_id(_id: RawMetricId) {}
 }

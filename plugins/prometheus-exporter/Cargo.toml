@@ -1,15 +1,15 @@
 [package]
 name = "plugin-prometheus-exporter"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 alumet.workspace = true
-anyhow = "1.0.88"
-log = "0.4.22"
-serde = { version = "1.0.210", features = ["derive"] }
+anyhow.workspace = true
+log.workspace = true
+serde = { workspace = true, features = ["derive"] }
 time = { version = "0.3.36", features = ["formatting"] }
 hyper = { version = "0.14", features = ["full"] }
 prometheus-client = "0.21"
