@@ -39,7 +39,7 @@ pub fn is_accessible_dir(path: &Path) -> Result<bool, std::io::Error> {
 ///
 /// ```
 /// use std::path::PathBuf;
-/// use plugin_cgroup::hierarchy::CgroupVersion;
+/// use util_cgroups::hierarchy::CgroupVersion;
 ///
 /// let dir_path = root.join(name);
 /// create_files(&dir_path, cgroup_version)?;
@@ -95,7 +95,7 @@ pub fn create_files_cgroupv1(root: &PathBuf, hierarchy: CgroupHierarchy) -> Resu
 ///
 /// ```
 /// use std::path::PathBuf;
-/// use plugin_cgroup::hierarchy::CgroupVersion;
+/// use util_cgroups::hierarchy::CgroupVersion;
 ///
 /// let root = PathBuf::from("/tmp/test_cgroup");
 /// let folder = create_folder(&root, "my_cgroup", CgroupVersion::V2).unwrap();
