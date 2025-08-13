@@ -131,6 +131,7 @@ fn init_logger() {
 }
 
 #[test]
+#[serial]
 fn startup_ok() {
     let plugins = PluginSet::from(static_plugins![TestedPlugin]);
 
