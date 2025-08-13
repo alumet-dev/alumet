@@ -260,6 +260,7 @@ impl Trigger {
 #[derive(Debug, Clone)]
 enum TriggerMechanismSpec {
     TimeInterval(time::Instant, time::Duration),
+    #[allow(unused)]
     Future(fn() -> BoxFuture<'static, SourceTriggerOutput>),
     ManualOnly,
 }

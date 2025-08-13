@@ -120,7 +120,7 @@ impl AlumetPlugin for PrometheusPlugin {
         self.shutdown_tx_server = Some(shutdown_tx_server);
 
         // Add output for processing measurements
-        alumet.add_blocking_output("out", output);
+        alumet.add_blocking_output("out", output)?;
 
         Ok(())
     }

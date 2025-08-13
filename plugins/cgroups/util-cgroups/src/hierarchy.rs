@@ -310,7 +310,7 @@ impl<'h> Cgroup<'h> {
     ///
     /// - In cgroup v1, this is a string of the form `cpu,cpuacct:/user.slice/me`.
     /// - In cgroup v2, the string does not depend on the controllers and there is only one hierarchy, hence it is equal to the [`canonical_path`](Self::canonical_path).
-    pub fn unique_name(&self) -> Cow<str> {
+    pub fn unique_name(&'_ self) -> Cow<'_, str> {
         match self.hierarchy.version() {
             CgroupVersion::V1 => {
                 // there can be multiple cgroup hierarchies, we have to say in which one we are

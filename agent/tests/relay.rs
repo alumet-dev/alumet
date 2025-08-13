@@ -1,5 +1,5 @@
 //! Integration tests for the relay mode, client and server together.
-mod common;
+pub mod common;
 
 use anyhow::{Context, anyhow};
 use std::{

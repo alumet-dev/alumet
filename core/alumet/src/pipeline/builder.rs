@@ -421,7 +421,7 @@ impl Builder {
     ///
     /// # }
     /// ```
-    pub fn inspect(&self) -> BuilderInspector {
+    pub fn inspect(&'_ self) -> BuilderInspector<'_> {
         BuilderInspector { inner: self }
     }
 }

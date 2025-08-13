@@ -158,7 +158,7 @@ impl AlumetPlugin for RelayClientPlugin {
 
             let output: BoxedAsyncOutput = Box::pin(tcp.send_loop());
             Ok(output)
-        });
+        })?;
 
         alumet.on_pre_pipeline_start(move |pre_start| {
             // register the existing metrics

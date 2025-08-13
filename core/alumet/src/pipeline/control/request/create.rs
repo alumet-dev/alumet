@@ -53,7 +53,7 @@ impl SingleCreationRequestBuilder {
     /// Requests the creation of a (managed) measurement source with Run initial state.
     ///
     /// The source will be triggered according to the `trigger` specification.
-    pub fn add_source(mut self, name: &str, source: Box<dyn Source>, trigger: TriggerSpec) -> CreationRequest {
+    pub fn add_source(self, name: &str, source: Box<dyn Source>, trigger: TriggerSpec) -> CreationRequest {
         self.add_source_with_state(name, source, trigger, TaskState::Run)
     }
 

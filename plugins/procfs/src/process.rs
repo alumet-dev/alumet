@@ -287,7 +287,6 @@ impl ProcessFingerprint {
 
 impl ManualProcessMonitor {
     pub fn new(alumet_handle: PluginControlHandle, metrics: ProcessMetrics, settings: MonitoringSettings) -> Self {
-        let tps = procfs::ticks_per_second();
         let ns_per_ticks = ns_per_ticks();
         Self {
             alumet_handle,

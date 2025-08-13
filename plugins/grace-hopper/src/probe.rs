@@ -1,7 +1,6 @@
 use std::{
     fs::File,
     io::{Read, Seek},
-    time::Duration,
 };
 
 use anyhow::anyhow;

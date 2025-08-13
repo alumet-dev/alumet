@@ -246,7 +246,7 @@ impl DefaultConfigProvider for NoDefaultConfigProvider {
 /// The pattern can be escaped to prevent its replacement: `\${NOT_A_VAR}`.
 /// If a variable does not exist or is invalid, returns an error.
 ///
-pub fn substitute_env(mut input: &str) -> Result<Cow<str>, InvalidSubstitutionError> {
+pub fn substitute_env(mut input: &'_ str) -> Result<Cow<'_, str>, InvalidSubstitutionError> {
     // Look for the first substitution.
     let first = input.find("${");
     if first.is_none() {

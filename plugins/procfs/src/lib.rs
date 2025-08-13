@@ -171,7 +171,7 @@ fn setup_process_event_listener(
                 ResourceConsumer::Process { pid } => Some(pid as i32),
                 _ => None,
             });
-            monitor.start_monitoring(pids, &rt_handle);
+            monitor.start_monitoring(pids, &rt_handle)?;
             Ok(())
         });
         Ok(())

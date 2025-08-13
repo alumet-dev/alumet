@@ -234,8 +234,8 @@ struct TestPlugin;
 impl Source for DummySource {
     fn poll(
         &mut self,
-        measurements: &mut alumet::measurement::MeasurementAccumulator,
-        timestamp: alumet::measurement::Timestamp,
+        _measurements: &mut alumet::measurement::MeasurementAccumulator,
+        _timestamp: alumet::measurement::Timestamp,
     ) -> Result<(), alumet::pipeline::elements::error::PollError> {
         Ok(())
     }
@@ -244,8 +244,8 @@ impl Source for DummySource {
 impl Transform for DummyTransform {
     fn apply(
         &mut self,
-        measurements: &mut alumet::measurement::MeasurementBuffer,
-        ctx: &alumet::pipeline::elements::transform::TransformContext,
+        _measurements: &mut alumet::measurement::MeasurementBuffer,
+        _ctx: &alumet::pipeline::elements::transform::TransformContext,
     ) -> Result<(), alumet::pipeline::elements::error::TransformError> {
         Ok(())
     }
@@ -254,8 +254,8 @@ impl Transform for DummyTransform {
 impl Output for DummyOutput {
     fn write(
         &mut self,
-        measurements: &alumet::measurement::MeasurementBuffer,
-        ctx: &alumet::pipeline::elements::output::OutputContext,
+        _measurements: &alumet::measurement::MeasurementBuffer,
+        _ctx: &alumet::pipeline::elements::output::OutputContext,
     ) -> Result<(), alumet::pipeline::elements::error::WriteError> {
         Ok(())
     }

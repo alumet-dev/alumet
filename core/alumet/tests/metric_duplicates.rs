@@ -5,6 +5,7 @@ use alumet::{
     units::Unit,
 };
 
+#[allow(dead_code, reason = "used in tests")]
 struct TestPlugin;
 
 impl AlumetPlugin for TestPlugin {

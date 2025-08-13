@@ -457,7 +457,7 @@ impl MeasurementBuffer {
     }
 
     /// Returns a `MeasurementAccumulator` that will push all measurements to this buffer.
-    pub fn as_accumulator(&mut self) -> MeasurementAccumulator {
+    pub fn as_accumulator(&'_ mut self) -> MeasurementAccumulator<'_> {
         MeasurementAccumulator(self)
     }
 }

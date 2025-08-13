@@ -3,7 +3,7 @@ use tokio::sync::oneshot;
 use crate::pipeline::{
     control::messages,
     matching::{ElementNamePattern, StringPattern},
-    naming::{ElementKind, ElementName},
+    naming::ElementKind,
 };
 
 use super::{AnonymousControlRequest, DirectResponseReceiver};
@@ -16,11 +16,6 @@ pub fn list_elements(filter: ElementListFilter) -> IntrospectionRequest {
 #[derive(Debug)]
 pub struct IntrospectionRequest {
     list_filter: ElementListFilter,
-}
-
-#[derive(Debug)]
-pub struct IntrospectionResponse {
-    pub(crate) elements: Vec<ElementName>,
 }
 
 #[derive(Debug)]

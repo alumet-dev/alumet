@@ -113,13 +113,6 @@ impl TimeTriggerBuilder {
         )))
     }
 
-    fn poll_interval_mut(&mut self) -> &mut Duration {
-        match &mut self.0.mechanism {
-            TriggerMechanismSpec::TimeInterval(_, duration) => duration,
-            _ => unreachable!(),
-        }
-    }
-
     fn poll_interval(&self) -> &Duration {
         match &self.0.mechanism {
             TriggerMechanismSpec::TimeInterval(_, duration) => duration,

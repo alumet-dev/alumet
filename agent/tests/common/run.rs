@@ -32,7 +32,6 @@ pub fn run_agent(binary: &str, bin_args: &[&str], workdir: &Path) -> anyhow::Res
 /// Executes `cargo run ...` and captures its output.
 ///
 /// The stdout and stderr are captured, nothing will be printed during the execution of the command.
-#[allow(unused)]
 pub fn run_agent_capture_output(binary: &str, bin_args: &[&str], workdir: &Path) -> anyhow::Result<Output> {
     let mut cmd = command_run_agent(binary, bin_args)?;
     cmd.current_dir(workdir)

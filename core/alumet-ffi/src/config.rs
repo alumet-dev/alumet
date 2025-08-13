@@ -58,7 +58,7 @@ pub extern "C" fn config_table_in(table: &ConfigTable, key: AStr) -> *const Conf
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn config_string_at(array: &ConfigArray, index: usize) -> NullableAStr {
+pub extern "C" fn config_string_at<'a>(array: &'a ConfigArray, index: usize) -> NullableAStr<'a> {
     match &array.get(index) {
         Some(Value::String(str)) => NullableAStr::from(str),
         _ => NullableAStr::null(),

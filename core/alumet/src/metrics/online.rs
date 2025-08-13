@@ -283,12 +283,12 @@ impl Debug for SendError {
 
 impl MetricAccess {
     /// Provides shared read access to the metric registry.
-    pub async fn read(&self) -> RwLockReadGuard<MetricRegistry> {
+    pub async fn read(&'_ self) -> RwLockReadGuard<'_, MetricRegistry> {
         self.inner.read().await
     }
 
     /// Provides exclusive write access to the metric registry.
-    pub async fn write(&self) -> tokio::sync::RwLockWriteGuard<MetricRegistry> {
+    pub async fn write(&'_ self) -> tokio::sync::RwLockWriteGuard<'_, MetricRegistry> {
         self.inner.write().await
     }
 
@@ -299,14 +299,14 @@ impl MetricAccess {
 
 impl MetricReader {
     /// Provides shared read access to the metric registry.
-    pub async fn read(&self) -> RwLockReadGuard<MetricRegistry> {
+    pub async fn read(&'_ self) -> RwLockReadGuard<'_, MetricRegistry> {
         self.0.read().await
     }
 
     /// Provides shared read access to the metric registry, **in a blocking way**.
     ///
     /// Only use this _outside_ of an async runtime.
-    pub(crate) fn blocking_read(&self) -> RwLockReadGuard<MetricRegistry> {
+    pub(crate) fn blocking_read(&'_ self) -> RwLockReadGuard<'_, MetricRegistry> {
         self.0.inner.blocking_read()
     }
 }

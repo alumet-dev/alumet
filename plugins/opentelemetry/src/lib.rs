@@ -36,7 +36,7 @@ impl AlumetPlugin for OpenTelemetryPlugin {
             self.config.collector_host.clone(),
             self.config.push_interval_seconds,
         )?);
-        alumet.add_blocking_output("out", otel_output.clone());
+        alumet.add_blocking_output("out", otel_output.clone())?;
         Ok(())
     }
 

@@ -1,5 +1,7 @@
 //! Abstractions over different kinds of channel.
 
+use std::future::Future;
+
 use futures::Stream;
 use tokio::sync::{broadcast, mpsc};
 
@@ -7,7 +9,7 @@ use crate::measurement::MeasurementBuffer;
 
 /// Trait that allows to receive measurements from different kinds of channel.
 pub trait MeasurementReceiver {
-    async fn recv(&mut self) -> Result<MeasurementBuffer, RecvError>;
+    fn recv(&mut self) -> impl Future<Output = Result<MeasurementBuffer, RecvError>> + Send;
     fn discard_pending(self) -> Self;
     fn into_stream(self) -> impl Stream<Item = Result<MeasurementBuffer, StreamRecvError>>;
 }
