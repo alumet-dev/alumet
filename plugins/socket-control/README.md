@@ -4,18 +4,18 @@ This plugin allows to control the Alumet pipeline through a Unix socket (it coul
 
 ## How to use
 
-Run `app-agent` (or another app that loads this plugin) and open another terminal to send commands to the socket.
+Run `alumet-agent` (or another app that loads this plugin) and open another terminal to send commands to the socket.
 
 Terminal 1:
 
 ```sh
-cd app-agent
-cargo run
+mkdir -p tmp && cd tmp
+cargo run -p alumet-agent
 ```
 
 Terminal 2:
 
 ```sh
-cd app-agent
+cd tmp
 echo "source trigger every 2s" | socat UNIX-CONNECT:./alumet-control.sock -
 ```

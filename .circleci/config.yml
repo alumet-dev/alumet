@@ -153,7 +153,7 @@ jobs:
           command: "rustup +nightly component add miri"
       - run:
           name: Run Miri on some tests
-          command: "cd alumet && cargo +nightly miri test -- ffi"
+          command: "cd core/alumet && cargo +nightly miri test -- ffi"
           environment:
             SKIP_BINDGEN: "true"
 
