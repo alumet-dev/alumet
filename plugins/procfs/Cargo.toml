@@ -1,23 +1,24 @@
 [package]
 name = "plugin-procfs"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+repository.workspace = true
 
 [dependencies]
 alumet.workspace = true
 anyhow.workspace = true
-humantime-serde = "1.1.1"
+humantime-serde.workspace = true
 log.workspace = true
 procfs = "0.16.0"
 regex = "1.10.6"
 serde = { workspace = true, features = ["derive"] }
 rlimit = "0.10.2"
-tokio = { version = "1.44.0", features = ["rt"] }
+tokio = { workspace = true, features = ["rt"] }
 
 [lints]
 workspace = true
 
 [dev-dependencies]
 alumet.workspace = true
-pretty_assertions = "1.4.0"
+pretty_assertions.workspace = true
 toml.workspace = true

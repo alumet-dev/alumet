@@ -1,16 +1,17 @@
 [package]
 name = "plugin-aggregation"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+repository.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 alumet.workspace = true
 anyhow.workspace = true
-humantime-serde = "1.1.1"
+humantime-serde.workspace = true
 log.workspace = true
-tokio = { version = "1.37.0", features = ["net", "io-util"] }
+tokio = { workspace = true, features = ["net", "io-util"] }
 tokio-util = "0.7.10"
 serde = { workspace = true, features = ["derive"] }
 futures = "0.3.31"

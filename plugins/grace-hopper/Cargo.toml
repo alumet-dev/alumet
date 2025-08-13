@@ -1,18 +1,19 @@
 [package]
 name = "plugin-grace-hopper"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+repository.workspace = true
 
 [dependencies]
 alumet.workspace = true
 anyhow.workspace = true
-humantime-serde = "1.1.1"
+humantime-serde.workspace = true
 log.workspace = true
 serde = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
 alumet = { workspace = true, features = ["test"] }
-tempfile = "3.5"
+tempfile.workspace = true
 toml.workspace = true
 
 [lints]

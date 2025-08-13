@@ -1,7 +1,8 @@
 [package]
 name = "plugin-process-to-cgroup-bridge"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+repository.workspace = true
 
 [dependencies]
 alumet.workspace = true
@@ -12,5 +13,5 @@ serde = { workspace = true, features = ["derive"] }
 [dev-dependencies]
 alumet = { workspace = true, features = ["test"] }
 toml.workspace = true
-tempfile = "3.20.0"
+tempfile.workspace = true
 lazy_static = "1.5.0"

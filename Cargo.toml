@@ -1,5 +1,5 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
     "agent",
     "core/*",
@@ -13,8 +13,8 @@ members = [
     "plugins/influxdb",
     "plugins/kwollect-output",
     "plugins/mongodb",
-    "plugins/nvidia-nvml",
     "plugins/nvidia-jetson",
+    "plugins/nvidia-nvml",
     "plugins/perf",
     "plugins/process-to-cgroup-bridge",
     "plugins/procfs",
@@ -22,26 +22,34 @@ members = [
     "plugins/rapl",
     "plugins/relay",
     "plugins/socket-control",
-    "plugins/mongodb",
     "separate-tests/test-dynamic-plugins",
 ]
+
+[workspace.package]
+edition = "2024"
+repository = "https://github.com/alumet-dev/alumet"
 
 [workspace.dependencies]
 alumet = { path = "core/alumet" }
 anyhow = "1.0.99"
+env_logger = "0.11.8"
+humantime-serde = "1.1.1"
 log = "0.4.27"
+pretty_assertions = "1.4.1"
 rustc-hash = "2.1.1"
 serde = "1.0.219"
-toml = "0.9.5"
+tempfile = "3.20.0"
 thiserror = "2.0.14"
+tokio = "1.47.1"
+toml = "0.9.5"
 
 # To apply the following lint settings to a workspace member,
 # set "lints.workspace" to true in the member's Cargo.toml.
 [workspace.lints.clippy]
-redundant_field_names = "deny"
-needless_return = "deny"
-needless_borrow = "deny"
 comparison_to_empty = "deny"
+needless_borrow = "deny"
+needless_return = "deny"
+redundant_field_names = "deny"
 single_char_pattern = "deny"
 unused_enumerate_index = "deny"
 useless_format = "deny"

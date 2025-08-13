@@ -1,12 +1,13 @@
 [package]
 name = "plugin-nvidia-jetson"
 version = "1.0.0"
-edition = "2024"
+edition.workspace = true
+repository.workspace = true
 
 [dependencies]
 alumet.workspace = true
 anyhow.workspace = true
-humantime-serde = "1.1.1"
+humantime-serde.workspace = true
 log.workspace = true
 regex = "1.11.1"
 rustc-hash.workspace = true
@@ -19,6 +20,6 @@ workspace = true
 
 [dev-dependencies]
 alumet.workspace = true
-pretty_assertions = "1.4.1"
-tempfile = "3.19.1"
+pretty_assertions.workspace = true
+tempfile.workspace = true
 toml.workspace = true

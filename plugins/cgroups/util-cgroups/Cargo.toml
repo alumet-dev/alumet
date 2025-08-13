@@ -1,7 +1,8 @@
 [package]
 name = "util-cgroups"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+repository.workspace = true
 description = "Utilities to use control groups, v1 and v2."
 
 [features]
@@ -20,9 +21,9 @@ walkdir = "2.5.0"
 
 [dev-dependencies]
 criterion = "0.6.0"
-env_logger = "0.11.8"
-pretty_assertions = "1.4.1"
-tempfile = "3.20.0"
+env_logger.workspace = true
+pretty_assertions.workspace = true
+tempfile.workspace = true
 util-cgroups = { path = ".", features = ["manually"] }
 
 [lints]

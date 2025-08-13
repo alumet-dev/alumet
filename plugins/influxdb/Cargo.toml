@@ -1,7 +1,8 @@
 [package]
 name = "plugin-influxdb"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+repository.workspace = true
 
 [dependencies]
 alumet.workspace = true
@@ -9,7 +10,7 @@ anyhow.workspace = true
 itertools = "0.14.0"
 log.workspace = true
 serde = { workspace = true, features = ["derive"] }
-tokio = { version = "1.40.0", features = ["rt"] }
+tokio = { workspace = true, features = ["rt"] }
 
 [dev-dependencies]
 alumet = { workspace = true, features = ["test"] }

@@ -1,7 +1,8 @@
 [package]
 name = "plugin-relay"
 version = "0.6.0"
-edition = "2024"
+edition.workspace = true
+repository.workspace = true
 
 [features]
 default = ["client", "server"]
@@ -14,10 +15,10 @@ anyhow.workspace = true
 hostname = "0.4.0"
 log.workspace = true
 serde = { workspace = true, features = ["derive"] }
-tokio = { version = "1.40.0", features = ["rt", "net", "io-util"] }
+tokio = { workspace = true, features = ["rt", "net", "io-util"] }
 tokio-stream = "0.1.16"
 futures = "0.3.30"
-humantime-serde = "1.1.1"
+humantime-serde.workspace = true
 postcard = { version = "1.0.10", features = ["alloc"] }
 bytes = "1.8.0"
 tokio-util = "0.7.12"
