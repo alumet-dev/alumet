@@ -3,7 +3,7 @@ use std::{str::FromStr, time::Duration};
 use alumet::{
     agent::{
         self,
-        config::{merge_override, AutoDefaultConfigProvider, DefaultConfigProvider, NoDefaultConfigProvider},
+        config::{AutoDefaultConfigProvider, DefaultConfigProvider, NoDefaultConfigProvider, merge_override},
         exec,
         plugin::{PluginFilter, PluginSet, UnknownPluginInConfigPolicy},
     },
@@ -42,10 +42,10 @@ fn load_plugins_metadata() -> Vec<PluginMetadata> {
     {
         plugins.extend(static_plugins![
             plugin_socket_control::SocketControlPlugin,
-            plugin_cgroup::plugins::SlurmPlugin,
-            plugin_cgroup::plugins::K8sPlugin,
-            plugin_cgroup::plugins::OarPlugin,
-            plugin_cgroup::plugins::RawCgroupPlugin,
+            plugin_k8s::K8sPlugin,
+            plugin_slurm::SlurmPlugin,
+            plugin_oar::OarPlugin,
+            plugin_raw_cgroups::RawCgroupPlugin,
             plugin_grace_hopper::GraceHopperPlugin,
             plugin_rapl::RaplPlugin,
             plugin_perf::PerfPlugin,

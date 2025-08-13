@@ -1,0 +1,15 @@
+[package]
+name = "plugin-energy-estimation-tdp"
+version = "0.1.0"
+edition.workspace = true
+repository.workspace = true
+
+[dependencies]
+alumet.workspace = true
+anyhow.workspace = true
+humantime-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
+log.workspace = true
+
+[lints]
+workspace = true

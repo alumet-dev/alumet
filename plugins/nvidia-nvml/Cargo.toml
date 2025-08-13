@@ -1,0 +1,22 @@
+[package]
+name = "plugin-nvidia-nvml"
+version = "0.4.0"
+edition.workspace = true
+repository.workspace = true
+
+[dependencies]
+alumet.workspace = true
+anyhow.workspace = true
+humantime-serde.workspace = true
+log.workspace = true
+nvml-wrapper = { version = "0.10.0", features = ["legacy-functions"] }
+nvml-wrapper-sys = { version = "0.8.0" }
+serde = { workspace = true, features = ["derive"] }
+thiserror.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

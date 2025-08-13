@@ -1,0 +1,32 @@
+[package]
+name = "plugin-relay"
+version = "0.6.0"
+edition.workspace = true
+repository.workspace = true
+
+[features]
+default = ["client", "server"]
+client = []
+server = []
+
+[dependencies]
+alumet.workspace = true
+anyhow.workspace = true
+hostname = "0.4.0"
+log.workspace = true
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["rt", "net", "io-util"] }
+tokio-stream = "0.1.16"
+futures = "0.3.30"
+humantime-serde.workspace = true
+postcard = { version = "1.0.10", features = ["alloc"] }
+bytes = "1.8.0"
+tokio-util = "0.7.12"
+thiserror.workspace = true
+nohash-hasher = "0.2.0"
+
+[build-dependencies]
+tonic-build = "0.12.2"
+
+[lints]
+workspace = true

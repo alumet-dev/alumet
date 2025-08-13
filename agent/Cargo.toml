@@ -1,48 +1,53 @@
 [package]
 name = "alumet-agent"
-version = "0.8.4"
-edition = "2021"
-rust-version = "1.82"
+version = "0.9.0"
+edition.workspace = true
+repository.workspace = true
+rust-version = "1.89"
 description = "Agent that collects energy and performance metrics."
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-alumet = { path = "../alumet" }
-anyhow = "1.0.88"
+alumet = { path = "../core/alumet" }
+anyhow.workspace = true
 clap = { version = "4.5.17", features = ["derive", "env", "string"] }
-env_logger = "0.11.5"
-humantime-serde = "1.1.1"
+env_logger.workspace = true
+humantime-serde.workspace = true
 log = { version = "0.4", features = ["release_max_level_debug"] }
-serde = { version = "1.0.210", features = ["derive"] }
-tokio = { version = "1.40.0", features = ["rt"] }
-toml = "0.8.19"
-thiserror = "2.0.11"
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["rt"] }
+toml.workspace = true
+thiserror.workspace = true
 
 # Plugins that are available for every target
-plugin-csv = { path = "../plugin-csv" }
-plugin-prometheus-exporter = { path = "../plugin-prometheus-exporter" }
-plugin-influxdb = { path = "../plugin-influxdb" }
-plugin-relay = { path = "../plugin-relay" }
-plugin-mongodb = { path = "../plugin-mongodb" }
-plugin-opentelemetry = { path = "../plugin-opentelemetry" }
-plugin-aggregation = { path = "../plugin-aggregation" }
-plugin-energy-attribution = { path = "../plugin-energy-attribution" }
-plugin-energy-estimation-tdp = { path = "../plugin-energy-estimation-tdp" }
-plugin-elasticsearch = { path = "../plugin-elasticsearch" }
-plugin-kwollect-output = { path = "../plugin-kwollect-output" }
+plugin-csv = { path = "../plugins/csv" }
+plugin-prometheus-exporter = { path = "../plugins/prometheus-exporter" }
+plugin-influxdb = { path = "../plugins/influxdb" }
+plugin-relay = { path = "../plugins/relay" }
+plugin-mongodb = { path = "../plugins/mongodb" }
+plugin-opentelemetry = { path = "../plugins/opentelemetry" }
+plugin-aggregation = { path = "../plugins/aggregation" }
+plugin-energy-attribution = { path = "../plugins/energy-attribution" }
+plugin-energy-estimation-tdp = { path = "../plugins/energy-estimation-tdp" }
+plugin-elasticsearch = { path = "../plugins/elasticsearch" }
+plugin-kwollect-output = { path = "../plugins/kwollect-output" }
 
 # Linux-only dependencies
 [target.'cfg(target_os = "linux")'.dependencies]
-plugin-cgroup = { path = "../plugin-cgroup" }
-plugin-grace-hopper = { path = "../plugin-grace-hopper" }
-plugin-nvidia-jetson = { path = "../plugin-nvidia-jetson" }
-plugin-nvidia-nvml = { path = "../plugin-nvidia-nvml" }
-plugin-process-to-cgroup-bridge = { path = "../plugin-process-to-cgroup-bridge" }
-plugin-perf = { path = "../plugin-perf" }
-plugin-procfs = { path = "../plugin-procfs" }
-plugin-rapl = { path = "../plugin-rapl" }
-plugin-socket-control = { path = "../plugin-socket-control" }
+plugin-grace-hopper = { path = "../plugins/grace-hopper" }
+plugin-nvidia-jetson = { path = "../plugins/nvidia-jetson" }
+plugin-nvidia-nvml = { path = "../plugins/nvidia-nvml" }
+plugin-process-to-cgroup-bridge = { path = "../plugins/process-to-cgroup-bridge" }
+plugin-perf = { path = "../plugins/perf" }
+plugin-procfs = { path = "../plugins/procfs" }
+plugin-rapl = { path = "../plugins/rapl" }
+plugin-socket-control = { path = "../plugins/socket-control" }
+# cgroup-based plugins
+plugin-k8s = { path = "../plugins/cgroups/k8s" }
+plugin-oar = { path = "../plugins/cgroups/oar" }
+plugin-raw-cgroups = { path = "../plugins/cgroups/raw" }
+plugin-slurm = { path = "../plugins/cgroups/slurm" }
 
 [[bin]]
 name = "alumet-agent"
@@ -55,8 +60,8 @@ workspace = true
 assert_cmd = "2.0.16"
 indoc = "2.0.5"
 libc = "0.2.159"
-pretty_assertions = "1.4.1"
-tempfile = "3.15"
+pretty_assertions.workspace = true
+tempfile.workspace = true
 
 [build-dependencies]
 vergen = { version = "9.0.4", default-features = false, features = ["build", "cargo", "rustc"] }

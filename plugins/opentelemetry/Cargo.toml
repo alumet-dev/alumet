@@ -1,0 +1,21 @@
+[package]
+name = "plugin-opentelemetry"
+version = "0.1.0"
+edition.workspace = true
+repository.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+alumet.workspace = true
+anyhow.workspace = true
+serde = { workspace = true, features = ["derive"] }
+opentelemetry = { version = "*" }
+opentelemetry_sdk = { version = "*" }
+opentelemetry-otlp = { version = "*", features = ["grpc-tonic"]}
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+
+[lints]
+workspace = true

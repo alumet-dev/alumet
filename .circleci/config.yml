@@ -21,7 +21,7 @@ jobs:
   build_and_test:
     resource_class: large
     docker:
-      - image: cimg/rust:1.82.0
+      - image: cimg/rust:1.89.0
     environment:
       RUSTFLAGS: -Awarnings
       CONTINUE_TEST_IF_NO_POWERCAP: "true"
@@ -76,7 +76,7 @@ jobs:
   build_on_musl:
     resource_class: medium
     docker:
-      - image: cimg/rust:1.82.0
+      - image: cimg/rust:1.89.0
     steps:
       - checkout
       - run: cargo --version
@@ -101,7 +101,7 @@ jobs:
   lint:
     resource_class: medium
     docker:
-      - image: cimg/rust:1.82.0
+      - image: cimg/rust:1.89.0
     steps:
       - checkout
       - run: cargo --version
@@ -120,7 +120,7 @@ jobs:
   check_format:
     resource_class: medium
     docker:
-      - image: cimg/rust:1.82.0
+      - image: cimg/rust:1.89.0
     steps:
       - checkout
       - run: cargo --version
@@ -136,7 +136,7 @@ jobs:
   miri_test:
     resource_class: medium
     docker:
-      - image: cimg/rust:1.82.0
+      - image: cimg/rust:1.89.0
     environment:
       RUSTFLAGS: -Awarnings
       CONTINUE_TEST_IF_NO_POWERCAP: "true"
@@ -153,7 +153,7 @@ jobs:
           command: "rustup +nightly component add miri"
       - run:
           name: Run Miri on some tests
-          command: "cd alumet && cargo +nightly miri test -- ffi"
+          command: "cd core/alumet && cargo +nightly miri test -- ffi"
           environment:
             SKIP_BINDGEN: "true"
 

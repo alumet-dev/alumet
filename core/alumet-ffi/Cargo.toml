@@ -1,0 +1,27 @@
+[package]
+name = "alumet_ffi"
+version = "0.2.0"
+edition.workspace = true
+repository.workspace = true
+description = "bindings for writing plugins in foreign languages"
+links = "alumet_h"
+
+[features]
+default = ["dynamic"]
+
+# enables dynamic plugins
+dynamic = ["dep:libloading"]
+
+[dependencies]
+alumet.workspace = true
+anyhow.workspace = true
+libc = "0.2.169"
+libloading = { version = "0.8.5", optional = true }
+log.workspace = true
+toml = { version = "0.9.5", default-features = false }
+
+[lints]
+workspace = true
+
+[build-dependencies]
+cbindgen = "0.28.0"

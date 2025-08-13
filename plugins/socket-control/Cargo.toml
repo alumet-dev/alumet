@@ -1,0 +1,25 @@
+[package]
+name = "plugin-socket-control"
+version = "0.2.1"
+edition.workspace = true
+repository.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+alumet.workspace = true
+anyhow.workspace = true
+humantime = "2.1.0"
+log.workspace = true
+tokio = { workspace = true, features = ["net", "io-util"] }
+tokio-util = "0.7.12"
+serde = { workspace = true, features = ["derive"] }
+
+[dev-dependencies]
+env_logger.workspace = true
+pretty_assertions.workspace = true
+regex = "1.11.1"
+tempfile.workspace = true
+
+[lints]
+workspace = true

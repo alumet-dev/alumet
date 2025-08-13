@@ -1,0 +1,16 @@
+[package]
+name = "plugin-mongodb"
+version = "0.1.0"
+edition.workspace = true
+repository.workspace = true
+
+[dependencies]
+alumet.workspace = true
+anyhow.workspace = true
+log.workspace = true
+serde.workspace = true
+tokio = "1.41.1"
+mongodb = { version = "3.1.0", features = ["sync"] }
+
+[lints]
+workspace = true
