@@ -24,6 +24,7 @@ toml.workspace = true
 alumet = { workspace = true, features = ["test"] }
 env_logger.workspace = true
 pretty_assertions.workspace = true
+serial_test = "3.2.0"
 
 [lints]
 workspace = true

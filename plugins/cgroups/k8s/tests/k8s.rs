@@ -75,7 +75,7 @@ fn test_k8s_cgroupv2() -> anyhow::Result<()> {
     std::fs::create_dir_all(&cgroup_dir_pod)?;
 
     let source_name = &format!("kubepods-besteffort-pod{POD_UID}");
-    log::info!("cgroup created at {:?}", cgroup_dir_parent.path());
+    log::info!("cgroup created at {:?}", cgroup_dir_pod);
     log::info!("source name: {source_name}");
 
     // expect the source to be created quickly after that

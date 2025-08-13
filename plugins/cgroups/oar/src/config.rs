@@ -11,6 +11,7 @@ pub struct Config {
 }
 
 impl Default for Config {
+    #[cfg_attr(tarpaulin, ignore)]
     fn default() -> Self {
         Self {
             oar_version: OarVersion::Oar3,

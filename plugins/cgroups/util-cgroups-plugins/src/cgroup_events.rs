@@ -220,6 +220,7 @@ impl<S: CgroupSetupCallback, R: CgroupRemovalCallback> detect::Callback for Dete
             match setup {
                 Some(s) => {
                     // create the source
+                    log::debug!("creating a source for cgroup {}", cgroup.unique_name());
                     match make_cgroup_source(cgroup, s.metrics) {
                         Ok(source) => {
                             sources.push((source, s.source_settings));
