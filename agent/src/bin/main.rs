@@ -3,7 +3,7 @@ use std::{str::FromStr, time::Duration};
 use alumet::{
     agent::{
         self,
-        config::{merge_override, AutoDefaultConfigProvider, DefaultConfigProvider, NoDefaultConfigProvider},
+        config::{AutoDefaultConfigProvider, DefaultConfigProvider, NoDefaultConfigProvider, merge_override},
         exec,
         plugin::{PluginFilter, PluginSet, UnknownPluginInConfigPolicy},
     },

@@ -1,7 +1,7 @@
 use super::serde_util::{Impossible, SerializationError};
 use std::{fs::File, io::Seek};
 
-use serde::{ser::Serializer, Serialize};
+use serde::{Serialize, ser::Serializer};
 
 #[derive(Serialize, Debug, Default)]
 pub struct CpuStatMock {

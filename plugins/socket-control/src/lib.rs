@@ -1,7 +1,7 @@
 mod command;
 mod socket;
 
-use alumet::plugin::rust::{deserialize_config, serialize_config, AlumetPlugin};
+use alumet::plugin::rust::{AlumetPlugin, deserialize_config, serialize_config};
 use alumet::plugin::{AlumetPluginStart, AlumetPostStart, ConfigTable};
 use serde::{Deserialize, Serialize};
 use socket::SocketControl;

@@ -2,7 +2,7 @@
 
 use std::{collections::HashMap, ops::DerefMut, time::Duration};
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use thiserror::Error;
 
 use crate::agent::plugin::PluginInfo;
@@ -11,7 +11,7 @@ use crate::plugin::phases::PreStartAction;
 use crate::plugin::{AlumetPluginStart, AlumetPostStart, ConfigTable, Plugin};
 use crate::{
     pipeline::{self, naming::PluginName},
-    plugin::{phases::PostStartAction, AlumetPreStart},
+    plugin::{AlumetPreStart, phases::PostStartAction},
 };
 
 use super::plugin::PluginSet;
@@ -152,7 +152,9 @@ impl Builder {
 
             // check that the plugin corresponds to its metadata
             if (initialized.name(), initialized.version()) != (&name, &version) {
-                return Err(anyhow!("invalid plugin: metadata is '{name}' v{version} but the plugin's methods return '{name}' v{version}"));
+                return Err(anyhow!(
+                    "invalid plugin: metadata is '{name}' v{version} but the plugin's methods return '{name}' v{version}"
+                ));
             }
             Ok(initialized)
         }
@@ -265,8 +267,12 @@ impl Builder {
         let mut initialized_plugins = initialized_plugins?;
         let n_plugins = initialized_plugins.len();
         match n_plugins {
-            0 if disabled_plugins.is_empty() => log::warn!("No plugin has been initialized, there may be a problem with your agent implementation. Please check your builder."),
-            0 => log::warn!("No plugin has been initialized because they were all disabled in the config. Please check your configuration."),
+            0 if disabled_plugins.is_empty() => log::warn!(
+                "No plugin has been initialized, there may be a problem with your agent implementation. Please check your builder."
+            ),
+            0 => log::warn!(
+                "No plugin has been initialized because they were all disabled in the config. Please check your configuration."
+            ),
             1 => log::info!("1 plugin initialized."),
             n => log::info!("{n} plugins initialized."),
         };
@@ -335,7 +341,7 @@ impl RunningAgent {
     ///
     /// See the [module documentation](super).
     pub fn wait_for_shutdown(self, timeout: Duration) -> Result<(), ShutdownError> {
-        use std::panic::{catch_unwind, AssertUnwindSafe};
+        use std::panic::{AssertUnwindSafe, catch_unwind};
 
         let mut errors = Vec::new();
 
@@ -412,11 +418,7 @@ fn print_stats(
 ) {
     macro_rules! pluralize {
         ($count:expr, $str:expr) => {
-            if $count > 1 {
-                concat!($str, "s")
-            } else {
-                $str
-            }
+            if $count > 1 { concat!($str, "s") } else { $str }
         };
     }
 

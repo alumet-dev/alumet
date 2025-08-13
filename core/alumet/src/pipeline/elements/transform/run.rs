@@ -1,8 +1,8 @@
 //! Runtime implementation of the task that executes transforms.
 
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
     Arc,
+    atomic::{AtomicU64, Ordering},
 };
 
 use anyhow::Context;
@@ -14,7 +14,7 @@ use crate::{
     pipeline::{error::PipelineError, naming::TransformName},
 };
 
-use super::{error::TransformError, Transform, TransformContext};
+use super::{Transform, TransformContext, error::TransformError};
 
 pub async fn run_all_in_order(
     mut transforms: Vec<(TransformName, Box<dyn Transform>)>,

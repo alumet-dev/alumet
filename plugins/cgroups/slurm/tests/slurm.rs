@@ -6,8 +6,8 @@ use alumet::{
     measurement::WrappedMeasurementValue,
     pipeline::naming::SourceName,
     plugin::{
-        rust::{deserialize_config, serialize_config, AlumetPlugin},
         PluginMetadata,
+        rust::{AlumetPlugin, deserialize_config, serialize_config},
     },
     resources::ResourceConsumer,
     test::{RuntimeExpectations, StartupExpectations},

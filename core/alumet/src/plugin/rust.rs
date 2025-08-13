@@ -2,11 +2,11 @@
 //!
 //! See the [documentation of the plugin module](super#static-plugins).
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 
 use crate::plugin::{AlumetPluginStart, Plugin};
 
-use super::{phases::AlumetPreStart, AlumetPostStart, ConfigTable};
+use super::{AlumetPostStart, ConfigTable, phases::AlumetPreStart};
 
 /// Trait for Alumet plugins written in Rust.
 ///

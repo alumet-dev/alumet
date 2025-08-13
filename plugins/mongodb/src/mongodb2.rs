@@ -26,8 +26,8 @@ pub fn convert_timestamp(timestamp: Timestamp) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::mongodb2::{build_mongo_uri, convert_timestamp};
     use crate::Config;
+    use crate::mongodb2::{build_mongo_uri, convert_timestamp};
     use alumet::measurement::Timestamp;
     use std::time::{Duration, UNIX_EPOCH};
 

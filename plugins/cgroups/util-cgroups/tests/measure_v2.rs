@@ -2,8 +2,8 @@ use std::{fs::File, io::Write};
 
 use tempfile::tempdir;
 use util_cgroups::{
-    measure::v2::{cpu::CpuStatCollectorSettings, memory::MemoryStatCollectorSettings, V2Collector},
     Cgroup, CgroupHierarchy, CgroupVersion,
+    measure::v2::{V2Collector, cpu::CpuStatCollectorSettings, memory::MemoryStatCollectorSettings},
 };
 
 #[test]

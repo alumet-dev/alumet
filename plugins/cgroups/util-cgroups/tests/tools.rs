@@ -1,11 +1,11 @@
 use anyhow::anyhow;
 use std::collections::HashSet;
 use std::fs::{self, File};
-use std::os::unix::fs::{symlink, PermissionsExt};
+use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tempfile::tempdir;
-use util_cgroups::detect::{callback, ClosureCallbacks, Config};
+use util_cgroups::detect::{ClosureCallbacks, Config, callback};
 use util_cgroups::hierarchy::CgroupVersion;
 use util_cgroups::measure::v2::mock::{CpuStatMock, MemoryStatMock, MockFileCgroupKV};
 use util_cgroups::{CgroupDetector, CgroupHierarchy};

@@ -10,8 +10,8 @@ use alumet::{
     measurement::{AttributeValue, MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementValue},
     metrics::RawMetricId,
     pipeline::{
-        elements::{error::TransformError, transform::TransformContext},
         Transform,
+        elements::{error::TransformError, transform::TransformContext},
     },
     resources::{Resource, ResourceConsumer},
 };
@@ -214,7 +214,7 @@ fn compute_min_timestamp(reference_timestamp: Timestamp, interval: Duration) -> 
 #[cfg(test)]
 pub(crate) mod tests {
     use std::time::{Duration, SystemTime};
-    use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+    use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
     use alumet::{
         measurement::{MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementValue},
@@ -327,12 +327,14 @@ pub(crate) mod tests {
             (0, 0)
         );
 
-        assert!(get_ids(
-            Duration::from_secs(1),
-            &Vec::<MeasurementPoint>::new(),
-            timestamp_from_rfc3339("2025-02-10T13:19:00Z")
-        )
-        .is_err());
+        assert!(
+            get_ids(
+                Duration::from_secs(1),
+                &Vec::<MeasurementPoint>::new(),
+                timestamp_from_rfc3339("2025-02-10T13:19:00Z")
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -380,8 +382,8 @@ pub(crate) mod tests {
         use crate::{
             aggregations,
             transform::{
-                tests::{measurement_buffer_to_comparable_vec, new_point, timestamp_from_rfc3339},
                 AggregationTransform,
+                tests::{measurement_buffer_to_comparable_vec, new_point, timestamp_from_rfc3339},
             },
         };
 
@@ -582,15 +584,15 @@ pub(crate) mod tests {
         use alumet::{
             measurement::{AttributeValue, MeasurementBuffer, WrappedMeasurementValue},
             metrics::RawMetricId,
-            pipeline::{elements::transform::TransformContext, Builder, Transform},
+            pipeline::{Builder, Transform, elements::transform::TransformContext},
             resources::{Resource, ResourceConsumer},
         };
 
         use crate::{
             aggregations,
             transform::{
-                tests::{measurement_buffer_to_comparable_vec, timestamp_from_rfc3339},
                 AggregationTransform,
+                tests::{measurement_buffer_to_comparable_vec, timestamp_from_rfc3339},
             },
         };
 

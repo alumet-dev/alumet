@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use util_cgroups::file_watch::{inotify::InotifyWatcher, Event, EventHandler, PathKind};
+use util_cgroups::file_watch::{Event, EventHandler, PathKind, inotify::InotifyWatcher};
 
 const TOLERANCE: Duration = Duration::from_millis(250);
 

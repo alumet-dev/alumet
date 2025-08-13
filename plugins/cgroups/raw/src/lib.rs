@@ -2,16 +2,16 @@ use std::time::Duration;
 
 use alumet::{
     pipeline::elements::source::trigger::TriggerSpec,
-    plugin::rust::{deserialize_config, serialize_config, AlumetPlugin},
+    plugin::rust::{AlumetPlugin, deserialize_config, serialize_config},
 };
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
+use source::SourceSetup;
 use util_cgroups_plugins::{
     cgroup_events::{CgroupReactor, NoCallback, ReactorCallbacks, ReactorConfig},
     metrics::Metrics,
 };
-use source::SourceSetup;
 
 mod source;
 

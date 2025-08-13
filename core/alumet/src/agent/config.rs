@@ -286,10 +286,10 @@ pub fn substitute_env(mut input: &str) -> Result<Cow<str>, InvalidSubstitutionEr
                             res.push_str(&env_var_value);
                         }
                         Err(VarError::NotPresent) => {
-                            return Err(InvalidSubstitutionError::Missing(env_var_name.to_owned()))
+                            return Err(InvalidSubstitutionError::Missing(env_var_name.to_owned()));
                         }
                         Err(VarError::NotUnicode(_)) => {
-                            return Err(InvalidSubstitutionError::InvalidValue(env_var_name.to_owned()))
+                            return Err(InvalidSubstitutionError::InvalidValue(env_var_name.to_owned()));
                         }
                     }
                     // skip the closing } and continue
@@ -578,7 +578,7 @@ pub mod error {
 mod tests_substitute_env {
     use std::borrow::Cow;
 
-    use super::{substitute_env, InvalidSubstitutionError};
+    use super::{InvalidSubstitutionError, substitute_env};
 
     // This environment variable exist both at compile time and runtime.
     const ENV_VAR_NAME: &str = "CARGO_PKG_NAME";

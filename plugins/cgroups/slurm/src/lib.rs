@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use alumet::plugin::{
-    rust::{deserialize_config, serialize_config, AlumetPlugin},
     AlumetPluginStart, AlumetPostStart, ConfigTable,
+    rust::{AlumetPlugin, deserialize_config, serialize_config},
 };
 use anyhow::Context;
 use serde::{Deserialize, Serialize};

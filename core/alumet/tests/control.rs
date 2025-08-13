@@ -3,13 +3,13 @@ use std::{collections::HashSet, time::Duration};
 use alumet::{
     agent::{self, plugin::PluginSet},
     pipeline::{
+        Output, Source, Transform,
         control::{
             handle::SendWaitError,
             request::{self, ElementListFilter},
         },
         elements::source::trigger::TriggerSpec,
         naming::{ElementKind, ElementName, PluginName},
-        Output, Source, Transform,
     },
     plugin::rust::AlumetPlugin,
     static_plugins,

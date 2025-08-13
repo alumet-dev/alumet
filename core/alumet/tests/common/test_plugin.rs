@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use alumet::measurement::{
@@ -7,7 +7,7 @@ use alumet::measurement::{
 };
 use alumet::metrics::TypedMetricId;
 use alumet::pipeline::elements::output::{OutputContext, WriteError};
-use alumet::pipeline::elements::source::{trigger, PollError};
+use alumet::pipeline::elements::source::{PollError, trigger};
 use alumet::pipeline::elements::transform::{TransformContext, TransformError};
 use alumet::pipeline::{Output, Source, Transform};
 use alumet::plugin::{AlumetPluginStart, AlumetPostStart, AlumetPreStart, Plugin};

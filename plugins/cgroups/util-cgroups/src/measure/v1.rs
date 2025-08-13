@@ -3,7 +3,7 @@
 use anyhow::Context;
 use std::io::{self};
 
-use crate::{measure::parse::U64File, Cgroup, CgroupHierarchy};
+use crate::{Cgroup, CgroupHierarchy, measure::parse::U64File};
 
 /// Collects cgroup v1 measurements.
 pub struct V1Collector {
@@ -83,7 +83,7 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use crate::{measure::v1::V1Collector, CgroupHierarchy, CgroupVersion};
+    use crate::{CgroupHierarchy, CgroupVersion, measure::v1::V1Collector};
 
     #[test]
     fn test_across_hierarchies() -> anyhow::Result<()> {

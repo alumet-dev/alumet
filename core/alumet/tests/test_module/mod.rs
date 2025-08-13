@@ -13,6 +13,7 @@ use alumet::{
     },
     metrics::TypedMetricId,
     pipeline::{
+        Output, Source, Transform,
         elements::{
             error::{PollError, TransformError, WriteError},
             output::OutputContext,
@@ -20,12 +21,11 @@ use alumet::{
             transform::TransformContext,
         },
         naming::{ElementName, OutputName, SourceName, TransformName},
-        Output, Source, Transform,
     },
     plugin::rust::AlumetPlugin,
     resources::{Resource, ResourceConsumer},
     static_plugins,
-    test::{startup::Metric, RuntimeExpectations},
+    test::{RuntimeExpectations, startup::Metric},
     units::Unit,
 };
 use serial_test::serial;

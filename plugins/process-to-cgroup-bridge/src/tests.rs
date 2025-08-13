@@ -9,7 +9,7 @@ use std::{
     time::{Duration, UNIX_EPOCH},
 };
 
-use tempfile::{tempdir, TempDir};
+use tempfile::{TempDir, tempdir};
 
 use crate::{Config, ProcessToCgroupBridgePlugin};
 
@@ -21,11 +21,11 @@ use alumet::{
     measurement::{MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementValue},
     metrics::TypedMetricId,
     pipeline::naming::TransformName,
-    pipeline::{elements::error::PollError, elements::source::trigger::TriggerSpec, Source},
-    plugin::rust::AlumetPlugin,
+    pipeline::{Source, elements::error::PollError, elements::source::trigger::TriggerSpec},
     plugin::PluginMetadata,
+    plugin::rust::AlumetPlugin,
     resources::{Resource, ResourceConsumer},
-    test::{runtime::TransformCheckInputContext, RuntimeExpectations},
+    test::{RuntimeExpectations, runtime::TransformCheckInputContext},
     units::Unit,
 };
 use lazy_static::lazy_static;

@@ -11,10 +11,10 @@ use alumet::{
 };
 
 use super::{
+    FfiOutputContext,
     resources::{FfiConsumerId, FfiResourceId},
     string::{AStr, AString},
     time::Timestamp,
-    FfiOutputContext,
 };
 
 // ====== Metrics ffi ======

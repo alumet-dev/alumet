@@ -5,7 +5,7 @@ use alumet::{
         self,
         plugin::{PluginInfo, PluginSet},
     },
-    plugin::{rust::serialize_config, PluginMetadata},
+    plugin::{PluginMetadata, rust::serialize_config},
 };
 use plugin_socket_control::{Config, SocketControlPlugin};
 

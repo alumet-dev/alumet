@@ -1,12 +1,12 @@
 use alumet::pipeline::elements::source::trigger::TriggerSpec;
 use util_cgroups::Cgroup;
 
+use crate::attr::{JOB_REGEX_SLURM1, JOB_REGEX_SLURM2, find_jobid_in_attrs};
 use util_cgroups_plugins::{
     cgroup_events::{CgroupSetupCallback, ProbeSetup, SourceSettings},
     metrics::{AugmentedMetrics, Metrics},
     regex::RegexAttributesExtrator,
 };
-use crate::attr::{find_jobid_in_attrs, JOB_REGEX_SLURM1, JOB_REGEX_SLURM2};
 
 #[derive(Clone)]
 pub struct JobSourceSetup {

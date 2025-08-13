@@ -2,20 +2,20 @@ use std::time::Duration;
 
 use alumet::{
     pipeline::elements::source::trigger::TriggerSpec,
-    plugin::rust::{deserialize_config, serialize_config, AlumetPlugin},
+    plugin::rust::{AlumetPlugin, deserialize_config, serialize_config},
 };
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
-use util_cgroups_plugins::{
-        cgroup_events::{CgroupReactor, NoCallback, ReactorCallbacks, ReactorConfig},
-        metrics::Metrics,
-};
 use crate::{
-        pods::{ApiClient, AutoNodePodRegistry},
-        token::{Token, TokenRetrievalConfig},
+    pods::{ApiClient, AutoNodePodRegistry},
+    token::{Token, TokenRetrievalConfig},
 };
 use source::SourceSetup;
+use util_cgroups_plugins::{
+    cgroup_events::{CgroupReactor, NoCallback, ReactorCallbacks, ReactorConfig},
+    metrics::Metrics,
+};
 
 mod pods;
 mod source;

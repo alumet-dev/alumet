@@ -1,12 +1,12 @@
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 use alumet::{
     pipeline::elements::source::trigger::TriggerSpec,
     plugin::{
-        rust::{deserialize_config, serialize_config, AlumetPlugin},
         ConfigTable,
+        rust::{AlumetPlugin, deserialize_config, serialize_config},
     },
 };
 
@@ -39,7 +39,9 @@ impl AlumetPlugin for NvmlPlugin {
         let nvml = nvml::device::NvmlDevices::detect(true)?;
         let stats = nvml.detection_stats();
         if stats.found_devices == 0 {
-            return Err(anyhow!("No NVML-compatible GPU found. If your device is a Jetson edge device, please disable the `nvml` feature of the plugin."));
+            return Err(anyhow!(
+                "No NVML-compatible GPU found. If your device is a Jetson edge device, please disable the `nvml` feature of the plugin."
+            ));
         }
         if stats.working_devices == 0 {
             return Err(anyhow!(

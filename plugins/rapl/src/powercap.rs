@@ -16,7 +16,7 @@ use alumet::{
     resources::ResourceConsumer,
 };
 use alumet::{metrics::TypedMetricId, pipeline::elements::error::PollError};
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 
 pub const POWERCAP_RAPL_PATH: &str = "/sys/devices/virtual/powercap/intel-rapl";
 const POWER_ZONE_PREFIX: &str = "intel-rapl";

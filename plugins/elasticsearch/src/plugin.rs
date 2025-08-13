@@ -1,12 +1,12 @@
 use alumet::{
     measurement::MeasurementBuffer,
     pipeline::{
-        elements::{error::WriteError, output::OutputContext},
         Output,
+        elements::{error::WriteError, output::OutputContext},
     },
     plugin::{
-        rust::{deserialize_config, serialize_config, AlumetPlugin},
         AlumetPluginStart, ConfigTable,
+        rust::{AlumetPlugin, deserialize_config, serialize_config},
     },
 };
 use anyhow::Context;

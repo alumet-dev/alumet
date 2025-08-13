@@ -2,18 +2,18 @@
 
 use std::{
     collections::HashMap,
-    ffi::{c_char, CStr},
+    ffi::{CStr, c_char},
     path::Path,
 };
 
 use libc::c_void;
 use libloading::{Library, Symbol};
 
-use alumet::plugin::{
-    version::{self, Version},
-    AlumetPreStart,
-};
 use alumet::plugin::{AlumetPluginStart, AlumetPostStart, ConfigTable, Plugin, PluginMetadata};
+use alumet::plugin::{
+    AlumetPreStart,
+    version::{self, Version},
+};
 
 /// A plugin initialized from a dynamic library (aka. shared library).
 struct DylibPlugin {
@@ -258,7 +258,13 @@ impl std::fmt::Display for LoadError {
             LoadError::LibraryLoad(err) => write!(f, "failed to load shared library: {err}"),
             LoadError::InvalidSymbol(name, err) => write!(f, "invalid value for symbol {name}: {err}"),
             LoadError::PluginInit => write!(f, "plugin_init returned NULL"),
-            LoadError::IncompatiblePlugin { plugin_alumet_version, current_alumet_version } => write!(f, "plugin requires ALUMET v{plugin_alumet_version}, which is incompatible with current ALUMET v{current_alumet_version}"),
+            LoadError::IncompatiblePlugin {
+                plugin_alumet_version,
+                current_alumet_version,
+            } => write!(
+                f,
+                "plugin requires ALUMET v{plugin_alumet_version}, which is incompatible with current ALUMET v{current_alumet_version}"
+            ),
         }
     }
 }

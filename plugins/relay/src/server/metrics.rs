@@ -2,9 +2,9 @@
 
 use alumet::{
     measurement::MeasurementBuffer,
-    metrics::{duplicate::DuplicateReaction, online::MetricSender, Metric, RawMetricId},
+    metrics::{Metric, RawMetricId, duplicate::DuplicateReaction, online::MetricSender},
 };
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 
 const MAX_METRIC_ID: usize = 65535;
 
@@ -52,7 +52,9 @@ impl MetricConverter {
             match res {
                 (Ok(server_metric_id), client_metric_id) => {
                     if client_metric_id as usize > MAX_METRIC_ID {
-                        return Err(anyhow!("invalid client metric id: {client_metric_id} should be less than the maximum {MAX_METRIC_ID}"));
+                        return Err(anyhow!(
+                            "invalid client metric id: {client_metric_id} should be less than the maximum {MAX_METRIC_ID}"
+                        ));
                     }
                     let server_metric_id = server_metric_id.as_u64();
                     self.ids.id_server_to_client.insert(server_metric_id, client_metric_id);

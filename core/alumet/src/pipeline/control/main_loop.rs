@@ -11,7 +11,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use super::messages::SpecificBody;
-use super::{messages, AnonymousControlHandle};
+use super::{AnonymousControlHandle, messages};
 
 /// Encapsulates sources, transforms and outputs control.
 pub(crate) struct PipelineControl {

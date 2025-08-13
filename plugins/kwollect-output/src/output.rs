@@ -5,7 +5,7 @@ use alumet::{
     pipeline::elements::{error::WriteError, output::OutputContext},
 };
 use anyhow::Context;
-use reqwest::{blocking::Client, StatusCode};
+use reqwest::{StatusCode, blocking::Client};
 
 use crate::kwollect::Measure;
 

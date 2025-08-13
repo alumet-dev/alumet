@@ -1,8 +1,8 @@
 use alumet::metrics::{Metric, RawMetricId};
 use alumet::pipeline::elements::output::BoxedAsyncOutput;
 use alumet::plugin::{
-    rust::{deserialize_config, serialize_config, AlumetPlugin},
     AlumetPluginStart, ConfigTable,
+    rust::{AlumetPlugin, deserialize_config, serialize_config},
 };
 use anyhow::Context;
 use tokio::sync::mpsc;

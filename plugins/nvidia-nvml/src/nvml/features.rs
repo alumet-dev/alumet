@@ -1,4 +1,4 @@
-use nvml_wrapper::{enum_wrappers::device::TemperatureSensor, error::NvmlError, Device};
+use nvml_wrapper::{Device, enum_wrappers::device::TemperatureSensor, error::NvmlError};
 use std::fmt::Display;
 
 /// Indicates which version of a NVML function is available on a given device.
@@ -144,7 +144,7 @@ fn is_supported<T>(res: Result<T, NvmlError>) -> Result<bool, NvmlError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nvml_wrapper::{error::NvmlError, Nvml};
+    use nvml_wrapper::{Nvml, error::NvmlError};
 
     // Test `fmt` function with all correctly implemented data in features
     #[ignore = "NO GPU"]

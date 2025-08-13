@@ -1,11 +1,11 @@
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, MeasurementType, Timestamp},
-    pipeline::{elements::error::PollError, Source},
+    pipeline::{Source, elements::error::PollError},
     resources::{Resource, ResourceConsumer},
 };
 use util_cgroups::{
-    measure::v2::{cpu::CpuStatCollectorSettings, memory::MemoryStatCollectorSettings, V2Collector},
     Cgroup,
+    measure::v2::{V2Collector, cpu::CpuStatCollectorSettings, memory::MemoryStatCollectorSettings},
 };
 
 use super::{

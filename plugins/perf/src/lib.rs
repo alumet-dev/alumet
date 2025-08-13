@@ -8,9 +8,8 @@ use alumet::{
     metrics::TypedMetricId,
     pipeline::{control::request, elements::source::trigger::TriggerSpec},
     plugin::{
-        event,
-        rust::{deserialize_config, serialize_config, AlumetPlugin},
-        AlumetPostStart,
+        AlumetPostStart, event,
+        rust::{AlumetPlugin, deserialize_config, serialize_config},
     },
     units::Unit,
 };

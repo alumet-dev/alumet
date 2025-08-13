@@ -1,6 +1,7 @@
 use tokio::sync::oneshot;
 
 use crate::pipeline::{
+    Output, Source,
     control::messages,
     elements::{
         output::{
@@ -15,7 +16,6 @@ use crate::pipeline::{
         },
     },
     naming::{OutputName, PluginName, SourceName},
-    Output, Source,
 };
 
 use super::DirectResponseReceiver;

@@ -3,13 +3,13 @@
 use std::{
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
     },
     time::Duration,
 };
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use walkdir::WalkDir;
 

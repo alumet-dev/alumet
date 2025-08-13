@@ -10,7 +10,7 @@ use alumet::{
     plugin::AlumetPluginStart,
     resources::{Resource, ResourceConsumer},
 };
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 
 use super::ina::InaSensor;
 

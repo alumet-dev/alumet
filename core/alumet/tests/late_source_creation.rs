@@ -12,8 +12,8 @@ use alumet::{
         elements::{error::PollError, source::trigger::TriggerSpec},
     },
     plugin::{
-        rust::{serialize_config, AlumetPlugin},
         AlumetPluginStart, AlumetPostStart, ConfigTable,
+        rust::{AlumetPlugin, serialize_config},
     },
     static_plugins,
 };

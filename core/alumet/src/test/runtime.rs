@@ -11,9 +11,10 @@ use crate::{
     measurement::MeasurementBuffer,
     metrics::registry::MetricRegistry,
     pipeline::{
+        Output,
         control::{
-            request::{self, any::AnyAnonymousControlRequest},
             AnonymousControlHandle,
+            request::{self, any::AnyAnonymousControlRequest},
         },
         elements::{
             output::builder::{BlockingOutputBuilder, OutputBuilder},
@@ -25,7 +26,6 @@ use crate::{
         },
         matching::{OutputNamePattern, SourceNamePattern, TransformNamePattern},
         naming::{OutputName, PluginName, SourceName, TransformName},
-        Output,
     },
 };
 

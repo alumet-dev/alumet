@@ -2,12 +2,12 @@ use alumet::{
     measurement::{MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue},
     metrics::RawMetricId,
     pipeline::{
-        elements::{error::TransformError, transform::TransformContext},
         Transform,
+        elements::{error::TransformError, transform::TransformContext},
     },
     resources::ResourceConsumer,
 };
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use std::{collections::HashMap, fs, path::PathBuf, time::UNIX_EPOCH};
 
 pub struct ProcessToCgroupBridgeTransform {

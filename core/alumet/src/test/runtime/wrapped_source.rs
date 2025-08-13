@@ -5,10 +5,10 @@ use tokio::sync::mpsc;
 
 use crate::{
     measurement::{MeasurementAccumulator, Timestamp},
-    pipeline::{elements::error::PollError, Source},
+    pipeline::{Source, elements::error::PollError},
 };
 
-use super::{pretty::PrettyAny, SourceCheck};
+use super::{SourceCheck, pretty::PrettyAny};
 
 /// Wraps a source and applies checks to it on trigger.
 pub struct WrappedManagedSource {

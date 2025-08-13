@@ -1,7 +1,7 @@
 use alumet::{
     measurement::{MeasurementAccumulator, Timestamp},
     metrics::TypedMetricId,
-    pipeline::{elements::error::PollError, elements::source::trigger::TriggerSpec, Source},
+    pipeline::{Source, elements::error::PollError, elements::source::trigger::TriggerSpec},
     plugin::rust::AlumetPlugin,
     units::Unit,
 };

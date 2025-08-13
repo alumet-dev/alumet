@@ -6,8 +6,9 @@ use anyhow::Context;
 use tokio::{
     runtime,
     sync::{
+        RwLock, RwLockReadGuard,
         mpsc::{self, Receiver},
-        oneshot, RwLock, RwLockReadGuard,
+        oneshot,
     },
     task::JoinHandle,
 };

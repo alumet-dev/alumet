@@ -1,6 +1,6 @@
 use std::{future::Future, net::SocketAddr};
 
-use alumet::{measurement::MeasurementBuffer, metrics::online::MetricSender, metrics::Metric};
+use alumet::{measurement::MeasurementBuffer, metrics::Metric, metrics::online::MetricSender};
 use tokio::{
     net::{TcpListener, TcpStream},
     sync::mpsc,
@@ -47,7 +47,8 @@ impl TcpSource {
                 } else {
                     log::warn!(
                         "Client {remote_name} ({remote_addr}) is NOT compatible: it uses protocol version {}, which is not compatible with our protocol version {}. Rejecting.",
-                        greet.protocol_version, PROTOCOL_VERSION
+                        greet.protocol_version,
+                        PROTOCOL_VERSION
                     );
                     return Ok(());
                 }

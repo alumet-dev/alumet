@@ -4,7 +4,7 @@ use alumet::units::{PrefixedUnit, Unit};
 use regex::Regex;
 use walkdir::WalkDir;
 
-use super::common::{ChannelEntryAnalyzer, MetricMatcher, METRIC_CURRENT, METRIC_POWER, METRIC_VOLTAGE};
+use super::common::{ChannelEntryAnalyzer, METRIC_CURRENT, METRIC_POWER, METRIC_VOLTAGE, MetricMatcher};
 use super::{EntryAnalysis, InaDeviceMetadata, InaExplorer};
 
 pub const SYSFS_INA_OLD: &str = "/sys/bus/i2c/drivers/ina3221x";

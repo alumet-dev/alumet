@@ -4,8 +4,8 @@ use std::{
     io,
     path::PathBuf,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Mutex,
+        atomic::{AtomicUsize, Ordering},
     },
 };
 

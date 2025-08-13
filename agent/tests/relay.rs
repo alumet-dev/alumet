@@ -1,7 +1,7 @@
 //! Integration tests for the relay mode, client and server together.
 mod common;
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use std::{
     process::{self, ExitStatus, Stdio},
     time::Duration,
@@ -9,7 +9,7 @@ use std::{
 
 use common::{
     empty_temp_dir,
-    run::{command_run_agent, run_agent_tee, ChildGuard},
+    run::{ChildGuard, command_run_agent, run_agent_tee},
 };
 
 /// Checks that the `--relay-server` option works when the relay-client plugin is enabled.

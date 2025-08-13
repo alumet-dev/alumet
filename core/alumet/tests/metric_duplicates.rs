@@ -1,6 +1,6 @@
 use alumet::{
     measurement::WrappedMeasurementType,
-    metrics::{duplicate::DuplicateReaction, Metric},
+    metrics::{Metric, duplicate::DuplicateReaction},
     plugin::rust::AlumetPlugin,
     units::Unit,
 };

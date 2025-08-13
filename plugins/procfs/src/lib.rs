@@ -2,14 +2,14 @@ use alumet::{
     pipeline::{control::request, elements::source::trigger::TriggerSpec},
     plugin::{
         event,
-        rust::{deserialize_config, serialize_config, AlumetPlugin},
+        rust::{AlumetPlugin, deserialize_config, serialize_config},
     },
     resources::ResourceConsumer,
     units::{PrefixedUnit, Unit},
 };
 use anyhow::Context;
 use procfs::{Current, CurrentSI};
-use rlimit::{getrlimit, setrlimit, Resource};
+use rlimit::{Resource, getrlimit, setrlimit};
 
 mod kernel;
 mod memory;
@@ -183,7 +183,9 @@ fn increase_file_descriptors_soft_limit() -> Result<(), anyhow::Error> {
     let (fd_soft, fd_hard) = getrlimit(Resource::NOFILE).context("Error while getting file descriptors limits")?;
     setrlimit(Resource::NOFILE, fd_hard, fd_hard)
         .context("Error while setting file descriptors soft limit from {fd_soft} to {fd_hard}")?;
-    log::debug!("Increased file descriptors soft limit ({fd_soft}) to reach hard limit value ({fd_hard}) to prevent 'Too many open files' error");
+    log::debug!(
+        "Increased file descriptors soft limit ({fd_soft}) to reach hard limit value ({fd_hard}) to prevent 'Too many open files' error"
+    );
     Ok(())
 }
 

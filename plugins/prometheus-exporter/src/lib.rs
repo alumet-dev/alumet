@@ -1,10 +1,10 @@
 mod output;
 
-use alumet::plugin::rust::{deserialize_config, serialize_config, AlumetPlugin};
+use alumet::plugin::rust::{AlumetPlugin, deserialize_config, serialize_config};
 use hyper::http::StatusCode;
 use hyper::{
-    service::{make_service_fn, service_fn},
     Body, Request, Response, Server,
+    service::{make_service_fn, service_fn},
 };
 use output::PrometheusOutput;
 use prometheus_client::encoding::text::encode;

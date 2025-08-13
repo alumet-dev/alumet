@@ -1,8 +1,8 @@
 use anyhow::Context;
 use num_enum::{FromPrimitive, IntoPrimitive};
 use std::sync::{
-    atomic::{AtomicU8, Ordering},
     Arc, Mutex,
+    atomic::{AtomicU8, Ordering},
 };
 use tokio::{
     runtime,
@@ -10,9 +10,9 @@ use tokio::{
     task::{JoinError, JoinSet},
 };
 
-use crate::pipeline::elements::output::{run::run_async_output, AsyncOutputStream};
+use crate::pipeline::elements::output::{AsyncOutputStream, run::run_async_output};
 use crate::pipeline::matching::OutputNamePattern;
-use crate::pipeline::naming::{namespace::Namespace2, OutputName};
+use crate::pipeline::naming::{OutputName, namespace::Namespace2};
 use crate::pipeline::util::{
     channel,
     stream::{ControlledStream, SharedStreamState, StreamState},

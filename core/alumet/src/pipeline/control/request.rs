@@ -25,12 +25,12 @@ mod output;
 pub mod source;
 mod transform;
 
-pub use create::{create_many, create_one, CreationRequest, MultiCreationRequestBuilder, SingleCreationRequestBuilder};
-pub use introspect::{list_elements, ElementListFilter, IntrospectionRequest};
-pub use output::{output, OutputRequest, OutputRequestBuilder, RemainingDataStrategy};
-pub use source::{source, SourceRequest, SourceRequestBuilder};
+pub use create::{CreationRequest, MultiCreationRequestBuilder, SingleCreationRequestBuilder, create_many, create_one};
+pub use introspect::{ElementListFilter, IntrospectionRequest, list_elements};
+pub use output::{OutputRequest, OutputRequestBuilder, RemainingDataStrategy, output};
+pub use source::{SourceRequest, SourceRequestBuilder, source};
 use tokio::sync::oneshot;
-pub use transform::{transform, TransformRequest, TransformRequestBuilder};
+pub use transform::{TransformRequest, TransformRequestBuilder, transform};
 
 use super::messages;
 

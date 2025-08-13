@@ -3,17 +3,17 @@
 use std::str::FromStr;
 use std::time::Duration;
 
+use alumet::pipeline::control::AnonymousControlHandle;
 use alumet::pipeline::control::handle::DispatchError;
 use alumet::pipeline::control::request::{self, any::AnyAnonymousControlRequest};
-use alumet::pipeline::control::AnonymousControlHandle;
 use alumet::pipeline::elements::source::trigger::TriggerSpec;
 use alumet::pipeline::matching::{
     ElementNamePattern, OutputNamePattern, SourceNamePattern, StringPattern, TransformNamePattern,
 };
-use alumet::pipeline::naming::parsing::parse_kind;
 use alumet::pipeline::naming::ElementKind;
+use alumet::pipeline::naming::parsing::parse_kind;
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use humantime::parse_duration;
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(1);
@@ -68,17 +68,21 @@ pub fn parse(command: &str) -> anyhow::Result<Command> {
         match args {
             [] => Err(anyhow!("missing arguments after the selector")),
             ["pause"] | ["disable"] => match &pat.kind {
-                Some(ElementKind::Source) => Ok(vec![request::source(SourceNamePattern::try_from(pat).unwrap())
-                    .disable()
-                    .into()]),
-                Some(ElementKind::Transform) => {
-                    Ok(vec![request::transform(TransformNamePattern::try_from(pat).unwrap())
+                Some(ElementKind::Source) => Ok(vec![
+                    request::source(SourceNamePattern::try_from(pat).unwrap())
                         .disable()
-                        .into()])
-                }
-                Some(ElementKind::Output) => Ok(vec![request::output(OutputNamePattern::try_from(pat).unwrap())
-                    .disable()
-                    .into()]),
+                        .into(),
+                ]),
+                Some(ElementKind::Transform) => Ok(vec![
+                    request::transform(TransformNamePattern::try_from(pat).unwrap())
+                        .disable()
+                        .into(),
+                ]),
+                Some(ElementKind::Output) => Ok(vec![
+                    request::output(OutputNamePattern::try_from(pat).unwrap())
+                        .disable()
+                        .into(),
+                ]),
                 None => {
                     let for_sources = request::source(SourceNamePattern::try_from(pat.clone()).unwrap())
                         .disable()
@@ -93,17 +97,21 @@ pub fn parse(command: &str) -> anyhow::Result<Command> {
                 }
             },
             ["resume"] | ["enable"] => match &pat.kind {
-                Some(ElementKind::Source) => Ok(vec![request::source(SourceNamePattern::try_from(pat).unwrap())
-                    .enable()
-                    .into()]),
-                Some(ElementKind::Transform) => {
-                    Ok(vec![request::transform(TransformNamePattern::try_from(pat).unwrap())
+                Some(ElementKind::Source) => Ok(vec![
+                    request::source(SourceNamePattern::try_from(pat).unwrap())
                         .enable()
-                        .into()])
-                }
-                Some(ElementKind::Output) => Ok(vec![request::output(OutputNamePattern::try_from(pat).unwrap())
-                    .enable()
-                    .into()]),
+                        .into(),
+                ]),
+                Some(ElementKind::Transform) => Ok(vec![
+                    request::transform(TransformNamePattern::try_from(pat).unwrap())
+                        .enable()
+                        .into(),
+                ]),
+                Some(ElementKind::Output) => Ok(vec![
+                    request::output(OutputNamePattern::try_from(pat).unwrap())
+                        .enable()
+                        .into(),
+                ]),
                 None => {
                     let for_sources = request::source(SourceNamePattern::try_from(pat.clone()).unwrap())
                         .enable()
@@ -118,12 +126,14 @@ pub fn parse(command: &str) -> anyhow::Result<Command> {
                 }
             },
             ["stop"] => match &pat.kind {
-                Some(ElementKind::Source) => Ok(vec![request::source(SourceNamePattern::try_from(pat).unwrap())
-                    .stop()
-                    .into()]),
-                Some(ElementKind::Output) => Ok(vec![request::output(OutputNamePattern::try_from(pat).unwrap())
-                    .stop(request::RemainingDataStrategy::Write)
-                    .into()]),
+                Some(ElementKind::Source) => Ok(vec![
+                    request::source(SourceNamePattern::try_from(pat).unwrap()).stop().into(),
+                ]),
+                Some(ElementKind::Output) => Ok(vec![
+                    request::output(OutputNamePattern::try_from(pat).unwrap())
+                        .stop(request::RemainingDataStrategy::Write)
+                        .into(),
+                ]),
                 _ => Err(anyhow!(
                     "invalid control 'stop': it can only be applied to sources and outputs"
                 )),
@@ -132,18 +142,22 @@ pub fn parse(command: &str) -> anyhow::Result<Command> {
                 Some(ElementKind::Source) => {
                     let poll_interval = parse_duration(period)?;
                     let spec = TriggerSpec::at_interval(poll_interval);
-                    Ok(vec![request::source(SourceNamePattern::try_from(pat).unwrap())
-                        .set_trigger(spec)
-                        .into()])
+                    Ok(vec![
+                        request::source(SourceNamePattern::try_from(pat).unwrap())
+                            .set_trigger(spec)
+                            .into(),
+                    ])
                 }
                 _ => Err(anyhow!(
                     "invalid control 'set-period': it can only be applied to sources"
                 )),
             },
             ["trigger-now"] => match &pat.kind {
-                Some(ElementKind::Source) => Ok(vec![request::source(SourceNamePattern::try_from(pat).unwrap())
-                    .trigger_now()
-                    .into()]),
+                Some(ElementKind::Source) => Ok(vec![
+                    request::source(SourceNamePattern::try_from(pat).unwrap())
+                        .trigger_now()
+                        .into(),
+                ]),
                 _ => Err(anyhow!(
                     "invalid control 'trigger-now': it can only be applied to sources"
                 )),
@@ -197,7 +211,7 @@ mod tests {
     use regex::Regex;
     use std::time::Duration;
 
-    use super::{parse, Command};
+    use super::{Command, parse};
     use alumet::pipeline::control::matching::{OutputMatcher, SourceMatcher, TransformMatcher};
     use alumet::pipeline::control::request::{self, any::AnyAnonymousControlRequest};
     use alumet::pipeline::elements::source::trigger::TriggerSpec;
@@ -219,9 +233,11 @@ mod tests {
     fn control_source_any() {
         assert_control_eq(
             parse("control sources/*/* resume").unwrap(),
-            vec![request::source(SourceMatcher::Name(SourceNamePattern::wildcard()))
-                .enable()
-                .into()],
+            vec![
+                request::source(SourceMatcher::Name(SourceNamePattern::wildcard()))
+                    .enable()
+                    .into(),
+            ],
         );
     }
 
@@ -229,9 +245,11 @@ mod tests {
     fn control_source_any_shortened() {
         assert_control_eq(
             parse("control src/*/* stop").unwrap(),
-            vec![request::source(SourceMatcher::Name(SourceNamePattern::wildcard()))
-                .stop()
-                .into()],
+            vec![
+                request::source(SourceMatcher::Name(SourceNamePattern::wildcard()))
+                    .stop()
+                    .into(),
+            ],
         );
     }
 
@@ -239,18 +257,22 @@ mod tests {
     fn control_source_trigger_now() {
         assert_control_eq(
             parse("control sources trigger-now").unwrap(),
-            vec![request::source(SourceMatcher::Name(SourceNamePattern::wildcard()))
-                .trigger_now()
-                .into()],
+            vec![
+                request::source(SourceMatcher::Name(SourceNamePattern::wildcard()))
+                    .trigger_now()
+                    .into(),
+            ],
         );
     }
     #[test]
     fn control_output_stop() {
         assert_control_eq(
             parse("control out/*/* stop").unwrap(),
-            vec![request::output(OutputMatcher::Name(OutputNamePattern::wildcard()))
-                .stop(request::RemainingDataStrategy::Write)
-                .into()],
+            vec![
+                request::output(OutputMatcher::Name(OutputNamePattern::wildcard()))
+                    .stop(request::RemainingDataStrategy::Write)
+                    .into(),
+            ],
         );
     }
     #[test]
@@ -287,9 +309,11 @@ mod tests {
     fn control_source_set_poll_interval() {
         assert_control_eq(
             parse("control sources set-period 10ms").unwrap(),
-            vec![request::source(SourceMatcher::Name(SourceNamePattern::wildcard()))
-                .set_trigger(TriggerSpec::at_interval(Duration::from_millis(10)))
-                .into()],
+            vec![
+                request::source(SourceMatcher::Name(SourceNamePattern::wildcard()))
+                    .set_trigger(TriggerSpec::at_interval(Duration::from_millis(10)))
+                    .into(),
+            ],
         );
     }
 

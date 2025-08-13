@@ -26,8 +26,8 @@
 //! ```
 
 use core::fmt;
-use rustc_hash::FxBuildHasher;
 use ordered_float::OrderedFloat;
+use rustc_hash::FxBuildHasher;
 use smallvec::SmallVec;
 use std::borrow::Cow;
 use std::fmt::Write;

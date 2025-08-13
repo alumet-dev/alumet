@@ -6,8 +6,8 @@ use tokio::sync::mpsc::{self, error::TryRecvError};
 use crate::{
     measurement::MeasurementBuffer,
     pipeline::{
-        elements::{error::TransformError, transform::TransformContext},
         Transform,
+        elements::{error::TransformError, transform::TransformContext},
     },
 };
 

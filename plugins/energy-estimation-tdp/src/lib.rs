@@ -1,8 +1,8 @@
 use alumet::{
     metrics::{RawMetricId, TypedMetricId},
     plugin::{
-        rust::{deserialize_config, serialize_config, AlumetPlugin},
         ConfigTable,
+        rust::{AlumetPlugin, deserialize_config, serialize_config},
     },
     units::Unit,
 };

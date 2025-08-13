@@ -1,6 +1,6 @@
 use std::{
     ops::ControlFlow,
-    sync::{atomic::Ordering, Arc, Mutex},
+    sync::{Arc, Mutex, atomic::Ordering},
 };
 
 use crate::{
@@ -13,7 +13,7 @@ use crate::{
     },
 };
 
-use super::{control, error::WriteError, BoxedAsyncOutput, Output, OutputContext};
+use super::{BoxedAsyncOutput, Output, OutputContext, control, error::WriteError};
 
 pub async fn run_async_output(name: OutputName, output: BoxedAsyncOutput) -> Result<(), PipelineError> {
     output.await.map_err(|e| {

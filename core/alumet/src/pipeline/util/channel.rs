@@ -52,8 +52,8 @@ impl MeasurementReceiver for broadcast::Receiver<MeasurementBuffer> {
     }
 
     fn into_stream(self) -> impl Stream<Item = Result<MeasurementBuffer, StreamRecvError>> {
-        use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
         use tokio_stream::StreamExt;
+        use tokio_stream::wrappers::{BroadcastStream, errors::BroadcastStreamRecvError};
 
         BroadcastStream::new(self).map(|item| {
             item.map_err(|e| match e {
@@ -79,7 +79,7 @@ impl MeasurementReceiver for mpsc::Receiver<MeasurementBuffer> {
     }
 
     fn into_stream(self) -> impl Stream<Item = Result<MeasurementBuffer, StreamRecvError>> {
-        use tokio_stream::{wrappers::ReceiverStream, StreamExt};
+        use tokio_stream::{StreamExt, wrappers::ReceiverStream};
         ReceiverStream::new(self).map(Ok)
     }
 }

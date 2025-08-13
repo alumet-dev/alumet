@@ -8,14 +8,14 @@ use std::{
 };
 
 use alumet::{
-    metrics::{duplicate::DuplicateReaction, online::MetricSender, Metric, RawMetricId},
+    metrics::{Metric, RawMetricId, duplicate::DuplicateReaction, online::MetricSender},
     plugin::{
-        rust::{deserialize_config, serialize_config, AlumetPlugin},
         ConfigTable,
+        rust::{AlumetPlugin, deserialize_config, serialize_config},
     },
 };
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use serde::{Deserialize, Serialize};
 use transform::AggregationTransform;
 

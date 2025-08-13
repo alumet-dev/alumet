@@ -6,7 +6,7 @@ use alumet::{
     resources::{Resource, ResourceConsumer},
 };
 use anyhow::Context;
-use serde::{ser::SerializeSeq, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, ser::SerializeSeq};
 
 /// A measurement buffer than can be serialized and deserialized. This type is similar to [`std::borrow::Cow`].
 ///

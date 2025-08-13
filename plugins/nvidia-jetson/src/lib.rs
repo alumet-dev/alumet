@@ -8,8 +8,8 @@ use std::time::Duration;
 use alumet::{
     pipeline::elements::source::trigger::TriggerSpec,
     plugin::{
-        rust::{deserialize_config, serialize_config, AlumetPlugin},
         ConfigTable,
+        rust::{AlumetPlugin, deserialize_config, serialize_config},
     },
 };
 

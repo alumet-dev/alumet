@@ -1,5 +1,5 @@
 use std::{
-    sync::{atomic::Ordering, Arc},
+    sync::{Arc, atomic::Ordering},
     time::Duration,
 };
 
@@ -10,8 +10,8 @@ use alumet::{
         plugin::PluginSet,
     },
     plugin::{
-        rust::{serialize_config, AlumetPlugin},
         AlumetPluginStart, ConfigTable, PluginMetadata,
+        rust::{AlumetPlugin, serialize_config},
     },
     static_plugins,
 };
@@ -161,16 +161,20 @@ fn test_plugin_lifecycle() {
     let agent = builder.build_and_start().expect("agent should start fine");
 
     // Check that the plugins have been enabled
-    assert!(agent
-        .initialized_plugins
-        .iter()
-        .find(|p| p.name() == "plugin1")
-        .is_some());
-    assert!(agent
-        .initialized_plugins
-        .iter()
-        .find(|p| p.name() == "plugin2")
-        .is_some());
+    assert!(
+        agent
+            .initialized_plugins
+            .iter()
+            .find(|p| p.name() == "plugin1")
+            .is_some()
+    );
+    assert!(
+        agent
+            .initialized_plugins
+            .iter()
+            .find(|p| p.name() == "plugin2")
+            .is_some()
+    );
 
     // Stop the pipeline
     agent.pipeline.control_handle().shutdown();

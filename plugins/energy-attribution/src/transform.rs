@@ -6,8 +6,8 @@ use std::{
 use alumet::{
     measurement::{AttributeValue, MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue},
     pipeline::{
-        elements::{error::TransformError, transform::TransformContext},
         Transform,
+        elements::{error::TransformError, transform::TransformContext},
     },
     resources::Resource,
 };

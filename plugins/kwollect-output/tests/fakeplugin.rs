@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use alumet::pipeline::elements::source::trigger;
 use alumet::{
-    plugin::{rust::AlumetPlugin, AlumetPluginStart, ConfigTable},
+    plugin::{AlumetPluginStart, ConfigTable, rust::AlumetPlugin},
     units::Unit,
 };
 

@@ -350,7 +350,7 @@ impl fmt::Debug for TriggerMechanism {
 mod tests {
     use std::time::Duration;
 
-    use super::{builder, TriggerConstraints, TriggerMechanismSpec};
+    use super::{TriggerConstraints, TriggerMechanismSpec, builder};
 
     #[test]
     fn trigger_auto_config() {

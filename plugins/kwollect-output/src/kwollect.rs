@@ -1,5 +1,5 @@
 use alumet::measurement::{AttributeValue, WrappedMeasurementValue};
-use serde::{ser::SerializeMap, Serialize};
+use serde::{Serialize, ser::SerializeMap};
 use std::collections::HashMap;
 
 pub struct Measure {

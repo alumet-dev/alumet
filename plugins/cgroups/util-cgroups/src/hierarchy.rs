@@ -16,7 +16,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use mount_watcher::mount::{list_current_mounts, LinuxMount};
+use mount_watcher::mount::{LinuxMount, list_current_mounts};
 use nix::unistd::Uid;
 use thiserror::Error;
 
@@ -415,8 +415,8 @@ mod tests {
     use mount_watcher::mount::LinuxMount;
 
     use crate::{
-        hierarchy::{CgroupHierarchy, CgroupVersion, HierarchyError},
         Cgroup,
+        hierarchy::{CgroupHierarchy, CgroupVersion, HierarchyError},
     };
 
     #[test]

@@ -55,7 +55,9 @@ pub fn check_domains_consistency(perf_events: &Vec<PowerEvent>, power_zones: &Ve
 
     // warn for inconsistencies
     if perf_rapl_domains != powercap_rapl_domains {
-        log::warn!("Powercap and perf_events don't report the same RAPL domains. This may be caused by a bug in powercap or in perf_events.");
+        log::warn!(
+            "Powercap and perf_events don't report the same RAPL domains. This may be caused by a bug in powercap or in perf_events."
+        );
         log::warn!("Upgrading to a newer kernel could fix the problem.");
         log::warn!("Perf_events: {}", mkstring(&perf_rapl_domains, ", "));
         log::warn!("Powercap:    {}", mkstring(&powercap_rapl_domains, ", "));
@@ -222,12 +224,16 @@ pub fn get_available_domains(
                     // If one of the domain set is smaller, it could be empty, which would prevent the plugin from measuring anything.
                     // In that case, we fall back to the other interface, the one that reports a non-empty list of domains.
                     if power_events.is_empty() && !power_zones.is_empty() {
-                        log::warn!("perf_events returned an empty list of RAPL domains, I will disable perf_events and use powercap instead.");
+                        log::warn!(
+                            "perf_events returned an empty list of RAPL domains, I will disable perf_events and use powercap instead."
+                        );
                         *use_perf = false;
                         safe_domains = SafeSubset::from_powercap_only(power_zones);
                         domain_origin = " (from powercap)".to_string();
                     } else if !power_events.is_empty() && power_zones.is_empty() {
-                        log::warn!("powercap returned an empty list of RAPL domains, I will disable powercap and use perf_events instead.");
+                        log::warn!(
+                            "powercap returned an empty list of RAPL domains, I will disable powercap and use perf_events instead."
+                        );
                         *use_powercap = false;
                         safe_domains = SafeSubset::from_perf_only(power_events);
                         domain_origin = " (from perf_events)".to_string();
@@ -240,7 +246,9 @@ pub fn get_available_domains(
         }
         (Ok(power_events), Err(powercap_err)) => {
             log::error!("Cannot read the list of RAPL domains available via the powercap interface: {powercap_err:?}.");
-            log::warn!("The consistency of the RAPL domains reported by the different interfaces of the Linux kernel cannot be checked (this is useful to work around bugs in some kernel versions on some machines).");
+            log::warn!(
+                "The consistency of the RAPL domains reported by the different interfaces of the Linux kernel cannot be checked (this is useful to work around bugs in some kernel versions on some machines)."
+            );
             (
                 SafeSubset::from_perf_only(power_events),
                 " (from perf_events)".to_string(),
@@ -248,7 +256,9 @@ pub fn get_available_domains(
         }
         (Err(perf_err), Ok(power_zones)) => {
             log::warn!("Cannot read the list of RAPL domains available via the perf_events interface: {perf_err:?}.");
-            log::warn!("The consistency of the RAPL domains reported by the different interfaces of the Linux kernel cannot be checked (this is useful to work around bugs in some kernel versions on some machines).");
+            log::warn!(
+                "The consistency of the RAPL domains reported by the different interfaces of the Linux kernel cannot be checked (this is useful to work around bugs in some kernel versions on some machines)."
+            );
             if *use_perf {
                 log::warn!("Because of the previous error, I will disable perf_events and fall back to powercap.");
             }
@@ -259,7 +269,9 @@ pub fn get_available_domains(
             )
         }
         (Err(perf_err), Err(power_err)) => {
-            log::error!("I could use neither perf_events nor powercap.\nperf_events error: {perf_err:?}\npowercap error: {power_err:?}");
+            log::error!(
+                "I could use neither perf_events nor powercap.\nperf_events error: {perf_err:?}\npowercap error: {power_err:?}"
+            );
             Err(anyhow!(
                 "Both perf_events and powercap failed, unable to read RAPL counters: {perf_err}\n{power_err}"
             ))?

@@ -5,10 +5,10 @@ use alumet::{
     pipeline::elements::output::OutputContext,
 };
 
-use serde::{ser::Error, ser::SerializeMap, Serialize};
+use serde::{Serialize, ser::Error, ser::SerializeMap};
 use serde_json::json;
 use std::{collections::HashMap, time::SystemTime};
-use time::{format_description::well_known::Rfc3339, UtcDateTime};
+use time::{UtcDateTime, format_description::well_known::Rfc3339};
 
 /// OpenSearch/ElasticSearch serializer helper.
 pub struct Serializer {

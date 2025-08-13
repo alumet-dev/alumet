@@ -5,11 +5,11 @@ use std::collections::HashSet;
 use criterion::BenchmarkId;
 
 use crate::alternatives::{
-    parse_space_kv_unchecked, parse_space_kv_unchecked_cached_indices, parse_space_kv_utf8, parse_space_kv_utf8_basic,
-    parse_space_kv_utf8_cached_indices, BitSet128, BitSet64, IndexCache,
+    BitSet64, BitSet128, IndexCache, parse_space_kv_unchecked, parse_space_kv_unchecked_cached_indices,
+    parse_space_kv_utf8, parse_space_kv_utf8_basic, parse_space_kv_utf8_cached_indices,
 };
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
 
 const MEMORY_STAT: &str = "anon 9202163712

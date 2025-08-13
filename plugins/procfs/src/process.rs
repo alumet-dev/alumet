@@ -11,19 +11,19 @@ use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
     pipeline::{
+        Source,
         control::{
+            PluginControlHandle,
             handle::OnBackgroundError,
             request::{self, MultiCreationRequestBuilder},
-            PluginControlHandle,
         },
         elements::{error::PollError, source::trigger::TriggerSpec},
         matching::{SourceNamePattern, StringPattern},
-        Source,
     },
     resources::{Resource, ResourceConsumer},
 };
 use anyhow::Context;
-use procfs::{self, process::Process, FromRead, ProcError};
+use procfs::{self, FromRead, ProcError, process::Process};
 use regex::Regex;
 
 /// Reads process stats from `/proc/<pid>` for some `<pid>`.

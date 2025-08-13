@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::ffi::{c_char, CStr};
+use std::ffi::{CStr, c_char};
 use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
 use std::ptr::NonNull;

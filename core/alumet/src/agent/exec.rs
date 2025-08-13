@@ -8,13 +8,13 @@ use std::{
 use anyhow::Context;
 
 use crate::{
-    pipeline::{control::request, naming::matching::SourceNamePattern, MeasurementPipeline},
+    pipeline::{MeasurementPipeline, control::request, naming::matching::SourceNamePattern},
     plugin::event::EndConsumerMeasurement,
     plugin::event::StartConsumerMeasurement,
     resources::ResourceConsumer,
 };
 
-use super::{builder::ShutdownError, RunningAgent};
+use super::{RunningAgent, builder::ShutdownError};
 use thiserror::Error;
 
 /// Error that can occur in [`watch_process`].

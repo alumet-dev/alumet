@@ -5,9 +5,9 @@ use alumet::{
     agent::{self, plugin::PluginSet},
     measurement::{AttributeValue, MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementValue},
     pipeline::naming::OutputName,
-    plugin::{rust::AlumetPlugin, PluginMetadata},
+    plugin::{PluginMetadata, rust::AlumetPlugin},
     resources::{Resource, ResourceConsumer},
-    test::{runtime::OutputCheckInputContext, RuntimeExpectations},
+    test::{RuntimeExpectations, runtime::OutputCheckInputContext},
 };
 use base64::prelude::*;
 use mockito::{Mock, Server, ServerGuard};

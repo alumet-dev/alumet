@@ -3,13 +3,13 @@ use std::collections::HashSet;
 use alumet::{
     measurement::{AttributeValue, MeasurementBuffer, WrappedMeasurementValue},
     pipeline::{
+        Output,
         elements::{
             error::WriteError,
-            output::{error::WriteRetry, OutputContext},
+            output::{OutputContext, error::WriteRetry},
         },
-        Output,
     },
-    plugin::rust::{deserialize_config, serialize_config, AlumetPlugin},
+    plugin::rust::{AlumetPlugin, deserialize_config, serialize_config},
 };
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
@@ -246,7 +246,7 @@ impl Default for Config {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ensure_valid_field_key, ensure_valid_tag_key, partition_tag, AttributeAs};
+    use crate::{AttributeAs, ensure_valid_field_key, ensure_valid_tag_key, partition_tag};
     use std::collections::HashSet;
     #[test]
     fn test_partition_tag() {

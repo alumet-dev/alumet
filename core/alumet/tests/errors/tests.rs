@@ -3,7 +3,7 @@ use std::sync::{Mutex, MutexGuard};
 use alumet::static_plugins;
 
 use super::points::{
-    catch_panic_point, set_error_points, set_expected_catches, Behavior, Expect, ExpectedCatchPoints, PluginErrorPoints,
+    Behavior, Expect, ExpectedCatchPoints, PluginErrorPoints, catch_panic_point, set_error_points, set_expected_catches,
 };
 
 /// We rely on global state to control where errors should occur.

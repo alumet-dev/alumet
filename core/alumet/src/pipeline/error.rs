@@ -28,7 +28,7 @@ impl Display for ElementErrorContext {
 impl Display for PluginErrorContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("error in action requested by plugin ")?;
-        Display::fmt(&self.0 .0, f)
+        Display::fmt(&self.0.0, f)
     }
 }
 

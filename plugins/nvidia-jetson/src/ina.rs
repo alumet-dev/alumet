@@ -209,13 +209,13 @@ mod tests {
     use tempfile::tempdir;
 
     use crate::ina::{
+        InaDeviceMetadata,
         common::{METRIC_CURRENT, METRIC_POWER, METRIC_VOLTAGE},
         modern::ModernInaExplorer,
         old::OldInaExplorer,
-        InaDeviceMetadata,
     };
 
-    use super::{explore_ina_devices, sort_sensors_recursively, InaChannel, InaRailMetric, InaSensor};
+    use super::{InaChannel, InaRailMetric, InaSensor, explore_ina_devices, sort_sensors_recursively};
 
     #[test]
     fn ina_modern() {

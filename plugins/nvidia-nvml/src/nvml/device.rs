@@ -1,5 +1,5 @@
 use anyhow::Context;
-use nvml_wrapper::{error::NvmlError, Device, Nvml};
+use nvml_wrapper::{Device, Nvml, error::NvmlError};
 use nvml_wrapper_sys::bindings::nvmlDevice_t;
 use std::sync::Arc;
 

@@ -1,7 +1,7 @@
 //! Construction of measurement pipelines.
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use rustc_hash::FxHashMap;
 use tokio::{
     runtime::Runtime,
@@ -14,12 +14,12 @@ use crate::measurement::MeasurementBuffer;
 use crate::metrics::online::listener::MetricListenerBuilder;
 use crate::metrics::online::{MetricReader, MetricRegistryControl, MetricSender};
 use crate::metrics::registry::MetricRegistry;
-use crate::pipeline::elements::output::control::OutputControl;
+use crate::pipeline::Output;
 use crate::pipeline::elements::output::OutputContext;
+use crate::pipeline::elements::output::control::OutputControl;
 use crate::pipeline::elements::source::control::SourceControl;
 use crate::pipeline::elements::transform::control::TransformControl;
 use crate::pipeline::util::channel;
-use crate::pipeline::Output;
 
 use super::elements::output::builder::OutputBuilder;
 use super::elements::source::builder::SourceBuilder;
@@ -27,8 +27,8 @@ use super::elements::source::trigger::TriggerConstraints;
 use super::elements::transform::builder::TransformBuilder;
 use super::error::PipelineError;
 use super::naming::{
-    namespace::{DuplicateNameError, Namespace2},
     OutputName, PluginName, SourceName, TransformName,
+    namespace::{DuplicateNameError, Namespace2},
 };
 use super::{
     control::key::{OutputKey, SourceKey, TransformKey},
@@ -327,7 +327,9 @@ impl Builder {
         let transform_control;
 
         if self.outputs.is_empty() {
-            log::warn!("No output has been registered. A dummy output will be added to make the pipeline work, but you probably want to add a true output.");
+            log::warn!(
+                "No output has been registered. A dummy output will be added to make the pipeline work, but you probably want to add a true output."
+            );
             add_dummy_output(&mut self.outputs);
         }
 

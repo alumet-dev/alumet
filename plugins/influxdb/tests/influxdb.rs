@@ -19,7 +19,7 @@ mod tests {
         pipeline::naming::OutputName,
         plugin::PluginMetadata,
         resources::{Resource, ResourceConsumer},
-        test::{runtime::OutputCheckInputContext, RuntimeExpectations},
+        test::{RuntimeExpectations, runtime::OutputCheckInputContext},
     };
 
     fn mock_influx_write(server: &mut ServerGuard, org: &str, bucket: &str, token: &str, body: &str) -> Mock {

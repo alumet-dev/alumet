@@ -1,6 +1,6 @@
 mod output;
 
-use alumet::plugin::rust::{deserialize_config, serialize_config, AlumetPlugin};
+use alumet::plugin::rust::{AlumetPlugin, deserialize_config, serialize_config};
 use output::OpenTelemetryOutput;
 use serde::{Deserialize, Serialize};
 

@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::Context;
 use tokio::task::{JoinError, JoinSet};
@@ -15,9 +15,9 @@ use crate::pipeline::error::PipelineError;
 use crate::pipeline::matching::ElementNamePattern;
 use crate::pipeline::naming::{ElementKind, ElementName, TransformName};
 
+use super::Transform;
 use super::builder::{BuildContext, TransformBuilder};
 use super::run::run_all_in_order;
-use super::Transform;
 
 /// Controls the transforms of a measurement pipeline.
 ///

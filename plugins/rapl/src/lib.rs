@@ -1,18 +1,18 @@
 use std::time::Duration;
 
 use alumet::{
-    pipeline::elements::source::{trigger, Source},
+    pipeline::elements::source::{Source, trigger},
     plugin::{
-        rust::{deserialize_config, serialize_config, AlumetPlugin},
         ConfigTable,
+        rust::{AlumetPlugin, deserialize_config, serialize_config},
     },
     units::Unit,
 };
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    consistency::{get_available_domains, SafeSubset},
+    consistency::{SafeSubset, get_available_domains},
     perf_event::{PerfEventProbe, PowerEvent},
     powercap::{PowerZone, PowercapProbe},
 };
@@ -222,7 +222,7 @@ mod tests {
     use std::path::Path;
     use std::time::Duration;
 
-    use crate::tests_mock::{create_mock_layout, create_valid_powercap_mock, Entry, EntryType};
+    use crate::tests_mock::{Entry, EntryType, create_mock_layout, create_valid_powercap_mock};
     use crate::{Config, RaplPlugin};
     use alumet::{
         agent::{

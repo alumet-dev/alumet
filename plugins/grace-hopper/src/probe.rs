@@ -9,7 +9,7 @@ use anyhow::anyhow;
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
-    pipeline::{elements::error::PollError, Source},
+    pipeline::{Source, elements::error::PollError},
     plugin::AlumetPluginStart,
     resources::{Resource, ResourceConsumer},
     units::Unit,
@@ -132,8 +132,8 @@ mod tests {
     use tempfile::tempdir;
 
     // use crate::probe::{compute_energy, read_power_value};
-    use crate::probe::read_power_value;
     use crate::probe::PowerMeasure;
+    use crate::probe::read_power_value;
 
     #[test]
     fn test_read_power_value() {

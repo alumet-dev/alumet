@@ -1,14 +1,14 @@
 use alumet::{
     measurement::{AttributeValue, MeasurementBuffer, WrappedMeasurementValue},
     pipeline::{
-        elements::{error::WriteError, output::OutputContext},
         Output,
+        elements::{error::WriteError, output::OutputContext},
     },
-    plugin::rust::{deserialize_config, serialize_config, AlumetPlugin},
+    plugin::rust::{AlumetPlugin, deserialize_config, serialize_config},
 };
 
 use mongodb::{
-    bson::{doc, Document},
+    bson::{Document, doc},
     sync::Client,
 };
 use mongodb2::convert_timestamp;

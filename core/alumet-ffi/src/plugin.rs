@@ -1,4 +1,4 @@
-use std::ffi::{c_char, CStr};
+use std::ffi::{CStr, c_char};
 
 use libc::c_void;
 
@@ -10,7 +10,7 @@ use alumet::{plugin::AlumetPluginStart, units::Unit};
 use super::pipeline::{FfiOutput, FfiTransform};
 use super::time::TimeDuration;
 use super::units::FfiUnit;
-use super::{pipeline::FfiSource, string::AStr, NullableDropFn, SourcePollFn};
+use super::{NullableDropFn, SourcePollFn, pipeline::FfiSource, string::AStr};
 use super::{OutputWriteFn, TransformApplyFn};
 
 #[unsafe(no_mangle)]

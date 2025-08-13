@@ -7,9 +7,8 @@ use crate::pipeline::{
 };
 
 use super::{
-    create, introspect::IntrospectionRequest, output::OutputRequest, source::SourceRequest,
-    transform::TransformRequest, AnonymousControlRequest, CreationRequest, DirectResponseReceiver,
-    PluginControlRequest, ResponseReceiver,
+    AnonymousControlRequest, CreationRequest, DirectResponseReceiver, PluginControlRequest, ResponseReceiver, create,
+    introspect::IntrospectionRequest, output::OutputRequest, source::SourceRequest, transform::TransformRequest,
 };
 
 #[derive(Debug)]

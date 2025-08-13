@@ -5,7 +5,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use base64::{DecodeError, Engine};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -414,8 +414,7 @@ mod tests {
         // HEADER = { "alg": "HS256", "typ": "JWT" }
         // PAYLOAD = { "sub": "1234567890", "name": "T3st1ng T0k3n", "iat": 1516239022 }
         // SIGNATURE = { HMACSHA256(base64UrlEncode(header) + "." +  base64UrlEncode(payload), signature) }
-        let content =
-            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IlQzc3QxbmcgVDBrM24iLCJpYXQiOjE1MTYyMzkwMjJ9.3vho4u0hx9QobMNbpDPvorWhTHsK9nSg2pZAGKxeVxA";
+        let content = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IlQzc3QxbmcgVDBrM24iLCJpYXQiOjE1MTYyMzkwMjJ9.3vho4u0hx9QobMNbpDPvorWhTHsK9nSg2pZAGKxeVxA";
         let path = dir.join("token_2");
 
         std::fs::write(&path, content).unwrap();

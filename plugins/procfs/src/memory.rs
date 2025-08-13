@@ -8,7 +8,7 @@ use std::{
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
-    pipeline::{elements::error::PollError, Source},
+    pipeline::{Source, elements::error::PollError},
     resources::{Resource, ResourceConsumer},
 };
 use anyhow::Context;

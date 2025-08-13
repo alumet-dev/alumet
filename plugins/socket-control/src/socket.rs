@@ -3,7 +3,7 @@ use std::{path::Path, time::Duration};
 use alumet::pipeline::control::{AnonymousControlHandle, PluginControlHandle};
 use anyhow::Context;
 use tokio::{
-    net::{unix::SocketAddr, UnixListener, UnixStream},
+    net::{UnixListener, UnixStream, unix::SocketAddr},
     runtime::Runtime,
     task::JoinHandle,
 };

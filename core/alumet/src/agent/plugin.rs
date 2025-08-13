@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 
 use crate::plugin::PluginMetadata;
 
@@ -162,7 +162,7 @@ impl PluginSet {
                         log::warn!("unknown plugin '{plugin_name}' in configuration")
                     }
                     UnknownPluginInConfigPolicy::Error => {
-                        return Err(anyhow!("unknown plugin '{plugin_name}' in configuration"))
+                        return Err(anyhow!("unknown plugin '{plugin_name}' in configuration"));
                     }
                     UnknownPluginInConfigPolicy::Ignore => {
                         // do nothing
@@ -249,8 +249,8 @@ mod tests {
     use serde::Serialize;
 
     use crate::plugin::{
-        rust::{serialize_config, AlumetPlugin},
         AlumetPluginStart, ConfigTable,
+        rust::{AlumetPlugin, serialize_config},
     };
 
     mod macros {

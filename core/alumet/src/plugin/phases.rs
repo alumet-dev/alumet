@@ -14,7 +14,7 @@ use crate::pipeline::elements::source::builder::{ManagedSource, SourceBuilder};
 use crate::pipeline::elements::source::control::TaskState;
 use crate::pipeline::elements::source::trigger::TriggerSpec;
 use crate::pipeline::elements::{output, source, transform};
-use crate::pipeline::naming::{namespace::DuplicateNameError, PluginName};
+use crate::pipeline::naming::{PluginName, namespace::DuplicateNameError};
 use crate::pipeline::{self, Output, Source, Transform};
 use crate::units::PrefixedUnit;
 

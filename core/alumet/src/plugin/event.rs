@@ -174,8 +174,8 @@ impl Event for EndConsumerMeasurement {}
 #[cfg(test)]
 mod tests {
     use std::sync::{
-        atomic::{AtomicU32, Ordering},
         Arc,
+        atomic::{AtomicU32, Ordering},
     };
 
     use super::{Event, EventBus};

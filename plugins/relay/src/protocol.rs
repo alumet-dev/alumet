@@ -44,7 +44,9 @@ pub enum Error {
     Disconnected,
 
     /// Incompatible peer.
-    #[error("client and server are incompatible: the client uses protocol version {client_protocol_version}, but the server uses protocol version {server_protocol_version}")]
+    #[error(
+        "client and server are incompatible: the client uses protocol version {client_protocol_version}, but the server uses protocol version {server_protocol_version}"
+    )]
     VersionMismatch {
         client_protocol_version: u32,
         server_protocol_version: u32,
@@ -200,7 +202,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> MessageStream<S> {
 
         // Prevent DOS attack or invalid length.
         if body_len > MAX_MESSAGE_BODY_SIZE {
-            let msg = format!("message too big: body length is {body_len} but it should be less than the maximum allowed {MAX_MESSAGE_BODY_SIZE}");
+            let msg = format!(
+                "message too big: body length is {body_len} but it should be less than the maximum allowed {MAX_MESSAGE_BODY_SIZE}"
+            );
             return Err(io::Error::new(io::ErrorKind::InvalidData, msg).into());
         }
 

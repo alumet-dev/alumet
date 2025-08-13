@@ -1,6 +1,6 @@
 mod probe;
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use probe::GraceHopperProbe;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -13,8 +13,8 @@ use std::{
 use alumet::{
     pipeline::elements::source::trigger::TriggerSpec,
     plugin::{
-        rust::{deserialize_config, serialize_config, AlumetPlugin},
         ConfigTable,
+        rust::{AlumetPlugin, deserialize_config, serialize_config},
     },
 };
 

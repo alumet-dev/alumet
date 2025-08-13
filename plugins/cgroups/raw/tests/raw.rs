@@ -13,7 +13,7 @@ use alumet::{
 };
 use anyhow::Context;
 use plugin_raw_cgroups::{Config, RawCgroupPlugin};
-use util_cgroups::{hierarchy::find_user_app_slice, CgroupHierarchy, CgroupVersion};
+use util_cgroups::{CgroupHierarchy, CgroupVersion, hierarchy::find_user_app_slice};
 
 const SYSFS_CGROUP: &str = "/sys/fs/cgroup";
 const TIMEOUT: Duration = Duration::from_secs(1);

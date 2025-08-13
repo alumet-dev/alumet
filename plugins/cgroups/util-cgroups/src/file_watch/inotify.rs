@@ -10,7 +10,7 @@ use std::{
 
 use crate::file_watch::{EventHandler, PathKind, Watcher};
 use anyhow::Context;
-use mio::{unix::SourceFd, Events, Interest, Poll, Token, Waker};
+use mio::{Events, Interest, Poll, Token, Waker, unix::SourceFd};
 use nix::{
     errno::Errno,
     sys::inotify::{AddWatchFlags, InitFlags, Inotify, InotifyEvent, WatchDescriptor},

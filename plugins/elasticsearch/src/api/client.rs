@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use alumet::{measurement::MeasurementBuffer, pipeline::elements::output::OutputContext};
 use anyhow::Context;
 use reqwest::{
-    header::{HeaderMap, HeaderValue, InvalidHeaderValue},
     Url,
+    header::{HeaderMap, HeaderValue, InvalidHeaderValue},
 };
 
 use super::ser::{CreateIndexTemplate, IndexTemplate, Serializer};

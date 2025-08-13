@@ -4,10 +4,10 @@ use alumet::{
     pipeline::elements::{error::WriteError, output::OutputContext},
 };
 use anyhow::Context;
-use opentelemetry::{global, InstrumentationScope, KeyValue};
+use opentelemetry::{InstrumentationScope, KeyValue, global};
 use opentelemetry_otlp::{MetricExporter, WithExportConfig};
-use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider};
 use opentelemetry_sdk::Resource;
+use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider};
 use std::{env, sync::OnceLock, time::Duration};
 
 #[derive(Clone)]

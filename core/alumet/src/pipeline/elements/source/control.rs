@@ -13,8 +13,8 @@ use crate::pipeline::control::matching::SourceMatcher;
 use crate::pipeline::elements::source::run::{run_autonomous, run_managed};
 use crate::pipeline::error::PipelineError;
 use crate::pipeline::matching::{ElementNamePattern, SourceNamePattern};
-use crate::pipeline::naming::{namespace::Namespace2, SourceName};
 use crate::pipeline::naming::{ElementKind, ElementName};
+use crate::pipeline::naming::{SourceName, namespace::Namespace2};
 
 use super::builder;
 use super::trigger::{Trigger, TriggerConstraints, TriggerSpec};

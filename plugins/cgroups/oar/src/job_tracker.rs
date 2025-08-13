@@ -3,11 +3,11 @@ use std::sync::{Arc, Mutex};
 use anyhow::Context;
 use rustc_hash::FxHashSet;
 
-use util_cgroups_plugins::{cgroup_events::CgroupRemovalCallback, regex::RegexAttributesExtrator};
 use crate::{
-    attr::{find_jobid_in_attrs, JOB_REGEX_OAR2, JOB_REGEX_OAR3},
+    attr::{JOB_REGEX_OAR2, JOB_REGEX_OAR3, find_jobid_in_attrs},
     config::OarVersion,
 };
+use util_cgroups_plugins::{cgroup_events::CgroupRemovalCallback, regex::RegexAttributesExtrator};
 
 /// Tracks the jobs that are currently running on the node.
 ///

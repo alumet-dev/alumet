@@ -1,8 +1,8 @@
 //! Stream-related utilities.
 
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::task::{Context, Poll};
 
 use futures::task::AtomicWaker;

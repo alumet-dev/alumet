@@ -1,9 +1,9 @@
 use std::fs::{self, File};
-use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::thread;
 use tempfile::tempdir;
-use util_cgroups::detect::{callback, ClosureCallbacks, Config};
+use util_cgroups::detect::{ClosureCallbacks, Config, callback};
 use util_cgroups::hierarchy::CgroupVersion;
 use util_cgroups::measure::v2::mock::{CpuStatMock, MockFileCgroupKV};
 use util_cgroups::{CgroupDetector, CgroupHierarchy};

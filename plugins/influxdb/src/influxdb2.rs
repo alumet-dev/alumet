@@ -2,7 +2,7 @@
 
 use alumet::measurement::Timestamp;
 use anyhow::Context;
-use reqwest::{header, Url};
+use reqwest::{Url, header};
 use std::{
     borrow::Cow,
     fmt::Write,

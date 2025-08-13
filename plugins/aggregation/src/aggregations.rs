@@ -62,7 +62,7 @@ mod tests {
         use alumet::measurement::WrappedMeasurementValue;
 
         use crate::{
-            aggregations::{sum, Function},
+            aggregations::{Function, sum},
             transform::tests::new_point,
         };
 
@@ -119,7 +119,7 @@ mod tests {
         use alumet::measurement::WrappedMeasurementValue;
 
         use crate::{
-            aggregations::{mean, Function},
+            aggregations::{Function, mean},
             transform::tests::new_point,
         };
 

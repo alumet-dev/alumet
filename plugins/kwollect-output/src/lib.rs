@@ -2,7 +2,7 @@ mod kwollect;
 mod output;
 
 use alumet::plugin::rust::{deserialize_config, serialize_config};
-use alumet::plugin::{rust::AlumetPlugin, AlumetPluginStart, ConfigTable};
+use alumet::plugin::{AlumetPluginStart, ConfigTable, rust::AlumetPlugin};
 use serde::{Deserialize, Serialize};
 
 use crate::output::KwollectOutput;

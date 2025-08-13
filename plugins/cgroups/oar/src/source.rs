@@ -1,18 +1,18 @@
 use std::process::Command;
 
 use alumet::{measurement::AttributeValue, pipeline::elements::source::trigger::TriggerSpec};
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use util_cgroups::Cgroup;
 
+use crate::{
+    attr::{JOB_REGEX_OAR2, JOB_REGEX_OAR3, find_jobid_in_attrs, find_userid_in_attrs},
+    config::OarVersion,
+    job_tracker::JobTracker,
+};
 use util_cgroups_plugins::{
     cgroup_events::{CgroupSetupCallback, ProbeSetup, SourceSettings},
     metrics::{AugmentedMetrics, Metrics},
     regex::RegexAttributesExtrator,
-};
-use crate::{
-    attr::{find_jobid_in_attrs, find_userid_in_attrs, JOB_REGEX_OAR2, JOB_REGEX_OAR3},
-    config::OarVersion,
-    job_tracker::JobTracker,
 };
 
 #[derive(Clone)]

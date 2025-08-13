@@ -13,8 +13,8 @@ use alumet::pipeline::elements::source::{builder::ManagedSource, trigger::Trigge
 use alumet::pipeline::elements::transform::{TransformContext, TransformError};
 use alumet::pipeline::{Output, Source, Transform};
 use alumet::plugin::{
-    rust::{serialize_config, AlumetPlugin},
     AlumetPluginStart, AlumetPostStart, ConfigTable,
+    rust::{AlumetPlugin, serialize_config},
 };
 
 pub struct BadPlugin;
