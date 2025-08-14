@@ -10,9 +10,9 @@
 
 Here are the metrics created by the transform plugin.
 
-|Name|Type|Unit|Description|Attributes|More information|
-|----|----|----|-----------|----------|-----------------|
-|`metric's name`||||||
+|Name|Type|Unit|Description|Resource|ResourceConsumer|Attributes|More information|
+|----|----|----|-----------|--------|----------------|----------|----------------|
+|`metric's name`||||||||
 
 ### Attributes
 

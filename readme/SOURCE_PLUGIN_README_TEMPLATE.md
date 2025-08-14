@@ -10,9 +10,9 @@
 
 Here are the metrics collected by the plugin source.
 
-|Name|Type|Unit|Description|Attributes|More information|
-|----|----|----|-----------|----------|-----------------|
-|`metric's name`||||||
+|Name|Type|Unit|Description|Resource|ResourceConsumer|Attributes|More information|
+|----|----|----|-----------|--------|----------------|----------|----------------|
+|`metric's name`||||||||
 
 ### Attributes
 
