@@ -120,8 +120,8 @@ pub fn prepare(
     })?;
 
     // compile the expression to speed up evaluation later
-    let expr = evalexpr::build_operator_tree(&config.formula)
-        .with_context(|| format!("failed to compile expression {}", config.formula))?;
+    let expr = evalexpr::build_operator_tree(&config.expr)
+        .with_context(|| format!("failed to compile expression {}", config.expr))?;
 
     let formula = PreparedFormula {
         result_metric_id,
