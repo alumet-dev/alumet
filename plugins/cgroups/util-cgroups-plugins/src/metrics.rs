@@ -6,10 +6,12 @@ use alumet::{
 };
 
 /// Contains common metrics.
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone)]
 pub struct Metrics {
     /// Total CPU usage time by the cgroup since last measurement.
     pub cpu_time_delta: TypedMetricId<u64>,
+    /// The ratio of CPU used by the cgroup since last measurement
+    pub cpu_percent: TypedMetricId<f64>,
     /// Memory currently used by the cgroup.
     pub memory_usage: TypedMetricId<u64>,
     /// Anonymous used memory, corresponding to running process and various allocated memory.
@@ -23,7 +25,7 @@ pub struct Metrics {
 }
 
 /// Used by probes to configure how cgroup measurements will be mapped to Alumet measurement points.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct AugmentedMetric<T: MeasurementType> {
     pub metric: TypedMetricId<T>,
     pub attributes: Vec<(String, AttributeValue)>,
@@ -43,10 +45,12 @@ impl<T: MeasurementType<T = T>> AugmentedMetric<T> {
 }
 
 /// Regroups all metrics and their additional attributes.
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone)]
 pub struct AugmentedMetrics {
     /// Total CPU usage time by the cgroup since last measurement.
     pub cpu_time_delta: AugmentedMetric<u64>,
+    /// The ratio of CPU used by the cgroup since last measurement
+    pub cpu_percent: AugmentedMetric<f64>,
     /// Memory currently used by the cgroup.
     pub memory_usage: AugmentedMetric<u64>,
     /// Anonymous used memory, corresponding to running process and various allocated memory.
@@ -69,6 +73,11 @@ impl Metrics {
             "cpu_time_delta",
             PrefixedUnit::nano(Unit::Second),
             "Total CPU usage time by the cgroup since last measurement",
+        )?;
+        let cpu_percent = alumet.create_metric::<f64>(
+            "cpu_percent",
+            Unit::Percent,
+            "The ratio of CPU used by the cgroup since last measurement",
         )?;
         let memory_usage =
             alumet.create_metric::<u64>("memory_usage", Unit::Byte, "Memory currently used by the cgroup")?;
@@ -94,6 +103,7 @@ impl Metrics {
         )?;
         Ok(Self {
             cpu_time_delta,
+            cpu_percent,
             memory_usage,
             memory_anonymous,
             memory_file,
@@ -107,6 +117,7 @@ impl AugmentedMetrics {
     pub fn no_additional_attribute(metrics: &Metrics) -> Self {
         Self {
             cpu_time_delta: AugmentedMetric::simple(metrics.cpu_time_delta),
+            cpu_percent: AugmentedMetric::simple(metrics.cpu_percent),
             memory_usage: AugmentedMetric::simple(metrics.memory_usage),
             memory_anonymous: AugmentedMetric::simple(metrics.memory_anonymous),
             memory_file: AugmentedMetric::simple(metrics.memory_file),
@@ -132,6 +143,7 @@ impl AugmentedMetrics {
     pub fn with_common_attr_vec(metrics: &Metrics, common_attrs: Vec<(String, AttributeValue)>) -> Self {
         Self {
             cpu_time_delta: AugmentedMetric::simple(metrics.cpu_time_delta),
+            cpu_percent: AugmentedMetric::simple(metrics.cpu_percent),
             memory_usage: AugmentedMetric::simple(metrics.memory_usage),
             memory_anonymous: AugmentedMetric::simple(metrics.memory_anonymous),
             memory_file: AugmentedMetric::simple(metrics.memory_file),
