@@ -1,11 +1,13 @@
 # Relay plugin
 
-The relay plugin allows to send and receive measurements over the network with the efficient [postcard](https://github.com/jamesmunns/postcard) protocol.
+The relay plugin allows to send and receive measurements over the network, with an efficient protocol based on [postcard](https://github.com/jamesmunns/postcard) binary serialization.
 
-This plugin is made of two parts, enabled by cargo features:
+The relay plugin is in fact made of two parts (relay-client plugin and relay-server plugin):
 
 - `client`: sends all measurements to the relay server. Usually the client is configured with input and transform plugins for reading metrics and calculation.
 - `server`: receives measurements from one or multiple clients. Usually the server is configured with output plugin to write measurements in a database.
+
+The server and client plugin must be enabled and configured independently. A standard configuration is several clients communicate with one server as described in the schema below:
 
 ```mermaid
 graph TD
@@ -67,12 +69,9 @@ Here is a configuration example of the plugin for the server. It's part of the A
 - `initial_delay`: delay to wait after the 1st and second retry connection to the server. Default value is 500ms.
 - `max_delay`: delay to wait between each retry after the second retry failure. Default value is 4s.
 
-The format related to parameters which are a duration (`buffer_timeout`, `initial_delay`, `max_delay`) is a number followed by the unit that can be:
-- ms for milli second
-- s for second
-- m for minutes
+The format related to parameters which are a duration (`buffer_timeout`, `initial_delay`, `max_delay`) is a concatenation of time spans. Where each time span is an integer number and a [suffix](https://docs.rs/humantime/latest/humantime/fn.parse_duration.html).
 
-A usefull feature of Alumet is that you can override the address/port configured in the configuration file that the Alumet relay client should connect to with the option `--relay-out`.
+A useful feature of Alumet is that you can override the address/port with the command-line option `--relay-out`.
 
 ```sh
 alumet-agent --relay-out 172.16.48.9:50051
@@ -82,10 +81,10 @@ alumet-agent --relay-out 172.16.48.9:50051
 
 - `address` = "[::]:\<port number>" ; [::] means that all network interfaces IPV6 are listening. You can configure a specific IPV6/IPV4 network interface if needed:
   - "172.16.48.8:50051" to listen on a specific IPV4 address
-  - "[fe80::a225:9fff:fe08:f874%8]:50051" to listen on a specific IPV6 address, in that case you need to specify the network interface: <IPV6 address>%<network interface>
+  - "[fe80::a225:9fff:fe08:f874%8]:50051" to listen on a specific IPV6 address, according IPV6 configuration (host-local or global), it can be mandatory or not to specify the network interface. If yes, then the format is: \<IPV6 address>%\<network interface>
   In the above example, the network interface is _8_ an the IPV6 address is _fe80::a225:9fff:fe08:f874_
 
-A usefull feature of Alumet is that you can override the address/port configured in the configuration file that the Alumet relay server should listen to with the option `--relay-in`.
+A useful feature of Alumet is that you can override the address/port with command-line option `--relay-in`.
 
 ```sh
 alumet-agent --relay-in 172.16.48.9:50051
