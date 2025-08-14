@@ -8,12 +8,15 @@ use alumet::{
 };
 use anyhow::Context;
 
-use crate::formula::{config::FormulaConfig, transform::GenericAttributionTransform};
+use crate::formula::{
+    config::{FormulaConfig, PluginConfig},
+    transform::GenericAttributionTransform,
+};
 
 mod formula;
 
 pub struct EnergyAttributionPlugin {
-    config: Option<FormulaConfig>,
+    config: Option<PluginConfig>,
 }
 
 impl AlumetPlugin for EnergyAttributionPlugin {
@@ -35,21 +38,23 @@ impl AlumetPlugin for EnergyAttributionPlugin {
     }
 
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
-        let formula_config = self.config.take().unwrap();
-        let result_metric = alumet.create_metric::<f64>(
-            "attributed_energy",
-            Unit::Joule,
-            "Energy attribution (since the previous value) per consumer and per resource",
-        )?;
+        let config = self.config.take().unwrap();
+        for (name, formula_config) in config.formulas {
+            let result_metric = alumet.create_metric::<f64>(
+                name,
+                Unit::Joule,
+                "Energy attribution (since the previous value) per consumer and per resource",
+            )?;
 
-        // create the transform, in a builder because we need the metric registry
-        let _ = alumet.add_transform_builder("attribution_transform", move |ctx| {
+            // create the transform, in a builder because we need the metric registry
+            let _ = alumet.add_transform_builder("attribution_transform", move |ctx| {
             let res = formula::prepare(formula_config, ctx.metrics(), result_metric)
                 .context("failed to prepare attribution formula; check that you have enabled the required sources and that the configuration is correct");
             let (formula, params) = res?;
             let transform = Box::new(GenericAttributionTransform::new(formula, params));
             Ok(transform)
         })?;
+        }
         Ok(())
     }
 
