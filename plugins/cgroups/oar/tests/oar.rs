@@ -1,0 +1,187 @@
+use std::{path::Path, time::Duration};
+
+use alumet::{
+    agent::{
+        self,
+        plugin::{PluginInfo, PluginSet},
+    },
+    pipeline::{
+        control::request::{self, ElementListFilter},
+        naming::ElementKind,
+    },
+    plugin::PluginMetadata,
+};
+use anyhow::Context;
+use plugin_oar::OarPlugin;
+use serial_test::serial;
+use util_cgroups::hierarchy::find_user_app_slice;
+
+const SYSFS_CGROUP: &str = "/sys/fs/cgroup";
+const TIMEOUT: Duration = Duration::from_secs(1);
+const TOLERANCE: Duration = Duration::from_millis(500);
+
+#[test]
+#[serial]
+fn test_oar3() -> anyhow::Result<()> {
+    if std::env::var_os("SKIP_CGROUPFS_TESTS").is_some() {
+        println!("skipped because SKIP_CGROUPFS_TESTS is set");
+        return Ok(());
+    }
+
+    let _ = env_logger::Builder::from_default_env().try_init();
+
+    let app_slice = find_user_app_slice(Path::new(SYSFS_CGROUP))?;
+
+    let mut plugins = PluginSet::new();
+    plugins.add_plugin(PluginInfo {
+        metadata: PluginMetadata::from_static::<OarPlugin>(),
+        enabled: true,
+        config: toml::from_str(
+            r#"
+                oar_version = "oar3"
+                poll_interval = "500ms"
+                jobs_only = true
+            "#,
+        )
+        .unwrap(),
+    });
+
+    // start the measurement pipeline, without our "test_raw" cgroup
+    let agent = agent::Builder::new(plugins).build_and_start()?;
+
+    // create the cgroup
+    let cgroup_dir_parent =
+        tempfile::tempdir_in(&app_slice).with_context(|| format!("failed to create cgroup in {app_slice:?}"))?;
+    let cgroup_dir_job = cgroup_dir_parent
+        .path()
+        .join(format!("oar.slice/oar-u1000.scope/oar-u1000-j123456"));
+    std::fs::create_dir_all(&cgroup_dir_job)?;
+
+    let source_name = format!("oar-job-123456");
+    log::info!("cgroup created at {:?}", cgroup_dir_job);
+    log::info!("source name: {source_name}");
+
+    // expect the source to be created quickly after that
+    std::thread::sleep(TOLERANCE);
+    let handle = agent.pipeline.control_handle();
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let elements = rt.block_on(
+        handle.send_wait(
+            request::list_elements(
+                ElementListFilter::kind(ElementKind::Source)
+                    .plugin("oar")
+                    .name(source_name.clone()),
+            ),
+            TIMEOUT,
+        ),
+    )?;
+    assert_eq!(
+        elements.len(),
+        1,
+        "bad source count, expected one {source_name}, got {elements:?}"
+    );
+
+    // remove the cgroup
+    std::fs::remove_dir(&cgroup_dir_job)?;
+    std::thread::sleep(TOLERANCE * 2);
+    let elements = rt.block_on(
+        handle.send_wait(
+            request::list_elements(
+                ElementListFilter::kind(ElementKind::Source)
+                    .plugin("oar")
+                    .name(source_name.clone()),
+            ),
+            TIMEOUT,
+        ),
+    )?;
+    assert!(
+        elements.is_empty(),
+        "source should have been deleted: {source_name}; current sources: {elements:?}"
+    );
+
+    // stop the pipeline and wait for it to terminate
+    handle.shutdown();
+    agent.wait_for_shutdown(TIMEOUT)?;
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn test_oar2() -> anyhow::Result<()> {
+    if std::env::var_os("SKIP_CGROUPFS_TESTS").is_some() {
+        println!("skipped because SKIP_CGROUPFS_TESTS is set");
+        return Ok(());
+    }
+
+    let _ = env_logger::Builder::from_default_env().try_init();
+
+    let app_slice = find_user_app_slice(Path::new(SYSFS_CGROUP))?;
+
+    let mut plugins = PluginSet::new();
+    plugins.add_plugin(PluginInfo {
+        metadata: PluginMetadata::from_static::<OarPlugin>(),
+        enabled: true,
+        config: toml::from_str(
+            r#"
+                oar_version = "oar2"
+                poll_interval = "500ms"
+                jobs_only = true
+            "#,
+        )
+        .unwrap(),
+    });
+
+    // start the measurement pipeline, without our "test_raw" cgroup
+    let agent = agent::Builder::new(plugins).build_and_start()?;
+
+    // create the cgroup
+    let cgroup_dir_parent =
+        tempfile::tempdir_in(&app_slice).with_context(|| format!("failed to create cgroup in {app_slice:?}"))?;
+    let cgroup_dir_job = cgroup_dir_parent.path().join(format!("oar/user_456789"));
+    std::fs::create_dir_all(&cgroup_dir_job)?;
+
+    let source_name = format!("oar-job-456789");
+    log::info!("cgroup created at {:?}", cgroup_dir_job);
+    log::info!("source name: {source_name}");
+
+    // expect the source to be created quickly after that
+    std::thread::sleep(TOLERANCE);
+    let handle = agent.pipeline.control_handle();
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let elements = rt.block_on(
+        handle.send_wait(
+            request::list_elements(
+                ElementListFilter::kind(ElementKind::Source)
+                    .plugin("oar")
+                    .name(source_name.clone()),
+            ),
+            TIMEOUT,
+        ),
+    )?;
+    assert!(
+        !elements.is_empty(),
+        "source not found: {source_name}; current sources: {elements:?}"
+    );
+
+    // remove the cgroup
+    std::fs::remove_dir(&cgroup_dir_job)?;
+    std::thread::sleep(TOLERANCE * 2);
+
+    // expect the source to be deleted
+    let elements = rt.block_on(
+        handle.send_wait(
+            request::list_elements(
+                ElementListFilter::kind(ElementKind::Source)
+                    .plugin("oar")
+                    .name(source_name.clone()),
+            ),
+            TIMEOUT,
+        ),
+    )?;
+    assert!(elements.is_empty(), "source should have been deleted: {source_name}");
+
+    // stop the pipeline and wait for it to terminate
+    handle.shutdown();
+    agent.wait_for_shutdown(TIMEOUT)?;
+    Ok(())
+}

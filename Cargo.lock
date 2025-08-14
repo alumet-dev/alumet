@@ -2658,6 +2658,7 @@ dependencies = [
  "regex",
  "rustc-hash",
  "serde",
+ "serial_test",
  "tempfile",
  "thiserror 2.0.14",
  "tokio",
