@@ -26,7 +26,6 @@ pub struct ManagedDevice {
 /// Statistics about the device detection.
 pub struct DetectionStats {
     pub found_devices: usize,
-    pub failed_devices: usize,
     pub working_devices: usize,
 }
 
@@ -102,7 +101,6 @@ impl NvmlDevices {
         let n_ok = n_found - n_failed;
         DetectionStats {
             found_devices: n_found,
-            failed_devices: n_failed,
             working_devices: n_ok,
         }
     }
