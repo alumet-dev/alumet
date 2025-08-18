@@ -1,5 +1,5 @@
 use alumet::{
-    measurement::{MeasurementPoint, WrappedMeasurementValue},
+    measurement::{AttributeValue, MeasurementPoint, WrappedMeasurementValue},
     metrics::{registry::MetricRegistry, RawMetricId, TypedMetricId},
 };
 use anyhow::{Context, anyhow};
@@ -31,11 +31,12 @@ pub struct AttributionParams {
 }
 
 pub trait DataFilter: Send + 'static {
-    fn accept(&self, point: &MeasurementPoint) -> bool;
+    fn accept_point(&self, point: &MeasurementPoint) -> bool;
+    fn copy_attributes(&self, point: &MeasurementPoint, dst: &mut Vec<(String, AttributeValue)>);
 }
 
 impl DataFilter for super::config::FilterConfig {
-    fn accept(&self, point: &MeasurementPoint) -> bool {
+    fn accept_point(&self, point: &MeasurementPoint) -> bool {
         if let Some(resource_kind) = &self.resource_kind {
             if point.resource.kind() != resource_kind {
                 return false;
@@ -65,6 +66,18 @@ impl DataFilter for super::config::FilterConfig {
         }
 
         true
+    }
+
+    fn copy_attributes(&self, point: &MeasurementPoint, dst: &mut Vec<(String, AttributeValue)>) {
+        if self.keep_attributes {
+            // TODO a list of attributes to keep?
+            dst.extend(
+                point
+                    .attributes()
+                    .into_iter()
+                    .map(|(k, v)| (k.to_owned(), v.to_owned())),
+            );
+        }
     }
 }
 
@@ -140,12 +153,12 @@ pub fn prepare(
 }
 
 impl PreparedFormula {
-    pub fn evaluate(&mut self, multi_point: FxHashMap<RawMetricId, MeasurementPoint>) -> anyhow::Result<f64> {
+    pub fn evaluate(&mut self, multi_point: &FxHashMap<RawMetricId, MeasurementPoint>) -> anyhow::Result<f64> {
         // prepare the environment
         self.eval_ctx.clear_variables();
         for (k, p) in multi_point {
             let ident = self.metric_to_ident.get(&k).unwrap().to_owned();
-            let value = convert_value_for_eval(p.value);
+            let value = convert_value_for_eval(&p.value);
             self.eval_ctx.set_value(ident, value).unwrap();
         }
 
@@ -164,11 +177,12 @@ impl PreparedFormula {
     }
 }
 
-fn convert_value_for_eval(value: WrappedMeasurementValue) -> evalexpr::Value {
+fn convert_value_for_eval(value: &WrappedMeasurementValue) -> evalexpr::Value {
     match value {
-        WrappedMeasurementValue::F64(v) => evalexpr::Value::Float(v),
+        WrappedMeasurementValue::F64(v) => evalexpr::Value::Float(*v),
         WrappedMeasurementValue::U64(v) => evalexpr::Value::Int(
-            v.try_into()
+            v.to_owned()
+                .try_into()
                 .expect("point value exceeded the maximum integer value supported by evalexpr"),
         ),
     }
