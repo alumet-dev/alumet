@@ -211,6 +211,8 @@ mod tests {
     use regex::Regex;
     use std::time::Duration;
 
+    use crate::command::parse_pattern;
+
     use super::{Command, parse};
     use alumet::pipeline::control::matching::{OutputMatcher, SourceMatcher, TransformMatcher};
     use alumet::pipeline::control::request::{self, any::AnyAnonymousControlRequest};
@@ -288,6 +290,30 @@ mod tests {
     }
 
     #[test]
+    fn control_pause_transform() {
+        assert_control_eq(
+            parse("control transform pause").unwrap(),
+            vec![
+                request::transform(TransformMatcher::Name(TransformNamePattern::wildcard()))
+                    .disable()
+                    .into(),
+            ],
+        );
+    }
+
+    #[test]
+    fn control_pause_output() {
+        assert_control_eq(
+            parse("control output pause").unwrap(),
+            vec![
+                request::output(OutputMatcher::Name(OutputNamePattern::wildcard()))
+                    .disable()
+                    .into(),
+            ],
+        );
+    }
+
+    #[test]
     fn control_all_pause() {
         assert_control_eq(
             parse("control * pause").unwrap(),
@@ -306,6 +332,36 @@ mod tests {
     }
 
     #[test]
+    fn control_resume_output() {
+        assert_control_eq(
+            parse("control output resume").unwrap(),
+            vec![
+                request::output(OutputMatcher::Name(OutputNamePattern::wildcard()))
+                    .enable()
+                    .into(),
+            ],
+        );
+    }
+
+    #[test]
+    fn control_resume_all() {
+        assert_control_eq(
+            parse("control * resume").unwrap(),
+            vec![
+                request::source(SourceMatcher::Name(SourceNamePattern::wildcard()))
+                    .enable()
+                    .into(),
+                request::transform(TransformMatcher::Name(TransformNamePattern::wildcard()))
+                    .enable()
+                    .into(),
+                request::output(OutputMatcher::Name(OutputNamePattern::wildcard()))
+                    .enable()
+                    .into(),
+            ],
+        );
+    }
+
+    #[test]
     fn control_source_set_poll_interval() {
         assert_control_eq(
             parse("control sources set-period 10ms").unwrap(),
@@ -314,6 +370,33 @@ mod tests {
                     .set_trigger(TriggerSpec::at_interval(Duration::from_millis(10)))
                     .into(),
             ],
+        );
+    }
+
+    #[test]
+    fn parse_pattern_wrong_pattern() {
+        assert_eq!(
+            parse_pattern("source/without-element").unwrap_err().to_string(),
+            "bad pattern, expected kind/plugin/element but got 'source/without-element'"
+        );
+    }
+
+    #[test]
+    fn control_common_errors() {
+        assert_eq!(
+            parse("control output/*/* trigger-now").unwrap_err().to_string(),
+            "invalid command 'control output/*/* trigger-now'",
+            "'trigger-now' can only be applied to sources"
+        );
+        assert_eq!(
+            parse("control transform/*/* set-period").unwrap_err().to_string(),
+            "invalid command 'control transform/*/* set-period'",
+            "'set-period' can only be applied to sources"
+        );
+        assert_eq!(
+            parse("control transform/*/* stop").unwrap_err().to_string(),
+            "invalid command 'control transform/*/* stop'",
+            "'stop' can only be applied to sources and outputs"
         );
     }
 
