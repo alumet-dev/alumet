@@ -10,7 +10,10 @@ use alumet::{
     },
 };
 
-mod nvml;
+mod device;
+mod features;
+mod metrics;
+mod probe;
 
 pub struct NvmlPlugin {
     config: Config,
@@ -36,7 +39,7 @@ impl AlumetPlugin for NvmlPlugin {
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
-        let nvml = nvml::device::NvmlDevices::detect(true)?;
+        let nvml = device::NvmlDevices::detect(true)?;
         let stats = nvml.detection_stats();
         if stats.found_devices == 0 {
             return Err(anyhow!(
@@ -64,12 +67,12 @@ impl AlumetPlugin for NvmlPlugin {
                 );
             }
         }
-        let metrics = nvml::metrics::Metrics::new(alumet)?;
+        let metrics = metrics::Metrics::new(alumet)?;
 
         for maybe_device in nvml.devices {
             if let Some(device) = maybe_device {
                 let source_name = format!("device_{}", device.bus_id);
-                let source = nvml::probe::NvmlSource::new(device, metrics.clone())?;
+                let source = probe::NvmlSource::new(device, metrics.clone())?;
                 let trigger = TriggerSpec::builder(self.config.poll_interval)
                     .flush_interval(self.config.flush_interval)
                     .build()?;

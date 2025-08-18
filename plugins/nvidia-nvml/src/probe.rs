@@ -8,7 +8,7 @@ use alumet::{
     resources::{Resource, ResourceConsumer},
 };
 
-use crate::nvml::{features::AvailableVersion, metrics::Metrics};
+use crate::{features::AvailableVersion, metrics::Metrics};
 
 use super::device::ManagedDevice;
 
