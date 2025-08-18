@@ -15,6 +15,7 @@ pub struct CgroupV1Probe {
     metrics: AugmentedMetrics,
     collector: V1Collector,
     io_buf: Vec<u8>,
+    last_timestamp: Option<Timestamp>,
 }
 
 impl CgroupV1Probe {
@@ -31,6 +32,7 @@ impl CgroupV1Probe {
             metrics,
             collector,
             io_buf,
+            last_timestamp: None,
         })
     }
 
@@ -49,6 +51,12 @@ impl CgroupV1Probe {
 
 impl Source for CgroupV1Probe {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, t: Timestamp) -> Result<(), PollError> {
+        let last_timestamp = self.last_timestamp;
+        self.last_timestamp = Some(t);
+        let poll_interval_nano = match last_timestamp {
+            Some(last) => Some(t.duration_since(last)?.as_nanos()),
+            None => None,
+        };
         let data = analyze_io_result(self.collector.measure(&mut self.io_buf))?;
         let resource = Resource::LocalMachine; // TODO more precise, but we don't know the pkg id
 
@@ -62,6 +70,17 @@ impl Source for CgroupV1Probe {
                 self.new_point(&self.metrics.cpu_time_delta, t, &resource, value)
                     .with_attr("kind", "total"),
             );
+            if let Some(poll_interval) = poll_interval_nano {
+                measurements.push(
+                    self.new_point(
+                        &self.metrics.cpu_percent,
+                        t,
+                        &resource,
+                        (value as f64 / poll_interval as f64) * 100.0,
+                    )
+                    .with_attr("kind", "total"),
+                );
+            }
         }
 
         // Memory statistics
