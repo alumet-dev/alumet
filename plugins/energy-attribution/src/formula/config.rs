@@ -24,6 +24,7 @@ pub struct FormulaConfig {
     pub(super) per_consumer: FxHashMap<String, FormulaTimeseriesConfig>,
 }
 
+/// Configuration for one timeseries used in a formula.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FormulaTimeseriesConfig {
     pub(super) metric: String,
@@ -41,6 +42,15 @@ pub struct FilterConfig {
 
     #[serde(flatten)]
     pub(super) attributes: FxHashMap<String, FilterAttributeValue>,
+
+    /// If `true`, copy all the attributes of this timeseries into the result.
+    /// If `false`, discard all the attributes of this timeseries when producing the resulting measurement point.
+    #[serde(default = "default_true")]
+    pub(super) keep_attributes: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -108,7 +118,13 @@ mod tests {
         assert_eq!(config.per_resource["gpu_energy"].metric, "nvml_energy_consumption");
         assert_eq!(config.per_consumer["u_major"].metric, "nvml_gpu_utilization");
         assert_eq!(config.per_consumer["u_mem"].metric, "nvml_memory_utilization");
-        println!("{}", toml::to_string_pretty(&PluginConfig{formulas: FxHashMap::from_iter([(String::from("a"), config)])}).unwrap());
+        println!(
+            "{}",
+            toml::to_string_pretty(&PluginConfig {
+                formulas: FxHashMap::from_iter([(String::from("a"), config)])
+            })
+            .unwrap()
+        );
     }
 
     #[test]

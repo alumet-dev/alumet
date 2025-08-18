@@ -69,7 +69,7 @@ impl AttributionState {
     fn extend(&mut self, buf: &MeasurementBuffer) {
         for p in buf {
             let filter = self.params.data_filters.get(&p.metric);
-            if !filter.is_some_and(|f| f.accept(p)) {
+            if !filter.is_some_and(|f| f.accept_point(p)) {
                 // we don't need this data point
                 log::trace!("filtered out: {p:?}");
                 continue;
@@ -100,7 +100,7 @@ impl Transform for GenericAttributionTransform {
         // To do this properly, we need a timeout, which could work by using an async transform triggered by either the timeout or a new message.
 
         self.state.extend(&measurements);
-        log::warn!("attribution buffer: {:?}", self.state.buffer_per_resource);
+        log::trace!("attribution buffer: {:?}", self.state.buffer_per_resource);
 
         let temporal_ref_metric = self.state.params.temporal_ref_metric;
 
@@ -148,17 +148,29 @@ impl Transform for GenericAttributionTransform {
                     // for each multi-point, evaluate the attribution formula
                     for (t, multi_point) in synced.series {
                         log::trace!("evaluating formula at {t:?} with {multi_point:?}");
+                        // compute the value
                         let attributed = self
                             .formula
-                            .evaluate(multi_point)
+                            .evaluate(&multi_point)
                             .map_err(TransformError::UnexpectedInput)?;
-                        let point = MeasurementPoint::new(
+
+                        // create the data point
+                        let mut point = MeasurementPoint::new(
                             t,
                             self.formula.result_metric_id,
                             resource.clone(),
                             consumer.clone(),
                             attributed,
                         );
+
+                        // keep some attributes
+                        let mut attrs = Vec::new();
+                        for (in_metric, in_point) in multi_point {
+                            let filter = self.state.params.data_filters.get(&in_metric).unwrap();
+                            filter.copy_attributes(&in_point, &mut attrs);
+                        }
+                        point = point.with_attr_vec(attrs);
+
                         measurements.push(point);
                     }
 
