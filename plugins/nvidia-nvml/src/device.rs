@@ -36,10 +36,10 @@ impl NvmlDevices {
     /// If `skip_failed_devices` is `false`, returns an error on the first device that fails.
     pub fn detect(skip_failed_devices: bool) -> anyhow::Result<NvmlDevices> {
         let nvml = Arc::new(Nvml::init().context(
-            "NVML initialization failed, please check your driver (do you have a dekstop/server NVidia GPU?",
+            "NVML initialization failed, please check your driver (do you have a dekstop/server NVidia GPU?)",
         )?);
 
-        let count = nvml.device_count()?;
+        let count = nvml.device_count().context("could not get device count")?;
         let mut devices = Vec::with_capacity(count as usize);
         for i in 0..count {
             let device = match nvml
@@ -52,7 +52,9 @@ impl NvmlDevices {
                         // Extract the device pointer because we will manage the lifetimes ourselves.
                         let handle = unsafe { gpu.handle() };
                         let lib = nvml.clone();
-                        let bus_id = pci_info?.bus_id;
+                        let bus_id = pci_info
+                            .with_context(|| format!("failed to get the bus ID of device {i}"))?
+                            .bus_id;
                         let d = ManagedDevice {
                             lib,
                             handle,
@@ -71,21 +73,11 @@ impl NvmlDevices {
                 }
                 Err(e) => {
                     if skip_failed_devices {
-                        match e {
-                            // errors that can be skipped (device's fault)
-                            NvmlError::InsufficientPower
-                            | NvmlError::NoPermission
-                            | NvmlError::IrqIssue
-                            | NvmlError::GpuLost => {
-                                log::warn!("Skipping GPU device {i} because of error: {e}");
-                                None
-                            }
-                            // critical errors related to nvml itself
-                            other => Err(other)?,
-                        }
+                        log::warn!("Skipping GPU device {i} because of error:\n{e:?}");
+                        None
                     } else {
                         // don't skip, fail immediately
-                        Err(e)?
+                        Err(e).context(format!("failed to inspect GPU device {i}"))?
                     }
                 }
             };

@@ -1,6 +1,8 @@
 use nvml_wrapper::{Device, enum_wrappers::device::TemperatureSensor, error::NvmlError};
 use std::fmt::Display;
 
+use crate::nvml_ext::DeviceExt;
+
 /// Indicates which version of a NVML function is available on a given device.
 #[derive(Debug, PartialEq, Eq)]
 pub enum AvailableVersion {
@@ -42,7 +44,7 @@ impl OptionalFeatures {
             major_utilization: is_supported(device.utilization_rates())?,
             decoder_utilization: is_supported(device.decoder_utilization())?,
             encoder_utilization: is_supported(device.encoder_utilization())?,
-            process_utilization_stats: is_supported(device.process_utilization_stats(0))?,
+            process_utilization_stats: is_supported(device.fixed_process_utilization_stats(0))?,
             running_compute_processes: check_running_compute_processes(device)?,
             running_graphics_processes: check_running_graphics_processes(device)?,
         })

@@ -1,16 +1,17 @@
 # NVIDIA NVML plugin
 
-The `plugin-nvidia-nvml` allows to detect GPUs based on NVIDIA architecture installed on a machine, measures their utilization and retrieves various metrics about each of them.
+The `nvml` plugin allows to monitor NVIDIA GPUs.
 
 ## Requirements
 
 - Linux
-- NVIDIA GPU
-- NVIDIA drivers installed, see the [Unix Driver Archive](https://www.nvidia.com/en-us/drivers/unix/) to install them
+- NVIDIA GPU(s)
+- NVIDIA drivers installed. You probably want to use the packages provided by your Linux distribution.
 
 ## Metrics
 
-Here are the metrics collected by the plugin source.
+Here are the metrics collected by the plugin's source(s).
+One source will be created per GPU device.
 
 |Name|Type|Unit|Description|Resource|ResourceConsumer|Attributes|
 |----|----|----|-----------|---------|-----------------|----------|
@@ -39,8 +40,14 @@ poll_interval = "1s"
 
 # Initial interval between two flushing of Nvidia measurements.
 flush_interval = "5s"
+
+# On startup, the plugin inspects the GPU devices and detect their features.
+# If `skip_failed_devices = true` (or is omitted), inspection failures will be logged and the plugin will continue.
+# If `skip_failed_devices = true`, the first failure will make the plugin's startup fail.
+skip_failed_devices = true
 ```
 
 ## More information
 
-To be able to see all metrics, included those concerning complex tasks like the streaming multiprocessors, and especially the video decoding and encoding activities on your GPU, you can use the `ffmpeg` software with a video file or an [NVIDIA benchmark](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/hpc-benchmarks).
+Not all software use the GPU to its full extent.
+For instance, to obtain non-zero values for the video encoding/decoding metrics, use a video software like `ffmpeg`.
