@@ -8,7 +8,8 @@ Provides an output to MongoDB.
 
 ## Configuration
 
-Here is a configuration example of the plugin. It's part of the Alumet configuration file (eg: `alumet-config.toml`).
+Here is an example of how to configure this plugin.
+Put the following in the configuration file of the Alumet agent (usually `alumet-config.toml`).
 
 ```toml
 [plugins.mongodb]
