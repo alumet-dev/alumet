@@ -8,9 +8,9 @@ use alumet::{
         naming::SourceName,
     },
     plugin::{
-        event::{self},
-        rust::{deserialize_config, serialize_config, AlumetPlugin},
         AlumetPluginStart, AlumetPostStart, ConfigTable,
+        event::{self},
+        rust::{AlumetPlugin, deserialize_config, serialize_config},
     },
     units::Unit,
 };

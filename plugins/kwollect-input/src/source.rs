@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::kwollect::parse_measurements;
-use crate::{kwollect::MeasureKwollect, Config};
+use crate::{Config, kwollect::MeasureKwollect};
 use alumet::{
     measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp, WrappedMeasurementValue},
     metrics::TypedMetricId,
