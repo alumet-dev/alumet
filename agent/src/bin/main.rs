@@ -6,6 +6,7 @@ use alumet::{
         config::{AutoDefaultConfigProvider, DefaultConfigProvider, NoDefaultConfigProvider, merge_override},
         exec,
         plugin::{PluginFilter, PluginSet, UnknownPluginInConfigPolicy},
+        watch,
     },
     pipeline,
     plugin::PluginMetadata,
@@ -149,14 +150,28 @@ fn main() -> anyhow::Result<()> {
         }
         cli::Command::Exec(exec_args) => {
             let timeout = Duration::from_secs(5);
-            let res = exec::watch_process(agent, exec_args.program, exec_args.args, timeout);
-            if let Err(err @ exec::WatchError::ProcessSpawn(program, e)) = &res {
+            let res = exec::exec_process(agent, exec_args.program, exec_args.args, timeout);
+            if let Err(err @ exec::ExecError::ProcessSpawn(program, e)) = &res {
                 match e.kind() {
                     std::io::ErrorKind::NotFound => {
                         panic!("{}", exec_hints::handle_not_found(program.clone(), Vec::new()));
                     }
                     std::io::ErrorKind::PermissionDenied => {
                         panic!("{}", exec_hints::handle_permission_denied(program.clone()));
+                    }
+                    _ => {
+                        panic!("{}", err);
+                    }
+                }
+            }
+        }
+        cli::Command::Watch(process) => {
+            let shutdown_timeout = Duration::from_secs(5);
+            let res = watch::watch_process(agent, process.pid, shutdown_timeout);
+            if let Err(err @ watch::WatchError::ProcessWait(pid, e)) = &res {
+                match e.kind() {
+                    std::io::ErrorKind::NotFound => {
+                        panic!("PID: {pid} seems to be not found, error: {e}");
                     }
                     _ => {
                         panic!("{}", err);
@@ -370,6 +385,9 @@ mod cli {
         /// Execute a command and observe its process.
         Exec(ExecArgs),
 
+        /// Watch a PID and observe it until its end
+        Watch(Process),
+
         /// Manipulate the configuration.
         Config(ConfigArgs),
 
@@ -386,6 +404,13 @@ mod cli {
         /// Arguments to the program.
         #[arg(trailing_var_arg = true)]
         pub args: Vec<String>,
+    }
+
+    /// CLI arguments for the `watch` command.
+    #[derive(Args)]
+    pub struct Process {
+        /// The PID to watch.
+        pub pid: u32,
     }
 
     #[derive(Args)]
