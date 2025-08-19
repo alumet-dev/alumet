@@ -1,3 +1,4 @@
+use anyhow::Context;
 use nvml_wrapper::{enum_wrappers::device::TemperatureSensor, error::NvmlError};
 use std::time::SystemTime;
 
@@ -8,7 +9,7 @@ use alumet::{
     resources::{Resource, ResourceConsumer},
 };
 
-use crate::{features::AvailableVersion, metrics::Metrics};
+use crate::{features::AvailableVersion, metrics::Metrics, nvml_ext::DeviceExt};
 
 use super::device::ManagedDevice;
 
@@ -186,7 +187,9 @@ impl alumet::pipeline::Source for NvmlSource {
                     .duration_since(SystemTime::UNIX_EPOCH.into())?
                     .as_secs();
 
-                let processes_samples = device.process_utilization_stats(unix_ts)?;
+                let processes_samples = device
+                    .fixed_process_utilization_stats(unix_ts)
+                    .context("process_utilization_stats failed")?;
 
                 for process_sample in processes_samples {
                     let consumer = ResourceConsumer::Process {

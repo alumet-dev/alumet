@@ -13,6 +13,7 @@ use alumet::{
 mod device;
 mod features;
 mod metrics;
+mod nvml_ext;
 mod probe;
 
 pub struct NvmlPlugin {
