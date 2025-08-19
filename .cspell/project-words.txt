@@ -30,8 +30,10 @@ Mispredicted
 monitorable
 mpoint
 niced
+neowise
 NVML
 pagetables
+paradoxe
 PERFMON
 POWERCAP
 psys
@@ -40,6 +42,8 @@ Raffin
 RAPL
 regen
 rustfmt
+sagittaire
+servan
 slurm
 slurmstep
 slurmstepd
@@ -53,8 +57,11 @@ subtraits
 SYSFS
 thiserror
 timerfd
+Thour
 Trystram
 UCUM
 uncore
 VERGEN
+wattmetre
+wattmeters
 zcat
