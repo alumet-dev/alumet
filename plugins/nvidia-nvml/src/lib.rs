@@ -40,7 +40,7 @@ impl AlumetPlugin for NvmlPlugin {
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
-        let nvml = device::NvmlDevices::detect(true)?;
+        let nvml = device::NvmlDevices::detect(self.config.skip_failed_devices)?;
         let stats = nvml.detection_stats();
         if stats.found_devices == 0 {
             return Err(anyhow!(
@@ -98,6 +98,16 @@ struct Config {
     /// Initial interval between two flushing of Nvidia measurements.
     #[serde(with = "humantime_serde")]
     flush_interval: Duration,
+
+    /// On startup, the plugin inspects the GPU devices and detect their features.
+    /// If `skip_failed_devices = true`, inspection failures will be logged and the plugin will continue.
+    /// If `skip_failed_devices = true`, the first failure will make the plugin's startup fail.
+    #[serde(default = "default_true")]
+    skip_failed_devices: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for Config {
@@ -105,6 +115,7 @@ impl Default for Config {
         Self {
             poll_interval: Duration::from_secs(1), // 1Hz
             flush_interval: Duration::from_secs(5),
+            skip_failed_devices: true,
         }
     }
 }
