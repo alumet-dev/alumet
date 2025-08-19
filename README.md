@@ -14,7 +14,7 @@
     <img src="https://alumet-dev.github.io/user-book/images/alumet-high-level-view.svg"/>
 </div>
 
-Alumet provides a unified interface for gathering measurements with sources (on the right), transforming the data with models (in the middle) and writing the result to various outputs (on the left).
+Alumet provides a unified interface for gathering measurements with sources (on the left), transforming the data with models (in the middle) and writing the result to various outputs (on the right).
 The elements (colored rectangles) are created by plugins, on top of a standard framework.
 
 - Extensible Framework: Alumet can easily be extended in order to make new research experiments. Leverage existing plugins and only add what you need, without reinventing the wheel. Take advantage of the unified data model and parallel measurement pipeline.

@@ -55,7 +55,8 @@ When measuring the data from _channel 1_, the plugin will produce measurements w
 
 ## Configuration
 
-Here is a configuration example of the plugin. It's part of the Alumet configuration file (eg: `alumet-config.toml`).
+Here is an example of how to configure this plugin.
+Put the following in the configuration file of the Alumet agent (usually `alumet-config.toml`).
 
 ```toml
 [plugins.jetson]
