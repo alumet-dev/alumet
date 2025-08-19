@@ -6,7 +6,7 @@ The `nvml` plugin allows to monitor NVIDIA GPUs.
 
 - Linux
 - NVIDIA GPU(s)
-- NVIDIA drivers installed, see the [Unix Driver Archive](https://www.nvidia.com/en-us/drivers/unix/) to install them
+- NVIDIA drivers installed. You probably want to use the packages provided by your Linux distribution.
 
 ## Metrics
 
