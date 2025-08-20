@@ -2543,15 +2543,14 @@ version = "0.1.0"
 dependencies = [
  "alumet",
  "anyhow",
+ "env_logger",
  "evalexpr",
  "log",
-<<<<<<< HEAD
- "rustc-hash",
-=======
  "pretty_assertions",
->>>>>>> a047ec8 (feat: multivariate synchronisation (based on a linear interpolation) + energy attribution transform)
+ "rustc-hash",
  "serde",
  "serde_json",
+ "time",
  "toml 0.8.23",
 ]
 
