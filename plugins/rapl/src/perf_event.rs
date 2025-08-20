@@ -339,13 +339,16 @@ impl alumet::pipeline::Source for PerfEventProbe {
             // so we use a f64 here.
         }
         if pkg_total != 0.0 {
-            measurements.push(MeasurementPoint::new(
-                timestamp,
-                self.metric,
-                Resource::LocalMachine,
-                ResourceConsumer::LocalMachine,
-                pkg_total,
-            ).with_attr("domain", "package_total"));
+            measurements.push(
+                MeasurementPoint::new(
+                    timestamp,
+                    self.metric,
+                    Resource::LocalMachine,
+                    ResourceConsumer::LocalMachine,
+                    pkg_total,
+                )
+                .with_attr("domain", "package_total"),
+            );
         }
         Ok(())
     }
