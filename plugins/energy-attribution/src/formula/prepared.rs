@@ -1,6 +1,6 @@
 use alumet::{
     measurement::{AttributeValue, MeasurementPoint, WrappedMeasurementValue},
-    metrics::{registry::MetricRegistry, RawMetricId, TypedMetricId},
+    metrics::{RawMetricId, TypedMetricId, registry::MetricRegistry},
 };
 use anyhow::{Context, anyhow};
 use evalexpr::{ContextWithMutableVariables, HashMapContext, Node};

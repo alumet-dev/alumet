@@ -8,15 +8,15 @@ use alumet::{
         plugin::{PluginInfo, PluginSet},
     },
     measurement::{MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementValue},
-    metrics::{registry::MetricRegistry, RawMetricId},
+    metrics::{RawMetricId, registry::MetricRegistry},
     pipeline::naming::TransformName,
-    plugin::{rust::AlumetPlugin, PluginMetadata},
+    plugin::{PluginMetadata, rust::AlumetPlugin},
     resources::{Resource, ResourceConsumer},
     test::RuntimeExpectations,
     units::Unit,
 };
 use plugin_energy_attribution::EnergyAttributionPlugin;
-use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 const TIMEOUT: Duration = Duration::from_secs(2);
 const CONFIG_CPU: &str = r#"
