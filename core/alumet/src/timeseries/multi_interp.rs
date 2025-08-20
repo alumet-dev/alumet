@@ -121,7 +121,7 @@ impl<'a, K: Eq + Hash + Clone> MultiSyncInterpolator<'a, K> {
             res.series.push((ref_point.timestamp, multi_points));
         }
 
-        // interpolate each timeserie
+        // interpolate each timeseries
         for (key, serie) in self.series.iter() {
             let time = InterpolationReference::from(Timeslice::from(time_ref));
             let serie = Timeseries::from(Vec::from_iter(serie.iter().cloned())); // TODO optimize
