@@ -369,7 +369,7 @@ mod tests {
     #[test]
     fn test_opened_zone_energy_uj_counter_read() -> anyhow::Result<()> {
         let tmp = tempdir()?;
-        let base_path = tmp.keep();
+        let base_path = tmp.path();
 
         use EntryType::*;
 
@@ -460,8 +460,8 @@ mod tests {
             },
         ];
 
-        create_mock_layout(base_path.clone(), &entries)?;
-        let power_zones = all_power_zones_from_path(base_path.as_path())?.flat;
+        create_mock_layout(base_path, &entries)?;
+        let power_zones = all_power_zones_from_path(base_path)?.flat;
 
         let mut zone_reading_buf = Vec::with_capacity(16);
 
@@ -567,7 +567,7 @@ mod tests {
             },
         ];
 
-        create_mock_layout(base_path.clone(), &entries)?;
+        create_mock_layout(base_path, &entries)?;
 
         zone_reading_buf.clear();
         assert_eq!(
@@ -600,8 +600,9 @@ mod tests {
 
     #[test]
     fn test_opened_zone_energy_uj_read() -> anyhow::Result<()> {
-        let base_path = create_valid_powercap_mock()?;
-        let power_zones = all_power_zones_from_path(base_path.as_path())?.flat;
+        let tmp = create_valid_powercap_mock()?;
+        let base_path = tmp.path();
+        let power_zones = all_power_zones_from_path(base_path)?.flat;
         let mut zone_reading_buf = Vec::with_capacity(16);
         let mut psys_zone = power_zones[3].open()?;
         let mut dram_zone = power_zones[4].open()?;
@@ -623,10 +624,11 @@ mod tests {
     #[cfg(test)]
     #[test]
     fn test_all_power_zones_from_path() -> anyhow::Result<()> {
-        let base_path = create_valid_powercap_mock()?;
+        let tmp = create_valid_powercap_mock()?;
+        let base_path = tmp.path();
         let base_str = base_path.to_str().expect("cannot convert base_path to str");
 
-        let actual_zones = all_power_zones_from_path(base_path.as_path())?.flat;
+        let actual_zones = all_power_zones_from_path(base_path)?.flat;
 
         let expected_zones = vec![
             PowerZone {
@@ -728,7 +730,7 @@ mod tests {
     #[test]
     fn test_open_with_no_max_energy_range_uj() -> anyhow::Result<()> {
         let tmp = tempdir()?;
-        let base_path = tmp.keep();
+        let base_path = tmp.path();
 
         use EntryType::*;
 
@@ -751,9 +753,9 @@ mod tests {
             },
         ];
 
-        create_mock_layout(base_path.clone(), &entries)?;
+        create_mock_layout(base_path, &entries)?;
 
-        let power_zones = all_power_zones_from_path(base_path.as_path())?.flat;
+        let power_zones = all_power_zones_from_path(base_path)?.flat;
 
         let result = power_zones[0].open();
         assert!(
@@ -766,7 +768,7 @@ mod tests {
     #[test]
     fn test_open_with_wrong_layout_content() -> anyhow::Result<()> {
         let tmp = tempdir()?;
-        let base_path = tmp.keep();
+        let base_path = tmp.path();
 
         use EntryType::*;
 
@@ -793,9 +795,9 @@ mod tests {
             },
         ];
 
-        create_mock_layout(base_path.clone(), &entries)?;
+        create_mock_layout(base_path, &entries)?;
 
-        let power_zones = all_power_zones_from_path(base_path.as_path())?.flat;
+        let power_zones = all_power_zones_from_path(base_path)?.flat;
 
         let result = power_zones[0].open();
         assert!(

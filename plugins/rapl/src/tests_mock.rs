@@ -1,8 +1,6 @@
-#[cfg(test)]
 use std::fs::{self, File};
-use std::io::Write;
-use std::path::PathBuf;
-use tempfile::tempdir;
+use std::{io::Write, path::Path};
+use tempfile::{TempDir, tempdir};
 
 /// Entry to be created in the mock filesystem
 pub enum EntryType<'a> {
@@ -17,7 +15,7 @@ pub struct Entry<'a> {
 }
 
 /// Create all specified entries under the given base path
-pub fn create_mock_layout(base_path: PathBuf, entries: &[Entry]) -> std::io::Result<()> {
+pub fn create_mock_layout(base_path: &Path, entries: &[Entry]) -> std::io::Result<()> {
     for entry in entries {
         let full_path = base_path.join(entry.path);
         match &entry.entry_type {
@@ -34,9 +32,8 @@ pub fn create_mock_layout(base_path: PathBuf, entries: &[Entry]) -> std::io::Res
     Ok(())
 }
 
-pub fn create_valid_powercap_mock() -> anyhow::Result<PathBuf> {
+pub fn create_valid_powercap_mock() -> anyhow::Result<TempDir> {
     let tmp = tempdir()?;
-    let base_path = tmp.keep();
 
     use EntryType::*;
 
@@ -127,6 +124,6 @@ pub fn create_valid_powercap_mock() -> anyhow::Result<PathBuf> {
         },
     ];
 
-    create_mock_layout(base_path.clone(), &entries)?;
-    Ok(base_path)
+    create_mock_layout(tmp.path(), &entries)?;
+    Ok(tmp)
 }

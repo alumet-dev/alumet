@@ -382,14 +382,14 @@ mod tests {
     #[test]
     fn test_pmu_type() -> anyhow::Result<()> {
         let tmp = tempdir()?;
-        let base_path = tmp.keep();
+        let base_path = tmp.path();
 
         use EntryType::*;
         let pmu_type_entry = Entry {
             path: "pmu_type",
             entry_type: File("32"),
         };
-        create_mock_layout(base_path.clone(), &[pmu_type_entry])?;
+        create_mock_layout(base_path, &[pmu_type_entry])?;
         let actual = pmu_type_from_path(&base_path.join("pmu_type"))?;
         let expected = 32;
 
@@ -402,7 +402,7 @@ mod tests {
     #[test]
     fn test_open_all() -> anyhow::Result<()> {
         let tmp = tempdir()?;
-        let base_path = tmp.keep();
+        let base_path = tmp.path();
 
         use EntryType::*;
         let perf_event_entries = [
@@ -448,9 +448,9 @@ mod tests {
             },
         ];
 
-        create_mock_layout(base_path.clone(), &perf_event_entries)?;
+        create_mock_layout(base_path, &perf_event_entries)?;
 
-        let mut actual_power_events = all_power_events_from_path(base_path.as_path())?;
+        let mut actual_power_events = all_power_events_from_path(base_path)?;
 
         let mut expected_power_events = vec![
             PowerEvent {
