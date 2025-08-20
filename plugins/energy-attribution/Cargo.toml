@@ -17,6 +17,6 @@ evalexpr = "11.3"
 [dev-dependencies]
 pretty_assertions = "1.4.1"
 toml = "0.8.23"
-alumet = { path = "../alumet", features = ["test"] }
+alumet = { workspace = true, features = ["test"] }
 time = { version = "0.3.41", features = ["parsing"] }
 env_logger = "0.11.8"
