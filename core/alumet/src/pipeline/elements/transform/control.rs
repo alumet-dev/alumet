@@ -85,8 +85,8 @@ impl TransformControl {
     where
         F: FnMut(Result<Result<(), PipelineError>, tokio::task::JoinError>),
     {
-        // Nothing to do to stop the tasks: the transform task will naturally
-        // stop when the input channel is closed.
+        // Nothing to do here to stop the tasks: the transform task will naturally
+        // stop when the input channel is closed. See `run.rs`.
 
         // We simply wait for the task to finish.
         while let Some(res) = self.tasks.spawned_tasks.join_next().await {

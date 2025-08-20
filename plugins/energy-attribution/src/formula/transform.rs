@@ -186,5 +186,10 @@ impl Transform for GenericAttributionTransform {
         Ok(())
     }
 
-    // TODO add a "flush" or "terminate" method to every transform
+    fn finish(&mut self, ctx: &TransformContext) -> Result<(), TransformError> {
+        log::trace!("applying one last time");
+        // TODO make sure that nothing is lost
+        self.apply(&mut MeasurementBuffer::new(), &ctx)?;
+        Ok(())
+    }
 }

@@ -28,13 +28,8 @@ pub trait Transform: Send {
     ///
     /// # Default implementation
     /// The default implementation does nothing.
-    /// Overrides it if you need to do somehting before stopping, such as processing all the buffered data.
-    #[allow(unused_variables)]
-    fn finish(
-        &mut self,
-        measurements: &mut MeasurementAccumulator,
-        ctx: TransformContext,
-    ) -> Result<(), TransformError> {
+    /// Overrides it if you need to do something before stopping, such as processing all the buffered data.
+    fn finish(&mut self, ctx: &TransformContext) -> Result<(), TransformError> {
         Ok(())
     }
 }

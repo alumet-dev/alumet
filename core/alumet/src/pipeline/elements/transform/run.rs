@@ -71,5 +71,22 @@ pub async fn run_all_in_order(
             break;
         }
     }
-    Ok(())
+
+    // the channel has been closed, which means that the pipeline is shutting down
+    let metrics = &metrics_reader.read().await;
+    let ctx = TransformContext { metrics };
+    let mut err = Ok(());
+    for (name, trans) in transforms.iter_mut() {
+        match trans.finish(&ctx) {
+            Ok(()) => (),
+            Err(TransformError::UnexpectedInput(e)) => {
+                log::error!("Transform {name} received unexpected measurements during finish: {e:#}");
+            }
+            Err(TransformError::Fatal(e)) => {
+                log::error!("Fatal error in transform {name} during finish: {e:?}");
+                err = Err(PipelineError::for_element(name.to_owned(), e));
+            }
+        }
+    }
+    err
 }
