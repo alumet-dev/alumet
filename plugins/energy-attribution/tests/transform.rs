@@ -20,14 +20,15 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 const TIMEOUT: Duration = Duration::from_secs(2);
 const CONFIG_CPU: &str = r#"
-        formula = "cpu_energy * cpu_usage / 100.0"
+        [formulas.attributed_energy]
+        expr = "cpu_energy * cpu_usage / 100.0"
         ref = "cpu_energy"
 
-        [per_resource]
+        [formulas.attributed_energy.per_resource]
         cpu_energy = { metric = "rapl_consumed_energy", resource_kind = "local_machine", domain = "package_total" }
 
-        [per_consumer]
-        cpu_usage = { metric = "cpu_percent", kind = "total" }
+        [formulas.attributed_energy.per_consumer]
+        cpu_usage = { metric = "cpu_usage_percent", kind = "total" }
     "#;
 
 #[test]
@@ -275,10 +276,10 @@ struct CpuMetrics {
 impl CpuMetrics {
     fn find_in(metrics: &MetricRegistry) -> Self {
         let rapl_consumed_energy = metrics.by_name("rapl_consumed_energy").unwrap().0;
-        let cpu_percent = metrics.by_name("cpu_percent").unwrap().0;
+        let cpu_usage_percent = metrics.by_name("cpu_usage_percent").unwrap().0;
         Self {
             rapl_consumed_energy,
-            cpu_usage_percent: cpu_percent,
+            cpu_usage_percent,
         }
     }
 }
