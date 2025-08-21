@@ -54,10 +54,15 @@ impl AlumetPlugin for CsvPlugin {
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Config {
+    /// Absolute or relative path to the output_file
     output_path: PathBuf,
+    /// Do we flush after each write (measurements)?
     force_flush: bool,
+    /// Do we append the unit (unique name) to the metric name?
     append_unit_to_metric_name: bool,
+    /// Do we use the unit display name (instead of its unique name)?
     use_unit_display_name: bool,
+    /// The CSV delimiter, such as `;`
     csv_delimiter: char,
     csv_escaped_quote: Option<String>,
 }
