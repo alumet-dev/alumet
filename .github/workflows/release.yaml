@@ -76,8 +76,12 @@ jobs:
   build-rpm:
     needs: gather-informations
     uses: alumet-dev/packaging/.github/workflows/build_rpm.yaml@main
+    strategy:
+      fail-fast: false
+      matrix: 
+        arch: [x86_64, aarch64]
     with:
-      arch: x86_64
+      arch: ${{ matrix.arch }}
       version: ${{ needs.gather-informations.outputs.version }}
       release-version: ${{ needs.gather-informations.outputs.release }}
       tag: ${{ needs.gather-informations.outputs.tag }}
@@ -97,8 +101,12 @@ jobs:
       - build-rpm
       - build-deb
     uses: alumet-dev/packaging/.github/workflows/build_docker.yaml@main
+    strategy:
+      fail-fast: false
+      matrix: 
+        arch: [x86_64, aarch64]
     with:
-      arch: x86_64
+      arch: ${{ matrix.arch }}
       version: ${{ needs.gather-informations.outputs.version }}
       release-version: ${{ needs.gather-informations.outputs.release }}
 
@@ -200,15 +208,36 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Push images
+      - name: Push images with multi-arch support
         run: |
           tars=$(find ./docker-artifacts -type f)
+          declare -A base_to_arch_map
           for tar in $tars
             do
               image_tags=$(docker load -q -i $tar | sed 's/Loaded image: //g')
               for image_tag in $image_tags
                 do
                   docker push $image_tag
+                  # Prepare to create the multi-arch manifest
+                  base_tag="${image_tag%_aarch64}"
+                  base_tag="${base_tag%_x86_64}"
+                  arch="${image_tag##*_}"
+                  base_to_arch_map["$base_tag"]+="${arch} "
                 done
             done
+          for base in "${!base_to_arch_map[@]}"; do
+            archs=(${base_to_arch_map[$base]})
+            echo "Creating multi-arch manifest for: $base"
+            
+            cmd="docker manifest create $base"
+            for arch in "${archs[@]}"
+              do
+                cmd+=" ${base}_${arch}"
+              done
+
+            eval "$cmd"
+            docker manifest push "$base"
+
+          done
+
 
