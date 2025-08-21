@@ -2531,30 +2531,6 @@ dependencies = [
  "tokio",
  "tokio-util",
 ]
-[[package]]
-name = "plugin-cgroup"
-version = "0.1.0"
-dependencies = [
- "alumet",
- "anyhow",
- "base64 0.22.1",
- "env_logger",
- "hostname",
- "humantime-serde",
- "log",
- "mockito",
- "pretty_assertions",
- "regex",
- "reqwest",
- "rustc-hash",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.14",
- "tokio",
- "toml 0.8.23",
- "util-cgroups",
-]
 
 [[package]]
 name = "plugin-csv"
