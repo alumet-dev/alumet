@@ -1,5 +1,5 @@
 mod csv;
-mod output;
+pub mod output;
 // TODO mod input
 
 use std::path::PathBuf;
@@ -53,18 +53,18 @@ impl AlumetPlugin for CsvPlugin {
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct Config {
+pub struct Config {
     /// Absolute or relative path to the output_file
-    output_path: PathBuf,
+    pub output_path: PathBuf,
     /// Do we flush after each write (measurements)?
-    force_flush: bool,
+    pub force_flush: bool,
     /// Do we append the unit (unique name) to the metric name?
-    append_unit_to_metric_name: bool,
+    pub append_unit_to_metric_name: bool,
     /// Do we use the unit display name (instead of its unique name)?
-    use_unit_display_name: bool,
+    pub use_unit_display_name: bool,
     /// The CSV delimiter, such as `;`
-    csv_delimiter: char,
-    csv_escaped_quote: Option<String>,
+    pub csv_delimiter: char,
+    pub csv_escaped_quote: Option<String>,
 }
 
 impl Default for Config {
@@ -77,5 +77,52 @@ impl Default for Config {
             csv_delimiter: ';',
             csv_escaped_quote: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use crate::{Config, CsvPlugin};
+    use alumet::{
+        agent::{
+            self,
+            plugin::{PluginInfo, PluginSet},
+        },
+        pipeline,
+        plugin::PluginMetadata,
+    };
+    use std::time::Duration;
+
+    fn config_to_toml_table(config: &Config) -> toml::Table {
+        toml::Value::try_from(config).unwrap().as_table().unwrap().clone()
+    }
+
+    #[test]
+    fn start_stop() {
+        let default_config = Config { ..Default::default() };
+
+        let mut plugins = PluginSet::new();
+        plugins.add_plugin(PluginInfo {
+            metadata: PluginMetadata::from_static::<CsvPlugin>(),
+            enabled: true,
+            config: Some(config_to_toml_table(&default_config)),
+        });
+
+        // Set up the measurement pipeline
+        let mut pipeline = pipeline::Builder::new();
+        pipeline.normal_threads(2); // Example setting: use 2 threads to run async pipeline elements
+
+        // Build and start the agent
+        let agent = agent::Builder::from_pipeline(plugins, pipeline)
+            .build_and_start()
+            .expect("startup failure");
+
+        let handle = agent.pipeline.control_handle();
+        // Force shutdown
+        handle.shutdown();
+        agent
+            .wait_for_shutdown(Duration::new(5, 0))
+            .expect("error while running");
     }
 }
