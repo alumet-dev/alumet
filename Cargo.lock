@@ -2510,7 +2510,10 @@ dependencies = [
  "log",
  "pretty_assertions",
  "serde",
+ "serial_test",
+ "tempfile",
  "time",
+ "toml 0.9.5",
 ]
 
 [[package]]
