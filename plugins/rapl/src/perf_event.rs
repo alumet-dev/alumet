@@ -14,6 +14,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use crate::total::DomainTotals;
+
 use super::cpus::{self, CpuId};
 use super::domains::RaplDomainType;
 
@@ -316,7 +318,7 @@ impl PerfEventProbe {
 
 impl alumet::pipeline::Source for PerfEventProbe {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
-        let mut pkg_total = 0.0;
+        let mut totals = DomainTotals::new();
         for evt in &mut self.events {
             // read the new value of the perf-events counter
             if let Some(joules) = evt.read_counter_diff_in_joules()? {
@@ -325,9 +327,7 @@ impl alumet::pipeline::Source for PerfEventProbe {
                     MeasurementPoint::new(timestamp, self.metric, evt.resource.clone(), consumer, joules)
                         .with_attr("domain", evt.domain.as_str()),
                 );
-                if matches!(evt.resource, Resource::CpuPackage { id: _ }) {
-                    pkg_total += joules;
-                }
+                totals.push(evt.domain, joules);
             }
             // NOTE: the energy can be a floating-point number in Joules,
             // without any loss of precision. Why? Because multiplying any number
@@ -338,16 +338,16 @@ impl alumet::pipeline::Source for PerfEventProbe {
             // up to approximately 2^24, which is not enough for the RAPL counter values,
             // so we use a f64 here.
         }
-        if pkg_total != 0.0 {
+        for (domain, total) in totals.iter() {
             measurements.push(
                 MeasurementPoint::new(
                     timestamp,
                     self.metric,
                     Resource::LocalMachine,
                     ResourceConsumer::LocalMachine,
-                    pkg_total,
+                    total,
                 )
-                .with_attr("domain", "package_total"),
+                .with_attr("domain", domain.as_str_total()),
             );
         }
         Ok(())
