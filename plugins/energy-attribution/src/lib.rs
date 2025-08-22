@@ -41,13 +41,13 @@ impl AlumetPlugin for EnergyAttributionPlugin {
         let config = self.config.take().unwrap();
         for (name, formula_config) in config.formulas {
             let result_metric = alumet.create_metric::<f64>(
-                name,
+                &name,
                 Unit::Joule,
                 "Energy attribution (since the previous value) per consumer and per resource",
             )?;
 
             // create the transform, in a builder because we need the metric registry
-            let _ = alumet.add_transform_builder("attribution_transform", move |ctx| {
+            let _ = alumet.add_transform_builder(&format!("attribution/{name}"), move |ctx| {
             let res = formula::prepare(formula_config, ctx.metrics(), result_metric)
                 .context("failed to prepare attribution formula; check that you have enabled the required sources and that the configuration is correct");
             let (formula, params) = res?;
