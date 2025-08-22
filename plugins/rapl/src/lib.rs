@@ -25,6 +25,7 @@ mod cpus;
 mod domains;
 pub mod perf_event;
 mod powercap;
+mod total;
 
 #[cfg(test)]
 pub mod tests_mock;
@@ -335,8 +336,9 @@ mod tests {
                 SourceName::from_str("rapl", "in"),
                 || (),
                 move |m| {
-                    //note: the mock created 1 domain so it's expected to have 1 measurements
-                    assert_eq!(m.len(), 1);
+                    // note: the mock created 1 domain so it's expected to have 2 measurements:
+                    // the domain's value, and one per-domain total
+                    assert_eq!(m.len(), 2);
                     let mut actual_domains = Vec::new();
                     for measurement in m.iter() {
                         let attributes: Vec<_> = measurement.attributes().collect();
@@ -346,16 +348,15 @@ mod tests {
                             domain_attribute.0, "domain",
                             "expected the attribute to have 'domain' key"
                         );
-                        if let AttributeValue::String(domain) = domain_attribute.1 {
-                            actual_domains.push(domain.clone());
+                        if let AttributeValue::Str(domain) = domain_attribute.1 {
+                            actual_domains.push(domain);
                         } else {
-                            assert!(false, "domain attribute should be of string type");
+                            assert!(false, "domain attribute should be of Str type");
                         }
                         // I expect all the value to be 0 since the mock didn't change between the two poll runs
                         assert_eq!(measurement.value, WrappedMeasurementValue::F64(0.0));
                     }
-                    let mut expected_domains = Vec::new();
-                    expected_domains.push("package".to_string());
+                    let mut expected_domains = Vec::from_iter(&["package", "package_total"]);
 
                     actual_domains.sort();
                     expected_domains.sort();
