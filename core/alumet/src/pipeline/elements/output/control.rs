@@ -297,8 +297,11 @@ impl TaskManager {
             channel::ReceiverEnum::Single(receiver) => box_controlled_stream(receiver.into_stream()),
         };
 
-        // Create the output
-        let output = builder(ctx, stream).context("output creation failed")?;
+        // Create the output, in the context of the tokio runtime
+        let output = {
+            let _guard = ctx.async_runtime().enter();
+            builder(ctx, stream).context("output creation failed")
+        }?;
 
         // Create and store the task controller
         let control = SingleOutputController::Async(state);
