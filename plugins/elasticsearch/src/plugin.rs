@@ -104,10 +104,16 @@ mod config {
 
     #[derive(Debug, Serialize, Deserialize)]
     pub struct Config {
+        /// The url of the database instance.
         pub server_url: String,
+        /// Authentication Settings (Multiple auth schemes are supported).
         pub auth: AuthConfig,
+        /// Controls the use of certificate validation and hostname verification.
+        /// You should think very carefully before you use this!
         pub allow_insecure: bool,
+        /// The prefix added to each index (format `{index_prefix}-{metric_name}`).
         pub index_prefix: String,
+        /// Controls the use of an optional suffix for each index (format `{index_prefix}-{metric_name}-{metric_unit_unique_name}`).
         pub metric_unit_as_index_suffix: bool,
     }
 
