@@ -24,7 +24,9 @@ Here is a configuration example of the plugin. It's part of the Alumet configura
 ```toml
 [plugins.quarch]
 quarch_ip = "172.17.30.102" # always this on yeti
-quarch_port = 8080 # always this on yeti
+quarch_port = 9760 # always this for quarch (it seems)
+sample = 32
+channel = "12V" # Can be +12V, +3.3V or +3.3VAUX --> if we want to obtain a power of 6W, it is better to stay on 12V channel for the Quarch Module on G5K (fixture QTL2347)
 poll_interval = "1s"
 flush_interval = "5s"
 ```

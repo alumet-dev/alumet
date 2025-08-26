@@ -36,6 +36,7 @@ pub struct QuarchSource {
     quarch_ip: IpAddr,
     quarch_port: u16,
     sample: u32,
+    // channel: String,
     metric: TypedMetricId<f64>,
     pub(crate) stream: Option<TcpStream>,
     stop_flag: Arc<AtomicBool>, // to stop polling when end event is triggered
@@ -48,10 +49,12 @@ pub struct SourceWrapper {
 
 impl QuarchSource {
     pub fn new(ip: IpAddr, port: u16, sample: u32, metric: TypedMetricId<f64>) -> Self {
+        // pub fn new(ip: IpAddr, port: u16, sample: u32, channel: String, metric: TypedMetricId<f64>) -> Self {
         QuarchSource {
             quarch_ip: ip,
             quarch_port: port,
             sample,
+            // channel
             metric,
             stream: None,
             stop_flag: Arc::new(AtomicBool::new(false)),
@@ -78,9 +81,7 @@ impl QuarchSource {
         }
 
         let child = start_qis()?;
-        //info!("Wait for QIS to listen on port {}...", QIS_PORT);
         wait_for_qis_port("127.0.0.1", QIS_PORT, 60)?;
-        //info!("QIS ready.");
         Ok(child)
     }
 
@@ -138,14 +139,12 @@ impl QuarchSource {
     }
 
     fn connect_and_configure(&mut self) -> Result<()> {
-        //info!("Connection the quarch module on {}:{}", self.quarch_ip, self.quarch_port);
         wait_for_qis_port(&self.quarch_ip.to_string(), self.quarch_port, 30)?;
         let stream = TcpStream::connect((self.quarch_ip, self.quarch_port))?;
         stream.set_read_timeout(Some(Duration::from_secs(5)))?;
         stream.set_write_timeout(Some(Duration::from_secs(5)))?;
 
         self.stream = Some(stream);
-        //info!("Connection established, init configuration");
         self.send_command("CONFig:DEFault STATE")?;
         self.send_command("RECord:TRIGger:MODE MANUAL")?;
         self.send_command(&format!("RECord:AVEraging {}K", self.sample))?;
@@ -163,6 +162,23 @@ impl QuarchSource {
         Ok(MeasureQuarch {
             power: voltage * current,
         })
+        // We can also do this:
+        // self.send_command("MEASure:CURRent +12V?")?;
+        // let current_resp = self.read_response()?;
+        // let current = Self::extract_value(&current_resp).unwrap_or(0.0) / 1_000_000.0;
+        // Ok(MeasureQuarch {
+        //     power: 12.0 * current,
+        // })
+        // Or this with the channel in config: it's easier to keep the voltage because of channels like 3V3AUX that are quite specific
+        //self.send_command(&format("MEASure:VOLTage +{}?", self.channel"))?;
+        //let voltage_resp = self.read_response()?;
+        //let voltage = Self::extract_value(&voltage_resp).unwrap_or(0.0) / 1000.0;
+        // self.send_command(&format!("MEASure:CURRent +{}?", self.channel))?;
+        // let current_resp = self.read_response()?;
+        // let current = Self::extract_value(&current_resp).unwrap_or(0.0) / 1_000_000.0;
+        // Ok(MeasureQuarch {
+        //     power: voltage * current,
+        // })
     }
     pub fn stop_measurement(&mut self) -> anyhow::Result<()> {
         if self.already_stopped.swap(true, Ordering::SeqCst) {
@@ -186,7 +202,6 @@ impl QuarchSource {
 
         // Stopping TCP stream
         if let Some(stream) = self.stream.take() {
-            //log::info!("Shutting down TCP stream...");
             stream.set_read_timeout(Some(Duration::from_secs(2)))?;
             if let Err(e) = stream.shutdown(std::net::Shutdown::Both) {
                 log::error!("Unable to shutdown TCP stream: {}", e);
@@ -214,7 +229,6 @@ impl Source for QuarchSource {
         debug!("Polling QuarchSource...");
         match self.get_measurement() {
             Ok(data) => {
-                //info!("Measurement received: {} W", data.power);
                 let point = MeasurementPoint::new(
                     timestamp,
                     self.metric,
