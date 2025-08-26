@@ -53,6 +53,7 @@ impl AlumetPlugin for KwollectPluginInput {
             hostname: config.hostname,
             login: config.login,
             password: config.password,
+            utc_offset: config.utc_offset,
             metrics: config.metrics,
             metric_ids: Vec::new(),
         };
@@ -87,16 +88,32 @@ impl AlumetPlugin for KwollectPluginInput {
         Ok(())
     }
 
+    /// This function sets up a subscription to react when a consumer measurement event ends. When triggered, it:
+    /// 1. Records the start and end times of the Alumet pipeline. Kwollect expects timestamps in Paris timezone
+    ///    (UTC+2) so we converted it.
+    /// 2. Builds and sends a request to KwollectSource using these timestamps. The pipeline waits for a response
+    ///    (timeout: 5 seconds) to ensure the source is registered before proceeding.
+    /// 3. Ensures the pipeline waits for the source’s response before completing, using Alumet’s
+    ///    async_runtime and block_on. The Alumet pipeline uses an asynchronous runtime for concurrency, and this
+    ///    function needs to block the pipeline until the Kwollect request is processed so async_runtime.block_on
+    ///    runs the async code (request sending and triggering) synchronously, forcing the pipeline to wait for
+    ///    completion.
     fn post_pipeline_start(&mut self, alumet: &mut AlumetPostStart) -> anyhow::Result<()> {
         let control_handle = alumet.pipeline_control();
-        let paris_offset = FixedOffset::east_opt(2 * 3600).unwrap();
-        let start_alumet: OffsetDateTime = SystemTime::now().into();
-        let system_time: SystemTime = convert_to_system_time(start_alumet);
-        let start_utc = convert_to_utc(system_time);
-        let start_paris = start_utc.with_timezone(&paris_offset);
         let config_cloned = self.config.clone();
         let async_runtime = alumet.async_runtime().clone();
 
+        let start_alumet: OffsetDateTime = SystemTime::now().into();
+        let system_time: SystemTime = convert_to_system_time(start_alumet);
+        let start_utc = convert_to_utc(system_time);
+        //let paris_offset = FixedOffset::east_opt(2 * 3600).unwrap();
+        let paris_offset = if let Some(hours) = config_cloned.lock().unwrap().utc_offset {
+            FixedOffset::east_opt(hours * 3600).unwrap()
+        } else {
+            FixedOffset::east_opt(0).unwrap() // fallback : UTC
+        };
+        //let start_paris = start_utc.with_timezone(&paris_offset);
+        let start_paris = start_utc.with_timezone(&paris_offset);
         event::end_consumer_measurement().subscribe(move |_evt| {
             log::debug!("End consumer measurement event received");
             let config = config_cloned.lock().unwrap();
@@ -112,6 +129,7 @@ impl AlumetPlugin for KwollectPluginInput {
                 metrics: config.metrics.clone(),
                 login: config.login.clone(),
                 password: config.password.clone(),
+                utc_offset: config.utc_offset,
             };
 
             let url = build_kwollect_url(&config_for_url, &start_paris, &end_paris);
@@ -213,6 +231,7 @@ struct Config {
     pub metrics: Vec<String>,
     pub login: String,
     pub password: String,
+    pub utc_offset: Option<i32>,
 }
 
 struct ParsedConfig {
@@ -220,6 +239,7 @@ struct ParsedConfig {
     hostname: String,
     login: String,
     password: String,
+    utc_offset: Option<i32>,
     metrics: Vec<String>,
     metric_ids: Vec<TypedMetricId<f64>>,
 }
@@ -227,11 +247,12 @@ struct ParsedConfig {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            site: "lyon".to_string(),
-            hostname: "taurus-7".to_string(),
+            site: "cluster".to_string(),
+            hostname: "node".to_string(),
             metrics: vec!["wattmetre_power_watt".to_string()],
             login: "login".to_string(),
             password: "password".to_string(),
+            utc_offset: Some(2), // By default Summer Paris
         }
     }
 }
