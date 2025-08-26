@@ -27,7 +27,7 @@ pub struct QuarchPlugin {
     qis_process: Option<Child>,
 }
 
-/// Implementation of Quarch plugin as an Alumet plugin
+/// Implementation of Quarch Plugin as an Alumet Plugin
 impl AlumetPlugin for QuarchPlugin {
     fn name() -> &'static str {
         "quarch"
@@ -62,6 +62,7 @@ impl AlumetPlugin for QuarchPlugin {
             self.config.quarch_ip,
             self.config.quarch_port,
             self.config.sample,
+            // self.config.channel,
             metric_id,
         );
 
@@ -88,10 +89,8 @@ impl AlumetPlugin for QuarchPlugin {
     }
 
     fn post_pipeline_start(&mut self, _alumet: &mut AlumetPostStart) -> anyhow::Result<()> {
-        log::info!("Registering subscriber for end_consumer_measurement...");
         let source = self.source.clone();
         event::end_consumer_measurement().subscribe(move |_evt| {
-            log::info!("End consumer measurement event received! Stopping Quarch measurement...");
             if let Some(source) = &source
                 && let Ok(mut s) = source.lock()
                 && let Err(e) = s.stop_measurement()
@@ -104,7 +103,7 @@ impl AlumetPlugin for QuarchPlugin {
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
-        log::info!("Stopping Quarch plugin (final cleanup)...");
+        log::debug!("Stopping Quarch plugin (final cleanup)...");
         if let Some(source) = &self.source
             && let Ok(mut s) = source.lock()
             && let Err(e) = s.stop_measurement()
@@ -112,7 +111,6 @@ impl AlumetPlugin for QuarchPlugin {
             log::error!("Error stopping Quarch measurement: {}", e);
         }
         if let Some(mut child) = self.qis_process.take() {
-            log::info!("Killing QIS process (PID: {})...", child.id());
             let _ = child.kill();
             let _ = child.wait();
         }
@@ -122,14 +120,12 @@ impl AlumetPlugin for QuarchPlugin {
             .arg("qis.jar")
             .status();
 
-        log::info!("Quarch plugin stopped successfully.");
         Ok(())
     }
 }
 
 impl Drop for QuarchPlugin {
     fn drop(&mut self) {
-        log::info!("Dropping QuarchPlugin, cleaning up resources...");
         let _ = self.stop();
     }
 }
@@ -140,6 +136,7 @@ pub struct Config {
     pub quarch_ip: IpAddr,
     pub quarch_port: u16,
     pub sample: u32,
+    // pub channel: string,
     #[serde(with = "humantime_serde")]
     poll_interval: Duration,
     #[serde(with = "humantime_serde")]
@@ -152,6 +149,7 @@ impl Default for Config {
             quarch_ip: IpAddr::from([172, 17, 30, 102]),
             quarch_port: 9760,
             sample: 32,
+            // channel: 12V // Can be +12V, +3.3V or +3.3VAUX --> if we want to obtein a power of 6, it is better to stay on 12V channel for the Quarch Module on G5K (fixture QTL2347)
             poll_interval: Duration::from_secs(1),
             flush_interval: Duration::from_secs(5),
         }
