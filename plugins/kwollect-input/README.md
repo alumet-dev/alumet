@@ -34,8 +34,8 @@ Here is a configuration example of the plugin. It's part of the Alumet configura
 
 ```toml
 [plugins.kwollect-input]
-site = "lyon"                     # Grid'5000 site
-hostname = "taurus-7"             # Target node hostname
+site = "CLUSTER"                  # Grid'5000 site
+hostname = "NODE"                 # Target node hostname
 metrics = "wattmetre_power_watt"  # Metric to collect, DO NOT CHANGE IT
 login = "YOUR_G5K_LOGIN"          # Your Grid'5000 username
 password = "YOUR_G5K_PASSWORD"    # Your Grid'5000 password
