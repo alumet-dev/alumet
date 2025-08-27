@@ -238,6 +238,30 @@ impl Display for PrefixedUnit {
     }
 }
 
+impl FromStr for PrefixedUnit {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // List of known prefixes, sorted from longest to shortest to avoid ambiguity.
+        // Each entry is a prefix_str
+        let prefixes = [
+            "giga", "mega", "kilo", "milli", "micro", "nano", "G", "M", "k", "m", "μ", "n", "",
+        ];
+
+        // Try to find a valid prefix
+        for prefix_str in prefixes {
+            if s.starts_with(prefix_str) {
+                let unit_str = &s[prefix_str.len()..];
+                let prefix = UnitPrefix::from_str(prefix_str)?;
+                let base_unit = Unit::from_str(unit_str)?;
+                return Ok(PrefixedUnit { base_unit, prefix });
+            }
+        }
+
+        Err(anyhow!("Unknown prefix or invalid unit in '{}'", s))
+    }
+}
+
 impl UnitPrefix {
     /// Returns the unique name of the unit, as specified by the Unified Code for Units of Measure (UCUM).
     ///
@@ -297,7 +321,7 @@ impl FromStr for UnitPrefix {
 
 #[cfg(test)]
 mod tests {
-    use super::{Unit, UnitPrefix};
+    use super::{PrefixedUnit, Unit, UnitPrefix};
 
     #[test]
     fn unit_serde() {
@@ -334,5 +358,23 @@ mod tests {
         assert_eq!(parse_self(UnitPrefix::Kilo), UnitPrefix::Kilo);
         assert_eq!(parse_self(UnitPrefix::Mega), UnitPrefix::Mega);
         assert_eq!(parse_self(UnitPrefix::Giga), UnitPrefix::Giga);
+    }
+
+    #[test]
+    fn prefixed_unit_serde() {
+        fn parse_self(s: &str, expected_unit: Unit, expected_prefix: UnitPrefix) {
+            let parsed = s
+                .parse::<PrefixedUnit>()
+                .unwrap_or_else(|_| panic!("failed to parse '{s}' as PrefixedUnit"));
+            assert_eq!(parsed.base_unit, expected_unit);
+            assert_eq!(parsed.prefix, expected_prefix);
+        }
+        parse_self("kW", Unit::Watt, UnitPrefix::Kilo);
+        parse_self("mA", Unit::Ampere, UnitPrefix::Milli);
+        parse_self("μs", Unit::Second, UnitPrefix::Micro);
+        parse_self("W", Unit::Watt, UnitPrefix::Plain);
+        assert!("kX".parse::<PrefixedUnit>().is_err());
+        assert!("XW".parse::<PrefixedUnit>().is_err());
+        assert!("gigaX".parse::<PrefixedUnit>().is_err());
     }
 }
