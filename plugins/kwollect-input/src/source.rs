@@ -54,8 +54,18 @@ impl Source for KwollectSource {
                 WrappedMeasurementValue::U64(v) => v as f64,
             };
 
-            let datetime = DateTime::parse_from_str(&measure.timestamp, "%Y-%m-%dT%H:%M:%S%:z")
-                .map_err(|e| anyhow::anyhow!("Failed to parse datetime: {}", e))?;
+            let datetime = [
+                "%Y-%m-%dT%H:%M:%S%.9f%:z", // Nanosecondes
+                "%Y-%m-%dT%H:%M:%S%.6f%:z", // Microsecondes
+                "%Y-%m-%dT%H:%M:%S%.3f%:z", // Millisecondes
+                "%Y-%m-%dT%H:%M:%S%:z",     // Pas de fractions
+            ]
+            .iter()
+            .find_map(|format| DateTime::parse_from_str(&measure.timestamp, format).ok())
+            .ok_or_else(|| anyhow::anyhow!("Failed to parse datetime: invalid format"))?;
+
+            // let datetime = DateTime::parse_from_str(&measure.timestamp, "%Y-%m-%dT%H:%M:%S.f%:z")
+            //     .map_err(|e| anyhow::anyhow!("Failed to parse datetime: {}", e))?;
             let system_time: SystemTime = datetime.into();
             let timestamp = Timestamp::from(system_time);
 
