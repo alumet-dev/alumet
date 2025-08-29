@@ -31,7 +31,7 @@ use rustc_hash::FxBuildHasher;
 use smallvec::SmallVec;
 use std::borrow::Cow;
 use std::fmt::Write;
-use std::hash::{Hash, Hasher};
+use std::hash::{BuildHasher, Hash, Hasher};
 use std::ops::{Add, Sub};
 use std::time::{Duration, SystemTime, SystemTimeError, UNIX_EPOCH};
 use std::{collections::HashMap, fmt::Display};
@@ -79,7 +79,7 @@ pub struct MeasurementPoint {
 ///
 /// This opaque type is currently a wrapper around [`SystemTime`],
 /// but this could change in the future.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Timestamp(pub(crate) SystemTime);
 
 impl MeasurementPoint {
@@ -165,9 +165,9 @@ impl MeasurementPoint {
 
     /// Attaches multiple attributes to this measurement point, from a [`HashMap`].
     /// Existing attributes with conflicting keys are replaced.
-    pub fn with_attr_map<K: Into<Cow<'static, str>>>(
+    pub fn with_attr_map<K: Into<Cow<'static, str>>, S: BuildHasher>(
         mut self,
-        attributes: HashMap<K, AttributeValue, FxBuildHasher>,
+        attributes: HashMap<K, AttributeValue, S>,
     ) -> Self {
         let converted = attributes.into_iter().map(|(k, v)| (k.into(), v));
         if self.attributes.is_empty() {
@@ -188,6 +188,11 @@ impl Timestamp {
     pub fn to_unix_timestamp(&self) -> (u64, u32) {
         let t = self.0.duration_since(UNIX_EPOCH).unwrap();
         (t.as_secs(), t.subsec_nanos())
+    }
+
+    pub fn to_unix_timestamp_millis(&self) -> u128 {
+        let t = self.0.duration_since(UNIX_EPOCH).unwrap();
+        t.as_millis()
     }
 
     /// Returns the amount of time elapsed from an earlier point in time.
@@ -476,6 +481,15 @@ impl<'a> IntoIterator for &'a MeasurementBuffer {
 
     fn into_iter(self) -> Self::IntoIter {
         self.points.iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut MeasurementBuffer {
+    type Item = &'a mut MeasurementPoint;
+    type IntoIter = std::slice::IterMut<'a, MeasurementPoint>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.points.iter_mut()
     }
 }
 

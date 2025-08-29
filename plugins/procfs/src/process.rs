@@ -42,15 +42,14 @@ struct ProcessStatsProbe {
     reader_statm: BufReader<File>,
 
     /// The previously measured stats, to compute the difference.
-    previous_general_stats: Option<procfs::process::Stat>,
+    previous_general_stats: Option<(Timestamp, procfs::process::Stat)>,
     /// If true, push the first statistics (i.e. push even is `previous_general_stats` is empty).
     ///
     /// Useful when we measure a process that has just been started.
     push_first_stats: bool,
 
     // metrics
-    metric_cpu_time_delta: TypedMetricId<u64>,
-    metric_memory_usage: TypedMetricId<u64>,
+    metrics: ProcessMetrics,
 
     /// The memory page size, in bytes
     page_size: u64,
@@ -61,8 +60,7 @@ impl ProcessStatsProbe {
         process: Process,
         ns_per_ticks: u64,
         push_first_stats: bool,
-        metric_cpu_time_delta: TypedMetricId<u64>,
-        metric_memory_usage: TypedMetricId<u64>,
+        metrics: ProcessMetrics,
     ) -> Result<Self, procfs::ProcError> {
         Ok(Self {
             pid: process.pid,
@@ -71,8 +69,7 @@ impl ProcessStatsProbe {
             reader_statm: BufReader::new(process.open_relative("statm")?),
             previous_general_stats: None,
             push_first_stats,
-            metric_cpu_time_delta,
-            metric_memory_usage,
+            metrics,
             page_size: procfs::page_size(),
         })
     }
@@ -115,27 +112,78 @@ impl Source for ProcessStatsProbe {
         // let state = now.state()?;
 
         // Compute CPU usage in the last time slice.
-        let cpu_usage = match self.previous_general_stats.take() {
-            Some(prev) => Some(DeltaCpuTime::compute_diff(&prev, &general_stats, self.ns_per_ticks)),
-            None if self.push_first_stats => Some(DeltaCpuTime::compute_first(&general_stats, self.ns_per_ticks)),
-            None => None,
+        let (prev_t, cpu_usage) = match self.previous_general_stats.take() {
+            Some((prev_t, prev_stat)) => (
+                Some(prev_t),
+                Some(DeltaCpuTime::compute_diff(
+                    &prev_stat,
+                    &general_stats,
+                    self.ns_per_ticks,
+                )),
+            ),
+            None if self.push_first_stats => (
+                None,
+                Some(DeltaCpuTime::compute_first(&general_stats, self.ns_per_ticks)),
+            ),
+            None => (None, None),
         };
         if let Some(measurements) = cpu_usage {
             measurements.push_cpu_measurements(
-                self.metric_cpu_time_delta,
+                self.metrics.metric_cpu_time_delta,
                 Resource::LocalMachine,
                 consumer.clone(),
                 buffer,
                 t,
             );
+            if let Some(prev_t) = prev_t {
+                // cpu_time_delta is in nanoseconds, use delta_t to turn it into a percentage
+                // Note: 100% is *one* core, a process running on multiple core may use more than 100% of cpu.
+                let delta_t = t.duration_since(prev_t).unwrap().as_nanos() as f64;
+                let percent_user = 100.0 * (measurements.user as f64 / delta_t);
+                let percent_system = 100.0 * (measurements.user as f64 / delta_t);
+                let percent_total = 100.0 * ((measurements.user + measurements.system) as f64 / delta_t);
+                // TODO guest value?
+                // TODO metric unit Percent in [0;100]
+                // TODO metric unit PercentFrac in [0;1]
+                buffer.push(
+                    MeasurementPoint::new(
+                        t,
+                        self.metrics.metric_cpu_percent,
+                        Resource::LocalMachine,
+                        consumer.clone(),
+                        percent_user,
+                    )
+                    .with_attr("kind", "user"),
+                );
+                buffer.push(
+                    MeasurementPoint::new(
+                        t,
+                        self.metrics.metric_cpu_percent,
+                        Resource::LocalMachine,
+                        consumer.clone(),
+                        percent_system,
+                    )
+                    .with_attr("kind", "system"),
+                );
+                buffer.push(
+                    MeasurementPoint::new(
+                        t,
+                        self.metrics.metric_cpu_percent,
+                        Resource::LocalMachine,
+                        consumer.clone(),
+                        percent_total,
+                    )
+                    .with_attr("kind", "total"),
+                );
+            }
         }
-        self.previous_general_stats = Some(general_stats);
+        self.previous_general_stats = Some((t, general_stats));
 
         // Compute RAM usage in the last time slice.
         buffer.push(
             MeasurementPoint::new(
                 t,
-                self.metric_memory_usage,
+                self.metrics.metric_memory_usage,
                 Resource::LocalMachine,
                 consumer.clone(),
                 self.pages_to_bytes(memory_stats.resident),
@@ -145,7 +193,7 @@ impl Source for ProcessStatsProbe {
         buffer.push(
             MeasurementPoint::new(
                 t,
-                self.metric_memory_usage,
+                self.metrics.metric_memory_usage,
                 Resource::LocalMachine,
                 consumer.clone(),
                 self.pages_to_bytes(memory_stats.shared),
@@ -155,7 +203,7 @@ impl Source for ProcessStatsProbe {
         buffer.push(
             MeasurementPoint::new(
                 t,
-                self.metric_memory_usage,
+                self.metrics.metric_memory_usage,
                 Resource::LocalMachine,
                 consumer,
                 self.pages_to_bytes(memory_stats.size),
@@ -252,8 +300,10 @@ struct ProcessSourceSpawner {
     metrics: ProcessMetrics,
 }
 
+#[derive(Clone)]
 pub struct ProcessMetrics {
     pub metric_cpu_time_delta: TypedMetricId<u64>,
+    pub metric_cpu_percent: TypedMetricId<f64>,
     pub metric_memory_usage: TypedMetricId<u64>,
 }
 
@@ -459,14 +509,8 @@ impl ProcessSourceSpawner {
             })?;
         log::trace!("adding source {source_name} with trigger specification {trigger:?}");
         let source = Box::new(
-            ProcessStatsProbe::new(
-                p,
-                self.ns_per_ticks,
-                true,
-                self.metrics.metric_cpu_time_delta,
-                self.metrics.metric_memory_usage,
-            )
-            .with_context(|| format!("failed to create source {source_name}"))?,
+            ProcessStatsProbe::new(p, self.ns_per_ticks, true, self.metrics.clone())
+                .with_context(|| format!("failed to create source {source_name}"))?,
         );
         create_many.add_source(&source_name, source, trigger);
         Ok(())
