@@ -1,4 +1,6 @@
-use alumet::pipeline::elements::source::trigger::TriggerSpec;
+use std::fmt::format;
+
+use alumet::{measurement::AttributeValue, pipeline::elements::source::trigger::TriggerSpec};
 use util_cgroups::Cgroup;
 
 use crate::attr::{JOB_REGEX_SLURM1, JOB_REGEX_SLURM2, find_jobid_in_attrs};
@@ -38,7 +40,7 @@ impl CgroupSetupCallback for JobSourceSetup {
             util_cgroups::CgroupVersion::V2 => &mut self.extractor_v2,
         };
 
-        let attrs = extractor
+        let mut attrs = extractor
             .extract(cgroup.canonical_path())
             .expect("bad regex: it should only match if the input can be parsed into the specified types");
 
@@ -49,6 +51,16 @@ impl CgroupSetupCallback for JobSourceSetup {
             let job_id = find_jobid_in_attrs(&attrs).expect("job_id should be set");
             // give a nice name
             name = format!("slurm-job-{}", job_id);
+
+            // Check if it's the job or a step
+            let end_pattern = format!("job_{}", job_id);
+            if cgroup.canonical_path().ends_with(&end_pattern) {
+                // It's the job
+                attrs.push(("represent".to_string(), AttributeValue::Str("job")));
+            } else {
+                // It's only a step
+                attrs.push(("represent".to_string(), AttributeValue::Str("step")));
+            }
         } else {
             // not a job, just a cgroup (for ex. a systemd service)
             if self.jobs_only {
