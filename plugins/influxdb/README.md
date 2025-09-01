@@ -40,13 +40,17 @@ By changing the config options, you can choose which attributes translate to tag
 For example, depending on the config, the same alumet point will lead to different influxdb point. Here is the alumet point's rust structure.
 
 ```rust
-pub struct MeasurementPoint {
-    pub metric: RawMetricId,
-    pub timestamp: Timestamp,
-    pub value: WrappedMeasurementValue,
-    pub resource: Resource,
-    pub consumer: ResourceConsumer,
-    attributes: SmallVec<[(Cow<'static, str>, AttributeValue); 4]>,
+MeasurementPoint {
+    metric: rapl_consumed_energy,
+    timestamp: 1755604520429334196,
+    value: 123u,
+    resource: Resource::CpuPackage { id: 0 },
+    consumer: ResourceConsumer::local_machine,
+    attributes: [
+        {
+            domain: "package"
+        }
+    ]
 }
 ```
 
