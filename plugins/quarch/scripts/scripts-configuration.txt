@@ -1,3 +1,0 @@
-PARAMETERS_DIRECTORY="$HOME/.local/tmp"
-EXPERIMENT_RESULTS_DIRECTORY="$HOME/public/results/quarch_implementation"
-DEFAULT_CONFIG="/etc/alumet/alumet-config.toml"
