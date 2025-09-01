@@ -1,21 +1,34 @@
 # Quarch Plugin
 
+This plugin measures disk power consumption using a Quarch Power Analysis Module.
+
 ## Requirements
 
-- Have an account on Grid'5000.
-- Have the Debian file of Alumet, `scripts-configuration.txt`, `set.sh`, `run.sh`, and `exec.sh` file in the same folder on your computer.
-- Use a grenoble node.
+### Hardware
+
+1. A Quarch Power Analysis Module 
+2. If you want to use it on Grid'5000:
+    - Have an account on Grid'5000.
+    - Use a Grenoble node (Quarch module is physically installed there).
+
+### Software
+- A working quarchpy installation (Python package)
+- A Java runtime (configured in `java_bin`, should be installed by quarchpy).
 
 ## Metrics
 
-Here are examples of the metrics collected by the plugin source.
+The plugin exposes the following metric:
 
 | metric | timestamp | value | resource_kind | resource_id | consumer_kind | consumer_id | __late_attributes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| disk_power_W | 2025-08-12T12:48:51.576158871Z | 6.214516047 | local_machine | | local_machine | | |
-| disk_power_W | 2025-08-12T12:48:52.576181183Z | 6.212208912 | local_machine | | local_machine | | |
-| disk_power_W | 2025-08-12T12:48:53.576144545Z | 6.218320261 | local_machine | | local_machine | | |
-| disk_power_W | 2025-08-12T12:48:54.5761601Z | 6.214720876000001 | local_machine | | local_machine | | |
+| disk_power_W | 2025-09-01T10:45:41.757250914Z | 9.526866534 | local_machine | | local_machine | | |
+| disk_power_W | 2025-09-01T10:45:42.723658463Z | 9.526885365 | local_machine | | local_machine | | |
+| disk_power_W | 2025-09-01T10:45:43.723659913Z | 9.528410676 | local_machine | | local_machine | | |
+| disk_power_W | 2025-09-01T10:45:44.723650353Z | 9.528114186 | local_machine | | local_machine | | |
+
+*Meaning*:
+- `disk_power_W `= instantaneous power consumption of the disk in Watts.
+- Sampling rate is controlled via the plugin configuration (`sample`, `poll_interval`).
 
 ## Configuration
 
@@ -23,120 +36,111 @@ Here is a configuration example of the plugin. It's part of the Alumet configura
 
 ```toml
 [plugins.quarch]
-quarch_ip = "172.17.30.102" # always this on yeti
-quarch_port = 9760 # always this for quarch (it seems)
-sample = 32
-channel = "12V" # Can be +12V, +3.3V or +3.3VAUX --> if we want to obtain a power of 6W, it is better to stay on 12V channel for the Quarch Module on G5K (fixture QTL2347)
-poll_interval = "1s"
-flush_interval = "5s"
+
+# --- Quarch connection settings ---
+quarch_ip = "CHANGE HERE"       # a.g.,"172.17.30.102" for Grenoble G5K
+quarch_port = 9760              # Default if unchangedon your module
+qis_port = 9780                 # Default if unchanged on your module
+java_bin = "path_to_java"       # Installed with quarchpy: ".../lib/python3.11/site-packages/quarchpy/connection_specific/jdk_jres/lin_amd64_jdk_jre/bin/java"
+qis_jar_path = "path_to_qis"    # Installed with quarchpy: ".../lib/python3.11/site-packages/quarchpy/connection_specific/QPS/win-amd64/qis/qis.jar"
+
+# --- Measurement settings ---
+poll_interval = "150ms"            # Interval between two reported measurements
+flush_interval = "1500ms"           # Interval between flushing buffered data
 ```
+
+*Notes:*
+- `poll_interval` controls how often Alumet queries the Quarch module.
+- `flush_interval` controls how often buffered measurements are sent downstream.
+- Ensure `java_bin` and `qis_jar_path` are correct (installed with quarchpy).
+
+### Recommended `poll_interval` and `flush_interval`
+``` bash
+| sample (2^n) | ~Hardware Window | `poll_interval` (recommended) | `flush_interval` (recommended)|
+| ------------ | ---------------------------- | -------------------------- | --------------------------- |
+| 32           | 0.13 ms                      | 200 µs                     | 2 ms                        |
+| 64           | 0.25 ms                      | 300 µs                     | 3 ms                        |
+| 128          | 0.5 ms                       | 500 µs                     | 5 ms                        |
+| 256          | 1 ms                         | 1 ms                       | 10 ms                       |
+| 512          | 2 ms                         | 2 ms                       | 20 ms                       |
+| 1K (1024)    | 4.1 ms                       | 5 ms                       | 50 ms                       |
+| 2K (2048)    | 8.2 ms                       | 10 ms                      | 100 ms                      |
+| 4K (4096)    | 16.4 ms                      | 20 ms                      | 200 ms                      |
+| 8K (8192)    | 32.8 ms                      | 50 ms                      | 500 ms                      |
+| 16K (16384)  | 65.5 ms                      | 100 ms                     | 1 s                         |
+| 32K (32768)  | 131 ms                       | 150 ms                     | 1500 ms                     |
+```
+
+*Notes:*
+- Choosing `poll_interval` < `hardware window` (min 0.13 ms) may result in repeated identical readings.
+- Choosing `poll_interval` > `hardware window` (max 131 ms) may skip some module measurements, which is acceptable depending on your experiment duration. *For example, if you want 1 poll per second, `poll_interval`= 1s will work.*
 
 ## Usage
 
-### Initial commands
+### Virtual environment (recommended)
+
+To isolate `quarchpy`, create a Python virtual environment:
+
+``` bash
+$ python3 -m venv /root/<Name_Virtual_Environnement> && \
+/root/<Name_Virtual_Environnement>/bin/pip install --upgrade pip && \
+/root/<Name_Virtual_Environnement>/bin/pip install --upgrade quarchpy
+$ source /root/<Name_Virtual_Environnement>/bin/activate
+```
+
+### Commands
 
 ```bash
-# Example on how to put the files on g5k
-$ scp -r -i `ssh_key_g5k` `repo with the files` grenoble.g5k:/home/login/
+# Run a command while measuring disk power
+$ alumet-agent --plugins quarch exec <COMMAND_TO_EXEC>
 
-# To set up node yeti-x:
-login@fgrenoble$ ./set.sh yeti-x
+# Run alumet with continuous measurements
+$ alumet-agent --plugins quarch run
 
-# Every time you want to exec alumet:
-login@fgrenoble$ ./exec.sh yeti-x command_to_exec
+# Save results to CSV (with another plugin)
+$ alumet-agent --output-file "measurements-quarch.csv" --plugins quarch,csv run
+```
 
-# Every time you want to run alumet:
-login@fgrenoble$ ./run.sh yeti-x
+### Usage on Grid'5000
 
-# If you need, you can access node by
-login@fgrenoble$ ssh root@yeti-x
+- The Quarch Module is physically installed on yeti-4 (Grenoble).
+- You can access it from any Grenoble node.
+- Example configuration for G5K:
+```bash
+quarch_ip = "172.17.30.102"
+quarch_port = 9760
+qis_port = 9780
 ```
 
 ### Outputs examples
 
 ```bash
-login@fgrenoble$ ./set.sh yeti-4
-# Include exotic resources in the set of reservable resources (this does NOT exclude non-exotic resources).
-OAR_JOB_ID=2522461
-Node reserved with job ID: 2522461
-Waiting for the job to start...
-Current job status: Waiting
-Current job status: Running
-Job is running on node: yeti-4
-Current job status: Launching
-Deploying environment on yeti-4 with kadeploy...
 ...
-... # Deploying
-...
-Setting up node yeti-4...
-...
-... # Downloading tools the plugin needs on yeti-4
+[2025-09-01T10:45:40Z INFO  alumet::agent::builder] Plugin startup complete.
+    🧩 1 plugins started:
+        - quarch v0.1.0
+
+    ⭕ 24 plugins disabled: ...
+    📏 1 metric registered:
+        - disk_power: F64 (W)
+    📥 1 source, 🔀 0 transform and 📝 0 output registered.
 ...
 ```
 
-```bash
-login@fgrenoble$ ./exec.sh yeti-3 csv sleep 10
-Do you want to keep the current config for the result directory?
------
-/home/mdacosta/public/results/quarch_implementation/2025-08-07-15-28-51
------
-Use this config? [Y/n] y
-Directory created successfully
-...
-[2025-08-07T13:28:54Z INFO  alumet_agent] Default configuration file written to: /etc/alumet/alumet-config.toml
-Do you want to keep the current config for alumet?
------
-# Alumet config file
------
-Use this config? [Y/n] y
-PLUGIN_LIST: quarch,csv
-COMMAND_TO_EXEC: sleep 10
-[2025-08-07T13:28:59Z INFO  alumet_agent] Starting Alumet agent 'alumet-agent' v0.8.4-a4c62a2-dirty (2025-08-07T09:45:00.904535984Z, rustc 1.81.0, debug=false)
-...
-... # Alumet execution
-    📥 1 source, 🔀 0 transform and 📝 1 output registered.
-...
-Gathering experiment results...
-alumet-output.csv                                          100% 1562   466.4KB/s   00:00
-Done.
-```
+### Troubleshooting
 
-```bash
-login@fgrenoble$ ./run.sh yeti-3 csv
-Do you want to keep the current config for the result directory?
------
-/home/mdacosta/public/results/quarch_implementation/2025-08-07-15-30-25
------
-Use this config? [Y/n] y
-[2025-08-07T13:30:27Z INFO  alumet_agent] Starting Alumet agent 'alumet-agent' v0.8.4-a4c62a2-dirty (2025-08-07T09:45:00.904535984Z, rustc 1.81.0, debug=false)
-[2025-08-07T13:30:27Z WARN  plugin_cgroupv2::k8s::plugin] Error: Path '/sys/fs/cgroup/kubepods.slice/' does not exist.
-[2025-08-07T13:30:27Z INFO  alumet_agent] Default configuration file written to: /etc/alumet/alumet-config.toml
-Do you want to keep the current config for alumet?
------
-... # Alumet config file
------
-Use this config? [Y/n] y
-PLUGIN_LIST: quarch,csv
-[2025-08-07T13:30:29Z INFO  alumet_agent] Starting Alumet agent 'alumet-agent' v0.8.4-a4c62a2-dirty (2025-08-07T09:45:00.904535984Z, rustc 1.81.0, debug=false)
-...
-... # Alumet execution
-    📥 1 source, 🔀 0 transform and 📝 1 output registered.
-^C
-Gathering experiment results...
-alumet-output.csv                                          100%  573   226.9KB/s   00:00
-Done.
-```
+- No metrics appear: check `quarch_ip / ports`, and ensure module is powered on.
+- Java errors: verify `java_bin` path from your quarchpy install.
+- QIS not found: update `qis_jar_path` to the correct installed JAR.
 
-### Getting data
+## License
 
-```bash
-wget --user="..." --password="..."  -r -np -nH --cut-dirs=1 https://api.grid5000.fr/sid/sites/grenoble/public/`LOGIN`/results/quarch_implementation/
+Copyright 2025 Marie-Line DA COSTA BENTO.
 
-wget --user="..." --password="..."  -r -np -nH --cut-dirs=1 https://api.grid5000.fr/sid/sites/grenoble/public/`LOGIN`/`EXPERIMENT_RESULTS_DIRECTORY`/
-```
+Alumet project is licensed under the European Union Public Licence (EUPL). See the [LICENSE](https://github.com/alumet-dev/alumet/blob/main/LICENSE) file for more details.
 
 ## More information
 
 Quarch module commands are based on the [SCPI](https://www.ivifoundation.org/specifications/default.html) specification.
+For further details, please check the [Quarch Github](https://github.com/QuarchTechnologyLtd).
 
-Quarch Module is installed on yeti-4 but you can access to it from every node of Grenoble.

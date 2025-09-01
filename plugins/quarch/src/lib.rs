@@ -54,17 +54,23 @@ impl AlumetPlugin for QuarchPlugin {
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
         log::debug!("Starting Quarch plugin");
 
-        self.qis_process = Some(QuarchSource::ensure_qis_running()?);
+        self.qis_process = Some(QuarchSource::ensure_qis_running(
+            self.config.qis_port,
+            &self.config.java_bin,
+            &self.config.qis_jar_path,
+        )?);
 
         let metric_id = alumet.create_metric::<f64>("disk_power", Unit::Watt, "Disk power consumption in Watts")?;
 
-        let source = QuarchSource::new(
-            self.config.quarch_ip,
-            self.config.quarch_port,
-            self.config.sample,
-            // self.config.channel,
-            metric_id,
-        );
+        let (sample, _) = poll_to_sample(self.config.poll_interval);
+        // Convert to Quarch command format
+        if sample >= 1024 {
+            format!("{}K", sample / 1024)
+        } else {
+            sample.to_string()
+        };
+
+        let source = QuarchSource::new(self.config.quarch_ip, self.config.quarch_port, sample, metric_id);
 
         let source = Arc::new(Mutex::new(source));
         self.source = Some(source.clone());
@@ -129,14 +135,78 @@ impl Drop for QuarchPlugin {
         let _ = self.stop();
     }
 }
+/// Averaging table mapping sample → hardware window based on quarch documentation
+struct Averaging {
+    sample: u32,
+    window: Duration,
+}
+
+const AVERAGING_TABLE: [Averaging; 11] = [
+    Averaging {
+        sample: 32,
+        window: Duration::from_micros(130),
+    },
+    Averaging {
+        sample: 64,
+        window: Duration::from_micros(250),
+    },
+    Averaging {
+        sample: 128,
+        window: Duration::from_micros(500),
+    },
+    Averaging {
+        sample: 256,
+        window: Duration::from_micros(1_000),
+    },
+    Averaging {
+        sample: 512,
+        window: Duration::from_micros(2_000),
+    },
+    Averaging {
+        sample: 1024,
+        window: Duration::from_micros(4_100),
+    },
+    Averaging {
+        sample: 2048,
+        window: Duration::from_micros(8_200),
+    },
+    Averaging {
+        sample: 4096,
+        window: Duration::from_micros(16_400),
+    },
+    Averaging {
+        sample: 8192,
+        window: Duration::from_micros(32_800),
+    },
+    Averaging {
+        sample: 16384,
+        window: Duration::from_micros(65_500),
+    },
+    Averaging {
+        sample: 32768,
+        window: Duration::from_micros(131_000),
+    },
+];
+
+/// Choose the best sample for quarch : the better for the poll_interval
+pub fn poll_to_sample(poll: Duration) -> (u32, Duration) {
+    for avg in AVERAGING_TABLE {
+        if avg.window >= poll {
+            return (avg.sample, avg.window);
+        }
+    }
+    let last = AVERAGING_TABLE.last().unwrap();
+    (last.sample, last.window)
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub quarch_ip: IpAddr,
     pub quarch_port: u16,
-    pub sample: u32,
-    // pub channel: string,
+    pub qis_port: u16,
+    pub java_bin: String,
+    pub qis_jar_path: String,
     #[serde(with = "humantime_serde")]
     poll_interval: Duration,
     #[serde(with = "humantime_serde")]
@@ -146,10 +216,13 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            quarch_ip: IpAddr::from([172, 17, 30, 102]),
-            quarch_port: 9760,
-            sample: 32,
-            // channel: 12V // Can be +12V, +3.3V or +3.3VAUX --> if we want to obtein a power of 6, it is better to stay on 12V channel for the Quarch Module on G5K (fixture QTL2347)
+            // --- Quarch connection settings ---
+            quarch_ip: IpAddr::from([172, 17, 30, 102]), // By default for Grenoble G5K
+            quarch_port: 9760,      // By default is you didn't change it on the module
+            qis_port: 9780,         // By default is you didn't change it on the module
+            java_bin: "/root/venv-quarchpy/lib/python3.11/site-packages/quarchpy/connection_specific/jdk_jres/lin_amd64_jdk_jre/bin/java".to_string(),
+            qis_jar_path: "/root/venv-quarchpy/lib/python3.11/site-packages/quarchpy/connection_specific/QPS/win-amd64/qis/qis.jar".to_string(),
+            // --- Measurement settings ---
             poll_interval: Duration::from_secs(1),
             flush_interval: Duration::from_secs(5),
         }
