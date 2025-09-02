@@ -369,12 +369,18 @@ mod tests {
             assert_eq!(parsed.base_unit, expected_unit);
             assert_eq!(parsed.prefix, expected_prefix);
         }
+        // Valid inputs
         parse_self("kW", Unit::Watt, UnitPrefix::Kilo);
         parse_self("mA", Unit::Ampere, UnitPrefix::Milli);
         parse_self("μs", Unit::Second, UnitPrefix::Micro);
         parse_self("W", Unit::Watt, UnitPrefix::Plain);
-        assert!("kX".parse::<PrefixedUnit>().is_err());
-        assert!("XW".parse::<PrefixedUnit>().is_err());
-        assert!("gigaX".parse::<PrefixedUnit>().is_err());
+        // Invalid inputs
+        assert!("kX".parse::<PrefixedUnit>().is_err()); // unknown units
+        assert!("XW".parse::<PrefixedUnit>().is_err()); // unknown units
+        assert!("".parse::<PrefixedUnit>().is_err()); // malformed strings
+        assert!("k".parse::<PrefixedUnit>().is_err()); // malformed strings
+        assert!("KW".parse::<PrefixedUnit>().is_err()); // mixed case
+        assert!("dW".parse::<PrefixedUnit>().is_err()); // non-standard prefixes
+        assert!(" kW".parse::<PrefixedUnit>().is_err()); // whitespace
     }
 }
