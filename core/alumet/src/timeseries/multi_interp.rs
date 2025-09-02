@@ -8,7 +8,7 @@ use crate::{
     measurement::{MeasurementPoint, Timestamp},
     timeseries::{
         Timeseries, Timeslice,
-        interpolate::{Interpolated, InterpolationReference},
+        interpolate::{Interpolated, InterpolationReference, LinearInterpolator},
     },
 };
 
@@ -28,7 +28,7 @@ pub struct MultiSyncInterpolator<'a, K: Eq + Hash + Clone> {
 
 #[derive(Debug)]
 pub struct InterpolationBoundaries {
-    /// max_S(min_t(S)): for each serie, find the minimum timestamp, and take the max of them
+    /// max_S(min_t(S)): for each timeseries, find the minimum timestamp, and take the max of them
     pub inf: Timestamp,
     /// min_S(max_t(S)): for each serie, find the maximum timestamp, and take the min of them
     pub sup: Timestamp,
@@ -125,7 +125,7 @@ impl<'a, K: Eq + Hash + Clone> MultiSyncInterpolator<'a, K> {
         for (key, serie) in self.series.iter() {
             let time = InterpolationReference::from(Timeslice::from(time_ref));
             let serie = Timeseries::from(Vec::from_iter(serie.iter().cloned())); // TODO optimize
-            let interpolated = serie.interpolate_linear(time);
+            let interpolated = serie.interpolate_at(&time, LinearInterpolator);
             // interpolated is a Vec of interpolated points,
             // push its content into a Vec of (t, multi-point)
             for (i, p) in interpolated.into_iter().enumerate() {

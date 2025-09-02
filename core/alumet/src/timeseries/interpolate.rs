@@ -130,11 +130,6 @@ impl Timeseries {
             PointSearchResult::NotFound
         }
     }
-
-    #[deprecated = "use `interpolate_at` instead"]
-    pub fn interpolate_linear(&self, interp_time: InterpolationReference) -> Vec<Interpolated<MeasurementPoint>> {
-        self.interpolate_at(&interp_time, LinearInterpolator)
-    }
 }
 
 impl InterpolationReference {
@@ -254,7 +249,7 @@ mod tests {
 
         // interpolate at borders
         let t_ref = InterpolationReference::from(vec![t0]);
-        let interpolated = series.interpolate_linear(t_ref.clone());
+        let interpolated = series.interpolate_at(&t_ref, LinearInterpolator);
         check_interpolated_timestamps(&interpolated, &t_ref);
         assert_eq!(interpolated.len(), 1);
         assert!(
@@ -263,7 +258,7 @@ mod tests {
         );
 
         let t_ref = InterpolationReference::from(vec![t1]);
-        let interpolated = series.interpolate_linear(t_ref.clone());
+        let interpolated = series.interpolate_at(&t_ref, LinearInterpolator);
         check_interpolated_timestamps(&interpolated, &t_ref);
         assert_eq!(interpolated.len(), 1);
         assert!(
@@ -275,7 +270,7 @@ mod tests {
         let t_ref = InterpolationReference::from(vec![Timestamp::from(
             SystemTime::UNIX_EPOCH + Duration::from_secs_f64(0.5),
         )]);
-        let interpolated = series.interpolate_linear(t_ref.clone());
+        let interpolated = series.interpolate_at(&t_ref, LinearInterpolator);
         check_interpolated_timestamps(&interpolated, &t_ref);
         assert_eq!(interpolated.len(), 1);
         assert!(
@@ -286,7 +281,7 @@ mod tests {
         let t_ref = InterpolationReference::from(vec![Timestamp::from(
             SystemTime::UNIX_EPOCH + Duration::from_secs_f64(0.25),
         )]);
-        let interpolated = series.interpolate_linear(t_ref.clone());
+        let interpolated = series.interpolate_at(&t_ref, LinearInterpolator);
         check_interpolated_timestamps(&interpolated, &t_ref);
         assert_eq!(interpolated.len(), 1);
         assert!(
@@ -311,7 +306,7 @@ mod tests {
 
         // interpolate at reference points
         let t_ref = InterpolationReference::from(vec![t0]);
-        let interpolated = series.interpolate_linear(t_ref.clone());
+        let interpolated = series.interpolate_at(&t_ref, LinearInterpolator);
         check_interpolated_timestamps(&interpolated, &t_ref);
         assert_eq!(interpolated.len(), 1);
         assert!(
@@ -320,7 +315,7 @@ mod tests {
         );
 
         let t_ref = InterpolationReference::from(vec![t1]);
-        let interpolated = series.interpolate_linear(t_ref.clone());
+        let interpolated = series.interpolate_at(&t_ref, LinearInterpolator);
         check_interpolated_timestamps(&interpolated, &t_ref);
         assert_eq!(interpolated.len(), 1);
         assert!(
@@ -329,7 +324,7 @@ mod tests {
         );
 
         let t_ref = InterpolationReference::from(vec![t2]);
-        let interpolated = series.interpolate_linear(t_ref.clone());
+        let interpolated = series.interpolate_at(&t_ref, LinearInterpolator);
         check_interpolated_timestamps(&interpolated, &t_ref);
         assert_eq!(interpolated.len(), 1);
         assert!(
@@ -339,7 +334,7 @@ mod tests {
 
         // interpolate in between
         let t_ref = InterpolationReference::from(vec![t1]);
-        let interpolated = series.interpolate_linear(t_ref.clone());
+        let interpolated = series.interpolate_at(&t_ref, LinearInterpolator);
         check_interpolated_timestamps(&interpolated, &t_ref);
         assert_eq!(interpolated.len(), 1);
         assert!(

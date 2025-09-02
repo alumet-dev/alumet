@@ -20,12 +20,17 @@ use alumet::{
     },
     measurement::{MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementValue},
     metrics::TypedMetricId,
-    pipeline::naming::TransformName,
-    pipeline::{Source, elements::error::PollError, elements::source::trigger::TriggerSpec},
-    plugin::PluginMetadata,
-    plugin::rust::AlumetPlugin,
+    pipeline::{
+        Source,
+        elements::{error::PollError, source::trigger::TriggerSpec},
+        naming::TransformName,
+    },
+    plugin::{PluginMetadata, rust::AlumetPlugin},
     resources::{Resource, ResourceConsumer},
-    test::{RuntimeExpectations, runtime::TransformCheckInputContext},
+    test::{
+        RuntimeExpectations,
+        runtime::{TransformCheckInputContext, TransformCheckOutputContext},
+    },
     units::Unit,
 };
 use lazy_static::lazy_static;
@@ -116,7 +121,8 @@ fn run_test_with_config(config: Config, expected_counts: ExpectedCounts) -> anyh
         prepare_mock_measurements(ctx).expect("failed to prepare mock points")
     };
 
-    let check_output = move |measurements: &MeasurementBuffer| {
+    let check_output = move |ctx: &mut TransformCheckOutputContext| {
+        let measurements = ctx.measurements();
         assert_measurement_counts(measurements, expected_counts.clone());
     };
 
@@ -268,7 +274,8 @@ fn test_process_id_not_found_in_procfs() -> anyhow::Result<()> {
         m
     };
 
-    let check_output = move |measurements: &MeasurementBuffer| {
+    let check_output = move |ctx: &mut TransformCheckOutputContext| {
+        let measurements = ctx.measurements();
         assert_eq!(measurements.len(), 1);
         assert_eq!(
             measurements.iter().next().unwrap().consumer,

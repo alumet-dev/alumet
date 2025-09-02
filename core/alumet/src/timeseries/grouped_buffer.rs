@@ -4,7 +4,10 @@ use rustc_hash::FxHashMap;
 
 use crate::{
     measurement::{MeasurementBuffer, MeasurementPoint, Timestamp},
-    timeseries::{interpolate::Interpolated, together::Together},
+    timeseries::{
+        interpolate::{Interpolated, LinearInterpolator},
+        together::Together,
+    },
 };
 
 use super::{Timeseries, interpolate::InterpolationReference};
@@ -100,7 +103,7 @@ impl<K: Key> GroupedBuffer<K> {
         let res = self
             .groups
             .into_values()
-            .map(|s| s.interpolate_linear(interp_time.clone()))
+            .map(|s| s.interpolate_at(&interp_time, LinearInterpolator))
             .collect();
         Some(Together::new(res))
     }
