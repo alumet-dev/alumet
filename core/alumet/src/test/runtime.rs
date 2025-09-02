@@ -591,7 +591,7 @@ impl RuntimeExpectations {
     pub fn test_transform<Fi, Fo>(mut self, transform: TransformName, make_input: Fi, check_output: Fo) -> Self
     where
         Fi: Fn(&mut TransformCheckInputContext) -> MeasurementBuffer + Send + 'static,
-        Fo: Fn(&MeasurementBuffer) + Send + 'static,
+        Fo: Fn(&mut TransformCheckOutputContext) + Send + 'static,
     {
         let name = transform.clone();
         self.transforms.entry(name).or_default().push(TransformCheck {
@@ -630,7 +630,7 @@ pub struct SourceCheck {
 
 pub struct TransformCheck {
     make_input: Box<dyn Fn(&mut TransformCheckInputContext) -> MeasurementBuffer + Send>,
-    check_output: Box<dyn Fn(&MeasurementBuffer) + Send>,
+    check_output: Box<dyn Fn(&mut TransformCheckOutputContext) + Send>,
 }
 
 pub struct OutputCheck {
@@ -645,6 +645,21 @@ pub struct TransformCheckInputContext<'a> {
 impl<'a> TransformCheckInputContext<'a> {
     pub fn metrics(&'a self) -> &'a MetricRegistry {
         self.metrics.deref()
+    }
+}
+
+pub struct TransformCheckOutputContext<'a> {
+    measurements: &'a MeasurementBuffer,
+    metrics: &'a MetricRegistry,
+}
+
+impl<'a> TransformCheckOutputContext<'a> {
+    pub fn measurements(&self) -> &MeasurementBuffer {
+        self.measurements
+    }
+
+    pub fn metrics(&'a self) -> &'a MetricRegistry {
+        self.metrics
     }
 }
 

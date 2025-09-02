@@ -103,7 +103,7 @@ fn test_cpu_energy_to_processes() {
             |output| {
                 // let new_points = ??? TODO it would be nice to be able to filter the points by "origin"
                 assert_eq!(
-                    output.len(),
+                    output.measurements().len(),
                     3,
                     "the input is not enough, the attribution transform should do nothing at this point"
                 );
@@ -126,7 +126,7 @@ fn test_cpu_energy_to_processes() {
             },
             |output| {
                 println!("-----");
-                for m in output.iter() {
+                for m in output.measurements().iter() {
                     println!("{m:?}");
                 }
                 println!("-----");
@@ -149,7 +149,7 @@ fn test_cpu_energy_to_processes() {
             },
             |output| {
                 println!("-----");
-                for m in output.iter() {
+                for m in output.measurements().iter() {
                     println!("{m:?}");
                 }
                 println!("-----");
@@ -198,7 +198,7 @@ fn test_cpu_energy_to_processes() {
             },
             |output| {
                 println!("-----");
-                for m in output.iter() {
+                for m in output.measurements().iter() {
                     println!("{m:?}");
                 }
                 println!("-----");

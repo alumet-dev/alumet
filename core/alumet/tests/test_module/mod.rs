@@ -265,8 +265,9 @@ fn runtime_transform_err() {
             m
         },
         |output| {
-            assert_eq!(output.len(), 1);
-            let point = output.iter().nth(0).unwrap();
+            let m = output.measurements();
+            assert_eq!(m.len(), 1);
+            let point = m.iter().nth(0).unwrap();
             const BAD: u64 = 1234;
             assert_eq!(point.value, WrappedMeasurementValue::U64(BAD), "error on purpose");
         },
@@ -316,8 +317,9 @@ fn runtime_transform_ok() {
             m
         },
         |output| {
-            assert_eq!(output.len(), 1);
-            let point = output.iter().nth(0).unwrap();
+            let m = output.measurements();
+            assert_eq!(m.len(), 1);
+            let point = m.iter().nth(0).unwrap();
             assert_eq!(point.value, WrappedMeasurementValue::U64(10), "value should be doubled");
         },
     );
@@ -454,9 +456,15 @@ fn all_together() {
                 m
             },
             |output| {
-                assert_eq!(output.len(), 1);
-                let point = output.iter().nth(0).unwrap();
+                let measurements = output.measurements();
+                assert_eq!(measurements.len(), 1);
+                let point = measurements.iter().nth(0).unwrap();
                 assert_eq!(point.value, WrappedMeasurementValue::U64(10), "value should be doubled");
+                assert_eq!(
+                    "coffee_counter",
+                    output.metrics().by_id(&point.metric).expect("metric should exist").name,
+                    "point should use the coffee_counter metric"
+                );
             },
         )
         .test_output(
