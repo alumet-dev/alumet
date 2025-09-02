@@ -12,10 +12,7 @@ use std::{
     io::{Read, Write},
     net::{IpAddr, TcpStream},
     process::{Child, Command},
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Mutex},
     thread::sleep,
     time::{Duration, Instant, SystemTime},
 };
@@ -26,21 +23,27 @@ pub struct MeasureQuarch {
     pub timestamp: Timestamp,
 }
 
+/// Manages the connection and interaction with a Quarch device for power measurements.
 pub struct QuarchSource {
     quarch_ip: IpAddr,
     quarch_port: u16,
     sample: u32,
     metric: TypedMetricId<f64>,
     pub(crate) stream: Option<TcpStream>,
-    stop_flag: Arc<AtomicBool>, // to stop polling when end event is triggered
-    already_stopped: Arc<AtomicBool>,
 }
 
+/// Wraps QuarchSource in a thread-safe `Arc<Mutex<...>>` to enable shared access.
+///
+/// Alumet’s pipeline requires sources to be boxed (Box<dyn Source>) and passed to it.
+/// However, the Quarch plugin also needs to stop measurements and handle events (at the end of a measurement),
+/// which requires access to the same QuarchSource instance from multiple places (pipeline, event handlers).
+/// This wrapper ensures thread-safe, shared access to the source.
 pub struct SourceWrapper {
     pub(crate) inner: Arc<Mutex<QuarchSource>>,
 }
 
 impl QuarchSource {
+    ///  Initializes a new QuarchSource.
     pub fn new(ip: IpAddr, quarch_port: u16, sample: u32, metric: TypedMetricId<f64>) -> Self {
         QuarchSource {
             quarch_ip: ip,
@@ -48,12 +51,10 @@ impl QuarchSource {
             sample,
             metric,
             stream: None,
-            stop_flag: Arc::new(AtomicBool::new(false)),
-            already_stopped: Arc::new(AtomicBool::new(false)),
         }
     }
 
-    /// To get the environment variable for jdk & qis
+    /// Retrieves an environment variable or falls back to a default value for jdk & qis
     fn get_env_var_with_fallback(name: &str, fallback: &str) -> String {
         env::var(name).unwrap_or_else(|_| {
             debug!("Variable {} non defined, using fallback: {}", name, fallback);
@@ -61,7 +62,10 @@ impl QuarchSource {
         })
     }
 
-    /// Start QIS if necessary on our side
+    /// Ensures the QIS (Quarch Interface Service) is running, as it is required for communication with the Quarch device.
+    ///
+    /// This function is called during the plugin's start method. It terminates any existing QIS processes and starts a
+    /// new instance using the specified Java binary and JAR path, guaranteeing a clean state before measurements begin.
     pub fn ensure_qis_running(qis_port: u16, java_bin: &str, qis_jar_path: &str) -> Result<Child> {
         let pids = get_qis_pids()?;
         if !pids.is_empty() {
@@ -76,14 +80,14 @@ impl QuarchSource {
         Ok(child)
     }
 
-    /// Used to both send command and get the response of it (if added)
+    /// Sends a command to the Quarch device and reads the response.
     fn send_quarch_command(&mut self, cmd: &str) -> Result<String> {
         // Send command
         let stream = self.stream.as_mut().ok_or_else(|| anyhow!("Not connected"))?;
         let full_cmd = format!("{}\r\n", cmd);
         let mut message = Vec::new();
-        message.push(full_cmd.len() as u8); // longueur
-        message.push(0u8); // second octet = 0
+        message.push(full_cmd.len() as u8); // length
+        message.push(0u8); // second byte = 0
         message.extend_from_slice(full_cmd.as_bytes());
 
         stream.write_all(&message)?;
@@ -97,7 +101,7 @@ impl QuarchSource {
         loop {
             match stream.read(&mut tmp) {
                 Ok(n) if n > 0 => {
-                    // Ignore the first 2 bytes of each packets
+                    // Ignore the first 2 bytes of each packets (length)
                     if n > 2 {
                         buffer.extend_from_slice(&tmp[2..n]);
                     }
@@ -107,10 +111,10 @@ impl QuarchSource {
                 }
                 Ok(_) => break,
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {
-                    error!("Timeout de lecture après 5s");
+                    error!("Reading timeout after 5s");
                     break;
                 }
-                Err(e) => return Err(anyhow!("Erreur lecture: {}", e)),
+                Err(e) => return Err(anyhow!("Error on reading: {}", e)),
             }
         }
 
@@ -121,10 +125,11 @@ impl QuarchSource {
                 .to_string();
             Ok(response)
         } else {
-            Err(anyhow!("Réponse invalide ou vide"))
+            Err(anyhow!("Invalid or empty answer"))
         }
     }
 
+    /// Parses a numeric value (e.g., voltage or current) from a string.
     fn extract_value(resp: &str) -> Option<f64> {
         resp.chars()
             .filter(|c| c.is_numeric() || *c == '.')
@@ -133,6 +138,7 @@ impl QuarchSource {
             .ok()
     }
 
+    /// Establishes a TCP connection to the Quarch device and configures it for measurements (e.g., setting averaging, trigger mode).
     fn connect_and_configure(&mut self) -> Result<()> {
         wait_for_qis_port(&self.quarch_ip.to_string(), self.quarch_port, 10)?;
         let stream = TcpStream::connect((self.quarch_ip, self.quarch_port))?;
@@ -147,10 +153,11 @@ impl QuarchSource {
         Ok(())
     }
 
+    /// Retrieves power measurements from the Quarch device and returns them as a MeasureQuarch.
     fn get_measurement(&mut self) -> Result<MeasureQuarch> {
+        let outputs = self.send_quarch_command("Measure:OUTputs?")?;
         let system = SystemTime::now();
         let timestamp = Timestamp::from(system);
-        let outputs = self.send_quarch_command("Measure:OUTputs?")?;
         let mut total_voltage_mv: f64 = 0.0;
         let mut total_current_ua: f64 = 0.0;
         for line in outputs.lines() {
@@ -172,14 +179,9 @@ impl QuarchSource {
 
         Ok(MeasureQuarch { power, timestamp })
     }
+
+    /// Stops ongoing power measurements on the Quarch device and closes the TCP connection.
     pub fn stop_measurement(&mut self) -> anyhow::Result<()> {
-        if self.already_stopped.swap(true, Ordering::SeqCst) {
-            log::debug!("stop_measurement() ignored: already stoppé.");
-            return Ok(());
-        }
-
-        self.stop_flag.store(true, Ordering::SeqCst);
-
         //  Stopping measure
         if let Some(stream) = self.stream.as_ref() {
             stream.set_write_timeout(Some(Duration::from_secs(2)))?;
@@ -202,22 +204,18 @@ impl QuarchSource {
     }
 }
 
+/// Polls the Quarch device for measurements and accumulates them, handling connection errors.
 impl Source for QuarchSource {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator<'_>, _timestamp: Timestamp) -> Result<(), PollError> {
-        if self.stop_flag.load(Ordering::SeqCst) {
-            log::debug!("Polling skipped: stop flag is active.");
-            return Ok(()); // Stop polling
-        }
-
         if self.stream.is_none()
             && let Err(e) = self.connect_and_configure()
         {
             error!("Impossible to connect with Quarch module: {}. Retrying next poll...", e);
             self.stream = None;
-            return Ok(());
+            return Err(PollError::CanRetry(e));
         }
 
-        debug!("Polling QuarchSource...");
+        log::debug!("Polling QuarchSource...");
         match self.get_measurement() {
             Ok(data) => {
                 let point = MeasurementPoint::new(
@@ -232,7 +230,7 @@ impl Source for QuarchSource {
             Err(e) => {
                 error!("Error with measure: {}. Disconnected and retry next poll.", e);
                 self.stream = None;
-                return Ok(());
+                return Err(PollError::CanRetry(e));
             }
         }
 
@@ -240,6 +238,7 @@ impl Source for QuarchSource {
     }
 }
 
+/// Delegates polling to the wrapped QuarchSource in a thread-safe manner.
 impl Source for SourceWrapper {
     fn poll(
         &mut self,
@@ -251,6 +250,9 @@ impl Source for SourceWrapper {
     }
 }
 
+// --- Helper Functions ---
+
+/// Retrieves the process IDs of running QIS instances to be able to stop it.
 fn get_qis_pids() -> Result<Vec<i32>> {
     let output = Command::new("pgrep").arg("-f").arg("qis.jar").output()?;
     Ok(String::from_utf8_lossy(&output.stdout)
@@ -259,6 +261,7 @@ fn get_qis_pids() -> Result<Vec<i32>> {
         .collect())
 }
 
+/// Starts the QIS service using the specified JDK and JAR path.
 fn start_qis(java_bin: &str, jar_path: &str) -> Result<Child> {
     let java_bin = QuarchSource::get_env_var_with_fallback("JAVA_HOME", java_bin);
     let jar_path = QuarchSource::get_env_var_with_fallback("QIS_JAR_PATH", jar_path);
@@ -272,6 +275,7 @@ fn start_qis(java_bin: &str, jar_path: &str) -> Result<Child> {
     Ok(child)
 }
 
+/// Waits for the QIS service to become available on a specified port, with a timeout.
 fn wait_for_qis_port(ip: &str, port: u16, timeout_secs: u64) -> Result<()> {
     let start = Instant::now();
     loop {

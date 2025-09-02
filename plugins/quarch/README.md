@@ -1,34 +1,30 @@
 # Quarch Plugin
 
-This plugin measures disk power consumption using a Quarch Power Analysis Module.
+This plugin measures disk power consumption using a  [Quarch Power Analysis Module](https://www.quarch.com/). The plugin provides real-time power monitoring in watts and is designed to work with Grid'5000 nodes (e.g., `yeti-4` in Grenoble) or any other devices connected to a Quarch Module.
 
 ## Requirements
 
 ### Hardware
 
-1. A Quarch Power Analysis Module 
+1. A Quarch Power Analysis Module.
 2. If you want to use it on Grid'5000:
     - Have an account on Grid'5000.
-    - Use a Grenoble node (Quarch module is physically installed there).
+    - Use a Grenoble node (Quarch module is physically installed on `yeti-4` node).
 
 ### Software
-- A working quarchpy installation (Python package)
-- A Java runtime (configured in `java_bin`, should be installed by quarchpy).
+
+- A working `quarchpy` installation (Python package)
+- A Java runtime (configured in `java_bin`, provided by `quarchpy`).
 
 ## Metrics
 
 The plugin exposes the following metric:
 
-| metric | timestamp | value | resource_kind | resource_id | consumer_kind | consumer_id | __late_attributes |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| disk_power_W | 2025-09-01T10:45:41.757250914Z | 9.526866534 | local_machine | | local_machine | | |
-| disk_power_W | 2025-09-01T10:45:42.723658463Z | 9.526885365 | local_machine | | local_machine | | |
-| disk_power_W | 2025-09-01T10:45:43.723659913Z | 9.528410676 | local_machine | | local_machine | | |
-| disk_power_W | 2025-09-01T10:45:44.723650353Z | 9.528114186 | local_machine | | local_machine | | |
+| Metric         | Description                     | Example Value |
+|----------------|---------------------------------|---------------|
+| `disk_power_W` | Disk power consumption in Watts | `9.526866534` |
 
-*Meaning*:
-- `disk_power_W `= instantaneous power consumption of the disk in Watts.
-- Sampling rate is controlled via the plugin configuration (`sample`, `poll_interval`).
+**Sampling rate** is controlled via the plugin configuration (`sample`, `poll_interval`).
 
 ## Configuration
 
@@ -36,17 +32,15 @@ Here is a configuration example of the plugin. It's part of the Alumet configura
 
 ```toml
 [plugins.quarch]
-
-# --- Quarch connection settings ---
-quarch_ip = "CHANGE HERE"       # a.g.,"172.17.30.102" for Grenoble G5K
-quarch_port = 9760              # Default if unchangedon your module
+# --- Quarch connection configuration  ---
+quarch_ip = "1.2.3.4"           # IP address of the module, a.g.,"172.17.30.102" for Grenoble Grid'5000
+quarch_port = 9760              # Default if unchanged on your module
 qis_port = 9780                 # Default if unchanged on your module
 java_bin = "path_to_java"       # Installed with quarchpy: ".../lib/python3.11/site-packages/quarchpy/connection_specific/jdk_jres/lin_amd64_jdk_jre/bin/java"
 qis_jar_path = "path_to_qis"    # Installed with quarchpy: ".../lib/python3.11/site-packages/quarchpy/connection_specific/QPS/win-amd64/qis/qis.jar"
-
-# --- Measurement settings ---
-poll_interval = "150ms"            # Interval between two reported measurements
-flush_interval = "1500ms"           # Interval between flushing buffered data
+# --- Measurement configuration ---
+poll_interval = "150ms"         # Interval between two reported measurements
+flush_interval = "1500ms"       # Interval between flushing buffered data
 ```
 
 *Notes:*
@@ -55,8 +49,8 @@ flush_interval = "1500ms"           # Interval between flushing buffered data
 - Ensure `java_bin` and `qis_jar_path` are correct (installed with quarchpy).
 
 ### Recommended `poll_interval` and `flush_interval`
-``` bash
-| sample (2^n) | ~Hardware Window | `poll_interval` (recommended) | `flush_interval` (recommended)|
+
+| Sample | ~Hardware Window | `poll_interval` (recommended) | `flush_interval` (recommended)|
 | ------------ | ---------------------------- | -------------------------- | --------------------------- |
 | 32           | 0.13 ms                      | 200 µs                     | 2 ms                        |
 | 64           | 0.25 ms                      | 300 µs                     | 3 ms                        |
@@ -69,7 +63,6 @@ flush_interval = "1500ms"           # Interval between flushing buffered data
 | 8K (8192)    | 32.8 ms                      | 50 ms                      | 500 ms                      |
 | 16K (16384)  | 65.5 ms                      | 100 ms                     | 1 s                         |
 | 32K (32768)  | 131 ms                       | 150 ms                     | 1500 ms                     |
-```
 
 *Notes:*
 - Choosing `poll_interval` < `hardware window` (min 0.13 ms) may result in repeated identical readings.
@@ -106,6 +99,7 @@ $ alumet-agent --output-file "measurements-quarch.csv" --plugins quarch,csv run
 - The Quarch Module is physically installed on yeti-4 (Grenoble).
 - You can access it from any Grenoble node.
 - Example configuration for G5K:
+
 ```bash
 quarch_ip = "172.17.30.102"
 quarch_port = 9760
@@ -113,6 +107,8 @@ qis_port = 9780
 ```
 
 ### Outputs examples
+
+**Alumet**:
 
 ```bash
 ...
@@ -126,6 +122,15 @@ qis_port = 9780
     📥 1 source, 🔀 0 transform and 📝 0 output registered.
 ...
 ```
+
+**With csv plugin**:
+
+| metric | timestamp | value | resource_kind | resource_id | consumer_kind | consumer_id | __late_attributes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| disk_power_W | 2025-09-01T10:45:41.757250914Z | 9.526866534 | local_machine | | local_machine | | |
+| disk_power_W | 2025-09-01T10:45:42.723658463Z | 9.526885365 | local_machine | | local_machine | | |
+| disk_power_W | 2025-09-01T10:45:43.723659913Z | 9.528410676 | local_machine | | local_machine | | |
+| disk_power_W | 2025-09-01T10:45:44.723650353Z | 9.528114186 | local_machine | | local_machine | | |
 
 ### Troubleshooting
 
@@ -143,4 +148,3 @@ Alumet project is licensed under the European Union Public Licence (EUPL). See t
 
 Quarch module commands are based on the [SCPI](https://www.ivifoundation.org/specifications/default.html) specification.
 For further details, please check the [Quarch Github](https://github.com/QuarchTechnologyLtd).
-

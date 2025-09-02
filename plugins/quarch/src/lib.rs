@@ -3,7 +3,6 @@ use alumet::{
     pipeline::elements::source::trigger,
     plugin::{
         AlumetPostStart, ConfigTable,
-        event::{self},
         rust::{AlumetPlugin, deserialize_config, serialize_config},
     },
     units::Unit,
@@ -63,6 +62,7 @@ impl AlumetPlugin for QuarchPlugin {
         let metric_id = alumet.create_metric::<f64>("disk_power", Unit::Watt, "Disk power consumption in Watts")?;
 
         let (sample, _) = poll_to_sample(self.config.poll_interval);
+
         // Convert to Quarch command format
         if sample >= 1024 {
             format!("{}K", sample / 1024)
@@ -95,19 +95,11 @@ impl AlumetPlugin for QuarchPlugin {
     }
 
     fn post_pipeline_start(&mut self, _alumet: &mut AlumetPostStart) -> anyhow::Result<()> {
-        let source = self.source.clone();
-        event::end_consumer_measurement().subscribe(move |_evt| {
-            if let Some(source) = &source
-                && let Ok(mut s) = source.lock()
-                && let Err(e) = s.stop_measurement()
-            {
-                log::error!("Error stopping QuarchSource measurement: {}", e);
-            }
-            Ok(())
-        });
         Ok(())
     }
 
+    /// Orchestrates a clean shutdown of the plugin: stops Quarch measurements, terminates the QIS process,
+    /// and releases all associated resources to ensure no leaks or lingering processes.
     fn stop(&mut self) -> anyhow::Result<()> {
         log::debug!("Stopping Quarch plugin (final cleanup)...");
         if let Some(source) = &self.source
@@ -130,12 +122,7 @@ impl AlumetPlugin for QuarchPlugin {
     }
 }
 
-impl Drop for QuarchPlugin {
-    fn drop(&mut self) {
-        let _ = self.stop();
-    }
-}
-/// Averaging table mapping sample → hardware window based on quarch documentation
+/// Averaging table mapping sample to hardware window based on quarch documentation for a Power Analysis Module
 struct Averaging {
     sample: u32,
     window: Duration,
@@ -188,7 +175,8 @@ const AVERAGING_TABLE: [Averaging; 11] = [
     },
 ];
 
-/// Choose the best sample for quarch : the better for the poll_interval
+/// Maps the desired polling interval to the closest supported sample rate on the Quarch device.
+/// This ensures the device is configured optimally for the requested measurement frequency, balancing accuracy and performance.
 pub fn poll_to_sample(poll: Duration) -> (u32, Duration) {
     for avg in AVERAGING_TABLE {
         if avg.window >= poll {
@@ -202,11 +190,13 @@ pub fn poll_to_sample(poll: Duration) -> (u32, Duration) {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    // --- Quarch connection configuration ---
     pub quarch_ip: IpAddr,
     pub quarch_port: u16,
     pub qis_port: u16,
     pub java_bin: String,
     pub qis_jar_path: String,
+    // --- Measurement configuration ---
     #[serde(with = "humantime_serde")]
     poll_interval: Duration,
     #[serde(with = "humantime_serde")]
@@ -216,15 +206,15 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            // --- Quarch connection settings ---
-            quarch_ip: IpAddr::from([172, 17, 30, 102]), // By default for Grenoble G5K
-            quarch_port: 9760,      // By default is you didn't change it on the module
-            qis_port: 9780,         // By default is you didn't change it on the module
-            java_bin: "/root/venv-quarchpy/lib/python3.11/site-packages/quarchpy/connection_specific/jdk_jres/lin_amd64_jdk_jre/bin/java".to_string(),
-            qis_jar_path: "/root/venv-quarchpy/lib/python3.11/site-packages/quarchpy/connection_specific/QPS/win-amd64/qis/qis.jar".to_string(),
-            // --- Measurement settings ---
-            poll_interval: Duration::from_secs(1),
-            flush_interval: Duration::from_secs(5),
+            // --- Quarch connection configuration ---
+            quarch_ip: IpAddr::from([1, 2, 3, 4]), // IP address of the module, a.g.,"172.17.30.102" for Grenoble Grid'5000
+            quarch_port: 9760,                     // Default if unchanged on your module
+            qis_port: 9780,                        // Default if unchanged on your module
+            java_bin: "path_to_java".to_string(), // Installed with quarchpy: ".../lib/python3.11/site-packages/quarchpy/connection_specific/jdk_jres/lin_amd64_jdk_jre/bin/java"
+            qis_jar_path: "path_to_qis".to_string(), // Installed with quarchpy: ".../lib/python3.11/site-packages/quarchpy/connection_specific/QPS/win-amd64/qis/qis.jar"
+            // --- Measurement configuration ---
+            poll_interval: Duration::from_millis(150), // Interval between two reported measurements
+            flush_interval: Duration::from_millis(1500), //Interval between flushing buffered data
         }
     }
 }
