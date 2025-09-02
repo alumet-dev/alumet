@@ -94,11 +94,15 @@ impl AlumetPlugin for SlurmPlugin {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
+    /// Interval between two Slurm measurement
     #[serde(with = "humantime_serde")]
     pub poll_interval: Duration,
+    /// Interval between two scans of the cgroup v1 hierarchies.
+    /// Only applies to cgroup v1 hierarchies (cgroupv2 supports inotify).
     #[serde(default)]
     #[serde(with = "humantime_serde")]
     pub cgroupv1_refresh_interval: Option<Duration>,
+    /// Only monitor the job cgroup related metrics and skip the others
     pub jobs_only: bool,
 }
 
