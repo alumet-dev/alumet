@@ -10,7 +10,7 @@ anyhow.workspace = true
 log.workspace = true
 humantime-serde.workspace = true
 serde = { workspace = true, features = ["derive"] }
-amdsmi = { git = "https://github.com/ROCm/amdsmi.git", rev = "8e454950ef9713b4316ccea5dcf06983ad5ea822" }
+amd_smi_lib_sys = "0.2.1"
 
 [dev-dependencies]
 alumet = { workspace = true, features = ["test"] }

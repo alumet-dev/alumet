@@ -11,8 +11,8 @@ use alumet::{
     test::{RuntimeExpectations, StartupExpectations},
     units::{PrefixedUnit, Unit},
 };
-use std::{panic, time::Duration};
 use anyhow::Result;
+use std::{panic, time::Duration};
 
 use plugin_amd_gpu::{AmdGpuPlugin, Config};
 
@@ -65,9 +65,7 @@ fn test_stop() -> Result<()> {
 #[test]
 fn test_start_success() {
     let mut plugins = PluginSet::new();
-    let config = Config {
-        ..Default::default()
-    };
+    let config = Config { ..Default::default() };
 
     plugins.add_plugin(PluginInfo {
         metadata: PluginMetadata::from_static::<AmdGpuPlugin>(),
@@ -76,11 +74,12 @@ fn test_start_success() {
     });
 
     let startup_expectations = StartupExpectations::new()
+        .expect_metric::<f64>("amd_gpu_activity_usage", Unit::Percent.clone())
         .expect_metric::<f64>("amd_gpu_energy_consumption", PrefixedUnit::milli(Unit::Joule))
-        .expect_metric::<f64>("amd_gpu_engine_usage", Unit::Percent.clone())
         .expect_metric::<u64>("amd_gpu_memory_usage", Unit::Byte.clone())
         .expect_metric::<u64>("amd_gpu_power_consumption", Unit::Watt.clone())
         .expect_metric::<u64>("amd_gpu_temperature", Unit::DegreeCelsius.clone())
+        .expect_metric::<u64>("amd_gpu_voltage", PrefixedUnit::milli(Unit::Volt))
         .expect_metric::<u64>("amd_gpu_process_memory_usage", Unit::Byte.clone())
         .expect_metric::<u64>("amd_gpu_process_engine_usage_encode", PrefixedUnit::nano(Unit::Second))
         .expect_metric::<u64>("amd_gpu_process_engine_gfx", PrefixedUnit::nano(Unit::Second))
@@ -89,12 +88,11 @@ fn test_start_success() {
         .expect_metric::<u64>("amd_gpu_process_memory_usage_vram", Unit::Byte.clone());
 
     // TODO : Check that sources are correct
-    let run_expect = RuntimeExpectations::new()
-        .test_source(
-            SourceName::from_str("amd-gpu", "amd_gpu_energy_consumption"),
-            move || {},
-            |_output| {},
-        );
+    let run_expect = RuntimeExpectations::new().test_source(
+        SourceName::from_str("amd-gpu", "amd_gpu_energy_consumption"),
+        move || {},
+        |_output| {},
+    );
 
     let agent = agent::Builder::new(plugins)
         .with_expectations(startup_expectations)
@@ -111,9 +109,7 @@ fn test_start_success() {
 fn test_start_errors() {
     let res = panic::catch_unwind(|| {
         let mut plugins = PluginSet::new();
-        let config = Config {
-            ..Default::default()
-        };
+        let config = Config { ..Default::default() };
 
         plugins.add_plugin(PluginInfo {
             metadata: PluginMetadata::from_static::<AmdGpuPlugin>(),

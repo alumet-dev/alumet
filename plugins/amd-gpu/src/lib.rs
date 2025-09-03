@@ -1,4 +1,4 @@
-use amdsmi::{AmdsmiInitFlagsT::AmdsmiInitAmdGpus, amdsmi_init, amdsmi_shut_down};
+use amd_smi_lib_sys::bindings::{amdsmi_init_flags_t, amdsmi_init_flags_t_AMDSMI_INIT_AMD_GPUS};
 use anyhow::{Context, anyhow};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -6,16 +6,13 @@ use std::time::Duration;
 use alumet::{
     pipeline::elements::source::trigger::TriggerSpec,
     plugin::{
-        ConfigTable,
+        AlumetPluginStart, ConfigTable,
         rust::{AlumetPlugin, deserialize_config, serialize_config},
     },
 };
 
 mod amd;
-use amd::{device::AmdGpuDevices, error::AmdError, metrics::Metrics, probe::AmdGpuSource};
-
-#[cfg(not(target_os = "linux"))]
-compile_error!("This plugin only works on Linux.");
+use amd::{device::AmdGpuDevices, error::AmdError, metrics::Metrics, probe::AmdGpuSource, utils::*};
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -65,17 +62,23 @@ impl AlumetPlugin for AmdGpuPlugin {
     // Initialization of AMD GPU and AMD SMI library.
     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
         let config = deserialize_config(config)?;
-        amdsmi_init(AmdsmiInitAmdGpus).map_err(AmdError).context("Failed to initialize AMD SMI")?;
+        const INIT_FLAG: amdsmi_init_flags_t = amdsmi_init_flags_t_AMDSMI_INIT_AMD_GPUS;
+
+        amd_sys_init(INIT_FLAG)
+            .map_err(AmdError)
+            .context("Failed to initialize AMD SMI")?;
+
         Ok(Box::new(AmdGpuPlugin { config }))
     }
 
-    fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
+    fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         let amdsmi = AmdGpuDevices::detect(self.config.skip_failed_devices)?;
         let stats = amdsmi.detection_stats();
 
         if stats.found_devices == 0 {
             return Err(anyhow!("No AMDSMI-compatible GPU found."));
         }
+
         if stats.working_devices == 0 {
             return Err(anyhow!(
                 "{} AMSMI-compatible devices found but none of them is working (see previous warnings).",
@@ -105,7 +108,7 @@ impl AlumetPlugin for AmdGpuPlugin {
 
     // Stop AMD GPU plugin and shut down the AMD SMI library.
     fn stop(&mut self) -> anyhow::Result<()> {
-        amdsmi_shut_down()
+        amd_sys_shutdown()
             .map_err(AmdError)
             .context("Failed to shut down AMD SMI")
     }
