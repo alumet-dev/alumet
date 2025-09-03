@@ -1,0 +1,20 @@
+[package]
+name = "plugin-amd-gpu"
+version = "0.1.0"
+edition.workspace = true
+repository.workspace = true
+
+[dependencies]
+alumet.workspace = true
+anyhow.workspace = true
+log.workspace = true
+humantime-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
+amdsmi = { git = "https://github.com/ROCm/amdsmi.git", rev = "8e454950ef9713b4316ccea5dcf06983ad5ea822" }
+
+[dev-dependencies]
+alumet = { workspace = true, features = ["test"] }
+toml.workspace = true
+
+[lints]
+workspace = true
