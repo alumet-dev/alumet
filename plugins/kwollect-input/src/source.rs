@@ -54,20 +54,9 @@ impl Source for KwollectSource {
                 WrappedMeasurementValue::U64(v) => v as f64,
             };
 
-            let datetime = [
-                "%Y-%m-%dT%H:%M:%S%.9f%:z", // Nanosecondes
-                "%Y-%m-%dT%H:%M:%S%.6f%:z", // Microsecondes
-                "%Y-%m-%dT%H:%M:%S%.3f%:z", // Millisecondes
-                "%Y-%m-%dT%H:%M:%S%:z",     // Pas de fractions
-            ]
-            .iter()
-            .find_map(|format| DateTime::parse_from_str(&measure.timestamp, format).ok())
-            .ok_or_else(|| anyhow::anyhow!("Failed to parse datetime: invalid format"))?;
-
-            // let datetime = DateTime::parse_from_str(&measure.timestamp, "%Y-%m-%dT%H:%M:%S.f%:z")
-            //     .map_err(|e| anyhow::anyhow!("Failed to parse datetime: {}", e))?;
-            let system_time: SystemTime = datetime.into();
-            let timestamp = Timestamp::from(system_time);
+            let datetime = parse_timestamp(&measure.timestamp)?;
+            let system: SystemTime = datetime.into();
+            let timestamp = Timestamp::from(system);
 
             let measurement_point = MeasurementPoint::new(timestamp, metric_id, resource, consumer, value)
                 .with_attr("metric_id", AttributeValue::String(measure.metric_id.clone()));
@@ -100,4 +89,23 @@ impl Source for KwollectSource {
 
         Ok(())
     }
+}
+
+/// Parses a timestamp string into a `DateTime<FixedOffset>`.
+/// Supports multiple timestamp formats:
+/// - Nanoseconds: `%Y-%m-%dT%H:%M:%S%.9f%:z`
+/// - Microseconds: `%Y-%m-%dT%H:%M:%S%.6f%:z`
+/// - Milliseconds: `%Y-%m-%dT%H:%M:%S%.3f%:z`
+/// - No fractions: `%Y-%m-%dT%H:%M:%S%:z`
+fn parse_timestamp(timestamp: &str) -> anyhow::Result<DateTime<FixedOffset>> {
+    let formats = [
+        "%Y-%m-%dT%H:%M:%S%.9f%:z", // Nanoseconds
+        "%Y-%m-%dT%H:%M:%S%.6f%:z", // Microseconds
+        "%Y-%m-%dT%H:%M:%S%.3f%:z", // Milliseconds
+        "%Y-%m-%dT%H:%M:%S%:z",     // No fractions
+    ];
+    formats
+        .iter()
+        .find_map(|format| DateTime::parse_from_str(timestamp, format).ok())
+        .ok_or_else(|| anyhow::anyhow!("Failed to parse timestamp '{}': invalid format", timestamp))
 }
