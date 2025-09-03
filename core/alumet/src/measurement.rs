@@ -27,7 +27,7 @@
 
 use core::fmt;
 use ordered_float::OrderedFloat;
-use rustc_hash::FxBuildHasher;
+use rustc_hash::FxHashSet;
 use smallvec::SmallVec;
 use std::borrow::Cow;
 use std::fmt::Write;
@@ -176,6 +176,17 @@ impl MeasurementPoint {
             self.attributes.extend(converted);
         }
         self
+    }
+}
+
+impl PartialEq for MeasurementPoint {
+    fn eq(&self, other: &Self) -> bool {
+        self.metric == other.metric
+            && self.timestamp == other.timestamp
+            && self.value == other.value
+            && self.resource == other.resource
+            && self.consumer == other.consumer
+            && FxHashSet::from_iter(&self.attributes) == FxHashSet::from_iter(&other.attributes)
     }
 }
 
@@ -465,6 +476,10 @@ impl MeasurementBuffer {
     pub fn as_accumulator(&'_ mut self) -> MeasurementAccumulator<'_> {
         MeasurementAccumulator(self)
     }
+
+    pub fn to_vec(&self) -> Vec<MeasurementPoint> {
+        self.points.clone()
+    }
 }
 
 impl Default for MeasurementBuffer {
@@ -526,17 +541,12 @@ impl<'a> MeasurementAccumulator<'a> {
     pub fn push(&mut self, point: MeasurementPoint) {
         self.0.push(point)
     }
-
-    pub(crate) fn as_inner(&'a self) -> &'a MeasurementBuffer {
-        self.0
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[cfg(test)]
     mod wrapped_measurement_value {
         use super::*;
 
@@ -550,6 +560,43 @@ mod tests {
         fn as_u64() {
             assert_eq!(WrappedMeasurementValue::U64(69).as_u64(), 69);
             assert_eq!(WrappedMeasurementValue::F64(18.38).as_u64(), 18);
+        }
+    }
+
+    mod measurement_point {
+        use super::*;
+
+        #[test]
+        fn equality() {
+            let a = MeasurementPoint::new_untyped(
+                UNIX_EPOCH.into(),
+                RawMetricId::from_u64(0),
+                Resource::LocalMachine,
+                ResourceConsumer::LocalMachine,
+                WrappedMeasurementValue::U64(123),
+            );
+            let b = a.clone().with_attr("key", "value");
+            assert_eq!(a, a);
+            assert_ne!(a, b);
+            assert_eq!(b, b);
+        }
+
+        #[test]
+        fn equality_attr_order_is_irrelevant() {
+            let a = MeasurementPoint::new_untyped(
+                UNIX_EPOCH.into(),
+                RawMetricId::from_u64(0),
+                Resource::LocalMachine,
+                ResourceConsumer::LocalMachine,
+                WrappedMeasurementValue::U64(123),
+            );
+            let b = a.clone().with_attr("key", "value");
+            let c = b.clone().with_attr("other", 123);
+            let c_different_order = a.clone().with_attr("other", 123).with_attr("key", "value");
+            assert_eq!(a, a);
+            assert_ne!(a, b);
+            assert_ne!(a, c);
+            assert_eq!(c, c_different_order);
         }
     }
 }
