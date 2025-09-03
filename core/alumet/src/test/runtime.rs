@@ -8,8 +8,13 @@ use wrapped_transform::{SetTransformOutputCheck, TransformDone, WrappedTransform
 
 use crate::{
     agent::builder::TestExpectations,
-    measurement::MeasurementBuffer,
-    metrics::registry::MetricRegistry,
+    measurement::{MeasurementBuffer, MeasurementType},
+    metrics::{
+        Metric, RawMetricId,
+        duplicate::{DuplicateCriteria, DuplicateReaction},
+        error::MetricCreationError,
+        registry::MetricRegistry,
+    },
     pipeline::{
         Output,
         control::{
@@ -27,6 +32,7 @@ use crate::{
         matching::{OutputNamePattern, SourceNamePattern, TransformNamePattern},
         naming::{OutputName, PluginName, SourceName, TransformName},
     },
+    units::PrefixedUnit,
 };
 
 mod pretty;
@@ -88,11 +94,15 @@ mod wrapped_transform;
 #[derive(Default)]
 pub struct RuntimeExpectations {
     auto_shutdown: bool,
+    metrics_to_create: Vec<Metric>,
+
     sources: FxHashMap<SourceName, Vec<SourceCheck>>,
     transforms: FxHashMap<TransformName, Vec<TransformCheck>>,
     outputs: FxHashMap<OutputName, Vec<OutputCheck>>,
 }
 
+// To conduct the tests, we need to insert some elements into the pipeline.
+// Since we need to name these elements, we use the special names below.
 pub(super) const TESTER_SOURCE_NAME: &str = "_tester";
 pub(super) const TESTER_OUTPUT_NAME: &str = "_keep_alive";
 pub(super) const TESTER_PLUGIN_NAME: &str = "_test_runtime_expectations";
@@ -232,7 +242,13 @@ impl TestExpectations for RuntimeExpectations {
         let source_tests_before = source_tests.clone();
         let transform_tests_before = transform_tests.clone();
         let output_tests_before = output_tests.clone();
+        let metrics_to_create = self.metrics_to_create;
         builder = builder.before_operation_begin(move |pipeline| {
+            // Create the test metrics
+            let res = pipeline.metrics.register_many(metrics_to_create, DuplicateCriteria::Strict, DuplicateReaction::Error);
+            let res: Result<Vec<RawMetricId>, MetricCreationError> = res.into_iter().collect();
+            res.expect("failed to create the test metrics, check that there is no duplicate (strict)");
+
             // Wrap the sources
             pipeline.replace_sources(|name, builder| {
                 log::debug!("preparing {name} for testing");
@@ -556,6 +572,18 @@ impl RuntimeExpectations {
     /// after all the test cases have been executed.
     pub fn auto_shutdown(mut self, auto_shutdown: bool) -> Self {
         self.auto_shutdown = auto_shutdown;
+        self
+    }
+
+    /// Creates a new metric (after the plugins have been initialized).
+    pub fn create_metric<T: MeasurementType>(mut self, name: impl Into<String>, unit: impl Into<PrefixedUnit>) -> Self {
+        let m = Metric {
+            name: name.into(),
+            description: "".into(),
+            value_type: T::wrapped_type(),
+            unit: unit.into(),
+        };
+        self.metrics_to_create.push(m);
         self
     }
 
