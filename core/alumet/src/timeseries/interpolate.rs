@@ -105,7 +105,7 @@ impl Timeseries {
         res
     }
 
-    fn find_points_around(&self, start_index: usize, t: &Timestamp) -> PointSearchResult {
+    fn find_points_around(&'_ self, start_index: usize, t: &Timestamp) -> PointSearchResult<'_> {
         // TODO support keeping B > 1 points before and A > 1 points after
         let mut before = None;
         let mut after = None;

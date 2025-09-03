@@ -26,7 +26,7 @@ impl Timeseries {
         self.points.last()
     }
 
-    pub fn as_slice(&self) -> Timeslice {
+    pub fn as_slice(&'_ self) -> Timeslice<'_> {
         Timeslice { points: &self.points }
     }
 }
