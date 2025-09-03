@@ -12,14 +12,17 @@ use alumet::{
         event::{self},
         rust::{AlumetPlugin, deserialize_config, serialize_config},
     },
-    units::Unit,
+    units::{PrefixedUnit, Unit, UnitPrefix},
 };
 use anyhow::Context;
 use chrono::{DateTime, FixedOffset, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
+use std::{
+    str::FromStr,
+    sync::{Arc, Mutex},
+};
 use time::OffsetDateTime;
 
 mod kwollect;
@@ -65,25 +68,41 @@ impl AlumetPlugin for KwollectPluginInput {
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         log::info!("Kwollect-input plugin is starting");
 
-        // Create a metric for the source.
+        // Create metric(s) for the source
         let mut config = self.config.lock().unwrap();
         let mut metric_ids = Vec::with_capacity(config.metrics.len());
+
         for metric_name in &config.metrics {
-            if metric_name == "wattmetre_power_watt" {
-                let kwollect_metric = alumet
-                    .create_metric::<f64>(
-                        metric_name,
-                        Unit::Watt,
-                        format!("Power consumption metric: {metric_name}"),
-                    )
-                    .expect("Failed to create metric");
-                metric_ids.push(kwollect_metric);
+            let unit_str = extract_unit_from_metric_name(metric_name);
+            let prefixed_unit = if let Ok(unit) = PrefixedUnit::from_str(&unit_str) {
+                unit
+            } else if let Ok(base_unit) = Unit::from_str(&unit_str) {
+                PrefixedUnit {
+                    base_unit,
+                    prefix: UnitPrefix::Plain,
+                }
             } else {
-                panic!(
-                    "This plugin is only designed for the 'wattmetre_power_watt' metric at the moment. Please use it."
-                );
-            }
+                // fallback: create a custom unit if it doesn't exists
+                PrefixedUnit {
+                    base_unit: Unit::Custom {
+                        unique_name: unit_str.clone(),
+                        display_name: unit_str.clone(),
+                    },
+                    prefix: UnitPrefix::Plain,
+                }
+            };
+
+            let kwollect_metric = alumet
+                .create_metric::<f64>(
+                    metric_name,
+                    prefixed_unit, // Base unit for Alumet
+                    format!("Metric: {metric_name}"),
+                )
+                .expect("Failed to create metric");
+
+            metric_ids.push(kwollect_metric);
         }
+
         config.metric_ids = metric_ids;
         Ok(())
     }
@@ -187,6 +206,60 @@ impl AlumetPlugin for KwollectPluginInput {
         log::debug!("Kwollect-input plugin is ending!");
         Ok(())
     }
+}
+
+/// Normalizes a unit string to the UCUM standard if not already done by Alumet Core.
+/// Note: Some metrics are not enabled for Prometheus exporter:
+///     `prom_all_metrics`, `prom_default_metrics`, `prom_nvgpu_all_metrics`,
+///     `prom_nvgpu_default_metrics`.
+///     Use the Prometheus exporter plugin instead for these metrics.
+fn normalize_unit(unit_str: &str) -> String {
+    match unit_str {
+        "watt" => "W".to_string(),           // UCUM standard
+        "kilowatt" => "kW".to_string(),      // UCUM standard
+        "watthour" => "W.h".to_string(),     // UCUM standard
+        "celsius" => "Cel".to_string(),      // UCUM standard
+        "percent" | "%" => "%".to_string(),  // UCUM standard
+        "VA" => "V.A".to_string(),           // Not UCUM standard (Volt-Ampere)
+        "VAr" => "V.A_r".to_string(),        // Not UCUM standard (Reactive Volt-Ampere)
+        "amp" | "ampere" => "A".to_string(), // UCUM standard
+        "volt" => "V".to_string(),           // UCUM standard
+        "hertz" => "Hz".to_string(),         // UCUM standard
+        "lux" => "lx".to_string(),           // UCUM standard
+        "bar" => "bar".to_string(),          // UCUM standard
+        "deg" => "°".to_string(),            // UCUM standard
+        "m/s" => "m/s".to_string(),          // UCUM standard
+        "rpm" => "rpm".to_string(),          // Not UCUM standard
+        "cfm" => "[cft_i]/min".to_string(),  // UCUM standard (cubic foot per minute)
+        "bytes" => "By".to_string(),         // UCUM standard
+        "packets" => "tot.".to_string(),     // UCUM standard for a count
+        _ => unit_str.to_string(),           // Return as-is if already UCUM or unknown
+    }
+}
+
+/// Extracts the unit from a metric name.
+/// The unit is typically the last segment of the metric name, unless the name ends with "total".
+/// In that case, the unit is the segment before "total", or the segment before "discard" or "error" if present.
+fn extract_unit_from_metric_name(metric_name: &str) -> String {
+    let parts: Vec<&str> = metric_name.split('_').collect();
+    // Special handling if the last part is "total"
+    if parts.len() >= 3
+        && let Some(last_segment) = parts.last()
+        && last_segment == &"total"
+    {
+        let second_last_segment = parts[parts.len() - 2];
+        if second_last_segment == "discard" || second_last_segment == "error" {
+            let unit_index = parts.len() - 3;
+            let unit = parts[unit_index];
+            return normalize_unit(unit);
+        } else {
+            let unit = parts[parts.len() - 2];
+            return normalize_unit(unit);
+        }
+    }
+    // Default: last segment is the unit
+    let unit_str = parts.last().expect("Metric name cannot be empty");
+    normalize_unit(unit_str)
 }
 
 fn convert_to_system_time(offset_date_time: OffsetDateTime) -> SystemTime {
