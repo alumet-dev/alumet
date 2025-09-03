@@ -421,6 +421,33 @@ fn runtime_output_ok() {
 
 #[test]
 #[serial]
+fn runtime_create_metrics() {
+    init_logger();
+    let plugins = PluginSet::new(); // no plugins
+
+    let runtime = RuntimeExpectations::new()
+        // create a metric without a plugin
+        .create_metric::<u64>("test_metric_1", Unit::Second)
+        .test_output(
+            OutputName::from_str("plugin", "coffee_output"),
+            |ctx| {
+                // ensure that the metric has been created by the RuntimeExpectations
+                ctx.metrics().by_name("test_metric_1").expect("metric should exist").0;
+                MeasurementBuffer::new()
+            },
+            || {},
+        );
+
+    let agent = agent::Builder::new(plugins)
+        .with_expectations(runtime)
+        .build_and_start()
+        .expect("startup failure");
+
+    agent.wait_for_shutdown(TIMEOUT).unwrap();
+}
+
+#[test]
+#[serial]
 fn all_together() {
     init_logger();
     let plugins = PluginSet::from(static_plugins![TestedPlugin]);
