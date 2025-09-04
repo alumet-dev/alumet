@@ -110,13 +110,9 @@ impl Transform for GenericAttributionTransform {
 
             // For now, the time reference MUST be a "general" per-resource metric.
             // However, it may not be present in the buffer if we have not received it yet.
-            let temporal_ref = general.0.get(&temporal_ref_metric);
-
-            if temporal_ref.is_none() {
-                // todo write this nicely
+            let Some(temporal_ref) = general.0.get(&temporal_ref_metric) else {
                 continue;
-            }
-            let temporal_ref = temporal_ref.unwrap();
+            };
 
             // for each consumer of this resource
             for (consumer, cd) in &mut rd.per_consumer {
@@ -125,7 +121,10 @@ impl Transform for GenericAttributionTransform {
                 // and timeseries = (general points) U (per_consumer points)
                 let mut series = FxHashMap::with_hasher(FxBuildHasher); // TODO optimize (no need for a hashmap actually)
                 for (k, points) in &general.0 {
-                    series.insert(k.to_owned(), points.as_slice());
+                    // the time reference is given to the interpolator separately
+                    if *k == temporal_ref_metric {
+                        series.insert(k.to_owned(), points.as_slice());
+                    }
                 }
                 for (k, points) in &cd.0 {
                     series.insert(k.to_owned(), points.as_slice());

@@ -1,5 +1,4 @@
 use alumet::{
-    metrics::def::MetricId,
     plugin::{
         AlumetPluginStart, ConfigTable,
         rust::{AlumetPlugin, deserialize_config},
@@ -8,10 +7,7 @@ use alumet::{
 };
 use anyhow::Context;
 
-use crate::formula::{
-    config::{FormulaConfig, PluginConfig},
-    transform::GenericAttributionTransform,
-};
+use crate::formula::{config::PluginConfig, transform::GenericAttributionTransform};
 
 mod formula;
 

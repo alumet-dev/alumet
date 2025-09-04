@@ -10,7 +10,7 @@ use alumet::{
     measurement::{MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementValue},
     metrics::{RawMetricId, registry::MetricRegistry},
     pipeline::naming::TransformName,
-    plugin::{PluginMetadata, rust::AlumetPlugin},
+    plugin::PluginMetadata,
     resources::{Resource, ResourceConsumer},
     test::RuntimeExpectations,
     units::Unit,
@@ -34,9 +34,9 @@ const CONFIG_CPU: &str = r#"
 #[test]
 fn test_cpu_energy_to_processes() {
     init_logger();
-    let attribution_transform = TransformName::from_str("energy-attribution", "attribution_transform");
+    let attribution_transform = TransformName::from_str("energy-attribution", "attribution/attributed_energy");
 
-    fn new_point_energy(metrics: &CpuMetrics, timestamp: &str, value: u64) -> MeasurementPoint {
+    fn new_point_energy(metrics: &TestMetrics, timestamp: &str, value: u64) -> MeasurementPoint {
         MeasurementPoint::new_untyped(
             timestamp_from_rfc3339(timestamp),
             metrics.rapl_consumed_energy,
@@ -47,7 +47,7 @@ fn test_cpu_energy_to_processes() {
         .with_attr("domain", "package_total")
     }
 
-    fn new_point_usage(metrics: &CpuMetrics, timestamp: &str, pid: u32, value: f64) -> MeasurementPoint {
+    fn new_point_usage(metrics: &TestMetrics, timestamp: &str, pid: u32, value: f64) -> MeasurementPoint {
         MeasurementPoint::new_untyped(
             timestamp_from_rfc3339(timestamp),
             metrics.cpu_usage_percent,
@@ -59,60 +59,54 @@ fn test_cpu_energy_to_processes() {
 
     // define the checks that you want to apply
     let runtime = RuntimeExpectations::new()
+        // we need some metrics to create test data points
+        .create_metric::<u64>("rapl_consumed_energy", Unit::Joule)
+        .create_metric::<f64>("cpu_usage_percent", Unit::Unity)
         // not enough data at first
         .test_transform(
             attribution_transform.clone(),
             |input| {
-                let t = timestamp_from_rfc3339;
-                let metrics = CpuMetrics::find_in(input.metrics());
+                let metrics = TestMetrics::find_in(input.metrics());
                 let mut buf = MeasurementBuffer::new();
                 {
                     // cpu energy (reference and global metric (per-resource with resource = LocalMachine))
-                    buf.push(
-                        MeasurementPoint::new_untyped(
-                            t("2025-05-02 00:00:00.00Z"),
-                            metrics.rapl_consumed_energy,
-                            Resource::LocalMachine,
-                            ResourceConsumer::LocalMachine,
-                            WrappedMeasurementValue::U64(0),
-                        )
-                        .with_attr("domain", "package_total"),
-                    );
-                    buf.push(
-                        MeasurementPoint::new_untyped(
-                            t("2025-05-02 00:00:02.00Z"),
-                            metrics.rapl_consumed_energy,
-                            Resource::LocalMachine,
-                            ResourceConsumer::LocalMachine,
-                            WrappedMeasurementValue::U64(100),
-                        )
-                        .with_attr("domain", "package_total"),
-                    );
+                    buf.push(new_point_energy(&metrics, "2025-05-02 00:00:00.00Z", 0));
+                    buf.push(new_point_energy(&metrics, "2025-05-02 00:00:02.00Z", 100));
 
                     // cpu usage (per-consumer metric)
-                    buf.push(MeasurementPoint::new_untyped(
-                        t("2025-05-02 00:00:01.00Z"),
-                        metrics.cpu_usage_percent,
-                        Resource::LocalMachine,
-                        ResourceConsumer::Process { pid: 1 },
-                        WrappedMeasurementValue::F64(50.0),
-                    ));
+                    buf.push(new_point_usage(&metrics, "2025-05-02 00:00:02.00Z", 1, 50.0));
                 }
                 buf
             },
             |output| {
-                // let new_points = ??? TODO it would be nice to be able to filter the points by "origin"
+                /*
+                Data received so far:
+                - | time | energy | usage(1) | usage(2) |
+                - |   00 | 0      |    50%   |          |
+                - |   02 | 100    |          |          |
+
+                Expected attribution:
+                - nothing (not enough data)
+
+                Expected buffer content:
+                - same points as the input
+                 */
+                let metrics = TestMetrics::find_in(output.metrics());
+                let m = output.measurements().to_vec();
                 assert_eq!(
-                    output.measurements().len(),
-                    3,
-                    "the input is not enough, the attribution transform should do nothing at this point"
+                    m,
+                    vec![
+                        new_point_energy(&metrics, "2025-05-02 00:00:00.00Z", 0),
+                        new_point_energy(&metrics, "2025-05-02 00:00:02.00Z", 100),
+                        new_point_usage(&metrics, "2025-05-02 00:00:02.00Z", 1, 50.0)
+                    ]
                 );
             },
         )
         .test_transform(
             attribution_transform.clone(),
             |input| {
-                let metrics = CpuMetrics::find_in(input.metrics());
+                let metrics = TestMetrics::find_in(input.metrics());
                 let mut buf = MeasurementBuffer::new();
                 {
                     // cpu energy (reference and global metric (per-resource with resource = LocalMachine))
@@ -125,9 +119,44 @@ fn test_cpu_energy_to_processes() {
                 buf
             },
             |output| {
+                /*
+                Data received so far:
+                - | time | energy | usage(1) | usage(2) |
+                - |   00 |    0   |     -    |          |
+                - |   01 |    -   |     -    |          |
+                - |   02 |  100   |    50%   |          |
+                - |   03 |    -   |   100%   |          |
+                - |   04 |  100   |     -    |          |
+                - |   05 |    -   |     0%   |          |
+
+                Expected attribution:
+                - | time | attributed_energy |
+                - |   00 |         -         |
+                - |   01 |         -         |
+                - |   02 |         -         |
+                - |   03 |        100        |
+                - |   04 |                   |
+                - |   05 |                   |
+                 */
+
+                let metrics = TestMetrics::find_in(output.metrics());
+                let data: Vec<_> = output.measurements().into_iter().collect();
+                assert_eq!(data.len(), 3);
+
+                assert_eq!(data[0].metric, metrics.rapl_consumed_energy);
+                assert_eq!(data[0].value.as_u64(), 100);
+
+                assert_eq!(data[1].metric, metrics.cpu_usage_percent);
+                assert_eq!(data[1].value.as_f64(), 100.0);
+
+                assert_eq!(data[2].metric, metrics.cpu_usage_percent);
+                assert_eq!(data[2].value.as_f64(), 0.0);
+
                 println!("-----");
                 for m in output.measurements().iter() {
-                    println!("{m:?}");
+                    if m.metric == metrics.attributed_energy {
+                        println!("{m:?}");
+                    }
                 }
                 println!("-----");
             },
@@ -135,7 +164,7 @@ fn test_cpu_energy_to_processes() {
         .test_transform(
             attribution_transform.clone(),
             |input| {
-                let metrics = CpuMetrics::find_in(input.metrics());
+                let metrics = TestMetrics::find_in(input.metrics());
                 let mut buf = MeasurementBuffer::new();
                 {
                     // cpu energy (reference and global metric (per-resource with resource = LocalMachine))
@@ -148,9 +177,12 @@ fn test_cpu_energy_to_processes() {
                 buf
             },
             |output| {
+                let metrics = TestMetrics::find_in(output.metrics());
                 println!("-----");
                 for m in output.measurements().iter() {
-                    println!("{m:?}");
+                    if m.metric == metrics.attributed_energy {
+                        println!("{m:?}");
+                    }
                 }
                 println!("-----");
             },
@@ -158,7 +190,7 @@ fn test_cpu_energy_to_processes() {
         .test_transform(
             attribution_transform.clone(),
             |input| {
-                let metrics = CpuMetrics::find_in(input.metrics());
+                let metrics = TestMetrics::find_in(input.metrics());
                 let mut buf = MeasurementBuffer::new();
                 {
                     // ==== cpu energy (reference and global metric (per-resource with resource = LocalMachine))
@@ -208,11 +240,6 @@ fn test_cpu_energy_to_processes() {
     // start an Alumet agent
     let mut plugins = PluginSet::new();
     plugins.add_plugin(PluginInfo {
-        metadata: PluginMetadata::from_static::<TestPlugin>(),
-        enabled: true,
-        config: None,
-    });
-    plugins.add_plugin(PluginInfo {
         metadata: PluginMetadata::from_static::<EnergyAttributionPlugin>(),
         enabled: true,
         config: Some(toml::from_str(CONFIG_CPU).unwrap()),
@@ -232,54 +259,26 @@ fn init_logger() {
     let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).try_init();
 }
 
-struct TestPlugin;
-
-impl AlumetPlugin for TestPlugin {
-    fn name() -> &'static str {
-        "_test"
-    }
-
-    fn version() -> &'static str {
-        "1"
-    }
-
-    fn init(_config: alumet::plugin::ConfigTable) -> anyhow::Result<Box<Self>> {
-        Ok(Box::new(Self))
-    }
-
-    fn default_config() -> anyhow::Result<Option<alumet::plugin::ConfigTable>> {
-        Ok(None)
-    }
-
-    fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
-        // register the metrics we need for the attribution transform
-        alumet.create_metric::<u64>("rapl_consumed_energy", Unit::Joule, "…")?;
-        alumet.create_metric::<f64>("cpu_usage_percent", Unit::Unity, "…")?;
-        Ok(())
-    }
-
-    fn stop(&mut self) -> anyhow::Result<()> {
-        Ok(())
-    }
-}
-
 /// Parses an RFC 3339 date-and-time string into a Timestamp value.
 pub(crate) fn timestamp_from_rfc3339(timestamp: &str) -> Timestamp {
     SystemTime::from(OffsetDateTime::parse(timestamp, &Rfc3339).unwrap()).into()
 }
 
-struct CpuMetrics {
+struct TestMetrics {
     rapl_consumed_energy: RawMetricId,
     cpu_usage_percent: RawMetricId,
+    attributed_energy: RawMetricId,
 }
 
-impl CpuMetrics {
+impl TestMetrics {
     fn find_in(metrics: &MetricRegistry) -> Self {
         let rapl_consumed_energy = metrics.by_name("rapl_consumed_energy").unwrap().0;
         let cpu_usage_percent = metrics.by_name("cpu_usage_percent").unwrap().0;
+        let attributed_energy = metrics.by_name("attributed_energy").unwrap().0;
         Self {
             rapl_consumed_energy,
             cpu_usage_percent,
+            attributed_energy,
         }
     }
 }

@@ -43,7 +43,6 @@ RAPL
 regen
 rustfmt
 sagittaire
-serie
 servan
 slurm
 slurmstep
