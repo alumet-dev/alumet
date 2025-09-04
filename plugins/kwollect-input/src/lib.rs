@@ -125,13 +125,11 @@ impl AlumetPlugin for KwollectPluginInput {
         let start_alumet: OffsetDateTime = SystemTime::now().into();
         let system_time: SystemTime = convert_to_system_time(start_alumet);
         let start_utc = convert_to_utc(system_time);
-        //let paris_offset = FixedOffset::east_opt(2 * 3600).unwrap();
         let paris_offset = if let Some(hours) = config_cloned.lock().unwrap().utc_offset {
             FixedOffset::east_opt(hours * 3600).unwrap()
         } else {
             FixedOffset::east_opt(0).unwrap() // fallback : UTC
         };
-        //let start_paris = start_utc.with_timezone(&paris_offset);
         let start_paris = start_utc.with_timezone(&paris_offset);
         event::end_consumer_measurement().subscribe(move |_evt| {
             log::debug!("End consumer measurement event received");
@@ -322,10 +320,10 @@ impl Default for Config {
         Config {
             site: "cluster".to_string(),
             hostname: "node".to_string(),
-            metrics: vec!["wattmetre_power_watt".to_string()],
+            metrics: vec!["metric".to_string()],
             login: "login".to_string(),
             password: "password".to_string(),
-            utc_offset: Some(2), // By default Summer Paris
+            utc_offset: Some(2), // UTC+2 (CEST, Central European Summer Time; note: UTC+1/CET applies in winter)
         }
     }
 }
