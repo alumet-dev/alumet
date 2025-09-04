@@ -1,7 +1,7 @@
 use alumet::pipeline::elements::source::trigger::TriggerSpec;
 use util_cgroups::Cgroup;
 
-use crate::attr::{JOB_REGEX_SLURM1, JOB_REGEX_SLURM2, find_jobid_in_attrs};
+use crate::attr::{JOB_REGEX_SLURM1, JOB_REGEX_SLURM2, JOB_STEP_REGEX, find_jobid_in_attrs};
 use util_cgroups_plugins::{
     cgroup_events::{CgroupSetupCallback, ProbeSetup, SourceSettings},
     metrics::{AugmentedMetrics, Metrics},
@@ -12,6 +12,7 @@ use util_cgroups_plugins::{
 pub struct JobSourceSetup {
     extractor_v1: RegexAttributesExtrator,
     extractor_v2: RegexAttributesExtrator,
+    step_extractor: RegexAttributesExtrator,
     trigger: TriggerSpec,
     jobs_only: bool,
 }
@@ -23,6 +24,7 @@ impl JobSourceSetup {
         Ok(Self {
             extractor_v1: RegexAttributesExtrator::new(JOB_REGEX_SLURM1)?,
             extractor_v2: RegexAttributesExtrator::new(JOB_REGEX_SLURM2)?,
+            step_extractor: RegexAttributesExtrator::new(JOB_STEP_REGEX)?,
             trigger,
             jobs_only: config.jobs_only,
         })
@@ -38,7 +40,7 @@ impl CgroupSetupCallback for JobSourceSetup {
             util_cgroups::CgroupVersion::V2 => &mut self.extractor_v2,
         };
 
-        let attrs = extractor
+        let mut attrs = extractor
             .extract(cgroup.canonical_path())
             .expect("bad regex: it should only match if the input can be parsed into the specified types");
 
@@ -46,9 +48,14 @@ impl CgroupSetupCallback for JobSourceSetup {
         let name: String;
 
         if is_job {
+            // give a nice name to the source
             let job_id = find_jobid_in_attrs(&attrs).expect("job_id should be set");
-            // give a nice name
             name = format!("slurm-job-{}", job_id);
+
+            // check if the cgroup is a job step and extract its name as a "job_step" attribute
+            self.step_extractor
+                .extract_into(cgroup.canonical_path(), &mut attrs)
+                .expect("bad regex: it should only match if the input can be parsed into the specified types");
         } else {
             // not a job, just a cgroup (for ex. a systemd service)
             if self.jobs_only {
