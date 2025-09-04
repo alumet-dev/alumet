@@ -97,7 +97,17 @@ impl Source for KwollectSource {
 /// - Microseconds: `%Y-%m-%dT%H:%M:%S%.6f%:z`
 /// - Milliseconds: `%Y-%m-%dT%H:%M:%S%.3f%:z`
 /// - No fractions: `%Y-%m-%dT%H:%M:%S%:z`
-fn parse_timestamp(timestamp: &str) -> anyhow::Result<DateTime<FixedOffset>> {
+///
+/// # Example
+///
+/// ``` ignore
+/// use chrono::{DateTime, FixedOffset};
+///
+/// let timestamp = "2025-09-04T12:34:56.123456789+02:00";
+/// let parsed: DateTime<FixedOffset> = parse_timestamp(timestamp).unwrap();
+/// println!("Parsed: {}", parsed);
+/// ```
+pub fn parse_timestamp(timestamp: &str) -> anyhow::Result<DateTime<FixedOffset>> {
     let formats = [
         "%Y-%m-%dT%H:%M:%S%.9f%:z", // Nanoseconds
         "%Y-%m-%dT%H:%M:%S%.6f%:z", // Microseconds
@@ -108,4 +118,37 @@ fn parse_timestamp(timestamp: &str) -> anyhow::Result<DateTime<FixedOffset>> {
         .iter()
         .find_map(|format| DateTime::parse_from_str(timestamp, format).ok())
         .ok_or_else(|| anyhow::anyhow!("Failed to parse timestamp '{}': invalid format", timestamp))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_timestamp() {
+        // Test nanoseconds
+        let timestamp_ns = "2025-09-04T12:34:56.123456789+02:00";
+        let parsed_ns = parse_timestamp(timestamp_ns).unwrap();
+        assert_eq!(parsed_ns.to_string(), "2025-09-04 12:34:56.123456789 +02:00");
+
+        // Test microseconds
+        let timestamp_us = "2025-09-04T12:34:56.123456+02:00";
+        let parsed_us = parse_timestamp(timestamp_us).unwrap();
+        assert_eq!(parsed_us.to_string(), "2025-09-04 12:34:56.123456 +02:00");
+
+        // Test milliseconds
+        let timestamp_ms = "2025-09-04T12:34:56.123+02:00";
+        let parsed_ms = parse_timestamp(timestamp_ms).unwrap();
+        assert_eq!(parsed_ms.to_string(), "2025-09-04 12:34:56.123 +02:00");
+
+        // Test no fractions
+        let timestamp_no_fraction = "2025-09-04T12:34:56+02:00";
+        let parsed_no_fraction = parse_timestamp(timestamp_no_fraction).unwrap();
+        assert_eq!(parsed_no_fraction.to_string(), "2025-09-04 12:34:56 +02:00");
+
+        // Test invalid format
+        let timestamp_invalid = "2025-09-04 12:34:56";
+        let result = parse_timestamp(timestamp_invalid);
+        assert!(result.is_err());
+    }
 }
