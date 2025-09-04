@@ -135,7 +135,7 @@ impl Transform for GenericAttributionTransform {
                 let sync = MultiSyncInterpolator {
                     reference: &temporal_ref,
                     reference_key: temporal_ref_metric,
-                    series,
+                    series: &series,
                 };
 
                 // compute in which limits we can interpolate
