@@ -37,7 +37,9 @@ For tags, Alumet will automatically serialize the values to strings.
 
 By changing the config options, you can choose which attributes translate to tags and which ones translate to fields.
 
-For example, depending on the config, the same alumet point will lead to different influxdb point. Here is the alumet point's rust structure.
+For example, depending on the config, the same alumet point will lead to a different influxdb point. Here are some examples.
+
+Let us take the following Alumet measurement point, and see how it is translated to an record.
 
 ```rust
 MeasurementPoint {
@@ -46,11 +48,9 @@ MeasurementPoint {
     value: 123u,
     resource: Resource::CpuPackage { id: 0 },
     consumer: ResourceConsumer::local_machine,
-    attributes: [
-        {
-            domain: "package"
-        }
-    ]
+    attributes: {
+        domain: "package"
+    }
 }
 ```
 
@@ -66,7 +66,7 @@ Serialize all Alumet attributes as fields, here there is `domain`.
 attributes_as = "field"
 ```
 
-Lead to the following line protocol for influx
+This leads to the following line protocol for influx:
 
 ```text
 # <measurement>[,<tag_key>=<tag_value>[,<tag_key>=<tag_value>]] <field_key>=<field_value>[,<field_key>=<field_value>] [<timestamp>]
@@ -87,7 +87,7 @@ attributes_as = "field"
 attributes_as_tags = ["domain"]
 ```
 
-Lead to the following line protocol for influx
+This leads to the following line protocol for influx:
 
 ```text
 # <measurement>[,<tag_key>=<tag_value>[,<tag_key>=<tag_value>]] <field_key>=<field_value>[,<field_key>=<field_value>] [<timestamp>]
@@ -108,13 +108,13 @@ attributes_as = "tag"
 attributes_as_fields = ["domain"]
 ```
 
-Lead to the following line protocol for influx
+This leads to the following line protocol for influx:
 
 ```text
 # <measurement>[,<tag_key>=<tag_value>[,<tag_key>=<tag_value>]] <field_key>=<field_value>[,<field_key>=<field_value>] [<timestamp>]
 rapl_consumed_energy_J,resource_kind=cpu_package,resource_id=0,resource_consumer_kind=local_machine domain="package",value=123u 1755604520429334196
 ```
 
-### Line protocol influx
+### About the Line Protocol
 
-You can learn more about the line protocol used in influx v2 [on this web page](https://docs.influxdata.com/influxdb/v2/reference/syntax/line-protocol/)
+You can learn more about the line protocol used in InfluxDB v2 [on this web page](https://docs.influxdata.com/influxdb/v2/reference/syntax/line-protocol/)
