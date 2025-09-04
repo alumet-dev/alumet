@@ -27,6 +27,7 @@ pub struct DataSettings {
     pub metric_unit_as_index_suffix: bool,
 }
 
+#[derive(Debug, PartialEq)]
 pub enum ApiAuthentication {
     ApiKey { key: String },
     Basic { user: String, password: String },
