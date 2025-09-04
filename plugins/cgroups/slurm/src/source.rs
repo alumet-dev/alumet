@@ -1,7 +1,7 @@
-use alumet::{measurement::AttributeValue, pipeline::elements::source::trigger::TriggerSpec};
+use alumet::pipeline::elements::source::trigger::TriggerSpec;
 use util_cgroups::Cgroup;
 
-use crate::attr::{JOB_REGEX_SLURM1, JOB_REGEX_SLURM2, JOB_STEP, find_jobid_in_attrs};
+use crate::attr::{JOB_REGEX_SLURM1, JOB_REGEX_SLURM2, JOB_STEP_REGEX, find_jobid_in_attrs};
 use util_cgroups_plugins::{
     cgroup_events::{CgroupSetupCallback, ProbeSetup, SourceSettings},
     metrics::{AugmentedMetrics, Metrics},
@@ -24,7 +24,7 @@ impl JobSourceSetup {
         Ok(Self {
             extractor_v1: RegexAttributesExtrator::new(JOB_REGEX_SLURM1)?,
             extractor_v2: RegexAttributesExtrator::new(JOB_REGEX_SLURM2)?,
-            step_extractor: RegexAttributesExtrator::new(JOB_STEP)?,
+            step_extractor: RegexAttributesExtrator::new(JOB_STEP_REGEX)?,
             trigger,
             jobs_only: config.jobs_only,
         })
@@ -47,17 +47,15 @@ impl CgroupSetupCallback for JobSourceSetup {
         let is_job = !attrs.is_empty();
         let name: String;
 
-        // Use regex to check the step name if there is one
-        let steps_attrs = self
-            .step_extractor
-            .extract(cgroup.canonical_path())
-            .expect("bad regex: it should only match if the input can be parsed into the specified types");
-
         if is_job {
+            // give a nice name to the source
             let job_id = find_jobid_in_attrs(&attrs).expect("job_id should be set");
-            // give a nice name
             name = format!("slurm-job-{}", job_id);
-            attrs.extend(steps_attrs);
+
+            // check if the cgroup is a job step and extract its name as a "job_step" attribute
+            self.step_extractor
+                .extract_into(cgroup.canonical_path(), &mut attrs)
+                .expect("bad regex: it should only match if the input can be parsed into the specified types");
         } else {
             // not a job, just a cgroup (for ex. a systemd service)
             if self.jobs_only {

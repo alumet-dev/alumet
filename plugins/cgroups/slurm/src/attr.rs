@@ -2,7 +2,7 @@ use alumet::measurement::AttributeValue;
 
 pub const JOB_REGEX_SLURM1: &str = "/slurm/uid_(?<user_id__u64>[0-9]+)/job_(?<job_id__u64>[0-9]+)";
 pub const JOB_REGEX_SLURM2: &str = "/slurmstepd.scope/job_(?<job_id__u64>[0-9]+)";
-pub const JOB_STEP: &str = "step_((?<job_step>[0-9a-zA-Z]+)).*";
+pub const JOB_STEP_REGEX: &str = "step_((?<job_step>[0-9a-zA-Z]+)).*";
 
 pub fn find_jobid_in_attrs(attrs: &Vec<(String, AttributeValue)>) -> Option<u64> {
     attrs.iter().find(|(k, _)| k == "job_id").map(|(_, v)| match v {
