@@ -30,7 +30,7 @@ pub struct MultiSyncInterpolator<'a, K: Eq + Hash + Clone + Debug> {
 pub struct InterpolationBoundaries {
     /// max_S(min_t(S)): for each timeseries, find the minimum timestamp, and take the max of them
     pub inf: Timestamp,
-    /// min_S(max_t(S)): for each serie, find the maximum timestamp, and take the min of them
+    /// min_S(max_t(S)): for each timeseries, find the maximum timestamp, and take the min of them
     pub sup: Timestamp,
     /// The first point, in the reference series, that we can use.
     pub ref_first: (usize, Timestamp),
@@ -109,7 +109,6 @@ impl<'a, K: Eq + Hash + Clone + Debug> MultiSyncInterpolator<'a, K> {
         let ref_first = boundaries.ref_first.0;
         let ref_last = boundaries.ref_last.0;
         let time_ref = &self.reference[ref_first..=ref_last];
-        println!("time_ref: {time_ref:?}");
 
         // init result
         let mut res = SyncResult {
@@ -131,7 +130,6 @@ impl<'a, K: Eq + Hash + Clone + Debug> MultiSyncInterpolator<'a, K> {
 
             // merge the Vec<interpolated point> into a Vec<(t, multi-point)> with all the interpolated series
             for (i, p) in interpolated.into_iter().enumerate() {
-                println!("intermediary res: {:?}", res.series);
                 match p {
                     Interpolated::Value(p) => {
                         let result_to_update = &mut res.series[i];
@@ -139,7 +137,6 @@ impl<'a, K: Eq + Hash + Clone + Debug> MultiSyncInterpolator<'a, K> {
                             p.timestamp, result_to_update.0,
                             "interpolation should produce timestamps that match the time reference"
                         );
-                        println!("inserting {key:?} -> {p:?}");
                         result_to_update.1.insert(key.to_owned(), p);
                     }
                     Interpolated::Missing(timestamp) => {
