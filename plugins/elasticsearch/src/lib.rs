@@ -1,4 +1,4 @@
 mod api;
-mod plugin;
+pub mod plugin;
 
 pub use plugin::ElasticSearchPlugin;
