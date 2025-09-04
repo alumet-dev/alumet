@@ -54,3 +54,6 @@ redundant_field_names = "deny"
 single_char_pattern = "deny"
 unused_enumerate_index = "deny"
 useless_format = "deny"
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin)'] }
