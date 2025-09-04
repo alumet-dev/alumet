@@ -55,7 +55,7 @@ impl Interpolator2 for LinearInterpolator {
         let interpolated = (1.0 - u) * x + u * y;
 
         // TODO how to handle the other fields and the attributes?
-        // Create a point with the same fields and attributes as `after`, but the interpolated value and time.
+        // Create a point with the same fields and attributes as `before`, but the interpolated value and time.
         let mut point = before.clone();
         point.timestamp = *t;
         // get a value of the expected type
@@ -344,7 +344,7 @@ mod tests {
     }
 
     #[test]
-    fn linterp_high_freq_res_low_freq_var() {
+    fn linterp_high_freq_ref_low_freq_var() {
         let metric = RawMetricId(0);
         let reference = (0..=10).map(t_epoch_secs).collect::<Vec<_>>();
         let reference = InterpolationReference::from(reference);
@@ -370,7 +370,7 @@ mod tests {
     }
 
     #[test]
-    fn linterp_low_freq_res_high_freq_var() {
+    fn linterp_low_freq_ref_high_freq_var() {
         let metric = RawMetricId(0);
         let reference =
             InterpolationReference::from(vec![t_epoch_secs(0), t_epoch_secs_millis(5, 500), t_epoch_secs(10)]);
