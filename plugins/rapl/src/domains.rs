@@ -3,7 +3,7 @@ use std::{fmt, str::FromStr};
 use alumet::resources::Resource;
 
 /// A known RAPL domain.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, enum_map::Enum)]
 pub enum RaplDomainType {
     /// entire socket
     Package,
@@ -50,13 +50,23 @@ impl RaplDomainType {
         }
     }
 
-    pub fn as_str(&self) -> &'static str {
+    pub const fn as_str(&self) -> &'static str {
         match self {
             RaplDomainType::Package => "package",
             RaplDomainType::PP0 => "pp0",
             RaplDomainType::PP1 => "pp1",
             RaplDomainType::Dram => "dram",
             RaplDomainType::Platform => "platform",
+        }
+    }
+
+    pub const fn as_str_total(&self) -> &'static str {
+        match self {
+            RaplDomainType::Package => "package_total",
+            RaplDomainType::PP0 => "pp0_total",
+            RaplDomainType::PP1 => "pp1_total",
+            RaplDomainType::Dram => "dram_total",
+            RaplDomainType::Platform => "platform_total",
         }
     }
 }

@@ -8,6 +8,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use crate::total::DomainTotals;
+
 use super::domains::RaplDomainType;
 use alumet::plugin::util::{CounterDiff, CounterDiffUpdate};
 use alumet::resources::Resource;
@@ -325,17 +327,32 @@ impl alumet::pipeline::Source for PowercapProbe {
         // The size of the content of the file `energy_uj` should never exceed those of `max_energy_uj`,
         // which is 16 bytes on all our test machines (if it does exceed 16 bytes it's fine, but less optimal).
         let mut zone_reading_buf = Vec::with_capacity(16);
+        let mut totals = DomainTotals::new();
 
         for zone in &mut self.zones {
             if let Some(joules) = zone.read_counter_diff_in_joules(&mut zone_reading_buf)? {
                 let consumer = ResourceConsumer::LocalMachine;
                 measurements.push(
                     MeasurementPoint::new(timestamp, self.metric, zone.resource.clone(), consumer, joules)
-                        .with_attr("domain", AttributeValue::String(zone.domain.to_string())),
-                )
-            }
+                        .with_attr("domain", zone.domain.as_str()),
+                );
+                totals.push(zone.domain, joules);
+            };
+
             // clear the buffer, so that we can fill it again
             zone_reading_buf.clear();
+        }
+        for (domain, total) in totals.iter() {
+            measurements.push(
+                MeasurementPoint::new(
+                    timestamp,
+                    self.metric,
+                    Resource::LocalMachine,
+                    ResourceConsumer::LocalMachine,
+                    total,
+                )
+                .with_attr("domain", domain.as_str_total()),
+            );
         }
         Ok(())
     }
@@ -352,7 +369,7 @@ mod tests {
     #[test]
     fn test_opened_zone_energy_uj_counter_read() -> anyhow::Result<()> {
         let tmp = tempdir()?;
-        let base_path = tmp.keep();
+        let base_path = tmp.path();
 
         use EntryType::*;
 
@@ -443,8 +460,8 @@ mod tests {
             },
         ];
 
-        create_mock_layout(base_path.clone(), &entries)?;
-        let power_zones = all_power_zones_from_path(base_path.as_path())?.flat;
+        create_mock_layout(base_path, &entries)?;
+        let power_zones = all_power_zones_from_path(base_path)?.flat;
 
         let mut zone_reading_buf = Vec::with_capacity(16);
 
@@ -550,7 +567,7 @@ mod tests {
             },
         ];
 
-        create_mock_layout(base_path.clone(), &entries)?;
+        create_mock_layout(base_path, &entries)?;
 
         zone_reading_buf.clear();
         assert_eq!(
@@ -583,8 +600,9 @@ mod tests {
 
     #[test]
     fn test_opened_zone_energy_uj_read() -> anyhow::Result<()> {
-        let base_path = create_valid_powercap_mock()?;
-        let power_zones = all_power_zones_from_path(base_path.as_path())?.flat;
+        let tmp = create_valid_powercap_mock()?;
+        let base_path = tmp.path();
+        let power_zones = all_power_zones_from_path(base_path)?.flat;
         let mut zone_reading_buf = Vec::with_capacity(16);
         let mut psys_zone = power_zones[3].open()?;
         let mut dram_zone = power_zones[4].open()?;
@@ -606,10 +624,11 @@ mod tests {
     #[cfg(test)]
     #[test]
     fn test_all_power_zones_from_path() -> anyhow::Result<()> {
-        let base_path = create_valid_powercap_mock()?;
+        let tmp = create_valid_powercap_mock()?;
+        let base_path = tmp.path();
         let base_str = base_path.to_str().expect("cannot convert base_path to str");
 
-        let actual_zones = all_power_zones_from_path(base_path.as_path())?.flat;
+        let actual_zones = all_power_zones_from_path(base_path)?.flat;
 
         let expected_zones = vec![
             PowerZone {
@@ -711,7 +730,7 @@ mod tests {
     #[test]
     fn test_open_with_no_max_energy_range_uj() -> anyhow::Result<()> {
         let tmp = tempdir()?;
-        let base_path = tmp.keep();
+        let base_path = tmp.path();
 
         use EntryType::*;
 
@@ -734,9 +753,9 @@ mod tests {
             },
         ];
 
-        create_mock_layout(base_path.clone(), &entries)?;
+        create_mock_layout(base_path, &entries)?;
 
-        let power_zones = all_power_zones_from_path(base_path.as_path())?.flat;
+        let power_zones = all_power_zones_from_path(base_path)?.flat;
 
         let result = power_zones[0].open();
         assert!(
@@ -749,7 +768,7 @@ mod tests {
     #[test]
     fn test_open_with_wrong_layout_content() -> anyhow::Result<()> {
         let tmp = tempdir()?;
-        let base_path = tmp.keep();
+        let base_path = tmp.path();
 
         use EntryType::*;
 
@@ -776,9 +795,9 @@ mod tests {
             },
         ];
 
-        create_mock_layout(base_path.clone(), &entries)?;
+        create_mock_layout(base_path, &entries)?;
 
-        let power_zones = all_power_zones_from_path(base_path.as_path())?.flat;
+        let power_zones = all_power_zones_from_path(base_path)?.flat;
 
         let result = power_zones[0].open();
         assert!(
