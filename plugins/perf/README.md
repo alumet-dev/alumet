@@ -1,6 +1,8 @@
 # Perf plugin
 
-The perf plugin creates an Alumet **source** that collects measurements using Linux `perf_events` feature, which profiles processes an cgroups, in a similar way as the `perf` command-line tool.
+The perf plugin creates an Alumet **source** that collects measurements using the Performance Counters for Linux (aka `perf_events`).
+It can obtain valuable data about the system and/or a specific process, such as the number of instructions executed, cache-misses suffered, …
+This plugin works in a similar way to the [`perf` command-line tool](https://man7.org/linux/man-pages/man1/perf.1.html).
 
 ## Requirements
 
@@ -9,8 +11,11 @@ The perf plugin creates an Alumet **source** that collects measurements using Li
 
 ## Metrics
 
-Here are the metrics collected by the plugin source.
-Collected metrics respect the following format:
+Here are the metrics collected by the plugin's source.
+All the metrics are counters.
+
+To learn more about the standard events, please refer to the [`perf_event_open` manual](https://man7.org/linux/man-pages/man2/perf_event_open.2.html).
+To list the events that are available on your machine, run the `perf list` command.
 
 **For hardware related metrics:**
 
@@ -68,18 +73,20 @@ cache_events = [
 
 ### perf_event_paranoid and capabilities
 
+| `perf_event_paranoid` value     | Description                                            | Required capabilities (binary)                       | `perf` plugin works (unprivileged) |
 Below is a summary of how different perf_event_paranoid values affect perf plugin functionality when running as an unprivileged user:
 
 | `perf_event_paranoid` value     | Description                                            | Required capabilities (binary)                       | RAPL plugin works (unprivileged) |
 | ------------------------------- | ------------------------------------------------------ | ---------------------------------------------------- | -------------------------------- |
-| 4 *(Debian-based systems only)* | Disables all perf event usage for unprivileged users   | –                                                    | ❌ Not supported                 |
+| 4 *(Debian-based systems only)* | Disables all perf event usage for unprivileged users   | −                                                    | ❌ Not supported                 |
 | 2                               | Allows only user-space measurements                    | `cap_perfmon` *(or `cap_sys_admin` for Linux < 5.8)* | ✅ Supported                     |
 | 1                               | Allows user-space and kernel-space measurements        | `cap_perfmon` *(or `cap_sys_admin` for Linux < 5.8)* | ✅ Supported                     |
 | 0                               | Allows user-space, kernel-space, and CPU-specific data | `cap_perfmon` *(or `cap_sys_admin` for Linux < 5.8)* | ✅ Supported                     |
-| -1                              | Full access, including raw tracepoints                 | –                                                    | ✅ Supported                     |
+| -1                              | Full access, including raw tracepoints                 | −                                                    | ✅ Supported                     |
 
 Example for setting `perf_event_paranoid`: `sudo sysctl -w kernel.perf_event_paranoid=2` will set the value to **2**.
 
 Note that this command will not make it permanent (reset after restart).
+To make it permanent, create a configuration file in `/etc/sysctl.d/` (this may change depending on your Linux distro).
 
 Alternatively, you can run Alumet as a **privileged user** (root), but this is not recommended for security reasons.
