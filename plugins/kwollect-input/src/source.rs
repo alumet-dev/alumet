@@ -54,10 +54,9 @@ impl Source for KwollectSource {
                 WrappedMeasurementValue::U64(v) => v as f64,
             };
 
-            let datetime = DateTime::parse_from_str(&measure.timestamp, "%Y-%m-%dT%H:%M:%S%:z")
-                .map_err(|e| anyhow::anyhow!("Failed to parse datetime: {}", e))?;
-            let system_time: SystemTime = datetime.into();
-            let timestamp = Timestamp::from(system_time);
+            let datetime = parse_timestamp(&measure.timestamp)?;
+            let system: SystemTime = datetime.into();
+            let timestamp = Timestamp::from(system);
 
             let measurement_point = MeasurementPoint::new(timestamp, metric_id, resource, consumer, value)
                 .with_attr("metric_id", AttributeValue::String(measure.metric_id.clone()));
@@ -89,5 +88,67 @@ impl Source for KwollectSource {
         }
 
         Ok(())
+    }
+}
+
+/// Parses a timestamp string into a `DateTime<FixedOffset>`.
+/// Supports multiple timestamp formats:
+/// - Nanoseconds: `%Y-%m-%dT%H:%M:%S%.9f%:z`
+/// - Microseconds: `%Y-%m-%dT%H:%M:%S%.6f%:z`
+/// - Milliseconds: `%Y-%m-%dT%H:%M:%S%.3f%:z`
+/// - No fractions: `%Y-%m-%dT%H:%M:%S%:z`
+///
+/// # Example
+///
+/// ``` ignore
+/// use chrono::{DateTime, FixedOffset};
+///
+/// let timestamp = "2025-09-04T12:34:56.123456789+02:00";
+/// let parsed: DateTime<FixedOffset> = parse_timestamp(timestamp).unwrap();
+/// println!("Parsed: {}", parsed);
+/// ```
+pub fn parse_timestamp(timestamp: &str) -> anyhow::Result<DateTime<FixedOffset>> {
+    let formats = [
+        "%Y-%m-%dT%H:%M:%S%.9f%:z", // Nanoseconds
+        "%Y-%m-%dT%H:%M:%S%.6f%:z", // Microseconds
+        "%Y-%m-%dT%H:%M:%S%.3f%:z", // Milliseconds
+        "%Y-%m-%dT%H:%M:%S%:z",     // No fractions
+    ];
+    formats
+        .iter()
+        .find_map(|format| DateTime::parse_from_str(timestamp, format).ok())
+        .ok_or_else(|| anyhow::anyhow!("Failed to parse timestamp '{}': invalid format", timestamp))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_timestamp() {
+        // Test nanoseconds
+        let timestamp_ns = "2025-09-04T12:34:56.123456789+02:00";
+        let parsed_ns = parse_timestamp(timestamp_ns).unwrap();
+        assert_eq!(parsed_ns.to_string(), "2025-09-04 12:34:56.123456789 +02:00");
+
+        // Test microseconds
+        let timestamp_us = "2025-09-04T12:34:56.123456+02:00";
+        let parsed_us = parse_timestamp(timestamp_us).unwrap();
+        assert_eq!(parsed_us.to_string(), "2025-09-04 12:34:56.123456 +02:00");
+
+        // Test milliseconds
+        let timestamp_ms = "2025-09-04T12:34:56.123+02:00";
+        let parsed_ms = parse_timestamp(timestamp_ms).unwrap();
+        assert_eq!(parsed_ms.to_string(), "2025-09-04 12:34:56.123 +02:00");
+
+        // Test no fractions
+        let timestamp_no_fraction = "2025-09-04T12:34:56+02:00";
+        let parsed_no_fraction = parse_timestamp(timestamp_no_fraction).unwrap();
+        assert_eq!(parsed_no_fraction.to_string(), "2025-09-04 12:34:56 +02:00");
+
+        // Test invalid format
+        let timestamp_invalid = "2025-09-04 12:34:56";
+        let result = parse_timestamp(timestamp_invalid);
+        assert!(result.is_err());
     }
 }
