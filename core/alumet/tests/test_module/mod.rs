@@ -265,8 +265,9 @@ fn runtime_transform_err() {
             m
         },
         |output| {
-            assert_eq!(output.len(), 1);
-            let point = output.iter().nth(0).unwrap();
+            let m = output.measurements();
+            assert_eq!(m.len(), 1);
+            let point = m.iter().nth(0).unwrap();
             const BAD: u64 = 1234;
             assert_eq!(point.value, WrappedMeasurementValue::U64(BAD), "error on purpose");
         },
@@ -316,8 +317,9 @@ fn runtime_transform_ok() {
             m
         },
         |output| {
-            assert_eq!(output.len(), 1);
-            let point = output.iter().nth(0).unwrap();
+            let m = output.measurements();
+            assert_eq!(m.len(), 1);
+            let point = m.iter().nth(0).unwrap();
             assert_eq!(point.value, WrappedMeasurementValue::U64(10), "value should be doubled");
         },
     );
@@ -419,6 +421,33 @@ fn runtime_output_ok() {
 
 #[test]
 #[serial]
+fn runtime_create_metrics() {
+    init_logger();
+    let plugins = PluginSet::new(); // no plugins
+
+    let runtime = RuntimeExpectations::new()
+        // create a metric without a plugin
+        .create_metric::<u64>("test_metric_1", Unit::Second)
+        .test_output(
+            OutputName::from_str("plugin", "coffee_output"),
+            |ctx| {
+                // ensure that the metric has been created by the RuntimeExpectations
+                ctx.metrics().by_name("test_metric_1").expect("metric should exist").0;
+                MeasurementBuffer::new()
+            },
+            || {},
+        );
+
+    let agent = agent::Builder::new(plugins)
+        .with_expectations(runtime)
+        .build_and_start()
+        .expect("startup failure");
+
+    agent.wait_for_shutdown(TIMEOUT).unwrap();
+}
+
+#[test]
+#[serial]
 fn all_together() {
     init_logger();
     let plugins = PluginSet::from(static_plugins![TestedPlugin]);
@@ -454,9 +483,15 @@ fn all_together() {
                 m
             },
             |output| {
-                assert_eq!(output.len(), 1);
-                let point = output.iter().nth(0).unwrap();
+                let measurements = output.measurements();
+                assert_eq!(measurements.len(), 1);
+                let point = measurements.iter().nth(0).unwrap();
                 assert_eq!(point.value, WrappedMeasurementValue::U64(10), "value should be doubled");
+                assert_eq!(
+                    "coffee_counter",
+                    output.metrics().by_id(&point.metric).expect("metric should exist").name,
+                    "point should use the coffee_counter metric"
+                );
             },
         )
         .test_output(

@@ -14,6 +14,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use crate::total::DomainTotals;
+
 use super::cpus::{self, CpuId};
 use super::domains::RaplDomainType;
 
@@ -316,6 +318,7 @@ impl PerfEventProbe {
 
 impl alumet::pipeline::Source for PerfEventProbe {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
+        let mut totals = DomainTotals::new();
         for evt in &mut self.events {
             // read the new value of the perf-events counter
             if let Some(joules) = evt.read_counter_diff_in_joules()? {
@@ -324,6 +327,7 @@ impl alumet::pipeline::Source for PerfEventProbe {
                     MeasurementPoint::new(timestamp, self.metric, evt.resource.clone(), consumer, joules)
                         .with_attr("domain", evt.domain.as_str()),
                 );
+                totals.push(evt.domain, joules);
             }
             // NOTE: the energy can be a floating-point number in Joules,
             // without any loss of precision. Why? Because multiplying any number
@@ -333,6 +337,18 @@ impl alumet::pipeline::Source for PerfEventProbe {
             // A f32 can hold integers without any precision loss
             // up to approximately 2^24, which is not enough for the RAPL counter values,
             // so we use a f64 here.
+        }
+        for (domain, total) in totals.iter() {
+            measurements.push(
+                MeasurementPoint::new(
+                    timestamp,
+                    self.metric,
+                    Resource::LocalMachine,
+                    ResourceConsumer::LocalMachine,
+                    total,
+                )
+                .with_attr("domain", domain.as_str_total()),
+            );
         }
         Ok(())
     }
@@ -366,14 +382,14 @@ mod tests {
     #[test]
     fn test_pmu_type() -> anyhow::Result<()> {
         let tmp = tempdir()?;
-        let base_path = tmp.keep();
+        let base_path = tmp.path();
 
         use EntryType::*;
         let pmu_type_entry = Entry {
             path: "pmu_type",
             entry_type: File("32"),
         };
-        create_mock_layout(base_path.clone(), &[pmu_type_entry])?;
+        create_mock_layout(base_path, &[pmu_type_entry])?;
         let actual = pmu_type_from_path(&base_path.join("pmu_type"))?;
         let expected = 32;
 
@@ -386,7 +402,7 @@ mod tests {
     #[test]
     fn test_open_all() -> anyhow::Result<()> {
         let tmp = tempdir()?;
-        let base_path = tmp.keep();
+        let base_path = tmp.path();
 
         use EntryType::*;
         let perf_event_entries = [
@@ -432,9 +448,9 @@ mod tests {
             },
         ];
 
-        create_mock_layout(base_path.clone(), &perf_event_entries)?;
+        create_mock_layout(base_path, &perf_event_entries)?;
 
-        let mut actual_power_events = all_power_events_from_path(base_path.as_path())?;
+        let mut actual_power_events = all_power_events_from_path(base_path)?;
 
         let mut expected_power_events = vec![
             PowerEvent {

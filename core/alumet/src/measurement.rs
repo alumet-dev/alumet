@@ -27,11 +27,11 @@
 
 use core::fmt;
 use ordered_float::OrderedFloat;
-use rustc_hash::FxBuildHasher;
+use rustc_hash::FxHashSet;
 use smallvec::SmallVec;
 use std::borrow::Cow;
 use std::fmt::Write;
-use std::hash::{Hash, Hasher};
+use std::hash::{BuildHasher, Hash, Hasher};
 use std::ops::{Add, Sub};
 use std::time::{Duration, SystemTime, SystemTimeError, UNIX_EPOCH};
 use std::{collections::HashMap, fmt::Display};
@@ -79,7 +79,7 @@ pub struct MeasurementPoint {
 ///
 /// This opaque type is currently a wrapper around [`SystemTime`],
 /// but this could change in the future.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Timestamp(pub(crate) SystemTime);
 
 impl MeasurementPoint {
@@ -165,9 +165,9 @@ impl MeasurementPoint {
 
     /// Attaches multiple attributes to this measurement point, from a [`HashMap`].
     /// Existing attributes with conflicting keys are replaced.
-    pub fn with_attr_map<K: Into<Cow<'static, str>>>(
+    pub fn with_attr_map<K: Into<Cow<'static, str>>, S: BuildHasher>(
         mut self,
-        attributes: HashMap<K, AttributeValue, FxBuildHasher>,
+        attributes: HashMap<K, AttributeValue, S>,
     ) -> Self {
         let converted = attributes.into_iter().map(|(k, v)| (k.into(), v));
         if self.attributes.is_empty() {
@@ -176,6 +176,17 @@ impl MeasurementPoint {
             self.attributes.extend(converted);
         }
         self
+    }
+}
+
+impl PartialEq for MeasurementPoint {
+    fn eq(&self, other: &Self) -> bool {
+        self.metric == other.metric
+            && self.timestamp == other.timestamp
+            && self.value == other.value
+            && self.resource == other.resource
+            && self.consumer == other.consumer
+            && FxHashSet::from_iter(&self.attributes) == FxHashSet::from_iter(&other.attributes)
     }
 }
 
@@ -190,6 +201,11 @@ impl Timestamp {
         (t.as_secs(), t.subsec_nanos())
     }
 
+    pub fn to_unix_timestamp_millis(&self) -> u128 {
+        let t = self.0.duration_since(UNIX_EPOCH).unwrap();
+        t.as_millis()
+    }
+
     /// Returns the amount of time elapsed from an earlier point in time.
     pub fn duration_since(&self, earlier: Timestamp) -> Result<Duration, SystemTimeError> {
         self.0.duration_since(earlier.0)
@@ -198,6 +214,10 @@ impl Timestamp {
     pub fn from_unix_timestamp(secs: u64, nanos: u32) -> Self {
         let duration = Duration::new(secs, nanos);
         Self(SystemTime::UNIX_EPOCH + duration)
+    }
+
+    pub fn checked_sub(&self, duration: Duration) -> Option<Self> {
+        self.0.checked_sub(duration).map(Timestamp::from)
     }
 }
 
@@ -460,6 +480,10 @@ impl MeasurementBuffer {
     pub fn as_accumulator(&'_ mut self) -> MeasurementAccumulator<'_> {
         MeasurementAccumulator(self)
     }
+
+    pub fn to_vec(&self) -> Vec<MeasurementPoint> {
+        self.points.clone()
+    }
 }
 
 impl Default for MeasurementBuffer {
@@ -476,6 +500,15 @@ impl<'a> IntoIterator for &'a MeasurementBuffer {
 
     fn into_iter(self) -> Self::IntoIter {
         self.points.iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut MeasurementBuffer {
+    type Item = &'a mut MeasurementPoint;
+    type IntoIter = std::slice::IterMut<'a, MeasurementPoint>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.points.iter_mut()
     }
 }
 
@@ -513,8 +546,9 @@ impl<'a> MeasurementAccumulator<'a> {
         self.0.push(point)
     }
 
-    pub(crate) fn as_inner(&'a self) -> &'a MeasurementBuffer {
-        self.0
+    #[cfg(feature = "test")]
+    pub(crate) fn as_inner(&self) -> &MeasurementBuffer {
+        &self.0
     }
 }
 
@@ -522,7 +556,6 @@ impl<'a> MeasurementAccumulator<'a> {
 mod tests {
     use super::*;
 
-    #[cfg(test)]
     mod wrapped_measurement_value {
         use super::*;
 
@@ -536,6 +569,43 @@ mod tests {
         fn as_u64() {
             assert_eq!(WrappedMeasurementValue::U64(69).as_u64(), 69);
             assert_eq!(WrappedMeasurementValue::F64(18.38).as_u64(), 18);
+        }
+    }
+
+    mod measurement_point {
+        use super::*;
+
+        #[test]
+        fn equality() {
+            let a = MeasurementPoint::new_untyped(
+                UNIX_EPOCH.into(),
+                RawMetricId::from_u64(0),
+                Resource::LocalMachine,
+                ResourceConsumer::LocalMachine,
+                WrappedMeasurementValue::U64(123),
+            );
+            let b = a.clone().with_attr("key", "value");
+            assert_eq!(a, a);
+            assert_ne!(a, b);
+            assert_eq!(b, b);
+        }
+
+        #[test]
+        fn equality_attr_order_is_irrelevant() {
+            let a = MeasurementPoint::new_untyped(
+                UNIX_EPOCH.into(),
+                RawMetricId::from_u64(0),
+                Resource::LocalMachine,
+                ResourceConsumer::LocalMachine,
+                WrappedMeasurementValue::U64(123),
+            );
+            let b = a.clone().with_attr("key", "value");
+            let c = b.clone().with_attr("other", 123);
+            let c_different_order = a.clone().with_attr("other", 123).with_attr("key", "value");
+            assert_eq!(a, a);
+            assert_ne!(a, b);
+            assert_ne!(a, c);
+            assert_eq!(c, c_different_order);
         }
     }
 }

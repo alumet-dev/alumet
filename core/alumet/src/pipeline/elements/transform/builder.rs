@@ -32,10 +32,16 @@ pub(super) struct BuildContext<'a> {
 pub trait TransformBuildContext {
     /// Retrieves a metric by its name.
     fn metric_by_name(&self, name: &str) -> Option<(RawMetricId, &Metric)>;
+
+    fn metrics(&self) -> &MetricRegistry;
 }
 
 impl TransformBuildContext for BuildContext<'_> {
     fn metric_by_name(&self, name: &str) -> Option<(RawMetricId, &Metric)> {
         self.metrics.by_name(name)
+    }
+
+    fn metrics(&self) -> &MetricRegistry {
+        self.metrics
     }
 }

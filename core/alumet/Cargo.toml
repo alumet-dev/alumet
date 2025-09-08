@@ -40,6 +40,7 @@ tokio-timerfd = "0.2.0"
 # Dev dependencies for tests.
 [dev-dependencies]
 env_logger.workspace = true
+pretty_assertions = "1.4.1"
 serde = { workspace = true, features = ["derive"] }
 serial_test = "3.2.0"
 
