@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use alumet::{
     measurement::{MeasurementBuffer, MeasurementPoint, Timestamp},
     metrics::RawMetricId,
@@ -11,6 +13,9 @@ use alumet::{
 use rustc_hash::{FxBuildHasher, FxHashMap};
 
 use super::prepared::{AttributionParams, PreparedFormula};
+
+/// Don't keep measurement points older than 20 minutes, relative to the newest points.
+const DATA_EXPIRATION_TIME: Duration = Duration::from_secs(60 * 20);
 
 pub struct GenericAttributionTransform {
     state: AttributionState,
@@ -56,6 +61,14 @@ struct ByMetricBuffer {
 }
 
 impl ByMetricBuffer {
+    fn newest_t(&self) -> Option<Timestamp> {
+        self.data
+            .values()
+            .filter_map(|buf| buf.first())
+            .map(|p| p.timestamp)
+            .max()
+    }
+
     fn push(&mut self, p: MeasurementPoint) {
         self.data.entry(p.metric).or_default().push(p);
     }
@@ -133,6 +146,10 @@ impl Transform for GenericAttributionTransform {
             let Some(temporal_ref) = general.data.get(&temporal_ref_metric) else {
                 continue;
             };
+
+            // Compute the timestamp before which the data is too old.
+            let expired_t = rd.general.newest_t().and_then(|t| t.checked_sub(DATA_EXPIRATION_TIME));
+            log::trace!("expired: {expired_t:?}");
 
             // for each consumer of this resource
             for (consumer, cd) in &mut rd.per_consumer {
@@ -212,8 +229,24 @@ impl Transform for GenericAttributionTransform {
                     cd.cleanup(&boundaries.ref_last.1);
                 } else {
                     // not enough data yet
-                    // TODO handle stale data: it could happen that we have some isolated measurements and we'll never get more, we should remove them after some time
+                    // Remove stale data: it could happen that we have some isolated measurements and we'll never get more.
+                    if let Some(expired_t) = expired_t {
+                        cd.cleanup(&expired_t);
+                    }
                 }
+            }
+
+            // per-resource data cleanup
+            // If we have computed an attribution for every consumer, remove data older than min(last_attributed_t).
+            // Otherwise, remove data older than the expiration threshold.
+            if let Some(useless_t) = rd
+                .per_consumer
+                .values()
+                .map(|buf| buf.last_attributed_t)
+                .min()
+                .unwrap_or(expired_t)
+            {
+                rd.general.cleanup(&useless_t);
             }
         }
         Ok(())

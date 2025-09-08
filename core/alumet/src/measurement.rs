@@ -215,6 +215,10 @@ impl Timestamp {
         let duration = Duration::new(secs, nanos);
         Self(SystemTime::UNIX_EPOCH + duration)
     }
+
+    pub fn checked_sub(&self, duration: Duration) -> Option<Self> {
+        self.0.checked_sub(duration).map(Timestamp::from)
+    }
 }
 
 impl Add<Duration> for Timestamp {
