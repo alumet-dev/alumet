@@ -11,7 +11,7 @@ pub struct AmdError(pub RocmErr);
 
 impl Display for AmdError {
     fn fmt(&self, format: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(format, "rocmsmi error {}", self)
+        write!(format, "rocmsmi error {:?}", self.0)
     }
 }
 
@@ -28,7 +28,7 @@ mod tests {
     #[test]
     fn test_fmt_display() {
         let error = AmdError(RocmErr::RsmiStatusSuccess);
-        let msg = format!("rocmsmi error {error}");
+        let msg = format!("rocmsmi error {:?}", error.0);
         assert_eq!(format!("{error}"), msg);
     }
 

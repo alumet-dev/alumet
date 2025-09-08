@@ -19,6 +19,7 @@ DTLB
 Eviden
 FSCREDS
 giga
+hipcc
 humantime
 hwinfo
 hwmon
@@ -29,8 +30,8 @@ miri
 Mispredicted
 monitorable
 mpoint
-niced
 neowise
+niced
 NVML
 pagetables
 paradoxe
@@ -41,8 +42,10 @@ ptraceable
 Raffin
 RAPL
 regen
+rocm
 rustfmt
 sagittaire
+SDMA
 servan
 slurm
 slurmstep
@@ -56,12 +59,12 @@ subtrait
 subtraits
 SYSFS
 thiserror
-timerfd
 Thour
+timerfd
 Trystram
 UCUM
 uncore
 VERGEN
-wattmetre
 wattmeters
+wattmetre
 zcat
