@@ -45,15 +45,35 @@ pub struct ResourceData {
 }
 
 #[derive(Debug, Default)]
-struct ByMetricBuffer(FxHashMap<RawMetricId, Vec<MeasurementPoint>>);
+struct ByMetricBuffer {
+    data: FxHashMap<RawMetricId, Vec<MeasurementPoint>>,
+
+    /// When synchronizing the timeseries, we may need to use the previous data point (to interpolate).
+    /// If, actually, the interpolation is not needed, the synchronization will produce a duplicated output with the data point that we kept.
+    /// To avoid that, keep track of the last timestamp that we produced a value for,
+    /// and don't include it in the result multiple time.
+    last_attributed_t: Option<Timestamp>,
+}
 
 impl ByMetricBuffer {
     fn push(&mut self, p: MeasurementPoint) {
-        self.0.entry(p.metric).or_default().push(p);
+        self.data.entry(p.metric).or_default().push(p);
+    }
+
+    fn cleanup(&mut self, ref_last: &Timestamp) {
+        self.remove_before(ref_last);
+        self.last_attributed_t = Some(ref_last.clone());
+    }
+
+    fn is_new(&self, t: &Timestamp) -> bool {
+        match &self.last_attributed_t {
+            Some(last_t) if t <= last_t => false,
+            _ => true,
+        }
     }
 
     fn remove_before(&mut self, before_excl: &Timestamp) {
-        for buf in self.0.values_mut() {
+        for buf in self.data.values_mut() {
             let i_first_ok = buf
                 .iter()
                 .enumerate()
@@ -110,7 +130,7 @@ impl Transform for GenericAttributionTransform {
 
             // For now, the time reference MUST be a "general" per-resource metric.
             // However, it may not be present in the buffer if we have not received it yet.
-            let Some(temporal_ref) = general.0.get(&temporal_ref_metric) else {
+            let Some(temporal_ref) = general.data.get(&temporal_ref_metric) else {
                 continue;
             };
 
@@ -120,15 +140,28 @@ impl Transform for GenericAttributionTransform {
                 // with K = RawMetricId
                 // and timeseries = (general points) U (per_consumer points)
                 let mut series = FxHashMap::with_hasher(FxBuildHasher); // TODO optimize (no need for a hashmap actually)
-                for (k, points) in &general.0 {
+                for (k, points) in &general.data {
                     // the time reference is given to the interpolator separately
                     if *k == temporal_ref_metric {
                         series.insert(k.to_owned(), points.as_slice());
                     }
                 }
-                for (k, points) in &cd.0 {
+                for (k, points) in &cd.data {
                     series.insert(k.to_owned(), points.as_slice());
                 }
+
+                // don't redo what we have already done
+                // => adjust the reference timeseries for this resource and consumer
+                let temporal_ref = {
+                    let i_new = temporal_ref
+                        .iter()
+                        .enumerate()
+                        .find_map(|(i, m)| if cd.is_new(&m.timestamp) { Some(i) } else { None });
+                    match i_new {
+                        Some(i) => &temporal_ref[i..],
+                        None => &[],
+                    }
+                };
 
                 // prepare the timeseries synchronizer-interpolator
                 let sync = MultiSyncInterpolator {
@@ -146,8 +179,9 @@ impl Transform for GenericAttributionTransform {
 
                     // for each multi-point, evaluate the attribution formula
                     for (t, multi_point) in synced.series {
-                        log::trace!("evaluating formula at {t:?} with {multi_point:?}");
                         // compute the value
+                        log::trace!("evaluating formula at {t:?} with {multi_point:?}");
+
                         let attributed = self
                             .formula
                             .evaluate(&multi_point)
@@ -174,8 +208,8 @@ impl Transform for GenericAttributionTransform {
                     }
 
                     // Remove old per-consumer data.
-                    // It's only ok to remove all the points where p.t < ref_first, the others are needed for the interpolation (see diagrams).
-                    cd.remove_before(&boundaries.ref_last.1);
+                    // It's only ok to remove all the points where p.t < ref_last, the others are needed for the interpolation (see diagrams).
+                    cd.cleanup(&boundaries.ref_last.1);
                 } else {
                     // not enough data yet
                     // TODO handle stale data: it could happen that we have some isolated measurements and we'll never get more, we should remove them after some time

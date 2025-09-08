@@ -18,6 +18,8 @@ use alumet::{
 use plugin_energy_attribution::EnergyAttributionPlugin;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
+use pretty_assertions::assert_eq;
+
 const TIMEOUT: Duration = Duration::from_secs(2);
 const CONFIG_CPU: &str = r#"
         [formulas.attributed_energy]
@@ -55,6 +57,19 @@ fn test_cpu_energy_to_processes() {
             ResourceConsumer::Process { pid },
             WrappedMeasurementValue::F64(value),
         )
+        .with_attr("kind", "total")
+    }
+
+    fn new_point_attribution(metrics: &TestMetrics, timestamp: &str, pid: u32, value: f64) -> MeasurementPoint {
+        MeasurementPoint::new_untyped(
+            timestamp_from_rfc3339(timestamp),
+            metrics.attributed_energy,
+            Resource::LocalMachine,
+            ResourceConsumer::Process { pid },
+            WrappedMeasurementValue::F64(value),
+        )
+        .with_attr("domain", "package_total")
+        .with_attr("kind", "total")
     }
 
     // define the checks that you want to apply
@@ -74,7 +89,7 @@ fn test_cpu_energy_to_processes() {
                     buf.push(new_point_energy(&metrics, "2025-05-02 00:00:02.00Z", 100));
 
                     // cpu usage (per-consumer metric)
-                    buf.push(new_point_usage(&metrics, "2025-05-02 00:00:02.00Z", 1, 50.0));
+                    buf.push(new_point_usage(&metrics, "2025-05-02 00:00:01.00Z", 1, 50.0));
                 }
                 buf
             },
@@ -82,11 +97,12 @@ fn test_cpu_energy_to_processes() {
                 /*
                 Data received so far:
                 - | time | energy | usage(1) | usage(2) |
-                - |   00 | 0      |    50%   |          |
+                - |   00 | 0      |          |          |
+                - |   01 | 0      |    50%   |          |
                 - |   02 | 100    |          |          |
 
                 Expected attribution:
-                - nothing (not enough data)
+                - nothing
 
                 Expected buffer content:
                 - same points as the input
@@ -98,7 +114,7 @@ fn test_cpu_energy_to_processes() {
                     vec![
                         new_point_energy(&metrics, "2025-05-02 00:00:00.00Z", 0),
                         new_point_energy(&metrics, "2025-05-02 00:00:02.00Z", 100),
-                        new_point_usage(&metrics, "2025-05-02 00:00:02.00Z", 1, 50.0)
+                        new_point_usage(&metrics, "2025-05-02 00:00:01.00Z", 1, 50.0),
                     ]
                 );
             },
@@ -113,6 +129,7 @@ fn test_cpu_energy_to_processes() {
                     buf.push(new_point_energy(&metrics, "2025-05-02 00:00:04.00Z", 100));
 
                     // cpu usage (per-consumer metric)
+                    buf.push(new_point_usage(&metrics, "2025-05-02 00:00:02.00Z", 1, 80.0));
                     buf.push(new_point_usage(&metrics, "2025-05-02 00:00:03.00Z", 1, 100.0));
                     buf.push(new_point_usage(&metrics, "2025-05-02 00:00:05.00Z", 1, 0.0));
                 }
@@ -120,45 +137,40 @@ fn test_cpu_energy_to_processes() {
             },
             |output| {
                 /*
-                Data received so far:
-                - | time | energy | usage(1) | usage(2) |
+                Data received so far and expected attribution:
+
+                - | time | energy | usage(1) | usage(2) | attributed_energy
                 - |   00 |    0   |     -    |          |
-                - |   01 |    -   |     -    |          |
-                - |   02 |  100   |    50%   |          |
+                - |   01 |    -   |    50%   |          |
+                - |   02 |  100   |    80%   |          |  80% * 100 = 80
                 - |   03 |    -   |   100%   |          |
-                - |   04 |  100   |     -    |          |
+                - |   04 |  100   |     -    |          | (100+0)/2 * 100 = 50
                 - |   05 |    -   |     0%   |          |
-
-                Expected attribution:
-                - | time | attributed_energy |
-                - |   00 |         -         |
-                - |   01 |         -         |
-                - |   02 |         -         |
-                - |   03 |        100        |
-                - |   04 |                   |
-                - |   05 |                   |
                  */
-
                 let metrics = TestMetrics::find_in(output.metrics());
-                let data: Vec<_> = output.measurements().into_iter().collect();
-                assert_eq!(data.len(), 3);
+                let (input_measurements, new_measurements): (Vec<_>, Vec<_>) =
+                    output.measurements().into_iter().cloned().partition(|p| {
+                        p.metric == metrics.cpu_usage_percent || p.metric == metrics.rapl_consumed_energy
+                    });
 
-                assert_eq!(data[0].metric, metrics.rapl_consumed_energy);
-                assert_eq!(data[0].value.as_u64(), 100);
-
-                assert_eq!(data[1].metric, metrics.cpu_usage_percent);
-                assert_eq!(data[1].value.as_f64(), 100.0);
-
-                assert_eq!(data[2].metric, metrics.cpu_usage_percent);
-                assert_eq!(data[2].value.as_f64(), 0.0);
-
-                println!("-----");
-                for m in output.measurements().iter() {
-                    if m.metric == metrics.attributed_energy {
-                        println!("{m:?}");
-                    }
-                }
-                println!("-----");
+                assert_eq!(
+                    input_measurements,
+                    vec![
+                        new_point_energy(&metrics, "2025-05-02 00:00:04.00Z", 100),
+                        new_point_usage(&metrics, "2025-05-02 00:00:02.00Z", 1, 80.0),
+                        new_point_usage(&metrics, "2025-05-02 00:00:03.00Z", 1, 100.0),
+                        new_point_usage(&metrics, "2025-05-02 00:00:05.00Z", 1, 0.0),
+                    ],
+                    "input measurements should not be modified by energy-attribution"
+                );
+                assert_eq!(
+                    new_measurements,
+                    vec![
+                        new_point_attribution(&metrics, "2025-05-02 00:00:02.00Z", 1, 80.0),
+                        new_point_attribution(&metrics, "2025-05-02 00:00:04.00Z", 1, 50.0),
+                    ],
+                    "incorrect attribution result"
+                );
             },
         )
         .test_transform(
@@ -174,17 +186,35 @@ fn test_cpu_energy_to_processes() {
                     buf.push(new_point_usage(&metrics, "2025-05-02 00:00:06.00Z", 1, 90.0));
                     buf.push(new_point_usage(&metrics, "2025-05-02 00:00:06.00Z", 2, 10.0));
                 }
+                log::warn!("PREVIOUS TEST PREPARED");
                 buf
             },
             |output| {
+                /*
+                Data received so far and expected attribution:
+
+                - | time | energy | usage(1) | usage(2) | attributed_energy(1)  | attributed_energy(2)
+                - |   00 |    0   |     -    |          |                       |
+                - |   01 |    -   |    50%   |          |                       |
+                - |   02 |  100   |    80%   |          |  80% * 100 = 80       |
+                - |   03 |    -   |   100%   |          |                       |
+                - |   04 |  100   |     -    |          | ((100+0)/2)%*100 = 50 |
+                - |   05 |    -   |     0%   |          |                       |
+                - |   06 |  500   |    90%   |    10%   |          450          |          50
+                 */
                 let metrics = TestMetrics::find_in(output.metrics());
-                println!("-----");
-                for m in output.measurements().iter() {
-                    if m.metric == metrics.attributed_energy {
-                        println!("{m:?}");
-                    }
-                }
-                println!("-----");
+                let (_, new_measurements): (Vec<_>, Vec<_>) =
+                    output.measurements().into_iter().cloned().partition(|p| {
+                        p.metric == metrics.cpu_usage_percent || p.metric == metrics.rapl_consumed_energy
+                    });
+                assert_eq!(
+                    new_measurements,
+                    vec![
+                        new_point_attribution(&metrics, "2025-05-02 00:00:06.00Z", 1, 450.0),
+                        new_point_attribution(&metrics, "2025-05-02 00:00:06.00Z", 2, 50.0),
+                    ],
+                    "incorrect attribution result"
+                );
             },
         )
         .test_transform(
@@ -206,8 +236,8 @@ fn test_cpu_energy_to_processes() {
                     buf.push(new_point_energy(&metrics, "2025-05-02 00:00:07.80Z", 500));
                     buf.push(new_point_energy(&metrics, "2025-05-02 00:00:07.90Z", 500));
                     buf.push(new_point_energy(&metrics, "2025-05-02 00:00:08.00Z", 500));
-                    buf.push(new_point_energy(&metrics, "2025-05-02 00:00:09.00Z", 500));
                     // decrease frequency back to 1Hz
+                    buf.push(new_point_energy(&metrics, "2025-05-02 00:00:09.00Z", 500));
                     buf.push(new_point_energy(&metrics, "2025-05-02 00:00:10.00Z", 500));
 
                     // ==== cpu usage (per-consumer metric)
@@ -224,16 +254,74 @@ fn test_cpu_energy_to_processes() {
                     buf.push(new_point_usage(&metrics, "2025-05-02 00:00:07.50Z", 2, 10.0));
                     buf.push(new_point_usage(&metrics, "2025-05-02 00:00:07.60Z", 2, 10.0));
                     // small gap
-                    buf.push(new_point_usage(&metrics, "2025-05-02 00:00:08.00Z", 2, 10.0));
+                    buf.push(new_point_usage(&metrics, "2025-05-02 00:00:08.00Z", 2, 25.0));
                 }
+                log::warn!("LAST TEST PREPARED");
                 buf
             },
             |output| {
-                println!("-----");
-                for m in output.measurements().iter() {
+                /*
+                Data received and expected attribution:
+
+                - | time  | energy | usage(1) | usage(2) | attributed_energy(1)  | attributed_energy(2)
+                - | 07.00 |  500   |    90%   |    10%   |  90%*500 = 450        | 10%*500 = 50
+                - | 07.10 |  500   |          |    10%   |                       |
+                - | 07.20 |  500   |          |    10%   |                       |
+                - | 07.30 |  500   |          |    10%   |                       |
+                - | 07.40 |  500   |          |    10%   |                       |
+                - | 07.50 |  500   |          |    10%   |                       |
+                - | 07.60 |  500   |          |    10%   |                       |
+                - | 07.70 |  500   |          |          |                       |
+                - | 07.80 |  500   |          |          |                       |
+                - | 07.90 |  500   |          |          |                       |
+                - | 08.00 |  500   |     1%   |    25%   |                       |
+                - | 09.00 |  500   |          |          |                       |
+                - | 10.00 |  500   |          |          |                       |
+                 */
+                let metrics = TestMetrics::find_in(output.metrics());
+                let (new_measurements_1, new_measurements_2): (Vec<_>, Vec<_>) = output
+                    .measurements()
+                    .into_iter()
+                    .cloned()
+                    .filter(|p| p.metric == metrics.attributed_energy)
+                    .partition(|p| p.consumer == ResourceConsumer::Process { pid: 1 });
+                for m in &new_measurements_2 {
                     println!("{m:?}");
                 }
-                println!("-----");
+                assert_eq!(
+                    new_measurements_1,
+                    vec![
+                        new_point_attribution(&metrics, "2025-05-02 00:00:07.00Z", 1, 450.0),
+                        new_point_attribution(&metrics, "2025-05-02 00:00:07.10Z", 1, 405.5),
+                        new_point_attribution(&metrics, "2025-05-02 00:00:07.20Z", 1, 361.0),
+                        new_point_attribution(&metrics, "2025-05-02 00:00:07.30Z", 1, 316.49999999999994),
+                        new_point_attribution(&metrics, "2025-05-02 00:00:07.40Z", 1, 272.0),
+                        new_point_attribution(&metrics, "2025-05-02 00:00:07.50Z", 1, 227.5),
+                        new_point_attribution(&metrics, "2025-05-02 00:00:07.60Z", 1, 183.0),
+                        new_point_attribution(&metrics, "2025-05-02 00:00:07.70Z", 1, 138.50000000000003),
+                        new_point_attribution(&metrics, "2025-05-02 00:00:07.80Z", 1, 93.99999999999999),
+                        new_point_attribution(&metrics, "2025-05-02 00:00:07.90Z", 1, 49.49999999999999),
+                        new_point_attribution(&metrics, "2025-05-02 00:00:08.00Z", 1, 5.0),
+                    ],
+                    "incorrect attribution result for process 1"
+                );
+                assert_eq!(
+                    new_measurements_2,
+                    vec![
+                        new_point_attribution(&metrics, "2025-05-02 00:00:07.00Z", 2, 50.0),
+                        new_point_attribution(&metrics, "2025-05-02 00:00:07.10Z", 2, 50.0),
+                        new_point_attribution(&metrics, "2025-05-02 00:00:07.20Z", 2, 50.0),
+                        new_point_attribution(&metrics, "2025-05-02 00:00:07.30Z", 2, 50.0),
+                        new_point_attribution(&metrics, "2025-05-02 00:00:07.40Z", 2, 50.0),
+                        new_point_attribution(&metrics, "2025-05-02 00:00:07.50Z", 2, 50.0),
+                        new_point_attribution(&metrics, "2025-05-02 00:00:07.60Z", 2, 50.0),
+                        new_point_attribution(&metrics, "2025-05-02 00:00:07.70Z", 2, 68.75),
+                        new_point_attribution(&metrics, "2025-05-02 00:00:07.80Z", 2, 87.5),
+                        new_point_attribution(&metrics, "2025-05-02 00:00:07.90Z", 2, 106.24999999999999),
+                        new_point_attribution(&metrics, "2025-05-02 00:00:08.00Z", 2, 125.0),
+                    ],
+                    "incorrect attribution result for process 2"
+                );
             },
         );
 
