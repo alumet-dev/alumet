@@ -38,7 +38,7 @@ fn test_init() -> anyhow::Result<()> {
     let res = AmdGpuPlugin::init(config_table);
 
     if let Err(e) = res {
-        assert!(format!("{e:#}").contains("Failed to initialize AMD SMI"));
+        assert!(format!("{e:#}").contains("Failed to initialize ROCM SMI"));
     } else {
         assert!(res.is_ok());
     }
@@ -53,7 +53,7 @@ fn test_stop() -> Result<()> {
     let res = plugin.stop();
 
     if let Err(e) = res {
-        assert!(format!("{e:#}").contains("Failed to shut down AMD SMI"));
+        assert!(format!("{e:#}").contains("Failed to shut down ROCM SMI"));
     } else {
         assert!(res.is_ok());
     }
@@ -74,21 +74,19 @@ fn test_start_success() {
     });
 
     let startup_expectations = StartupExpectations::new()
+        .expect_metric::<u64>("amd_gpu_activity", Unit::Percent)
         .expect_metric::<f64>("amd_gpu_energy_consumption", PrefixedUnit::milli(Unit::Joule))
-        .expect_metric::<f64>("amd_gpu_engine_usage", Unit::Percent.clone())
-        .expect_metric::<u64>("amd_gpu_memory_usage", Unit::Byte.clone())
+        .expect_metric::<u64>("amd_gpu_memories_usage", Unit::Byte.clone())
         .expect_metric::<u64>("amd_gpu_power_consumption", Unit::Watt.clone())
         .expect_metric::<u64>("amd_gpu_temperature", Unit::DegreeCelsius.clone())
-        .expect_metric::<u64>("amd_gpu_process_memory_usage", Unit::Byte.clone())
-        .expect_metric::<u64>("amd_gpu_process_engine_usage_encode", PrefixedUnit::nano(Unit::Second))
-        .expect_metric::<u64>("amd_gpu_process_engine_gfx", PrefixedUnit::nano(Unit::Second))
-        .expect_metric::<u64>("amd_gpu_process_memory_usage_gtt", Unit::Byte.clone())
-        .expect_metric::<u64>("amd_gpu_process_memory_usage_cpu", Unit::Byte.clone())
-        .expect_metric::<u64>("amd_gpu_process_memory_usage_vram", Unit::Byte.clone());
+        .expect_metric::<f64>("amd_gpu_voltage_consumption", Unit::Volt)
+        .expect_metric::<u64>("amd_gpu_process_compute_unit_usage", Unit::Percent.clone())
+        .expect_metric::<u64>("amd_gpu_process_memory_usage_vram", Unit::Byte.clone())
+        .expect_metric::<u64>("amd_gpu_process_sdma_usage", PrefixedUnit::micro(Unit::Second));
 
     // TODO : Check that sources are correct
     let run_expect = RuntimeExpectations::new().test_source(
-        SourceName::from_str("amd-gpu", "amd_gpu_energy_consumption"),
+        SourceName::from_str("amd-gpu", "amd_gpu_activity"),
         move || {},
         |_output| {},
     );
