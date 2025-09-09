@@ -74,9 +74,9 @@ impl AlumetPlugin for KwollectPluginInput {
 
         for metric_name in &config.metrics {
             let unit_str = extract_unit_from_metric_name(metric_name);
-            let prefixed_unit = if let Ok(unit) = PrefixedUnit::from_str(&unit_str) {
+            let prefixed_unit = if let Ok(unit) = PrefixedUnit::from_str(unit_str) {
                 unit
-            } else if let Ok(base_unit) = Unit::from_str(&unit_str) {
+            } else if let Ok(base_unit) = Unit::from_str(unit_str) {
                 PrefixedUnit {
                     base_unit,
                     prefix: UnitPrefix::Plain,
@@ -85,8 +85,8 @@ impl AlumetPlugin for KwollectPluginInput {
                 // fallback: create a custom unit if it doesn't exists
                 PrefixedUnit {
                     base_unit: Unit::Custom {
-                        unique_name: unit_str.clone(),
-                        display_name: unit_str.clone(),
+                        unique_name: unit_str.to_string(),
+                        display_name: unit_str.to_string(),
                     },
                     prefix: UnitPrefix::Plain,
                 }
@@ -211,34 +211,34 @@ impl AlumetPlugin for KwollectPluginInput {
 ///     `prom_all_metrics`, `prom_default_metrics`, `prom_nvgpu_all_metrics`,
 ///     `prom_nvgpu_default_metrics`.
 ///     Use the Prometheus exporter plugin instead for these metrics.
-fn normalize_unit(unit_str: &str) -> String {
+fn normalize_unit(unit_str: &str) -> &str {
     match unit_str {
-        "watt" => "W".to_string(),           // UCUM standard
-        "kilowatt" => "kW".to_string(),      // UCUM standard
-        "watthour" => "W.h".to_string(),     // UCUM standard
-        "celsius" => "Cel".to_string(),      // UCUM standard
-        "percent" | "%" => "%".to_string(),  // UCUM standard
-        "VA" => "V.A".to_string(),           // Not UCUM standard (Volt-Ampere)
-        "VAr" => "V.A_r".to_string(),        // Not UCUM standard (Reactive Volt-Ampere)
-        "amp" | "ampere" => "A".to_string(), // UCUM standard
-        "volt" => "V".to_string(),           // UCUM standard
-        "hertz" => "Hz".to_string(),         // UCUM standard
-        "lux" => "lx".to_string(),           // UCUM standard
-        "bar" => "bar".to_string(),          // UCUM standard
-        "deg" => "°".to_string(),            // UCUM standard
-        "m/s" => "m/s".to_string(),          // UCUM standard
-        "rpm" => "rpm".to_string(),          // Not UCUM standard
-        "cfm" => "[cft_i]/min".to_string(),  // UCUM standard (cubic foot per minute)
-        "bytes" => "By".to_string(),         // UCUM standard
-        "packets" => "tot.".to_string(),     // UCUM standard for a count
-        _ => unit_str.to_string(),           // Return as-is if already UCUM or unknown
+        "watt" => "W",           // UCUM standard
+        "kilowatt" => "kW",      // UCUM standard
+        "watthour" => "W.h",     // UCUM standard
+        "celsius" => "Cel",      // UCUM standard
+        "percent" | "%" => "%",  // UCUM standard
+        "VA" => "V.A",           // Not UCUM standard (Volt-Ampere)
+        "VAr" => "V.A_r",        // Not UCUM standard (Reactive Volt-Ampere)
+        "amp" | "ampere" => "A", // UCUM standard
+        "volt" => "V",           // UCUM standard
+        "hertz" => "Hz",         // UCUM standard
+        "lux" => "lx",           // UCUM standard
+        "bar" => "bar",          // UCUM standard
+        "deg" => "°",            // UCUM standard
+        "m/s" => "m/s",          // UCUM standard
+        "rpm" => "rpm",          // Not UCUM standard
+        "cfm" => "[cft_i]/min",  // UCUM standard (cubic foot per minute)
+        "bytes" => "By",         // UCUM standard
+        "packets" => "tot.",     // UCUM standard for a count
+        _ => unit_str,           // Return as-is if already UCUM or unknown
     }
 }
 
 /// Extracts the unit from a metric name.
 /// The unit is typically the last segment of the metric name, unless the name ends with "total".
 /// In that case, the unit is the segment before "total", or the segment before "discard" or "error" if present.
-fn extract_unit_from_metric_name(metric_name: &str) -> String {
+fn extract_unit_from_metric_name(metric_name: &str) -> &str {
     let parts: Vec<&str> = metric_name.split('_').collect();
     // Special handling if the last part is "total"
     if parts.len() >= 3
