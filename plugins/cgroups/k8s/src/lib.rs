@@ -29,7 +29,7 @@ pub struct K8sPlugin {
 
 impl AlumetPlugin for K8sPlugin {
     fn name() -> &'static str {
-        "cgroups"
+        "k8s"
     }
 
     fn version() -> &'static str {
