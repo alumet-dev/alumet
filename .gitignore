@@ -7,3 +7,4 @@ app-*/*output.csv
 .DS_Store
 .vscode
 tmp/
+.cargo
