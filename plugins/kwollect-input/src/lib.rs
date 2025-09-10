@@ -230,7 +230,7 @@ fn normalize_unit(unit_str: &str) -> &str {
         "rpm" => "rpm",          // Not UCUM standard
         "cfm" => "[cft_i]/min",  // UCUM standard (cubic foot per minute)
         "bytes" => "By",         // UCUM standard
-        "packets" => "tot.",     // UCUM standard for a count
+        "packets" => "1",        // UCUM standard for a count
         _ => unit_str,           // Return as-is if already UCUM or unknown
     }
 }
