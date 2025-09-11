@@ -94,7 +94,7 @@ impl Output for ElasticSearchOutput {
     }
 }
 
-mod config {
+pub mod config {
     use std::path::PathBuf;
 
     use anyhow::Context;
@@ -170,7 +170,68 @@ mod config {
 
 #[cfg(test)]
 mod tests {
-    use super::config::{AuthConfig, Config};
+    use alumet::{
+        agent::{
+            self,
+            plugin::{PluginInfo, PluginSet},
+        },
+        pipeline,
+        plugin::PluginMetadata,
+    };
+    use std::{
+        fs::{self},
+        time::Duration,
+    };
+
+    use crate::{ElasticSearchPlugin, api, plugin::config::AuthConfig};
+
+    use super::config::Config;
+
+    fn config_to_toml_table(config: &Config) -> toml::Table {
+        toml::Value::try_from(config).unwrap().as_table().unwrap().clone()
+    }
+
+    #[test]
+    fn start_stop() {
+        let opts = mockito::ServerOpts {
+            host: "0.0.0.0",
+            ..Default::default()
+        };
+        let mut server = mockito::Server::new_with_opts(opts);
+        let _m = server
+            .mock("PUT", "/_index_template/alumet_index_template")
+            .with_status(200)
+            .create();
+
+        let config = Config {
+            server_url: server.url(),
+            ..Default::default()
+        };
+
+        let mut plugins = PluginSet::new();
+        plugins.add_plugin(PluginInfo {
+            metadata: PluginMetadata::from_static::<ElasticSearchPlugin>(),
+            enabled: true,
+            config: Some(config_to_toml_table(&config)),
+        });
+
+        // Set up the measurement pipeline
+        let mut pipeline = pipeline::Builder::new();
+        pipeline.normal_threads(2); // Example setting: use 2 threads to run async pipeline elements
+
+        // Build and start the agent
+        let agent = agent::Builder::from_pipeline(plugins, pipeline)
+            .build_and_start()
+            .expect("startup failure");
+
+        let handle = agent.pipeline.control_handle();
+        // Force shutdown
+        handle.shutdown();
+        agent
+            .wait_for_shutdown(Duration::new(5, 0))
+            .expect("error while running");
+        _m.assert();
+    }
 
     #[test]
     fn parse_auth_config() {
@@ -196,7 +257,7 @@ mod tests {
             allow_insecure = false
             index_prefix = "alumet"
             metric_unit_as_index_suffix = true
-            
+
             [auth.basic]
             user = "bob"
             password = "very_secure"
@@ -210,5 +271,49 @@ mod tests {
         assert_eq!(parsed.allow_insecure, false);
         assert_eq!(parsed.index_prefix, "alumet");
         assert_eq!(parsed.metric_unit_as_index_suffix, true);
+    }
+
+    #[test]
+    fn try_from_basic_file_api_key_bearer() {
+        // Basic File
+
+        let tmp = tempfile::tempdir().unwrap();
+        let file_path = tmp.path().join("basicfile.csv");
+        fs::write(file_path.clone(), "bob:very_secure").unwrap();
+
+        let auth_config = AuthConfig::BasicFile {
+            file: file_path.clone().into_os_string().into_string().unwrap(),
+        };
+
+        let result = api::ApiAuthentication::try_from(auth_config).unwrap();
+        let expected = api::ApiAuthentication::Basic {
+            user: "bob".to_string(),
+            password: "very_secure".to_string(),
+        };
+        assert_eq!(result, expected);
+
+        // API key
+
+        let auth_config = AuthConfig::ApiKey {
+            key: "abcd".to_string(),
+        };
+
+        let result = api::ApiAuthentication::try_from(auth_config).unwrap();
+        let expected = api::ApiAuthentication::ApiKey {
+            key: "abcd".to_string(),
+        };
+        assert_eq!(result, expected);
+
+        // Bearer
+
+        let auth_config = AuthConfig::Bearer {
+            token: "token_string".to_string(),
+        };
+
+        let result = api::ApiAuthentication::try_from(auth_config).unwrap();
+        let expected = api::ApiAuthentication::Bearer {
+            token: "token_string".to_string(),
+        };
+        assert_eq!(result, expected);
     }
 }
