@@ -24,7 +24,7 @@ pub struct GraceHopperPlugin {
 
 #[derive(Debug)]
 pub struct Sensor {
-    /// Kind of sensor, could be either: Module, Grace, CPU, SysIO
+    /// Kind of sensor, could be either: module, grace, cpu, sysio
     kind: String,
     /// Socket associated to the sensor
     socket: u32,
@@ -57,19 +57,20 @@ impl AlumetPlugin for GraceHopperPlugin {
         let base_dir = self.config.root_path.to_string();
         // Try to open the directory
         let entries = fs::read_dir(base_dir)?;
+        let mut sensors = Vec::<Sensor>::new();
         for entry in entries {
             let Ok(entry) = entry else { continue };
             let Some(sensor) = get_sensor_from_dir(entry)? else {
                 continue;
             };
-            let name = format!("{}_{}", sensor.kind.clone(), sensor.socket.clone());
-            let source = Box::new(GraceHopperProbe::new(alumet, sensor)?);
-            alumet.add_source(
-                name.as_str(),
-                source,
-                TriggerSpec::at_interval(self.config.poll_interval),
-            )?;
+            sensors.push(sensor);
         }
+        let source = Box::new(GraceHopperProbe::new(alumet, sensors)?);
+        alumet.add_source(
+            "grace-hopper-source",
+            source,
+            TriggerSpec::at_interval(self.config.poll_interval),
+        )?;
         Ok(())
     }
 
@@ -151,7 +152,7 @@ fn get_sensor_information_from_file(file: &File) -> Result<(String, u32), anyhow
         if parts.len() < 4 {
             return Err(anyhow::anyhow!("can't parse the content of the file: {:?}", file));
         }
-        kind = parts[0].to_string();
+        kind = parts[0].to_string().to_lowercase();
         socket = parts[3]
             .parse::<u32>()
             .context(format!("can't parse the socket to u32, content is: {:?}", parts[3]))?;
@@ -200,22 +201,22 @@ mod tests {
     #[test]
     fn test_parse_sensor_information() {
         let test_cases = vec![
-            ("Module Power Socket 2", "Module", 2),
-            ("Grace Power Socket 2", "Grace", 2),
-            ("CPU Power Socket 2", "CPU", 2),
-            ("SysIO Power Socket 2", "SysIO", 2),
-            ("Module Power Socket 3", "Module", 3),
-            ("Grace Power Socket 3", "Grace", 3),
-            ("CPU Power Socket 3", "CPU", 3),
-            ("SysIO Power Socket 3", "SysIO", 3),
-            ("Module Power Socket 0", "Module", 0),
-            ("Grace Power Socket 0", "Grace", 0),
-            ("CPU Power Socket 0", "CPU", 0),
-            ("SysIO Power Socket 0", "SysIO", 0),
-            ("Module Power Socket 1", "Module", 1),
-            ("Grace Power Socket 1", "Grace", 1),
-            ("CPU Power Socket 1", "CPU", 1),
-            ("SysIO Power Socket 1", "SysIO", 1),
+            ("Module Power Socket 2", "module", 2),
+            ("Grace Power Socket 2", "grace", 2),
+            ("CPU Power Socket 2", "cpu", 2),
+            ("SysIO Power Socket 2", "sysio", 2),
+            ("Module Power Socket 3", "module", 3),
+            ("Grace Power Socket 3", "grace", 3),
+            ("CPU Power Socket 3", "cpu", 3),
+            ("SysIO Power Socket 3", "sysio", 3),
+            ("Module Power Socket 0", "module", 0),
+            ("Grace Power Socket 0", "grace", 0),
+            ("CPU Power Socket 0", "cpu", 0),
+            ("SysIO Power Socket 0", "sysio", 0),
+            ("Module Power Socket 1", "module", 1),
+            ("Grace Power Socket 1", "grace", 1),
+            ("CPU Power Socket 1", "cpu", 1),
+            ("SysIO Power Socket 1", "sysio", 1),
         ];
 
         for (line, expected_sensor, expected_socket) in test_cases {
@@ -320,7 +321,7 @@ mod tests {
             let result = get_sensor_from_dir(entry);
             match result {
                 Ok(sensor) => {
-                    assert_eq!("Module", sensor.as_ref().unwrap().kind);
+                    assert_eq!("module", sensor.as_ref().unwrap().kind);
                     assert_eq!(0, sensor.as_ref().unwrap().socket);
                     assert_eq!(file_path_info, sensor.as_ref().unwrap().file);
                 }
@@ -367,7 +368,7 @@ mod tests {
         writeln!(file, "Grace Power Socket 3").unwrap();
         file.rewind().expect("Can't rewind to the beginning of a stream");
         let (kind, socket) = get_sensor_information_from_file(&file).unwrap();
-        assert_eq!("Grace", kind);
+        assert_eq!("grace", kind);
         assert_eq!(3, socket);
 
         // Check error when trying to parse line with missing informations

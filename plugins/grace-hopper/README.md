@@ -14,7 +14,7 @@ Here is the metric collected by the plugin source.
 
 |Name|Type|Unit|Description|Attributes|More information|
 |----|----|----|-----------|----------|-----------------|
-|`energy_consumed`|float|joule|Energy consumed since the previous measurement|[Sensor](#sensor)||
+|`energy_consumed`|float|joule|Energy consumed since the previous measurement|[Sensor](#sensor)| If the `resource_kind` is `LocalMachine` then the value is the sum of all sensors of the same type |
 
 ### Attributes
 
