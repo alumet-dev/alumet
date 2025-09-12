@@ -29,7 +29,7 @@ fn test_correct_plugin_with_no_data() {
         config: Some(config_to_toml_table(&config)),
     });
 
-    let startup_expectation = StartupExpectations::new();
+    let startup_expectation = StartupExpectations::new().expect_source("grace-hopper", "grace-hopper-source");
 
     let agent = agent::Builder::new(plugins)
         .with_expectations(startup_expectation)
@@ -69,15 +69,19 @@ fn test_correct_plugin_init_with_one_source_empty_value() {
 
     let startup_expectation = StartupExpectations::new()
         .expect_metric::<f64>("energy_consumed", alumet::units::Unit::Joule)
-        .expect_source("grace-hopper", "Module_0");
+        .expect_source("grace-hopper", "grace-hopper-source");
 
     let runtime_expectation = RuntimeExpectations::new()
-        .test_source(SourceName::from_str("grace-hopper", "Module_0"), || {}, |_m| {})
         .test_source(
-            SourceName::from_str("grace-hopper", "Module_0"),
+            SourceName::from_str("grace-hopper", "grace-hopper-source"),
+            || {},
+            |_m| {},
+        )
+        .test_source(
+            SourceName::from_str("grace-hopper", "grace-hopper-source"),
             || {},
             |m| {
-                assert_eq!(m.len(), 1);
+                assert_eq!(m.len(), 5);
                 for elm in m {
                     assert!(elm.value == WrappedMeasurementValue::F64(0.0));
                 }
@@ -154,103 +158,113 @@ fn test_correct_plugin_init_with_several_sources() {
 
     let startup_expectation = StartupExpectations::new()
         .expect_metric::<f64>("energy_consumed", alumet::units::Unit::Joule)
-        .expect_source("grace-hopper", "Module_0")
-        .expect_source("grace-hopper", "Grace_0")
-        .expect_source("grace-hopper", "CPU_2")
-        .expect_source("grace-hopper", "SysIO_2");
-
+        .expect_source("grace-hopper", "grace-hopper-source");
     let runtime_expectation = RuntimeExpectations::new()
         .test_source(
-            SourceName::from_str("grace-hopper", "Module_0"),
+            SourceName::from_str("grace-hopper", "grace-hopper-source"),
             || {
                 thread::sleep(Duration::from_secs(1));
             },
             |_m| {},
         )
         .test_source(
-            SourceName::from_str("grace-hopper", "Module_0"),
+            SourceName::from_str("grace-hopper", "grace-hopper-source"),
             || {},
             |m| {
                 for elm in m {
-                    match elm.value {
-                        WrappedMeasurementValue::F64(value) => {
-                            println!("value is {:?}", value);
-                            assert!(value >= 60.0 && value <= 61.0);
-                        }
-                        WrappedMeasurementValue::U64(_) => {
-                            assert!(false);
-                        }
-                    }
-                }
-            },
-        )
-        .test_source(
-            SourceName::from_str("grace-hopper", "Grace_0"),
-            || {
-                thread::sleep(Duration::from_secs(1));
-            },
-            |_m| {},
-        )
-        .test_source(
-            SourceName::from_str("grace-hopper", "Grace_0"),
-            || {},
-            |m| {
-                for elm in m {
-                    match elm.value {
-                        WrappedMeasurementValue::F64(value) => {
-                            println!("value is {:?}", value);
-                            assert!(value >= 62.0 && value <= 63.0);
-                        }
-                        WrappedMeasurementValue::U64(_) => {
-                            assert!(false);
-                        }
-                    }
-                }
-            },
-        )
-        .test_source(
-            SourceName::from_str("grace-hopper", "CPU_2"),
-            || {
-                thread::sleep(Duration::from_secs(1));
-            },
-            |_m| {},
-        )
-        .test_source(
-            SourceName::from_str("grace-hopper", "CPU_2"),
-            || {},
-            |m| {
-                for elm in m {
-                    match elm.value {
-                        WrappedMeasurementValue::F64(value) => {
-                            println!("value is {:?}", value);
-                            assert!(value >= 64.0 && value <= 65.0);
-                        }
-                        WrappedMeasurementValue::U64(_) => {
-                            assert!(false);
-                        }
-                    }
-                }
-            },
-        )
-        .test_source(
-            SourceName::from_str("grace-hopper", "SysIO_2"),
-            || {
-                thread::sleep(Duration::from_secs(1));
-            },
-            |_m| {},
-        )
-        .test_source(
-            SourceName::from_str("grace-hopper", "SysIO_2"),
-            || {},
-            |m| {
-                for elm in m {
-                    match elm.value {
-                        WrappedMeasurementValue::F64(value) => {
-                            println!("value is {:?}", value);
-                            assert!(value >= 67.0 && value <= 68.0);
-                        }
-                        WrappedMeasurementValue::U64(_) => {
-                            assert!(false);
+                    if let Some((_, value)) = elm.attributes().find(|(key, _)| *key == "sensor") {
+                        // println!("ELM is: {:?}", elm);
+                        let kind = if let alumet::measurement::AttributeValue::String(kind) = value {
+                            kind
+                        } else if let alumet::measurement::AttributeValue::Str(kind) = value {
+                            match *kind {
+                                "module" => {
+                                    assert_eq!(elm.value, WrappedMeasurementValue::F64(60.0));
+                                }
+                                "grace" => {
+                                    assert_eq!(elm.value, WrappedMeasurementValue::F64(62.0))
+                                }
+                                "cpu" => {
+                                    assert_eq!(elm.value, WrappedMeasurementValue::F64(64.0))
+                                }
+                                "sysio" => {
+                                    assert_eq!(elm.value, WrappedMeasurementValue::F64(67.0))
+                                }
+                                _ => {
+                                    println!("Kind is: {}", kind);
+                                    assert!(false, "No correct attribute found")
+                                }
+                            }
+                            continue;
+                        } else {
+                            panic!("bad kind of AttributeValue"); // Panic if it doesn't match
+                        };
+                        match kind.as_str() {
+                            "module" => {
+                                if let alumet::resources::Resource::CpuPackage { id } = elm.resource {
+                                    if id != 0 {
+                                        assert!(false);
+                                    }
+                                    match elm.value {
+                                        WrappedMeasurementValue::F64(value) => {
+                                            println!("value is {:?}", value);
+                                            assert!(value >= 60.0 && value <= 61.0);
+                                        }
+                                        WrappedMeasurementValue::U64(_) => {
+                                            assert!(false);
+                                        }
+                                    }
+                                }
+                            }
+                            "grace" => {
+                                if let alumet::resources::Resource::CpuPackage { id } = elm.resource {
+                                    if id != 0 {
+                                        assert!(false);
+                                    }
+                                    match elm.value {
+                                        WrappedMeasurementValue::F64(value) => {
+                                            assert!(value >= 62.0 && value <= 63.0);
+                                        }
+                                        WrappedMeasurementValue::U64(_) => {
+                                            assert!(false);
+                                        }
+                                    }
+                                }
+                            }
+                            "cpu" => {
+                                if let alumet::resources::Resource::CpuPackage { id } = elm.resource {
+                                    if id != 2 {
+                                        assert!(false);
+                                    }
+                                    match elm.value {
+                                        WrappedMeasurementValue::F64(value) => {
+                                            assert!(value >= 64.0 && value <= 65.0);
+                                        }
+                                        WrappedMeasurementValue::U64(_) => {
+                                            assert!(false);
+                                        }
+                                    }
+                                }
+                            }
+                            "sysio" => {
+                                if let alumet::resources::Resource::CpuPackage { id } = elm.resource {
+                                    if id != 2 {
+                                        assert!(false);
+                                    }
+                                    match elm.value {
+                                        WrappedMeasurementValue::F64(value) => {
+                                            assert!(value >= 67.0 && value <= 68.0);
+                                        }
+                                        WrappedMeasurementValue::U64(_) => {
+                                            assert!(false);
+                                        }
+                                    }
+                                }
+                            }
+                            _ => {
+                                println!("Kind is: {}", kind);
+                                assert!(false, "No correct attribute found")
+                            }
                         }
                     }
                 }
