@@ -16,13 +16,23 @@ use alumet::{
 
 use crate::Sensor;
 
-pub struct GraceHopperProbe {
-    socket: u32,
+// #[derive(Debug)]
+pub struct Probe {
+    /// Kind of probe, could be either: module, grace, cpu, sysio
     kind: String,
+    /// Socket associated to the probe
+    socket: u32,
     file: File,
+    last_measure: Option<PowerMeasure>,
+}
+
+pub struct GraceHopperProbe {
+    // socket: u32,
+    // kind: String,
+    // file: File,
+    probes: Vec<Probe>,
     consumer: ResourceConsumer,
     metric: TypedMetricId<f64>,
-    last_measure: Option<PowerMeasure>,
 }
 
 struct PowerMeasure {
@@ -47,26 +57,31 @@ impl PowerMeasure {
 }
 
 impl GraceHopperProbe {
-    pub fn new(alumet: &mut AlumetPluginStart, sensor: Sensor) -> anyhow::Result<Self> {
+    pub fn new(alumet: &mut AlumetPluginStart, sensors: Vec<Sensor>) -> anyhow::Result<Self> {
         let metric = alumet.create_metric::<f64>("energy_consumed", Unit::Joule, "Energy consumption of the sensor")?;
-
-        if !sensor.file.exists() {
-            return Err(anyhow!("can't find the file: {:?} so no probe created", sensor.file));
-        };
-        let file = File::open(
-            sensor
-                .file
-                .parent()
-                .expect("power1_average file should exist")
-                .join("power1_average"),
-        )?;
+        let mut all_sensors = Vec::<Probe>::new();
+        for sensor in sensors {
+            if !sensor.file.exists() {
+                return Err(anyhow!("can't find the file: {:?} so no probe created", sensor.file));
+            };
+            let file = File::open(
+                sensor
+                    .file
+                    .parent()
+                    .expect("power1_average file should exist")
+                    .join("power1_average"),
+            )?;
+            all_sensors.push(Probe {
+                kind: sensor.kind,
+                socket: sensor.socket,
+                file,
+                last_measure: None,
+            });
+        }
         let probe: GraceHopperProbe = GraceHopperProbe {
-            socket: sensor.socket,
-            kind: sensor.kind.to_lowercase(),
-            file,
+            probes: all_sensors,
             metric,
             consumer: ResourceConsumer::LocalMachine,
-            last_measure: None,
         };
         Ok(probe)
     }
@@ -75,26 +90,85 @@ impl GraceHopperProbe {
 impl Source for GraceHopperProbe {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         let mut buffer = String::new();
-        let power = read_power_value(&mut buffer, &mut self.file).map_err(PollError::from)?;
-        let new_measure = PowerMeasure { timestamp, power };
+        let mut module_total = 0;
+        let mut grace_total = 0;
+        let mut cpu_total = 0;
+        let mut sysio_total = 0;
+        for module in self.probes.iter_mut() {
+            let power = read_power_value(&mut buffer, &mut module.file).map_err(PollError::from)?;
+            let new_measure = PowerMeasure { timestamp, power };
 
-        if let Some(last_measure) = &self.last_measure {
-            let computed_energy = last_measure.compute_energy(&new_measure)?;
-            measurements.push(
-                MeasurementPoint::new(
-                    timestamp,
-                    self.metric,
-                    Resource::CpuPackage { id: self.socket },
-                    self.consumer.clone(),
-                    computed_energy,
-                )
-                .with_attr("sensor", self.kind.clone()),
-            );
+            if module.kind == "module" {
+                module_total += power;
+            }
+            if module.kind == "grace" {
+                grace_total += power;
+            }
+            if module.kind == "cpu" {
+                cpu_total += power;
+            }
+            if module.kind == "sysio" {
+                sysio_total += power;
+            }
+
+            if let Some(last_measure) = &module.last_measure {
+                let computed_energy = last_measure.compute_energy(&new_measure)?;
+                measurements.push(
+                    MeasurementPoint::new(
+                        timestamp,
+                        self.metric,
+                        Resource::CpuPackage { id: module.socket },
+                        self.consumer.clone(),
+                        computed_energy,
+                    )
+                    .with_attr("sensor", module.kind.clone()),
+                );
+            }
+            module.last_measure = Some(PowerMeasure {
+                timestamp: new_measure.timestamp,
+                power: new_measure.power,
+            });
         }
-        self.last_measure = Some(PowerMeasure {
-            timestamp: new_measure.timestamp,
-            power: new_measure.power,
-        });
+        measurements.push(
+            MeasurementPoint::new(
+                timestamp,
+                self.metric,
+                Resource::LocalMachine,
+                self.consumer.clone(),
+                (module_total / 1_000_000) as f64,
+            )
+            .with_attr("sensor", "module"),
+        );
+        measurements.push(
+            MeasurementPoint::new(
+                timestamp,
+                self.metric,
+                Resource::LocalMachine,
+                self.consumer.clone(),
+                (grace_total / 1_000_000) as f64,
+            )
+            .with_attr("sensor", "grace"),
+        );
+        measurements.push(
+            MeasurementPoint::new(
+                timestamp,
+                self.metric,
+                Resource::LocalMachine,
+                self.consumer.clone(),
+                (cpu_total / 1_000_000) as f64,
+            )
+            .with_attr("sensor", "cpu"),
+        );
+        measurements.push(
+            MeasurementPoint::new(
+                timestamp,
+                self.metric,
+                Resource::LocalMachine,
+                self.consumer.clone(),
+                (sysio_total / 1_000_000) as f64,
+            )
+            .with_attr("sensor", "sysio"),
+        );
         Ok(())
     }
 }
