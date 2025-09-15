@@ -430,7 +430,7 @@ fn print_stats(
         .join("\n");
     let disabled_list: String = disabled_plugins
         .iter()
-        .map(|p| format!("    - {} v {}", p.metadata.name, p.metadata.version))
+        .map(|p| format!("    - {} v{}", p.metadata.name, p.metadata.version))
         .collect::<Vec<_>>()
         .join("\n");
     let n_enabled = enabled_plugins.len();
