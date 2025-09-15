@@ -101,7 +101,7 @@ impl ApiClient {
 
         // send and parse response
         let response = req.send().context("failed to send http request")?;
-        println!("response: {response:?}");
+        log::trace!("response: {response:?}");
         let pods: PodList = response.json().context("failed to parse json response")?;
 
         // turn the response into the format we want

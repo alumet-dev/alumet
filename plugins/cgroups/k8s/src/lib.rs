@@ -62,6 +62,7 @@ impl AlumetPlugin for K8sPlugin {
         pod_registry
             .refresh()
             .context("failed to list pods with the K8S API, are the url and token correct?")?;
+        log::info!("List of pods refreshed.");
 
         // store the state for later, because we cannot set up everything now
         let starting_state = StartingState {
