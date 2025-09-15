@@ -13,6 +13,7 @@ alumet = { path = "../core/alumet" }
 anyhow.workspace = true
 clap = { version = "4.5.17", features = ["derive", "env", "string"] }
 env_logger.workspace = true
+humantime = "2.3.0"
 humantime-serde.workspace = true
 log = { version = "0.4", features = ["release_max_level_debug"] }
 serde = { workspace = true, features = ["derive"] }
