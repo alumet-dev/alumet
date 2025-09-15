@@ -2536,10 +2536,14 @@ version = "0.2.0"
 dependencies = [
  "alumet",
  "anyhow",
+ "env_logger",
+ "indoc",
  "log",
  "pretty_assertions",
  "serde",
+ "tempfile",
  "time",
+ "toml 0.9.5",
 ]
 
 [[package]]

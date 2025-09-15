@@ -188,3 +188,57 @@ impl alumet::pipeline::Output for CsvOutput {
 fn escape_late_attribute(s: &str) -> String {
     s.replace('=', "\\=")
 }
+
+#[cfg(test)]
+mod tests {
+
+    use alumet::{
+        measurement::{MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementValue},
+        metrics::RawMetricId,
+        resources::{Resource, ResourceConsumer},
+    };
+    use std::{collections::HashSet, time::UNIX_EPOCH};
+
+    use super::{collect_attribute_keys, escape_late_attribute};
+
+    fn simple_point(metric: RawMetricId, value: WrappedMeasurementValue) -> MeasurementPoint {
+        MeasurementPoint::new_untyped(
+            Timestamp::from(UNIX_EPOCH),
+            metric,
+            Resource::LocalMachine,
+            ResourceConsumer::LocalMachine,
+            value,
+        )
+    }
+
+    #[test]
+    fn escape_late_attribute_string_with_equals() {
+        let expected = String::from(" \\= a string \\= with \\= ");
+        let result = escape_late_attribute(" = a string = with = ");
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn collect_attribute_keys_no_attributes() {
+        let metric = RawMetricId::from_u64(0);
+        let point = simple_point(metric, WrappedMeasurementValue::U64(0));
+        let buf = MeasurementBuffer::from_iter([point]);
+
+        let result = collect_attribute_keys(&buf);
+        let expected: HashSet<String> = HashSet::new();
+        assert_eq!(result, expected)
+    }
+
+    #[test]
+    fn collect_attribute_keys_some_attributes() {
+        let metric = RawMetricId::from_u64(0);
+        let point = simple_point(metric, WrappedMeasurementValue::U64(0))
+            .with_attr("k1", 123)
+            .with_attr("k2", 456);
+        let buf = MeasurementBuffer::from_iter([point]);
+
+        let result = collect_attribute_keys(&buf);
+        let expected: HashSet<String> = HashSet::from_iter(["k1".to_string(), "k2".to_string()]);
+        assert_eq!(result, expected)
+    }
+}
