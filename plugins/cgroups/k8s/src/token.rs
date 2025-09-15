@@ -5,7 +5,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{Context, anyhow};
+use anyhow::Context;
 use base64::{DecodeError, Engine};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -108,30 +108,42 @@ impl TokenRetrieval {
                 service_account,
                 namespace,
             } => {
-                log::debug!("running: kubectl create token {service_account} -n {namespace}");
-                let output = Command::new("kubectl")
-                    .args(["create", "token", service_account, "-n", namespace])
-                    .output()
-                    .context("failed to run kubectl command")?;
-
-                if !output.status.success() {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    match output.status.code() {
-                        Some(code) => return Err(anyhow!("kubectl exited with status {code}\n{stderr}")),
-                        None => return Err(anyhow!("kubectl terminated by signal\n{stderr}")),
-                    }
-                }
-
-                match String::from_utf8(output.stdout) {
-                    Ok(content) => Ok(content.trim().to_string()),
-                    Err(e) => Err(anyhow::Error::from(e).context("invalid kubectl output")),
-                }
+                let token_content = run_kubectl(&["create", "token", service_account, "-n", namespace])?;
+                Ok(token_content)
             }
             TokenRetrieval::File(path) => {
                 std::fs::read_to_string(path).with_context(|| format!("failed to read token from file {path:?}"))
             }
         }
     }
+}
+
+#[derive(Debug, Error)]
+enum KubectlError {
+    #[error("failed to run kubectl command")]
+    ExecError(#[from] std::io::Error),
+    #[error("kubectl exited with status {code}\n{stderr}")]
+    BadStatus { code: i32, stderr: String },
+    #[error("kubectl terminated by signal\n{stderr}")]
+    Signal { stderr: String },
+    #[error("kubectl produced an invalid output")]
+    InvalidOutput,
+}
+
+fn run_kubectl(args: &[&str]) -> Result<String, KubectlError> {
+    log::debug!("running: kubectl {}", args.join(" "));
+    let output = Command::new("kubectl").args(args).output()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        return match output.status.code() {
+            Some(code) => Err(KubectlError::BadStatus { code, stderr }),
+            None => Err(KubectlError::Signal { stderr }),
+        };
+    }
+
+    let content = String::from_utf8(output.stdout).map_err(|_| KubectlError::InvalidOutput)?;
+    Ok(content.trim().to_string())
 }
 
 /// Kubernetes token and way to retrieve it.

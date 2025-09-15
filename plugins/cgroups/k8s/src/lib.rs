@@ -62,6 +62,7 @@ impl AlumetPlugin for K8sPlugin {
         pod_registry
             .refresh()
             .context("failed to list pods with the K8S API, are the url and token correct?")?;
+        log::info!("List of pods refreshed.");
 
         // store the state for later, because we cannot set up everything now
         let starting_state = StartingState {
@@ -125,7 +126,7 @@ pub struct Config {
 
 #[cfg_attr(tarpaulin, ignore)]
 fn default_k8s_api_url() -> String {
-    String::from("https://127.0.0.1:8080")
+    String::from("http://127.0.0.1:8080")
 }
 
 impl Default for Config {
