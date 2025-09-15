@@ -39,6 +39,7 @@ The measurements produced by the `k8s` plugin have the following attributes:
 Here are some examples of how to configure this plugin.
 
 ### Example Configuration for Minikube
+<!-- markdownlint-disable MD029 -->
 
 Context: you have started Minikube on your local machine and want to run Alumet alongside of it (not in a pod).
 
@@ -58,7 +59,7 @@ The service account's token will be created and retrieved by the `k8s` Alumet pl
 kubectl proxy --port=8080
 ```
 
-Use the following configuration:
+Then, you can use the following configuration:
 
 ```toml
 [plugins.k8s]
