@@ -125,7 +125,7 @@ pub struct Config {
 
 #[cfg_attr(tarpaulin, ignore)]
 fn default_k8s_api_url() -> String {
-    String::from("https://127.0.0.1:8080")
+    String::from("http://127.0.0.1:8080")
 }
 
 impl Default for Config {
