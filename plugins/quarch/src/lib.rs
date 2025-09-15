@@ -2,7 +2,7 @@
 use alumet::{
     pipeline::elements::source::trigger,
     plugin::{
-        AlumetPostStart, ConfigTable,
+        ConfigTable,
         rust::{AlumetPlugin, deserialize_config, serialize_config},
     },
     units::Unit,
@@ -77,7 +77,6 @@ impl AlumetPlugin for QuarchPlugin {
 
         let trigger = trigger::builder::time_interval(self.config.poll_interval)
             .flush_interval(self.config.flush_interval)
-            .update_interval(self.config.flush_interval)
             .build()
             .unwrap();
 
@@ -87,14 +86,6 @@ impl AlumetPlugin for QuarchPlugin {
             trigger,
         )?;
 
-        Ok(())
-    }
-
-    fn pre_pipeline_start(&mut self, _alumet: &mut alumet::plugin::AlumetPreStart) -> anyhow::Result<()> {
-        Ok(())
-    }
-
-    fn post_pipeline_start(&mut self, _alumet: &mut AlumetPostStart) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -112,12 +103,12 @@ impl AlumetPlugin for QuarchPlugin {
             let _ = child.kill();
             let _ = child.wait();
         }
-        let _ = std::process::Command::new("pkill")
+        // Cross-platform process termination
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
             .arg("-9")
-            .arg("-f")
-            .arg("qis.jar")
+            .arg("qis_process_name")
             .status();
-
         Ok(())
     }
 }

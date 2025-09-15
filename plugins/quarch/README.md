@@ -1,6 +1,6 @@
 # Quarch Plugin
 
-This plugin measures disk power consumption using a  [Quarch Power Analysis Module](https://www.quarch.com/). The plugin provides real-time power monitoring in watts and is designed to work with Grid'5000 nodes (e.g., `yeti-4` in Grenoble) or any other devices connected to a Quarch Module.
+This plugin measures disk power consumption using a [Quarch Power Analysis Module](https://www.quarch.com/). It provides real-time power monitoring in watts and is designed to work with Grid'5000 nodes (e.g., `yeti-4` in Grenoble) or any other devices connected to a Quarch Module.
 
 ## Requirements
 
@@ -20,9 +20,9 @@ This plugin measures disk power consumption using a  [Quarch Power Analysis Modu
 
 The plugin exposes the following metric:
 
-| Metric         | Description                     | Example Value |
-|----------------|---------------------------------|---------------|
-| `disk_power_W` | Disk power consumption in Watts | `9.526866534` |
+| Name | Type | Unit | Description | Resource | ResourceConsumer | Attributes | More Information |
+|-----------------|-------|------|---------------------------------|----------------|------------------|------------|---------------------------------------|
+| `disk_power_W` | F64 | W | Disk power consumption in Watts | local_machine | local_machine | - | Sample is controlled via `poll_interval` |
 
 **Sampling rate** is controlled via the plugin configuration (`sample`, `poll_interval`).
 
@@ -32,15 +32,16 @@ Here is a configuration example of the plugin. It's part of the Alumet configura
 
 ```toml
 [plugins.quarch]
-# --- Quarch connection configuration  ---
-quarch_ip = "1.2.3.4"           # IP address of the module, a.g.,"172.17.30.102" for Grenoble Grid'5000
-quarch_port = 9760              # Default if unchanged on your module
-qis_port = 9780                 # Default if unchanged on your module
-java_bin = "path_to_java"       # Installed with quarchpy: ".../lib/python3.11/site-packages/quarchpy/connection_specific/jdk_jres/lin_amd64_jdk_jre/bin/java"
-qis_jar_path = "path_to_qis"    # Installed with quarchpy: ".../lib/python3.11/site-packages/quarchpy/connection_specific/QPS/win-amd64/qis/qis.jar"
+# --- Quarch connection configuration ---
+quarch_ip = "1.2.3.4" # IP address of the module, e.g., "172.17.30.102" for Grenoble Grid'5000
+quarch_port = 9760 # Default if unchanged on your module
+qis_port = 9780 # Default if unchanged on your module
+java_bin = "path_to_java" # Installed with quarchpy: ".../lib/python3.11/site-packages/quarchpy/connection_specific/jdk_jres/lin_amd64_jdk_jre/bin/java"
+qis_jar_path = "path_to_qis" # Installed with quarchpy: ".../lib/python3.11/site-packages/quarchpy/connection_specific/QPS/win-amd64/qis/qis.jar"
+
 # --- Measurement configuration ---
-poll_interval = "150ms"         # Interval between two reported measurements
-flush_interval = "1500ms"       # Interval between flushing buffered data
+poll_interval = "150ms" # Interval between two reported measurements
+flush_interval = "1500ms" # Interval between flushing buffered data
 ```
 
 *Notes:*
