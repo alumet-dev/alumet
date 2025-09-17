@@ -7,7 +7,7 @@ use std::{
 use alumet::pipeline::{
     Source,
     control::{PluginControlHandle, request},
-    elements::source::trigger::TriggerSpec,
+    elements::source::{control::TaskState, trigger::TriggerSpec},
 };
 use anyhow::Context;
 use util_cgroups::{Cgroup, CgroupDetector, CgroupHierarchy, CgroupMountWait, CgroupVersion, detect, mount_wait};
@@ -73,6 +73,13 @@ pub struct ReactorConfig {
     /// The cgroup v1 filesystem does not support notifications (inotify), we must rely on manually inspecting the cgroups at regular intervals.
     /// If `None` (the default), uses the default value of [`detect::Config`].
     pub v1_refresh_interval: Option<Duration>,
+
+    /// If true, the reactor will add new cgroup sources in pause state.
+    ///
+    /// This behavior is necessary to have fine-grained control over which cgroup to monitor.
+    /// For most use cases this should be set to false.
+    /// It's essentially needed for advanced Alumet setup with a control plugin that manage the state of sources.
+    pub add_source_in_pause_state: bool,
 }
 
 impl Default for ReactorConfig {
@@ -80,6 +87,7 @@ impl Default for ReactorConfig {
         Self {
             v1_coalesce_delay: Some(Duration::from_secs(1)),
             v1_refresh_interval: None,
+            add_source_in_pause_state: false,
         }
     }
 }
@@ -156,6 +164,7 @@ impl CgroupReactor {
         if let Some(refresh_interval) = config.v1_refresh_interval {
             detector_config.v1_refresh_interval = refresh_interval;
         }
+        detector_config.add_source_in_pause_state = config.add_source_in_pause_state;
         let callback = WaitCallback::new(metrics, callbacks, alumet_control, detectors.clone(), detector_config);
         let wait = CgroupMountWait::new(config.v1_coalesce_delay, callback)?;
         Ok(Self { wait, detectors })
@@ -208,6 +217,11 @@ impl<S: CgroupSetupCallback, R: CgroupRemovalCallback> detect::Callback for Dete
     fn on_cgroups_created(&mut self, cgroups: Vec<Cgroup>) -> anyhow::Result<()> {
         log::debug!("detected new cgroups: {cgroups:?}");
 
+        let init_source_state = match self.state.detector_config.add_source_in_pause_state {
+            false => TaskState::Run,
+            true => TaskState::Pause,
+        };
+
         // create the sources
         let mut sources = Vec::with_capacity(cgroups.len());
         for cgroup in cgroups {
@@ -240,9 +254,8 @@ impl<S: CgroupSetupCallback, R: CgroupRemovalCallback> detect::Callback for Dete
 
         // spawn the sources on the Alumet pipeline
         for (source, pers) in sources {
-            // TODO spawn the source in a Paused state if requested by the setup
             let dispatch_task = self.state.alumet_control.dispatch(
-                request::create_one().add_source(&pers.name, source, pers.trigger),
+                request::create_one().add_source_with_state(&pers.name, source, pers.trigger, init_source_state),
                 DISPATCH_TIMEOUT,
             );
             self.rt

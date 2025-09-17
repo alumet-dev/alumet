@@ -83,6 +83,7 @@ fn one_cgroup_created_after_v1() {
     let config = Config {
         v1_refresh_interval: Duration::from_millis(10),
         force_polling: false,
+        add_source_in_pause_state: false,
     };
     let f1 = callback(move |cgroups| {
         for cgroup in cgroups {
@@ -121,6 +122,7 @@ fn severale_cgroup_created_after_v1() {
     let config = Config {
         v1_refresh_interval: Duration::from_millis(10),
         force_polling: false,
+        add_source_in_pause_state: false,
     };
 
     let f1 = callback(move |cgroups| {
@@ -278,6 +280,7 @@ fn cgroup_missing_element_v1() {
     let config = Config {
         v1_refresh_interval: Duration::from_millis(10),
         force_polling: false,
+        add_source_in_pause_state: false,
     };
     let f1 = callback(move |cgroups| {
         for cgroup in cgroups {
@@ -358,6 +361,7 @@ fn creation_of_cgroup_before_and_after_v1() {
     let config = Config {
         v1_refresh_interval: Duration::from_millis(10),
         force_polling: false,
+        add_source_in_pause_state: false,
     };
     let f1 = callback(move |cgroups| {
         for cgroup in cgroups {
