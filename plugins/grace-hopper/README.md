@@ -31,7 +31,7 @@ The possible values are:
 |Value|Description|Grace|Grace Hopper|
 |-----|-----------|-----|------------|
 |`module`|Total power of the Grace Hopper module, including regulator loss and DRAM, GPU and HBM power.|No|Yes|
-|`grace`|Power of the Grace socket (the socket number is indicated by the point's resource id)|Yes (sockets 0 and 1)|Yes (socket 0)|
+|`grace`|Power of the Grace socket (the socket number is indicated by the point's resource id)|Yes|Yes|
 |`cpu`|CPU rail power|Yes|Yes|
 |`sysio`|SOC rail power|Yes|Yes|
 

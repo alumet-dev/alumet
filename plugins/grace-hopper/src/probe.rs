@@ -1,8 +1,3 @@
-use std::{
-    fs::File,
-    io::{Read, Seek},
-};
-
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, MeasurementType, Timestamp},
     metrics::TypedMetricId,
@@ -171,60 +166,12 @@ impl Source for GraceHopperSource {
     }
 }
 
-/// Reads and returns a power consumption value from a file.
-///
-/// This function clears the provided `buffer`, rewinds the `file` to the beginning,
-/// reads its entire content into the buffer, and attempts to parse it as an
-/// unsigned 64-bit integer (`u64`).
-///
-/// Returns the power consumption value on success
-pub fn read_power_value(buffer: &mut String, file: &mut File) -> Result<u64, anyhow::Error> {
-    buffer.clear();
-    file.rewind()?;
-    file.read_to_string(buffer)?;
-
-    let power_consumption = match buffer.trim().parse::<u64>() {
-        Ok(value) => value,
-        Err(_) => {
-            log::error!("can't parse the content of file {:?}, read: {:?}", file, buffer);
-            0
-        }
-    };
-    Ok(power_consumption)
-}
-
 #[cfg(test)]
 mod tests {
     use alumet::measurement::Timestamp;
-    use std::fs::File;
-    use std::io::Write;
     use std::time::Duration;
-    use tempfile::tempdir;
 
-    use super::{PowerMeasure, read_power_value};
-
-    #[test]
-    fn test_read_power_value() {
-        let test_cases = vec![
-            ("123456789", 123456789),
-            ("585865", 585865),
-            ("987123", 987123),
-            ("5588", 5588),
-            ("0", 0),
-        ];
-
-        for (line, expected_sensor) in test_cases {
-            let root = tempdir().unwrap();
-            let file_path = root.path().join("power1_oem");
-            let mut file = File::create(&file_path).unwrap();
-            writeln!(file, "{}", line).unwrap();
-            let mut file = File::open(&file_path).expect("failed to open the file");
-            let mut buffer = String::new();
-            let result = read_power_value(&mut buffer, &mut file);
-            let power = result.expect(&format!("expected ok for input {}", line));
-            assert_eq!(power, expected_sensor, "Incorrect sensor for input '{}'", line);
-        }
-    }
+    use super::PowerMeasure;
 
     #[test]
     fn compute_energy_from_power() {

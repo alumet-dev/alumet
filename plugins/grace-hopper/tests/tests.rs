@@ -1,14 +1,13 @@
 use alumet::{
     agent::{self, plugin::PluginSet},
-    measurement::{Timestamp, WrappedMeasurementValue},
+    measurement::Timestamp,
     pipeline::naming::SourceName,
     plugin::PluginMetadata,
     test::{RuntimeExpectations, StartupExpectations},
     units::{PrefixedUnit, Unit},
 };
 use plugin_grace_hopper::{Config, GraceHopperPlugin};
-use std::{fs::File, time::Duration};
-use std::{io::Write, thread};
+use std::time::Duration;
 use tempfile::tempdir;
 
 const TIMEOUT: Duration = Duration::from_secs(5);
