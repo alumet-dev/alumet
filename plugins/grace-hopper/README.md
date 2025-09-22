@@ -1,34 +1,39 @@
-# Grace-Hopper plugin
+# Grace Hopper plugin
 
-The Grace-Hopper plugin creates Alumet **sources** that collect measurements of CPU and GPU energy usage via the [ACPI power meter interface](https://docs.nvidia.com/grace-perf-tuning-guide/power-thermals.html#power-telemetry).
+The `grace-hopper` plugin collect measurements of CPU and GPU energy usage of NVIDIA **Grace** and **Grace Hopper** superchips.
 
 ## Requirements
 
-- Grace Hopper Superchip
-- Linux (the plugin relies on mechanisms provided by the kernel)
-- **Hwmon sysfs**: [See there to activate](#hwmon-sysfs).
+- Grace or Grace Hopper superchip
+- [Grace hwmon sensors enabled](#hwmon-sysfs)
 
 ## Metrics
 
-Here is the metric collected by the plugin source.
+Here are the metrics collected by the plugin.
 
 |Name|Type|Unit|Description|Attributes|More information|
 |----|----|----|-----------|----------|-----------------|
-|`energy_consumed`|float|joule|Energy consumed since the previous measurement|[Sensor](#sensor)| If the `resource_kind` is `LocalMachine` then the value is the sum of all sensors of the same type |
+|`grace_instant_power`|uint|milliWatt|Power consumption|[sensor](#sensor)| If the `resource_kind` is `LocalMachine` then the value is the sum of all sensors of the same type|
+|`grace_energy_consumption`|float|milliJoule|Energy consumed since the previous measurement|[Sensor](#sensor)| If the `resource_kind` is `LocalMachine` then the value is the sum of all sensors of the same type |
+
+The hardware sensors do not provide the energy, only the power.
+The plugin computes the energy consumption with a discrete integral on the power values.
 
 ### Attributes
 
 #### sensor
 
-A sensor is a specific area of power consumption tracked by Grace-Hopper plugin.
-The possible sensor values are:
+The Grace and Grace Hopper superchips track the power consumption of [several areas](https://docs.nvidia.com/grace-perf-tuning-guide/power-thermals.html#fig-grace-power-telemetry-sensors).
+The area is indicated by the `sensor` attribute of the measurements points.
 
-|Value|Description|
-|------|-----------|
-|`module`|Total module power|
-|`grace`|Grace Power, including DRAM and power for all regulators|
-|`cpu`|CPU Power, including regulator power|
-|`sysio`|SysIO Power, including regulator power|
+The possible values are:
+
+|Value|Description|Grace|Grace Hopper|
+|-----|-----------|-----|------------|
+|`module`|Total power of the Grace Hopper module, including regulator loss and DRAM, GPU and HBM power.|No|Yes|
+|`grace`|Power of the Grace socket (the socket number is indicated by the point's resource id)|Yes (sockets 0 and 1)|Yes (socket 0)|
+|`cpu`|CPU rail power|Yes|Yes|
+|`sysio`|SOC rail power|Yes|Yes|
 
 ## Configuration
 
@@ -44,22 +49,16 @@ root_path = "/sys/class/hwmon"
 
 ## More information
 
-### Source
+### hwmon sysfs
 
-All information in this README comes from:
-- [power-thermals](https://docs.nvidia.com/grace-perf-tuning-guide/power-thermals.html#power-telemetry)
-- [grace patch config guide](https://docs.nvidia.com/grace-patch-config-guide.pdf)
-- Tested chip: The Grace Hopper Superchip
-
-### hwmon-sysfs
-
-To enable and view `hwmon` sysfs nodes, ensure the following configuration:
+This plugin reads the power telemetry data provided via `hwmon`.
+To enable the `hwmon` virtual devices for Grace/GraceHopper, configure your system as follows:
 
 1. Kernel Configuration
 Set the following option in your kernel configuration (`kconfig`):
     > CONFIG_SENSORS_ACPI_POWER=m
 
-2. Kernel Command Line Parameter
+1. Kernel Command Line Parameter
 Add the following parameter to your kernel command line:
     > acpi_power_meter.force_cap_on=y
 
@@ -70,4 +69,4 @@ You could see your current kernel configuration about the ACPI POWER sensor usin
 - `grep CONFIG_SENSORS_ACPI_POWER /boot/config-$(uname -r)`
 - `modinfo acpi_power_meter`
 
-More information could be found [on the grace patch configuration guide](https://docs.nvidia.com/grace-patch-config-guide.pdf)
+More information can be found [on the NVIDIA Grace Platform Configurations Guide](https://docs.nvidia.com/grace-patch-config-guide.pdf).
