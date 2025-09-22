@@ -78,10 +78,10 @@ mod wrapped_transform;
 ///             // Prepare the environment for the test
 ///             todo!();
 ///         },
-///         |m| {
+///         |out| {
 ///             // The source has been triggered by the test module, check its output.
 ///             // As an example, we check that the source has produced only one point.
-///             assert_eq!(m.len(), 1);
+///             assert_eq!(out.measurements().len(), 1);
 ///             todo!();
 ///         },
 ///     );
