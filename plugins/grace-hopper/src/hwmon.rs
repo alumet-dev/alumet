@@ -8,8 +8,11 @@ use std::{
     str::FromStr,
 };
 
-use anyhow::Context;
+use anyhow::{Context, anyhow};
 use thiserror::Error;
+
+#[cfg(not(target_os = "linux"))]
+compile_error!("only Linux is supported");
 
 /// Represents a hwmon device that exposes GraceHopper power telemetry.
 ///
@@ -89,29 +92,31 @@ impl Device {
 /// ```
 pub fn explore(hwmon_path: &Path) -> anyhow::Result<Vec<Device>> {
     let mut devices = Vec::with_capacity(6); // we expect 4 or 6 items
-
     for entry in std::fs::read_dir(hwmon_path).with_context(|| format!("failed to read dir {hwmon_path:?}"))? {
         let entry = entry?;
         let path = entry.path();
-        if entry.file_type()?.is_dir() {
-            for entry in std::fs::read_dir(&path).with_context(|| format!("failed to read dir {hwmon_path:?}"))? {
-                let entry = entry?;
-                let path = entry.path();
-                let file_type = entry.file_type()?;
-                let file_name = path.file_name().unwrap().to_string_lossy();
-                if file_name == "device" && file_type.is_dir() {
-                    // entry is /sys/class/hwmon/hwmonX/device and has a file power1_oem_info
-                    if std::fs::exists(path.join("power1_oem_info"))? {
-                        match Device::at_sysfs(&path) {
-                            Ok(device) => devices.push(device),
-                            Err(err) => log::error!(
-                                "dir {path:?} looks like a Grace/GraceHopper telemetry sensor but we failed to analyze it: {err:?}"
-                            ),
-                        };
-                    }
+        for entry in std::fs::read_dir(&path).with_context(|| format!("failed to read dir {hwmon_path:?}"))? {
+            let entry = entry?;
+            let path = entry.path();
+            let file_type = std::fs::metadata(&path)?.file_type(); // traverses symlinks
+            let file_name = path.file_name().unwrap().to_string_lossy();
+            if file_name == "device" && file_type.is_dir() {
+                log::trace!("inspecting {path:?}");
+                // entry is /sys/class/hwmon/hwmonX/device and has a file power1_oem_info
+                if std::fs::exists(path.join("power1_oem_info"))? {
+                    match Device::at_sysfs(&path) {
+                        Ok(device) => devices.push(device),
+                        Err(err) => log::error!(
+                            "dir {path:?} looks like a Grace/GraceHopper telemetry sensor but we failed to analyze it: {err:?}"
+                        ),
+                    };
                 }
             }
         }
+    }
+
+    if devices.is_empty() {
+        return Err(anyhow!("power telemetry not found in {hwmon_path:?}"));
     }
 
     Ok(devices)
@@ -268,6 +273,78 @@ mod tests {
         std::fs::write(file_path_power, "no")?;
 
         let mut devices = explore(root_path)?;
+        devices.sort_by_key(|d| d.info.socket);
+        assert_eq!(devices.len(), 2);
+        assert_eq!(
+            devices[0].info,
+            SensorInfo {
+                kind: TelemetryKind::Module,
+                socket: 0
+            }
+        );
+        assert_eq!(
+            devices[1].info,
+            SensorInfo {
+                kind: TelemetryKind::Grace,
+                socket: 7
+            }
+        );
+        let mut buf = String::new();
+        assert_eq!(devices[0].read_power_value(&mut buf)?, 123456789);
+        assert_eq!(devices[1].read_power_value(&mut buf)?, 5);
+        Ok(())
+    }
+
+    #[test]
+    fn explore_should_find_devices_with_symlinks() -> anyhow::Result<()> {
+        let root = tempdir()?;
+        let actual_root = root.path().join("actual");
+        let root_path = root.path().join("links");
+        std::fs::create_dir(&actual_root)?;
+        std::fs::create_dir(&root_path)?;
+
+        // device hwmon0
+        let device_link = root_path.join("hwmon0");
+        let device_actual = actual_root.join("mySensor");
+        std::fs::create_dir(&device_actual)?;
+        std::os::unix::fs::symlink(&device_actual, &device_link)?;
+
+        let file_path_info = device_actual.join("device/power1_oem_info");
+        let file_path_power = device_actual.join("device/power1_average");
+        std::fs::create_dir_all(file_path_info.parent().unwrap())?;
+        std::fs::write(file_path_info, "Module Power Socket 0")?;
+        std::fs::write(file_path_power, "123456789")?;
+
+        // device hwmon2
+        let device_link = root_path.join("hwmon2");
+        let device_actual = actual_root.join("hwmon2");
+        std::fs::create_dir(&device_actual)?;
+        std::os::unix::fs::symlink(&device_actual, &device_link)?;
+
+        // NB: hwmon2/device is a link too!
+        let device_device_actual = device_actual.join("device_actual");
+        let device_device_link = device_actual.join("device");
+        std::fs::create_dir(&device_device_actual)?;
+        std::os::unix::fs::symlink(&device_device_actual, &device_device_link)?;
+
+        let file_path_info = device_device_link.join("power1_oem_info");
+        let file_path_power = device_device_link.join("power1_average");
+        std::fs::create_dir_all(file_path_info.parent().unwrap())?;
+        std::fs::write(file_path_info, "Grace Power Socket 7")?;
+        std::fs::write(file_path_power, "5")?;
+
+        // not a grace telemetry device (should not be included in the list of devices)
+        let device_link = root_path.join("other");
+        let device_actual = actual_root.join("badbad");
+        std::fs::create_dir(&device_actual)?;
+        std::os::unix::fs::symlink(&device_actual, &device_link)?;
+        let file_path_info = device_actual.join("device/something");
+        let file_path_power = device_actual.join("something_else");
+        std::fs::create_dir_all(file_path_info.parent().unwrap())?;
+        std::fs::write(file_path_info, "humhum")?;
+        std::fs::write(file_path_power, "no")?;
+
+        let mut devices = explore(&root_path)?;
         devices.sort_by_key(|d| d.info.socket);
         assert_eq!(devices.len(), 2);
         assert_eq!(

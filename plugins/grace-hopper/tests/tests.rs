@@ -16,7 +16,7 @@ const METRIC_POWER: &str = "grace_instant_power";
 const METRIC_ENERGY: &str = "grace_energy_consumption";
 
 #[test]
-fn test_correct_plugin_with_no_data() {
+fn plugin_without_device() {
     let root = tempdir().unwrap();
     let root_path = root.path().to_str().unwrap().to_string();
 
@@ -36,11 +36,8 @@ fn test_correct_plugin_with_no_data() {
 
     let agent = agent::Builder::new(plugins)
         .with_expectations(startup_expectation)
-        .build_and_start()
-        .unwrap();
-
-    agent.pipeline.control_handle().shutdown();
-    agent.wait_for_shutdown(TIMEOUT).unwrap();
+        .build_and_start();
+    assert!(agent.is_err(), "the plugin should fail to start (no hwmon device)")
 }
 
 #[test]

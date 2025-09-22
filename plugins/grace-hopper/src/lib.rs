@@ -45,6 +45,8 @@ impl AlumetPlugin for GraceHopperPlugin {
         let devices = hwmon::explore(&hwmon_path)
             .context("could not find (or init) hwmon devices, is power telemetry enabled?")?;
 
+        log::debug!("Devices found: {devices:?}");
+
         let metrics = Metrics::new(alumet)?;
         let source = GraceHopperSource::new(metrics, devices);
 

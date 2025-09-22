@@ -64,10 +64,7 @@ impl PowerMeasure {
     fn compute_energy(&self, previous: &PowerMeasure) -> anyhow::Result<f64> {
         let time_elapsed = self.t.duration_since(previous.t)?.as_secs_f64();
         let energy_consumed = ((self.power + previous.power) as f64 / (2.0 * 1000.0)) * time_elapsed; // 1000 because we go from µW to mJ
-        println!(
-            "(power {} + previous {}) / 2   * time {} ({:?} - {:?})",
-            self.power, previous.power, time_elapsed, self.t, previous.t
-        );
+        // TODO shouldn't we change the timestamp?
         Ok(energy_consumed)
     }
 }
