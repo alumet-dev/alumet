@@ -1,11 +1,16 @@
-use std::panic::{self, AssertUnwindSafe};
+use std::{
+    panic::{self, AssertUnwindSafe},
+    sync::{Arc, Mutex},
+};
 
 use anyhow::anyhow;
 use tokio::sync::mpsc;
 
 use crate::{
     measurement::{MeasurementAccumulator, Timestamp},
+    metrics::online::MetricReader,
     pipeline::{Source, elements::error::PollError},
+    test::runtime::SourceCheckOutputContext,
 };
 
 use super::{SourceCheck, pretty::PrettyAny};
@@ -16,6 +21,9 @@ pub struct WrappedManagedSource {
     pub source: Box<dyn Source>,
     pub in_rx: mpsc::Receiver<SetSourceCheck>,
     pub out_tx: mpsc::Sender<SourceDone>,
+
+    /// Metrics reader that will be provided later.
+    pub metrics_r: Arc<Mutex<Option<MetricReader>>>,
 }
 
 pub struct SetSourceCheck(pub SourceCheck);
@@ -39,15 +47,30 @@ impl WrappedManagedSource {
         let check = self.in_rx.try_recv().unwrap().0;
         (check.make_input)();
 
+        // TODO allow make_input to change the timestamp?
+
         // poll the source, catch any panic
         log::trace!("polling underlying source");
         self.source.poll(measurements, timestamp)?;
 
-        // check output
-        log::trace!("applying check");
-        (check.check_output)(measurements.as_inner());
-        self.out_tx.try_send(SourceDone).unwrap();
+        // get read access to the MetricRegistry
+        log::trace!("get access to the metric registry");
+        let metrics_lock = self.metrics_r.lock().unwrap();
+        let metrics_r = metrics_lock
+            .as_ref()
+            .expect("MetricReader should be set before the pipeline starts");
+        tokio::task::block_in_place(move || {
+            let mut check_ctx = SourceCheckOutputContext {
+                measurements: measurements.as_inner(),
+                metrics: &metrics_r.blocking_read(),
+            };
 
+            // check output
+            log::trace!("applying check");
+            (check.check_output)(&mut check_ctx);
+        });
+
+        self.out_tx.try_send(SourceDone).unwrap();
         log::trace!("wrapped source done");
         Ok(())
     }

@@ -1,4 +1,4 @@
-use std::{cell::RefCell, ops::Deref, rc::Rc, time::Duration};
+use std::{cell::RefCell, ops::Deref, rc::Rc, sync::{Arc, Mutex}, time::Duration};
 
 use rustc_hash::FxHashMap;
 use tokio::sync::RwLockReadGuard;
@@ -10,27 +10,19 @@ use crate::{
     agent::builder::TestExpectations,
     measurement::{MeasurementBuffer, MeasurementType},
     metrics::{
-        Metric, RawMetricId,
-        duplicate::{DuplicateCriteria, DuplicateReaction},
-        error::MetricCreationError,
-        registry::MetricRegistry,
+        duplicate::{DuplicateCriteria, DuplicateReaction}, error::MetricCreationError, online::MetricReader, registry::MetricRegistry, Metric, RawMetricId
     },
     pipeline::{
-        Output,
         control::{
-            AnonymousControlHandle,
-            request::{self, any::AnyAnonymousControlRequest},
-        },
-        elements::{
+            request::{self, any::AnyAnonymousControlRequest}, AnonymousControlHandle
+        }, elements::{
             output::builder::{BlockingOutputBuilder, OutputBuilder},
             source::{
                 builder::{ManagedSourceBuilder, SourceBuilder},
                 trigger,
             },
             transform::builder::TransformBuilder,
-        },
-        matching::{OutputNamePattern, SourceNamePattern, TransformNamePattern},
-        naming::{OutputName, PluginName, SourceName, TransformName},
+        }, matching::{OutputNamePattern, SourceNamePattern, TransformNamePattern}, naming::{OutputName, PluginName, SourceName, TransformName}, Output
     },
     units::PrefixedUnit,
 };
@@ -145,6 +137,7 @@ impl TestExpectations for RuntimeExpectations {
             checks: Vec<SourceCheck>,
             builder: Box<dyn ManagedSourceBuilder>,
             controllers: TestControllerMap<SourceName, SourceTestController>,
+            metrics_reader: Arc<Mutex<Option<MetricReader>>>,
         ) -> Box<dyn ManagedSourceBuilder> {
             Box::new(move |ctx| {
                 let mut source = builder(ctx)?;
@@ -172,6 +165,7 @@ impl TestExpectations for RuntimeExpectations {
                     source: source.source,
                     in_rx: set_rx,
                     out_tx: done_tx,
+                    metrics_r: metrics_reader.clone(),
                 });
                 Ok(source)
             })
@@ -243,6 +237,9 @@ impl TestExpectations for RuntimeExpectations {
         let transform_tests_before = transform_tests.clone();
         let output_tests_before = output_tests.clone();
         let metrics_to_create = self.metrics_to_create;
+
+        let metrics_reader_for_sources: Arc<Mutex<Option<MetricReader>>> = Arc::new(Mutex::new(None));
+
         builder = builder.before_operation_begin(move |pipeline| {
             // Create the test metrics
             let res = pipeline.metrics.register_many(metrics_to_create, DuplicateCriteria::Strict, DuplicateReaction::Error);
@@ -266,6 +263,7 @@ impl TestExpectations for RuntimeExpectations {
                             checks,
                             builder,
                             source_tests_before.clone(),
+                            metrics_reader_for_sources.clone(),
                         );
                         SourceBuilder::Managed(wrapped)
                     },
@@ -282,7 +280,11 @@ impl TestExpectations for RuntimeExpectations {
                 .add_source_builder(
                     PluginName(TESTER_PLUGIN_NAME.to_owned()),
                     TESTER_SOURCE_NAME,
-                    SourceBuilder::Autonomous(Box::new(|_ctx, cancel, tx| {
+                    SourceBuilder::Autonomous(Box::new(move |ctx, cancel, tx| {
+                        // populate the MetricReader that we need in the wrapped sources
+                        *metrics_reader_for_sources.lock().unwrap() = Some(ctx.metrics_reader());
+
+                        // create the special source
                         Ok(Box::pin(async move {
                             loop {
                                 tokio::select! {
@@ -598,7 +600,7 @@ impl RuntimeExpectations {
     pub fn test_source<Fi, Fo>(mut self, source: SourceName, make_input: Fi, check_output: Fo) -> Self
     where
         Fi: Fn() + Send + 'static,
-        Fo: Fn(&MeasurementBuffer) + Send + 'static,
+        Fo: Fn(&mut SourceCheckOutputContext) + Send + 'static,
     {
         let name = source.clone();
         self.sources.entry(name).or_default().push(SourceCheck {
@@ -653,7 +655,7 @@ impl RuntimeExpectations {
 
 pub struct SourceCheck {
     make_input: Box<dyn Fn() + Send>,
-    check_output: Box<dyn Fn(&MeasurementBuffer) + Send>,
+    check_output: Box<dyn Fn(&mut SourceCheckOutputContext) + Send>,
 }
 
 pub struct TransformCheck {
@@ -665,6 +667,25 @@ pub struct OutputCheck {
     make_input: Box<dyn Fn(&mut OutputCheckInputContext) -> MeasurementBuffer + Send>,
     check_output: Box<dyn Fn() + Send>,
 }
+
+// test_source ctx
+
+pub struct SourceCheckOutputContext<'a> {
+    measurements: &'a MeasurementBuffer,
+    metrics: &'a MetricRegistry,
+}
+
+impl<'a> SourceCheckOutputContext<'a> {
+    pub fn measurements(&self) -> &MeasurementBuffer {
+        self.measurements
+    }
+
+    pub fn metrics(&'a self) -> &'a MetricRegistry {
+        self.metrics
+    }
+}
+
+// test_transform ctx
 
 pub struct TransformCheckInputContext<'a> {
     metrics: RwLockReadGuard<'a, MetricRegistry>,
@@ -690,6 +711,8 @@ impl<'a> TransformCheckOutputContext<'a> {
         self.metrics
     }
 }
+
+// test_output ctx
 
 pub struct OutputCheckInputContext<'a> {
     metrics: RwLockReadGuard<'a, MetricRegistry>,
