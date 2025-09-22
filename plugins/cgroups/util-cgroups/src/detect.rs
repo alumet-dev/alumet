@@ -60,10 +60,17 @@ pub struct Config {
     ///
     /// Only applies to cgroup v1 hierarchies (cgroupv2 supports inotify).
     pub v1_refresh_interval: Duration,
+
     /// If `true`, always use a poll-based approach instead of `inotify`.
     ///
     /// This is less efficient, but could prove useful for debugging purposes.
     pub force_polling: bool,
+
+    /// If true, the reactor will add new cgroup sources in pause state.
+    ///
+    /// This behavior is necessary to have fine-grained control over which cgroup to monitor.
+    /// It's essentially needed for advanced Alumet setup with a control plugin that manage the state of sources.
+    pub add_source_in_pause_state: bool,
 }
 
 impl Default for Config {
@@ -71,6 +78,7 @@ impl Default for Config {
         Self {
             v1_refresh_interval: Duration::from_secs(30),
             force_polling: false,
+            add_source_in_pause_state: false,
         }
     }
 }

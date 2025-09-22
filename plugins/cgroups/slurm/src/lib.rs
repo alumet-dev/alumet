@@ -61,7 +61,10 @@ impl AlumetPlugin for SlurmPlugin {
         // Prepare for cgroup detection.
         let starting_state = StartingState {
             metrics: Metrics::create(alumet)?,
-            reactor_config: ReactorConfig::default(),
+            reactor_config: ReactorConfig {
+                add_source_in_pause_state: config.add_source_in_pause_state,
+                ..Default::default()
+            },
             source_setup: source::JobSourceSetup::new(config)?,
         };
         self.starting_state = Some(starting_state);
@@ -104,6 +107,14 @@ pub struct Config {
     pub cgroupv1_refresh_interval: Option<Duration>,
     /// Only monitor the job cgroup related metrics and skip the others
     pub jobs_only: bool,
+
+    /// If true, the slurm sources will be started in pause state.
+    /// If None: the value is false.
+    ///
+    /// This behavior is necessary to have fine-grained control over which cgroup to monitor.
+    /// !! It's essentially needed for advanced Alumet setup with a control plugin that manage the state of sources.
+    #[serde(default)]
+    pub add_source_in_pause_state: bool,
 }
 
 impl Default for Config {
@@ -113,6 +124,7 @@ impl Default for Config {
             poll_interval: Duration::from_secs(1),
             cgroupv1_refresh_interval: None,
             jobs_only: true,
+            add_source_in_pause_state: false,
         }
     }
 }

@@ -45,6 +45,8 @@ poll_interval = "1s"
 cgroupv1_refresh_interval = "30s"
 # Only monitor the job cgroup related metrics and skip the others
 jobs_only = true
+# If true, the slurm sources will be started in pause state (only for advanced setup with a control plugin enabled)
+add_source_in_pause_state = false
 ```
 
 ## More information
