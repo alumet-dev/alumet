@@ -37,7 +37,7 @@ impl Device {
         let info = std::fs::read_to_string(&info_file).with_context(|| format!("failed to read {info_file:?}"))?;
         let info = SensorInfo::from_str(&info)
             .with_context(|| format!("failed to parse {info_file:?}: invalid content '{info}'"))?;
-        let power_file = File::open(power_file).with_context(|| format!("failed to open"))?;
+        let power_file = File::open(&power_file).with_context(|| format!("failed to open {power_file:?}"))?;
         Ok(Self {
             path: path.to_path_buf(),
             info,

@@ -41,7 +41,7 @@ impl Probe {
         let power = self.device.read_power_value(buf)?;
         let m = PowerMeasure { t, power };
         let energy = match self.prev_power.as_mut() {
-            Some(prev) => Some(m.compute_energy(&prev)?),
+            Some(prev) => Some(m.compute_energy(prev)?),
             None => None,
         };
         self.prev_power = Some(m);
