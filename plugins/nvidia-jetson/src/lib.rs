@@ -207,6 +207,7 @@ mod tests {
             SourceName::from_str("jetson", "builtin_ina_sensor"),
             || {},
             |out| {
+                let out = out.measurements();
                 println!("{out:?}");
 
                 // group measurements by (i2c address, channel, metric) to check them later (the order in the buffer is not guaranteed)

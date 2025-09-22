@@ -1,4 +1,10 @@
-use std::{cell::RefCell, ops::Deref, rc::Rc, sync::{Arc, Mutex}, time::Duration};
+use std::{
+    cell::RefCell,
+    ops::Deref,
+    rc::Rc,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use rustc_hash::FxHashMap;
 use tokio::sync::RwLockReadGuard;
@@ -10,19 +16,28 @@ use crate::{
     agent::builder::TestExpectations,
     measurement::{MeasurementBuffer, MeasurementType},
     metrics::{
-        duplicate::{DuplicateCriteria, DuplicateReaction}, error::MetricCreationError, online::MetricReader, registry::MetricRegistry, Metric, RawMetricId
+        Metric, RawMetricId,
+        duplicate::{DuplicateCriteria, DuplicateReaction},
+        error::MetricCreationError,
+        online::MetricReader,
+        registry::MetricRegistry,
     },
     pipeline::{
+        Output,
         control::{
-            request::{self, any::AnyAnonymousControlRequest}, AnonymousControlHandle
-        }, elements::{
+            AnonymousControlHandle,
+            request::{self, any::AnyAnonymousControlRequest},
+        },
+        elements::{
             output::builder::{BlockingOutputBuilder, OutputBuilder},
             source::{
                 builder::{ManagedSourceBuilder, SourceBuilder},
                 trigger,
             },
             transform::builder::TransformBuilder,
-        }, matching::{OutputNamePattern, SourceNamePattern, TransformNamePattern}, naming::{OutputName, PluginName, SourceName, TransformName}, Output
+        },
+        matching::{OutputNamePattern, SourceNamePattern, TransformNamePattern},
+        naming::{OutputName, PluginName, SourceName, TransformName},
     },
     units::PrefixedUnit,
 };

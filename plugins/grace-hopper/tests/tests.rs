@@ -1,6 +1,6 @@
 use alumet::{
     agent::{self, plugin::PluginSet},
-    measurement::WrappedMeasurementValue,
+    measurement::{Timestamp, WrappedMeasurementValue},
     pipeline::naming::SourceName,
     plugin::PluginMetadata,
     test::{RuntimeExpectations, StartupExpectations},
@@ -45,7 +45,7 @@ fn test_correct_plugin_with_no_data() {
 }
 
 #[test]
-fn test_correct_plugin_init_with_several_sources() {
+fn full_plugin_with_multiple_hwmon_sensors() {
     let root = tempdir().unwrap();
 
     let root_path = root.path().to_str().unwrap().to_string();
@@ -53,43 +53,33 @@ fn test_correct_plugin_init_with_several_sources() {
     let file_path_average = root.path().join("hwmon1/device/power1_average");
     let file_path_interval = root.path().join("hwmon1/device/power1_average_interval");
     std::fs::create_dir_all(file_path_info.parent().unwrap()).unwrap();
-    let mut file = File::create(&file_path_info).unwrap();
-    let mut file_avg = File::create(&file_path_average).unwrap();
-    let mut file_int = File::create(&file_path_interval).unwrap();
-    writeln!(file, "Module Power Socket 0").unwrap();
-    writeln!(file_avg, "60000000").unwrap();
-    writeln!(file_int, "50").unwrap();
+    std::fs::write(file_path_info, "Module Power Socket 0").unwrap();
+    std::fs::write(file_path_average, "60000000").unwrap();
+    std::fs::write(file_path_interval, "50").unwrap();
 
     let file_path_info = root.path().join("hwmon2/device/power1_oem_info");
     let file_path_average = root.path().join("hwmon2/device/power1_average");
     let file_path_interval = root.path().join("hwmon2/device/power1_average_interval");
     std::fs::create_dir_all(file_path_info.parent().unwrap()).unwrap();
-    let mut file = File::create(&file_path_info).unwrap();
-    let mut file_avg = File::create(&file_path_average).unwrap();
-    let mut _file_int = File::create(&file_path_interval).unwrap();
-    writeln!(file, "Grace Power Socket 0").unwrap();
-    writeln!(file_avg, "62000000").unwrap();
+    std::fs::write(file_path_info, "Grace Power Socket 0").unwrap();
+    std::fs::write(file_path_average, "62000000").unwrap();
+    std::fs::write(file_path_interval, "50").unwrap();
 
     let file_path_info = root.path().join("hwmon3/device/power1_oem_info");
     let file_path_average = root.path().join("hwmon3/device/power1_average");
     let file_path_interval = root.path().join("hwmon3/device/power1_average_interval");
     std::fs::create_dir_all(file_path_info.parent().unwrap()).unwrap();
-    let mut file = File::create(&file_path_info).unwrap();
-    let mut file_avg = File::create(&file_path_average).unwrap();
-    let mut _file_int = File::create(&file_path_interval).unwrap();
-    writeln!(file, "CPU Power Socket 2").unwrap();
-    writeln!(file_avg, "64000000").unwrap();
+    std::fs::write(file_path_info, "CPU Power Socket 2").unwrap();
+    std::fs::write(file_path_average, "64000000").unwrap();
+    std::fs::write(file_path_interval, "100").unwrap();
 
     let file_path_info = root.path().join("hwmon6/device/power1_oem_info");
     let file_path_average = root.path().join("hwmon6/device/power1_average");
     let file_path_interval = root.path().join("hwmon6/device/power1_average_interval");
     std::fs::create_dir_all(file_path_info.parent().unwrap()).unwrap();
-    let mut file = File::create(&file_path_info).unwrap();
-    let mut file_avg = File::create(&file_path_average).unwrap();
-    let mut file_int = File::create(&file_path_interval).unwrap();
-    writeln!(file, "SysIO Power Socket 2").unwrap();
-    writeln!(file_avg, "67000000").unwrap();
-    writeln!(file_int, "77").unwrap();
+    std::fs::write(file_path_info, "SysIO Power Socket 2").unwrap();
+    std::fs::write(file_path_average, "67000000").unwrap();
+    std::fs::write(file_path_interval, "77").unwrap();
 
     let mut plugins = PluginSet::new();
     let config = Config {
@@ -110,115 +100,97 @@ fn test_correct_plugin_init_with_several_sources() {
 
     let source = SourceName::from_str("grace-hopper", SOURCE_NAME);
     let runtime_expectation = RuntimeExpectations::new()
-        .test_source(
-            source.clone(),
-            || {
-                thread::sleep(Duration::from_secs(1));
-            },
-            |_m| {},
-        )
+        // call the source once, so that a "previous measurement" exists next time
         .test_source(
             source.clone(),
             || {},
-            |m| {
-                // let (data_power, data_energy) = m.to_vec().into_iter().partition(|p| p.metric == todo!());
-                for elm in m {
-                    if let Some((_, value)) = elm.attributes().find(|(key, _)| *key == "sensor") {
-                        // println!("ELM is: {:?}", elm);
-                        let kind = if let alumet::measurement::AttributeValue::String(kind) = value {
-                            kind
-                        } else if let alumet::measurement::AttributeValue::Str(kind) = value {
-                            match *kind {
-                                "module" => {
-                                    assert_eq!(elm.value, WrappedMeasurementValue::U64(60_000_000));
-                                }
-                                "grace" => {
-                                    assert_eq!(elm.value, WrappedMeasurementValue::U64(62_000_000))
-                                }
-                                "cpu" => {
-                                    assert_eq!(elm.value, WrappedMeasurementValue::U64(64_000_000))
-                                }
-                                "sysio" => {
-                                    assert_eq!(elm.value, WrappedMeasurementValue::U64(67_000_000))
-                                }
-                                _ => {
-                                    println!("Kind is: {}", kind);
-                                    assert!(false, "No correct attribute found")
-                                }
-                            }
-                            continue;
-                        } else {
-                            panic!("bad kind of AttributeValue"); // Panic if it doesn't match
-                        };
-                        match kind.as_str() {
-                            "module" => {
-                                if let alumet::resources::Resource::CpuPackage { id } = elm.resource {
-                                    if id != 0 {
-                                        assert!(false);
-                                    }
-                                    match elm.value {
-                                        WrappedMeasurementValue::F64(value) => {
-                                            println!("value is {:?}", value);
-                                            assert!(value >= 60.0 && value <= 61.0);
-                                        }
-                                        WrappedMeasurementValue::U64(_) => {
-                                            assert!(false);
-                                        }
-                                    }
-                                }
-                            }
-                            "grace" => {
-                                if let alumet::resources::Resource::CpuPackage { id } = elm.resource {
-                                    if id != 0 {
-                                        assert!(false);
-                                    }
-                                    match elm.value {
-                                        WrappedMeasurementValue::F64(value) => {
-                                            assert!(value >= 62.0 && value <= 63.0);
-                                        }
-                                        WrappedMeasurementValue::U64(_) => {
-                                            assert!(false);
-                                        }
-                                    }
-                                }
-                            }
-                            "cpu" => {
-                                if let alumet::resources::Resource::CpuPackage { id } = elm.resource {
-                                    if id != 2 {
-                                        assert!(false);
-                                    }
-                                    match elm.value {
-                                        WrappedMeasurementValue::F64(value) => {
-                                            assert!(value >= 64.0 && value <= 65.0);
-                                        }
-                                        WrappedMeasurementValue::U64(_) => {
-                                            assert!(false);
-                                        }
-                                    }
-                                }
-                            }
-                            "sysio" => {
-                                if let alumet::resources::Resource::CpuPackage { id } = elm.resource {
-                                    if id != 2 {
-                                        assert!(false);
-                                    }
-                                    match elm.value {
-                                        WrappedMeasurementValue::F64(value) => {
-                                            assert!(value >= 67.0 && value <= 68.0);
-                                        }
-                                        WrappedMeasurementValue::U64(_) => {
-                                            assert!(false);
-                                        }
-                                    }
-                                }
-                            }
-                            _ => {
-                                println!("Kind is: {}", kind);
-                                assert!(false, "No correct attribute found")
-                            }
-                        }
-                    }
-                }
+            |ctx| {
+                let m = ctx.measurements();
+                let power_metric = ctx.metrics().by_name(METRIC_POWER).unwrap().0;
+                let energy_metric = ctx.metrics().by_name(METRIC_ENERGY).unwrap().0;
+
+                // we should have no energy for the moment
+                assert!(
+                    m.iter().find(|p| p.metric == energy_metric).is_none(),
+                    "no energy metric should be pushed on the first poll"
+                );
+
+                // check the power measurements
+                let m: Vec<_> = m.into_iter().filter(|p| p.metric == power_metric).collect();
+                let module = m.iter().find(|p| {
+                    p.attributes()
+                        .find(|(k, v)| *k == "sensor" && v.to_string() == "module")
+                        .is_some()
+                });
+                let grace = m.iter().find(|p| {
+                    p.attributes()
+                        .find(|(k, v)| *k == "sensor" && v.to_string() == "grace")
+                        .is_some()
+                });
+                let cpu = m.iter().find(|p| {
+                    p.attributes()
+                        .find(|(k, v)| *k == "sensor" && v.to_string() == "cpu")
+                        .is_some()
+                });
+                let sysio = m.iter().find(|p| {
+                    p.attributes()
+                        .find(|(k, v)| *k == "sensor" && v.to_string() == "sysio")
+                        .is_some()
+                });
+                // TODO make it nicer to get an attribute by key
+                assert_eq!(module.unwrap().value.as_u64(), 60000000);
+                assert_eq!(grace.unwrap().value.as_u64(), 62000000);
+                assert_eq!(cpu.unwrap().value.as_u64(), 64000000);
+                assert_eq!(sysio.unwrap().value.as_u64(), 67000000);
+                println!("t: {:?}", Timestamp::now());
+
+                // We cannot sleep in the make_input of the next test_source, because the timestamp would not be updated. So, we sleep here.
+                std::thread::sleep(Duration::from_secs(1))
+            },
+        )
+        // call the source a second time and check the measurements
+        .test_source(
+            source.clone(),
+            || {},
+            |ctx| {
+                println!("t: {:?}", Timestamp::now());
+                let m = ctx.measurements();
+                // check the energy measurements
+                let energy_metric = ctx.metrics().by_name(METRIC_ENERGY).unwrap().0;
+                let m: Vec<_> = m.into_iter().filter(|p| p.metric == energy_metric).collect();
+                let module = m.iter().find(|p| {
+                    p.attributes()
+                        .find(|(k, v)| *k == "sensor" && v.to_string() == "module")
+                        .is_some()
+                });
+                let grace = m.iter().find(|p| {
+                    p.attributes()
+                        .find(|(k, v)| *k == "sensor" && v.to_string() == "grace")
+                        .is_some()
+                });
+                let cpu = m.iter().find(|p| {
+                    p.attributes()
+                        .find(|(k, v)| *k == "sensor" && v.to_string() == "cpu")
+                        .is_some()
+                });
+                let sysio = m.iter().find(|p| {
+                    p.attributes()
+                        .find(|(k, v)| *k == "sensor" && v.to_string() == "sysio")
+                        .is_some()
+                });
+                // TODO make it nicer to get an attribute by key
+
+                // std::thread::sleep is not exact, and it's not the only thing that delays the source.
+                // Apply a tolerance when checking the values.
+                const TOLERANCE: f64 = 250.0;
+                let module = module.unwrap().value.as_f64();
+                let grace = grace.unwrap().value.as_f64();
+                let cpu = cpu.unwrap().value.as_f64();
+                let sysio = sysio.unwrap().value.as_f64();
+                assert!(approx_eq(module, 60000.0, TOLERANCE), "bad value {module}");
+                assert!(approx_eq(grace, 62000.0, TOLERANCE), "bad value {module}");
+                assert!(approx_eq(cpu, 64000.0, TOLERANCE), "bad value {module}");
+                assert!(approx_eq(sysio, 67000.0, TOLERANCE), "bad value {module}");
             },
         );
 
@@ -233,4 +205,8 @@ fn test_correct_plugin_init_with_several_sources() {
 
 fn config_to_toml_table(config: &Config) -> toml::Table {
     toml::Value::try_from(config).unwrap().as_table().unwrap().clone()
+}
+
+fn approx_eq(a: f64, b: f64, epsilon: f64) -> bool {
+    (b - a).abs() < epsilon
 }

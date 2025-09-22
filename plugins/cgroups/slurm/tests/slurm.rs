@@ -169,7 +169,8 @@ fn test_correct_run_with_one_job() {
                     .expect("Error when trying to open cpu.stat of slurmstep.scope folder");
                 mock.write_to_file(&mut file).unwrap();
             },
-            |m| {
+            |ctx| {
+                let m = ctx.measurements();
                 assert_eq!(m.len(), 7);
                 for elm in m {
                     assert!(elm.attributes_keys().any(|k| k == "job_name"));
@@ -260,7 +261,8 @@ fn test_correct_run_with_two_jobs() {
                     .expect("Error when trying to open cpu.stat of slurmstep.scope folder");
                 mock.write_to_file(&mut file).unwrap();
             },
-            |m| {
+            |ctx| {
+                let m = ctx.measurements();
                 assert_eq!(m.len(), 7);
                 for elm in m {
                     assert!(elm.attributes_keys().any(|k| k == "job_name"));
@@ -309,7 +311,8 @@ fn test_correct_run_with_two_jobs() {
                     .expect("Error when trying to open cpu.stat of slurmstep.scope folder");
                 mock.write_to_file(&mut file).unwrap();
             },
-            |m| {
+            |ctx| {
+                let m = ctx.measurements();
                 assert_eq!(m.len(), 7);
                 for elm in m {
                     assert!(elm.attributes_keys().any(|k| k == "job_name"));
@@ -428,12 +431,12 @@ fn test_cgroupv1_two_jobs() {
         .test_source(
             SourceName::from_str("slurm", "job:job_1"),
             move || {},
-            |output| println!("MEASUREMENTS(1): {output:?}"),
+            |out| println!("MEASUREMENTS(1): {:?}", out.measurements()),
         )
         .test_source(
             SourceName::from_str("slurm", "job:job_2"),
             move || {},
-            |output| println!("MEASUREMENTS(2): {output:?}"),
+            |out| println!("MEASUREMENTS(2): {:?}", out.measurements()),
         );
 
     let agent = agent::Builder::new(plugins)
