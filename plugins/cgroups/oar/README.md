@@ -1,11 +1,11 @@
-# Slurm plugin
+# OAR plugin
 
-The `slurm` plugin gathers measurements about Slurm jobs.
+The `oar` plugin gathers measurements about [OAR](https://oar.imag.fr/) jobs.
 
 ## Requirements
 
-- A node with Slurm installed and running.
-- The Slurm plugin relies on cgroups for its operation. Knowing that, your slurm cluster should have the cgroups enabled. Here is the [official documentation](https://slurm.schedmd.com/cgroups.html) about how to setup this.
+- A node with OAR installed and running. Both OAR 2 and OAR 3 are supported ([config required](#configuration)).
+- Both cgroups v1 and cgroups v2 are supported. Some metrics may not be available with cgroups v1.
 
 ## Metrics
 
@@ -24,13 +24,21 @@ Here are the metrics collected by the plugin's sources.
 ### Attributes
 
 The measurements produced by the `slurm` plugin have the following attributes:
-- `job_id`: id of the Slurm job, for example `10707`.
-- `job_step`: id of the Slurm job, for example `2` (the full job id with its step is `10707.2` and the `job_step` attribute contains only the step number `2`).
+- `job_id`: id of the OAR job.
+- `user_id`: id of the user that submitted the job.
 
 The **cpu** measurements have an additional attribute `kind`, which can be one of:
 - `total`: time spent in kernel and user mode
 - `system`: time spent in kernel mode only
 - `user`: time spent in user mode only
+
+## Augmentation of the measurements of other plugins
+
+The `oar` plugin adds attributes to the measurements of the other plugins.
+If a measurement does not have a `job_id` attribute, it gets a new `involved_jobs` attribute, which contains a list of the ids of the jobs that are running on the node (at the time of the transformation).
+
+This allows to know, for each measurement, which job was running at that time.
+For the reasoning behind this feature, see [issue #209](https://github.com/alumet-dev/alumet/issues/209).
 
 ## Configuration
 
@@ -38,14 +46,11 @@ Here is an example of how to configure this plugin.
 Put the following in the configuration file of the Alumet agent (usually `alumet-config.toml`).
 
 ```toml
-[plugins.slurm]
-# Interval between two measurements
+[plugins.oar]
+# The version of OAR, either "oar2" or "oar3".
+oar_version = "oar3"
+# Interval between each measurement.
 poll_interval = "1s"
-# Interval between two scans of the cgroup v1 hierarchies.
-# Only applies to cgroup v1 hierarchies (cgroupv2 supports inotify).
-cgroupv1_refresh_interval = "30s"
-# Only monitor the job cgroup related metrics and skip the others
+# If true, only monitors jobs and ignore other cgroups.
 jobs_only = true
-# If true, the slurm sources will be started in pause state (only for advanced setup with a control plugin enabled)
-add_source_in_pause_state = false
 ```
