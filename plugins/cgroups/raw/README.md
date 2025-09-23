@@ -1,11 +1,10 @@
-# Slurm plugin
+# Raw cgroups plugin
 
-The `slurm` plugin gathers measurements about Slurm jobs.
+The `cgroups` plugin gathers measurements about Linux control groups.
 
 ## Requirements
 
-- A node with Slurm installed and running.
-- The Slurm plugin relies on cgroups for its operation. Knowing that, your slurm cluster should have the cgroups enabled. Here is the [official documentation](https://slurm.schedmd.com/cgroups.html) about how to setup this.
+- Control groups [v1](https://docs.kernel.org/admin-guide/cgroup-v1/cgroups.html) or [v2](https://docs.kernel.org/admin-guide/cgroup-v2.html). Some metrics may not be available with cgroups v1.
 
 ## Metrics
 
@@ -23,10 +22,6 @@ Here are the metrics collected by the plugin's sources.
 
 ### Attributes
 
-The measurements produced by the `slurm` plugin have the following attributes:
-- `job_id`: id of the Slurm job, for example `10707`.
-- `job_step`: id of the Slurm job, for example `2` (the full job id with its step is `10707.2` and the `job_step` attribute contains only the step number `2`).
-
 The **cpu** measurements have an additional attribute `kind`, which can be one of:
 - `total`: time spent in kernel and user mode
 - `system`: time spent in kernel mode only
@@ -38,14 +33,20 @@ Here is an example of how to configure this plugin.
 Put the following in the configuration file of the Alumet agent (usually `alumet-config.toml`).
 
 ```toml
-[plugins.slurm]
-# Interval between two measurements
+[plugins.cgroups]
+# Interval between each measurement.
 poll_interval = "1s"
-# Interval between two scans of the cgroup v1 hierarchies.
-# Only applies to cgroup v1 hierarchies (cgroupv2 supports inotify).
-cgroupv1_refresh_interval = "30s"
-# Only monitor the job cgroup related metrics and skip the others
-jobs_only = true
-# If true, the slurm sources will be started in pause state (only for advanced setup with a control plugin enabled)
-add_source_in_pause_state = false
 ```
+
+## Automatic Detection
+
+The version of the control groups and the mount point of the cgroupfs are automatically detected.
+
+The plugin watches for the creation and deletion of cgroups.
+With cgroup v2, the detection is almost instantaneous, because it relies on inotify.
+With cgroup v1, however, cgroups are repeatedly polled. The refresh interval is `30s`, and it is currently not possible to change it in the plugin's configuration.
+
+## More information
+
+To monitor HPC jobs or Kubernetes pods, use the [OAR](../oar/README.md), [Slurm](../slurm/README.md) or [K8S](../k8s/README.md) plugins.
+They provide more information about the jobs/pods, such as their id.

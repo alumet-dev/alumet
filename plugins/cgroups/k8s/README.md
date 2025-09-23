@@ -14,7 +14,7 @@ To test the plugin locally, you can use [minikube](https://minikube.sigs.k8s.io)
 
 ## Metrics
 
-Here are the metrics collected by the plugin source.
+Here are the metrics collected by the plugin's sources.
 
 |Name|Type|Unit|Description|Resource|ResourceConsumer|Attributes|
 |----|----|----|-----------|--------|----------------|----------|
@@ -33,6 +33,11 @@ The measurements produced by the `k8s` plugin have the following attributes:
 - `name`: the pod's name
 - `namespace`: the pod's namespace
 - `node`: the name of the node (see the configuration)
+
+The **cpu** measurements have an additional attribute `kind`, which can be one of:
+- `total`: time spent in kernel and user mode
+- `system`: time spent in kernel mode only
+- `user`: time spent in user mode only
 
 ## Configuration
 
