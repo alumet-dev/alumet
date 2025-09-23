@@ -13,17 +13,27 @@ jobs:
           ref: ${{ github.head_ref }}
           repository: ${{ github.event.pull_request.head.repo.full_name }}
 
+      # Notes:
+      # In case of a fork, the git remote `origin` points to the fork!
+      # We need to add another remote in order to use git commands on the proper branch (the one of the upstream).
+      # Then, we count the number of merges on the PR branch and ensure that it is zero.
       - name: Check that the Git history is linear
         run: |
-          BASE_COMMIT=$(git merge-base origin/${{ github.base_ref }} HEAD)
-          BASE_REF_SHA=$(git rev-parse origin/${{ github.base_ref }})
+          git remote add upstream https://github.com/${{ github.event.pull_request.base.repo.full_name }}.git
+          git fetch --no-tags --depth=1 upstream ${{ github.base_ref }}:${{ github.base_ref }}
+
+          BASE_COMMIT=$(git merge-base upstream/${{ github.base_ref }} HEAD)
+          BASE_REF_SHA=$(git rev-parse upstream/${{ github.base_ref }})
+          HEAD_COMMIT=$(git rev-parse HEAD)
+          echo "PR branch: ${BASE_COMMIT}..${HEAD_COMMIT}"
+
           NB_MERGE_COMMITS_ON_BRANCH=$(git rev-list --merges --count ${BASE_COMMIT}..HEAD)
 
           if [ $NB_MERGE_COMMITS_ON_BRANCH -ne 0 ]; then
             echo "::error::The git history of your branch is non-linear: $NB_MERGE_COMMITS_ON_BRANCH merge commits detected"
             echo "::error::When updating your branch, you must rebase instead of merging."
             exit 1
-          elif [ "${BASE_COMMIT}" != "${BASE_REF_SHA}" ]; then 
+          elif [ "${BASE_COMMIT}" != "${BASE_REF_SHA}" ]; then
             echo "::error::The git history of your branch is non-linear: your branch must be rebased on ${{ github.base_ref }}."
             exit 1
           fi
