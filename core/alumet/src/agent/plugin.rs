@@ -206,7 +206,9 @@ impl PluginSet {
     pub fn add_plugin(&mut self, plugin: PluginInfo) {
         let name = plugin.metadata.name.clone();
         if self.0.insert(name.clone(), plugin).is_some() {
-            panic!("Plugin '{name}' already exists! Each plugin should have a unique name.");
+            panic!(
+                "Plugin '{name}' already exists! Each plugin should have a unique name and should be registered only once."
+            );
         }
     }
 
@@ -313,6 +315,17 @@ mod tests {
             assert_eq!(set.0.len(), 1);
             assert!(set.get_plugin(MyPlugin::name()).is_some());
             set
+        }
+
+        #[test]
+        #[should_panic]
+        fn no_duplicates() {
+            let mut set = plugin_set();
+            set.add_plugin(PluginInfo {
+                metadata: PluginMetadata::from_static::<MyPlugin>(),
+                enabled: false,
+                config: None,
+            });
         }
 
         #[test]
