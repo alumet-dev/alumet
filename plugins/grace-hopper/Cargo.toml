@@ -10,6 +10,7 @@ anyhow.workspace = true
 humantime-serde.workspace = true
 log.workspace = true
 serde = { workspace = true, features = ["derive"] }
+thiserror.workspace = true
 
 [dev-dependencies]
 alumet = { workspace = true, features = ["test"] }

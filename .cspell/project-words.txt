@@ -54,6 +54,8 @@ subtable
 subtables
 subtrait
 subtraits
+superchip
+superchips
 SYSFS
 thiserror
 timerfd

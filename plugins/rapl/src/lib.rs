@@ -327,17 +327,18 @@ mod tests {
             .test_source(
                 SourceName::from_str("rapl", "in"),
                 || (),
-                |m| {
+                |ctx| {
                     //note: it's expected to have no measurement as at first call of poll, cause the counter diff will return a None value
-                    assert_eq!(m.len(), 0);
+                    assert_eq!(ctx.measurements().len(), 0);
                 },
             )
             .test_source(
                 SourceName::from_str("rapl", "in"),
                 || (),
-                move |m| {
+                move |ctx| {
                     // note: the mock created 1 domain so it's expected to have 2 measurements:
                     // the domain's value, and one per-domain total
+                    let m = ctx.measurements();
                     assert_eq!(m.len(), 2);
                     let mut actual_domains = Vec::new();
                     for measurement in m.iter() {
@@ -391,7 +392,8 @@ mod tests {
             .test_source(
                 SourceName::from_str("rapl", "in"),
                 || (),
-                |m| {
+                |ctx| {
+                    let m = ctx.measurements();
                     assert!(m.len() >= 1);
                     let measurement = m.iter().next().unwrap();
 

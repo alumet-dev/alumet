@@ -181,12 +181,13 @@ fn runtime_source_err() {
             log::debug!("preparing input for test");
             COUNT.store(27, Ordering::Relaxed);
         }, // the test module takes care of triggering the source
-        |m| {
+        |ctx| {
             // The source has been triggered by the test module, check its output.
             log::debug!("checking output for test");
+            let m = ctx.measurements();
             assert_eq!(m.len(), 1);
             let measurement = m.iter().next().unwrap();
-            assert_eq!(measurement.value, WrappedMeasurementValue::U64(28));
+            assert_eq!(measurement.value, WrappedMeasurementValue::U64(28), "expected_err"); // bad value on purpose
         },
     );
 
@@ -199,6 +200,7 @@ fn runtime_source_err() {
     let err = res.expect_err("the source test should fail and the error should be propagated");
     match &err.errors[..] {
         [AgentShutdownError::Pipeline(err)] => {
+            // check that the error comes from the right element
             let element_name = err
                 .element()
                 .expect("the PipelineError should originate from an element");
@@ -206,6 +208,10 @@ fn runtime_source_err() {
                 element_name,
                 &ElementName::from(SourceName::new("plugin".into(), "coffee_source".into()))
             );
+
+            // check that we've had the correct error
+            let error_msg = format!("{err:?}");
+            assert!(error_msg.contains("expected_err"), "unexpected error message");
         }
         bad => {
             panic!("unexpected errors: {bad:?}");
@@ -217,7 +223,6 @@ fn runtime_source_err() {
 #[serial]
 fn runtime_source_ok() {
     init_logger();
-    // TODO make tests serialized/exclusive
     let plugins = PluginSet::from(static_plugins![TestedPlugin]);
 
     let runtime = RuntimeExpectations::new().test_source(
@@ -227,12 +232,22 @@ fn runtime_source_ok() {
             log::debug!("preparing input for test");
             COUNT.store(27, Ordering::Relaxed);
         }, // the test module takes care of triggering the source
-        |m| {
+        |ctx| {
             // The source has been triggered by the test module, check its output.
             log::debug!("checking output for test");
+
+            // check the measurements
+            let m = ctx.measurements();
             assert_eq!(m.len(), 1);
             let measurement = m.iter().next().unwrap();
             assert_eq!(measurement.value, WrappedMeasurementValue::U64(27));
+
+            // check the metric id
+            let (metric_id, _) = ctx
+                .metrics()
+                .by_name("coffee_counter")
+                .expect("coffee_counter metric should exist");
+            assert_eq!(measurement.metric, metric_id);
         },
     );
 
@@ -460,9 +475,10 @@ fn all_together() {
                 log::debug!("preparing input for test");
                 COUNT.store(27, Ordering::Relaxed);
             }, // the test module takes care of triggering the source
-            |m| {
+            |ctx| {
                 // The source has been triggered by the test module, check its output.
                 log::debug!("checking output for test");
+                let m = ctx.measurements();
                 assert_eq!(m.len(), 1);
                 let measurement = m.iter().next().unwrap();
                 assert_eq!(measurement.value, WrappedMeasurementValue::U64(27));
