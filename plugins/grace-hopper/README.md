@@ -13,7 +13,7 @@ Here are the metrics collected by the plugin.
 
 |Name|Type|Unit|Description|Attributes|More information|
 |----|----|----|-----------|----------|-----------------|
-|`grace_instant_power`|uint|milliWatt|Power consumption|[sensor](#sensor)| If the `resource_kind` is `LocalMachine` then the value is the sum of all sensors of the same type|
+|`grace_instant_power`|uint|microWatt|Power consumption|[sensor](#sensor)| If the `resource_kind` is `LocalMachine` then the value is the sum of all sensors of the same type|
 |`grace_energy_consumption`|float|milliJoule|Energy consumed since the previous measurement|[Sensor](#sensor)| If the `resource_kind` is `LocalMachine` then the value is the sum of all sensors of the same type |
 
 The hardware sensors do not provide the energy, only the power.
