@@ -1,21 +1,21 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
+    fmt::Write as OtherWrite,
     fs::File,
     io::{self, BufWriter, Write},
     path::Path,
     time::SystemTime,
 };
 
-use alumet::measurement::WrappedMeasurementValue;
+use crate::csv::CsvHelper;
 use alumet::{
     measurement::MeasurementBuffer,
     pipeline::elements::{error::WriteError, output::OutputContext},
 };
+use alumet::{measurement::WrappedMeasurementValue, pipeline::Output};
 use anyhow::Context;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
-
-use crate::csv::CsvHelper;
 
 pub struct CsvOutput {
     /// The attributes that we have written to the header.
@@ -66,17 +66,17 @@ fn collect_attribute_keys(buf: &MeasurementBuffer) -> HashSet<String> {
     res
 }
 
-impl alumet::pipeline::Output for CsvOutput {
+impl Output for CsvOutput {
     fn write(&mut self, measurements: &MeasurementBuffer, ctx: &OutputContext) -> Result<(), WriteError> {
         if self.attributes_in_header.is_none() && !measurements.is_empty() {
             // Collect the attributes that are present in the measurements.
             // Then, sort the keys to ensure a consistent order between calls to `CsvOutput::write`.
-            let attr_keys = collect_attribute_keys(measurements);
-            let mut attr_keys_sorted: Vec<&str> = attr_keys.iter().map(|s| s.as_str()).collect::<Vec<_>>();
-            attr_keys_sorted.sort();
+            let attr_keys: HashSet<String> = collect_attribute_keys(measurements).into_iter().collect();
+            let mut attr_sorted: Vec<String> = attr_keys.iter().cloned().collect();
+            attr_sorted.sort();
 
             // Build the CSV header
-            let mut header = Vec::with_capacity(8 + attr_keys_sorted.len());
+            let mut header = Vec::with_capacity(8 + attr_sorted.len());
             header.extend(&[
                 "metric",
                 "timestamp",
@@ -86,13 +86,16 @@ impl alumet::pipeline::Output for CsvOutput {
                 "consumer_kind",
                 "consumer_id",
             ]);
-            header.extend(attr_keys_sorted);
+            header.extend(attr_sorted.iter().map(String::as_str));
             header.push("__late_attributes");
 
             self.csv_helper.writeln(&mut self.writer, header)?;
-
             self.attributes_in_header = Some(attr_keys);
         }
+
+        let attr_keys = self.attributes_in_header.as_ref().unwrap();
+        let mut attr_sorted: Vec<&String> = attr_keys.iter().collect();
+        attr_sorted.sort();
 
         for m in measurements.iter() {
             // get the full definition of the metric
@@ -119,7 +122,8 @@ impl alumet::pipeline::Output for CsvOutput {
 
             // convert every field to string
             let datetime: OffsetDateTime = SystemTime::from(m.timestamp).into();
-            let datetime: String = datetime.format(&Rfc3339)?;
+            let datetime = datetime.format(&Rfc3339)?;
+
             let value = match m.value {
                 WrappedMeasurementValue::F64(x) => x.to_string(),
                 WrappedMeasurementValue::U64(x) => x.to_string(),
@@ -140,22 +144,15 @@ impl alumet::pipeline::Output for CsvOutput {
                 consumer_id,
             ];
 
-            // Sort the attributes by key
-            let mut attr_sorted = m.attributes().collect::<Vec<_>>();
-            attr_sorted.sort_by_key(|(k, _)| *k);
-
             // Handle known as well as new attributes.
-            let mut late_attrs: String = String::new();
-            let mut known_attrs = 0;
-            for (key, value) in attr_sorted {
-                if self.attributes_in_header.as_ref().unwrap().contains(key) {
-                    // known attribute, write in the same order as the header (thanks to the sort)
-                    record.push(value.to_string());
-                    known_attrs += 1;
-                } else {
-                    // unknown attribute, add to the column `__late_attributes`
-                    use std::fmt::Write;
+            let mut known_attrs = HashMap::new();
+            let mut late_attrs = String::new();
 
+            for (key, value) in m.attributes() {
+                let value_str = value.to_string();
+                if attr_keys.contains(key) {
+                    known_attrs.insert(key, value_str);
+                } else {
                     if !late_attrs.is_empty() {
                         late_attrs.push_str(", ");
                     }
@@ -163,20 +160,22 @@ impl alumet::pipeline::Output for CsvOutput {
                         late_attrs,
                         "{}={}",
                         escape_late_attribute(key),
-                        escape_late_attribute(&value.to_string())
+                        escape_late_attribute(&value_str)
                     )?;
                 }
             }
-            // Add missing attributes as empty values
-            let missing_attributes = self.attributes_in_header.as_ref().unwrap().len() - known_attrs;
-            record.extend(vec![String::from(""); missing_attributes]);
+
+            // Add attributes knows in order
+            for key in &attr_sorted {
+                record.push(known_attrs.get(key.as_str()).cloned().unwrap_or_default());
+            }
 
             // Push the late attributes as one value
             record.push(late_attrs);
-
             // Write the record
             self.csv_helper.writeln(&mut self.writer, record)?;
         }
+
         if self.force_flush {
             log::trace!("flushing BufWriter");
             self.writer.flush()?;
@@ -225,7 +224,7 @@ mod tests {
         let buf = MeasurementBuffer::from_iter([point]);
 
         let result = collect_attribute_keys(&buf);
-        let expected: HashSet<String> = HashSet::new();
+        let expected = HashSet::new();
         assert_eq!(result, expected)
     }
 
@@ -238,7 +237,7 @@ mod tests {
         let buf = MeasurementBuffer::from_iter([point]);
 
         let result = collect_attribute_keys(&buf);
-        let expected: HashSet<String> = HashSet::from_iter(["k1".to_string(), "k2".to_string()]);
+        let expected = HashSet::from_iter(["k1".to_string(), "k2".to_string()]);
         assert_eq!(result, expected)
     }
 }
