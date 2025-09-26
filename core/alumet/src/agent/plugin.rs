@@ -150,6 +150,7 @@ impl PluginSet {
                 plugin_info.enabled = false;
             }
         }
+        log::trace!("extracting plugins configurations from the global config:\n{global_config}");
 
         // Extract the config and enable the plugins that it contains.
         let extracted = super::config::extract_plugins_config(global_config).context("invalid config")?;

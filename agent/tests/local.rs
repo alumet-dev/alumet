@@ -103,3 +103,40 @@ fn args_output_exec() -> anyhow::Result<()> {
     assert!(alumet_out.contains("value"));
     Ok(())
 }
+
+#[test]
+fn plugin_enabled_with_missing_config_should_use_default() -> anyhow::Result<()> {
+    let tmp_dir = tempfile::tempdir()?;
+    let conf = tmp_dir.path().join("config.toml");
+    std::fs::write(&conf, "")?;
+
+    let conf_path_str = conf.to_str().unwrap();
+    let output = run_agent_tee(
+        AGENT_BIN,
+        &["--plugins", "csv", "--config", conf_path_str, "exec", "sleep", "0"],
+        tmp_dir.path(),
+    )?;
+    assert!(output.status.success(), "command should succeed");
+
+    Ok(())
+}
+
+#[test]
+fn plugin_enabled_with_bad_config_should_fail() -> anyhow::Result<()> {
+    let tmp_dir = tempfile::tempdir()?;
+    let conf = tmp_dir.path().join("config.toml");
+    std::fs::write(&conf, "plugins.csv.bad_config_option___ = true")?;
+
+    let conf_path_str = conf.to_str().unwrap();
+    let output = run_agent_tee(
+        AGENT_BIN,
+        &["--plugins", "csv", "--config", conf_path_str, "exec", "sleep", "0"],
+        tmp_dir.path(),
+    )?;
+    assert!(!output.status.success(), "command should fail");
+
+    let stderr = String::from_utf8(output.stderr)?;
+    assert!(stderr.contains("invalid configuration"));
+
+    Ok(())
+}
