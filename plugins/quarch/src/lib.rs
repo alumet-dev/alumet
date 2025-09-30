@@ -77,8 +77,7 @@ impl AlumetPlugin for QuarchPlugin {
 
         let trigger = trigger::builder::time_interval(self.config.poll_interval)
             .flush_interval(self.config.flush_interval)
-            .build()
-            .unwrap();
+            .build()?;
 
         alumet.add_source(
             "quarch_source",
@@ -93,22 +92,18 @@ impl AlumetPlugin for QuarchPlugin {
     /// and releases all associated resources to ensure no leaks or lingering processes.
     fn stop(&mut self) -> anyhow::Result<()> {
         log::debug!("Stopping Quarch plugin (final cleanup)...");
-        if let Some(source) = &self.source
-            && let Ok(mut s) = source.lock()
-            && let Err(e) = s.stop_measurement()
-        {
-            log::error!("Error stopping Quarch measurement: {}", e);
+        if let Some(source) = &self.source {
+            let mut s = source.lock().unwrap();
+            if let Err(e) = s.stop_measurement() {
+                log::error!("Error stopping Quarch measurement: {}", e);
+            }
         }
         if let Some(mut child) = self.qis_process.take() {
+            // SIGKILL is sent via `child.kill()`, ensuring the process is terminated.
             let _ = child.kill();
             let _ = child.wait();
         }
-        // Cross-platform process termination
-        #[cfg(unix)]
-        let _ = std::process::Command::new("kill")
-            .arg("-9")
-            .arg("qis_process_name")
-            .status();
+
         Ok(())
     }
 }

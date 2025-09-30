@@ -6,7 +6,7 @@ use alumet::{
     resources::{Resource, ResourceConsumer},
 };
 use anyhow::{Context, Result, anyhow};
-use log::{debug, error};
+use log;
 use std::{
     env,
     io::{Read, Write},
@@ -57,7 +57,7 @@ impl QuarchSource {
     /// Retrieves an environment variable or falls back to a default value for jdk & qis
     fn get_env_var_with_fallback(name: &str, fallback: &str) -> String {
         env::var(name).unwrap_or_else(|_| {
-            debug!("Variable {} non defined, using fallback: {}", name, fallback);
+            log::debug!("Variable {} non defined, using fallback: {}", name, fallback);
             fallback.to_string()
         })
     }
@@ -83,7 +83,7 @@ impl QuarchSource {
     /// Sends a command to the Quarch device and reads the response.
     fn send_quarch_command(&mut self, cmd: &str) -> Result<String> {
         // Send command
-        let stream = self.stream.as_mut().ok_or_else(|| anyhow!("Not connected"))?;
+        let stream = self.stream.as_mut().context("not connected")?;
         let full_cmd = format!("{}\r\n", cmd);
         let mut message = Vec::new();
         message.push(full_cmd.len() as u8); // length
@@ -111,7 +111,7 @@ impl QuarchSource {
                 }
                 Ok(_) => break,
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {
-                    error!("Reading timeout after 5s");
+                    log::error!("Reading timeout after 5s");
                     break;
                 }
                 Err(e) => return Err(anyhow!("Error on reading: {}", e)),
@@ -183,19 +183,17 @@ impl QuarchSource {
     /// Stops ongoing power measurements on the Quarch device and closes the TCP connection.
     pub fn stop_measurement(&mut self) -> anyhow::Result<()> {
         //  Stopping measure
-        if let Some(stream) = self.stream.as_ref() {
+        if let Some(stream) = self.stream.take() {
             stream.set_write_timeout(Some(Duration::from_secs(2)))?;
+            stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+
             if let Err(e) = self.send_quarch_command("RECord:STOP") {
                 log::error!("Failed to send RECord:STOP: {}", e);
             }
             if let Err(e) = self.send_quarch_command("$shutdown") {
                 log::error!("Failed to send $shutdown: {}", e);
             }
-        }
-
-        // Stopping TCP stream
-        if let Some(stream) = self.stream.take() {
-            stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+            // Stopping TCP stream
             if let Err(e) = stream.shutdown(std::net::Shutdown::Both) {
                 log::error!("Unable to shutdown TCP stream: {}", e);
             }
@@ -210,7 +208,7 @@ impl Source for QuarchSource {
         if self.stream.is_none()
             && let Err(e) = self.connect_and_configure()
         {
-            error!("Impossible to connect with Quarch module: {}. Retrying next poll...", e);
+            log::error!("Impossible to connect with Quarch module: {}. Retrying next poll...", e);
             self.stream = None;
             return Err(PollError::CanRetry(e));
         }
@@ -228,7 +226,7 @@ impl Source for QuarchSource {
                 measurements.push(point);
             }
             Err(e) => {
-                error!("Error with measure: {}. Disconnected and retry next poll.", e);
+                log::error!("Error with measure: {}. Disconnected and retry next poll.", e);
                 self.stream = None;
                 return Err(PollError::CanRetry(e));
             }
@@ -265,7 +263,7 @@ fn get_qis_pids() -> Result<Vec<i32>> {
 fn start_qis(java_bin: &str, jar_path: &str) -> Result<Child> {
     let java_bin = QuarchSource::get_env_var_with_fallback("JAVA_HOME", java_bin);
     let jar_path = QuarchSource::get_env_var_with_fallback("QIS_JAR_PATH", jar_path);
-    debug!("Starting QIS with JAVA_BIN={} and QIS_JAR_PATH={}", java_bin, jar_path);
+    log::debug!("Starting QIS with JAVA_BIN={} and QIS_JAR_PATH={}", java_bin, jar_path);
     let child = Command::new(format!("{}/bin/java", java_bin))
         .arg("-jar")
         .arg(jar_path)
@@ -278,12 +276,13 @@ fn start_qis(java_bin: &str, jar_path: &str) -> Result<Child> {
 /// Waits for the QIS service to become available on a specified port, with a timeout.
 fn wait_for_qis_port(ip: &str, port: u16, timeout_secs: u64) -> Result<()> {
     let start = Instant::now();
+    let timeout = Duration::from_secs(timeout_secs);
     loop {
         if TcpStream::connect((ip, port)).is_ok() {
-            debug!("QIS ready on port {}", port);
+            log::debug!("QIS ready on port {}", port);
             return Ok(());
         }
-        if start.elapsed() > Duration::from_secs(timeout_secs) {
+        if start.elapsed() > timeout {
             return Err(anyhow!("Timeout: QIS doesn't listen on port {}", port));
         }
         sleep(Duration::from_millis(500));

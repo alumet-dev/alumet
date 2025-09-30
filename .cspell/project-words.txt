@@ -25,7 +25,6 @@ hwmon
 indice
 ITLB
 jres
-kadeploy
 kwollect
 miri
 Mispredicted
