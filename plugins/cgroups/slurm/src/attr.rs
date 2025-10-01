@@ -1,4 +1,6 @@
 use alumet::measurement::AttributeValue;
+use util_cgroups::Cgroup;
+use util_cgroups_plugins::regex::RegexAttributesExtrator;
 
 pub const JOB_REGEX_SLURM1: &str = "/slurm/uid_(?<user_id__u64>[0-9]+)/job_(?<job_id__u64>[0-9]+)";
 pub const JOB_REGEX_SLURM2: &str = "/slurmstepd.scope/job_(?<job_id__u64>[0-9]+)";
@@ -9,6 +11,45 @@ pub fn find_jobid_in_attrs(attrs: &Vec<(String, AttributeValue)>) -> Option<u64>
         AttributeValue::U64(id) => *id,
         _ => unreachable!("job_id should be a u64, is the regex correct?"),
     })
+}
+
+#[derive(Clone)]
+pub struct JobTagger {
+    extractor_v1: RegexAttributesExtrator,
+    extractor_v2: RegexAttributesExtrator,
+    step_extractor: RegexAttributesExtrator,
+}
+
+impl JobTagger {
+    pub fn new() -> anyhow::Result<Self> {
+        Ok(Self {
+            extractor_v1: RegexAttributesExtrator::new(JOB_REGEX_SLURM1)?,
+            extractor_v2: RegexAttributesExtrator::new(JOB_REGEX_SLURM2)?,
+            step_extractor: RegexAttributesExtrator::new(JOB_STEP_REGEX)?,
+        })
+    }
+
+    pub fn attributes_for_cgroup(&self, cgroup: &Cgroup) -> Vec<(String, AttributeValue)> {
+        // extracts attributes "job_id" and ("user" or "user_id")
+        let extractor = match cgroup.hierarchy().version() {
+            util_cgroups::CgroupVersion::V1 => &self.extractor_v1,
+            util_cgroups::CgroupVersion::V2 => &self.extractor_v2,
+        };
+
+        let mut attrs = extractor
+            .extract(cgroup.canonical_path())
+            .expect("bad regex: it should only match if the input can be parsed into the specified types");
+
+        let is_job = !attrs.is_empty();
+
+        if is_job {
+            // check if the cgroup is a job step and extract its name as a "job_step" attribute
+            self.step_extractor
+                .extract_into(cgroup.canonical_path(), &mut attrs)
+                .expect("bad regex: it should only match if the input can be parsed into the specified types");
+        }
+        attrs
+    }
 }
 
 #[cfg(test)]

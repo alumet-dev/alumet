@@ -105,7 +105,7 @@ impl Default for ReactorConfig {
 
 #[derive(Clone)]
 pub struct ReactorCallbacks<M: CgroupFsMountCallback, S: CgroupSetupCallback, R: CgroupRemovalCallback> {
-    /// Called when a cgroup hierarchy is detected, that is, when a cgroufs is mounted.
+    /// Called when a cgroup hierarchy is detected, that is, when a cgroupfs is mounted.
     pub on_fs_mount: M,
 
     /// Called when a new cgroup is detected.
