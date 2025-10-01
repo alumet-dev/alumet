@@ -148,4 +148,16 @@ Alumet project is licensed under the European Union Public Licence (EUPL). See t
 ## More information
 
 Quarch module commands are based on the [SCPI](https://www.ivifoundation.org/specifications/default.html) specification.
+
+Commands formats comes from the [technical manual of the power analysis module](https://quarch.com/wp-content/uploads/2020/08/QTL2312-Power-Analysis-Module-Technical-Manual.pdf). Here is an excerpt:
+
+``` SCPI
+RECord:AVEraging [rate]
+RECord:AVEraging?
+RECord:AVEraging:GROup [#number] [rate]
+RECord:AVEraging:[#number]?
+
+By default, the module collects samples at a rate of 250,000 samples per second. This can be reduced by averaging across multiple measurements to give a longer recorded period.
+```
+
 For further details, please check the [Quarch Github](https://github.com/QuarchTechnologyLtd).
