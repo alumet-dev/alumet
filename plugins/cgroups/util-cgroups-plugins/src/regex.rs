@@ -58,7 +58,7 @@ impl RegexAttributesExtrator {
     ///
     /// If it does not match the regex, returns `Ok(())` and does not modify the vec.
     /// Capture groups that don't have a name or that don't match are ignored.
-    pub fn extract_into(&mut self, input: &str, attrs: &mut Vec<(String, AttributeValue)>) -> anyhow::Result<()> {
+    pub fn extract_into(&self, input: &str, attrs: &mut Vec<(String, AttributeValue)>) -> anyhow::Result<()> {
         if let Some(cap) = self.regex.captures(input) {
             // Optimistically reserve some space, because most of the time we expect to match all groups.
             attrs.reserve(self.groups.len());
@@ -81,7 +81,7 @@ impl RegexAttributesExtrator {
     ///
     /// If it does not match the regex, returns `Ok` with an empty vec.
     /// Capture groups that don't have a name or that don't match are ignored.
-    pub fn extract(&mut self, input: &str) -> anyhow::Result<Vec<(String, AttributeValue)>> {
+    pub fn extract(&self, input: &str) -> anyhow::Result<Vec<(String, AttributeValue)>> {
         let mut attrs = Vec::new();
         self.extract_into(input, &mut attrs)?;
         Ok(attrs)
