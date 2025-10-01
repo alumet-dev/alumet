@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, MeasurementType, Timestamp},
     metrics::TypedMetricId,
@@ -11,7 +13,7 @@ use crate::{
 };
 
 pub struct GraceHopperSource {
-    probes: Vec<Probe>,
+    probes: HashMap<u8, Vec<Probe>>,
     metrics: Metrics,
     buf: String,
 }
@@ -71,7 +73,13 @@ impl PowerMeasure {
 
 impl GraceHopperSource {
     pub fn new(metrics: Metrics, devices: Vec<Device>) -> Self {
-        let probes = devices.into_iter().map(Probe::new).collect();
+        let probes: HashMap<u8, Vec<Probe>> = devices.into_iter().fold(HashMap::new(), |mut sockets, d| {
+            sockets
+                .entry(d.info.socket)
+                .or_insert_with(Vec::new)
+                .push(Probe::new(d));
+            sockets
+        });
         Self {
             probes,
             metrics,
@@ -105,30 +113,70 @@ impl Source for GraceHopperSource {
         let mut total_power_module: Option<u64> = None;
         let mut total_energy_grace: Option<f64> = None;
         let mut total_energy_module: Option<f64> = None;
+        let mut dram_power: Option<i64> = None;
+        let mut dram_energy: Option<f64> = None;
 
         // Collect all the powers and energies.
-        for probe in self.probes.iter_mut() {
-            let ProbeMeasure { power, energy } = probe.measure(t, &mut self.buf)?;
+        for (socket, probes) in self.probes.iter_mut() {
+            for probe in probes {
+                let ProbeMeasure { power, energy } = probe.measure(t, &mut self.buf)?;
 
-            measurements.push(probe_point(t, self.metrics.power, &probe.device, power));
-            if let Some(energy) = energy {
-                measurements.push(probe_point(t, self.metrics.energy, &probe.device, energy));
+                measurements.push(probe_point(t, self.metrics.power, &probe.device, power));
+                if let Some(energy) = energy {
+                    measurements.push(probe_point(t, self.metrics.energy, &probe.device, energy));
+                }
+
+                match probe.device.info.kind {
+                    TelemetryKind::Grace => {
+                        *total_power_grace.get_or_insert_default() += power;
+                        if let Some(energy) = energy {
+                            *total_energy_grace.get_or_insert_default() += energy;
+                        }
+                        *dram_power.get_or_insert_default() += power as i64;
+
+                        if let Some(energy) = energy {
+                            *dram_energy.get_or_insert_default() += energy;
+                        }
+                    }
+                    TelemetryKind::Module => {
+                        *total_power_module.get_or_insert_default() += power;
+                        if let Some(energy) = energy {
+                            *total_energy_module.get_or_insert_default() += energy;
+                        }
+                    }
+                    TelemetryKind::Cpu | TelemetryKind::SysIo => {
+                        *dram_power.get_or_insert_default() -= power as i64;
+                        if let Some(energy) = energy {
+                            *dram_energy.get_or_insert_default() -= energy;
+                        }
+                    }
+                }
             }
-
-            match probe.device.info.kind {
-                TelemetryKind::Grace => {
-                    *total_power_grace.get_or_insert_default() += power;
-                    if let Some(energy) = energy {
-                        *total_energy_grace.get_or_insert_default() += energy;
-                    }
-                }
-                TelemetryKind::Module => {
-                    *total_power_module.get_or_insert_default() += power;
-                    if let Some(energy) = energy {
-                        *total_energy_module.get_or_insert_default() += energy;
-                    }
-                }
-                _ => (),
+            if let Some(dram_power) = dram_power {
+                measurements.push(
+                    MeasurementPoint::new(
+                        t,
+                        self.metrics.power,
+                        Resource::LocalMachine,
+                        ResourceConsumer::LocalMachine,
+                        dram_power.max(0).try_into().unwrap(),
+                    )
+                    .with_attr("sensor", "dram")
+                    .with_attr("socket", *socket as u64),
+                );
+            }
+            if let Some(dram_energy) = dram_energy {
+                measurements.push(
+                    MeasurementPoint::new(
+                        t,
+                        self.metrics.energy,
+                        Resource::LocalMachine,
+                        ResourceConsumer::LocalMachine,
+                        dram_energy.max(0.0),
+                    )
+                    .with_attr("sensor", "dram")
+                    .with_attr("socket", *socket as u64),
+                );
             }
         }
 
