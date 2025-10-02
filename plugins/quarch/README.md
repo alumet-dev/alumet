@@ -149,7 +149,7 @@ Alumet project is licensed under the European Union Public Licence (EUPL). See t
 
 Quarch module commands are based on the [SCPI](https://www.ivifoundation.org/specifications/default.html) specification.
 
-Commands formats comes from the [technical manual of the power analysis module](https://quarch.com/wp-content/uploads/2020/08/QTL2312-Power-Analysis-Module-Technical-Manual.pdf). Here is an excerpt:
+Commands formats come from the [technical manual of the power analysis module](https://quarch.com/wp-content/uploads/2020/08/QTL2312-Power-Analysis-Module-Technical-Manual.pdf). Here is an excerpt:
 
 ``` SCPI
 RECord:AVEraging [rate]
