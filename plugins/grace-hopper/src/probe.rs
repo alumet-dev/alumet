@@ -13,6 +13,7 @@ use crate::{
 };
 
 pub struct GraceHopperSource {
+    /// Sockets, represented by a `u8` id, and its probes
     probes: HashMap<u8, Vec<Probe>>,
     metrics: Metrics,
     buf: String,
@@ -74,10 +75,7 @@ impl PowerMeasure {
 impl GraceHopperSource {
     pub fn new(metrics: Metrics, devices: Vec<Device>) -> Self {
         let probes: HashMap<u8, Vec<Probe>> = devices.into_iter().fold(HashMap::new(), |mut sockets, d| {
-            sockets
-                .entry(d.info.socket)
-                .or_insert_with(Vec::new)
-                .push(Probe::new(d));
+            sockets.entry(d.info.socket).or_default().push(Probe::new(d));
             sockets
         });
         Self {
@@ -157,12 +155,11 @@ impl Source for GraceHopperSource {
                     MeasurementPoint::new(
                         t,
                         self.metrics.power,
-                        Resource::LocalMachine,
+                        Resource::Dram { pkg_id: *socket as u32 },
                         ResourceConsumer::LocalMachine,
                         dram_power.max(0).try_into().unwrap(),
                     )
-                    .with_attr("sensor", "dram")
-                    .with_attr("socket", *socket as u64),
+                    .with_attr("sensor", "dram"),
                 );
             }
             if let Some(dram_energy) = dram_energy {
@@ -170,12 +167,11 @@ impl Source for GraceHopperSource {
                     MeasurementPoint::new(
                         t,
                         self.metrics.energy,
-                        Resource::LocalMachine,
+                        Resource::Dram { pkg_id: *socket as u32 },
                         ResourceConsumer::LocalMachine,
                         dram_energy.max(0.0),
                     )
-                    .with_attr("sensor", "dram")
-                    .with_attr("socket", *socket as u64),
+                    .with_attr("sensor", "dram"),
                 );
             }
         }
