@@ -43,6 +43,7 @@ plugin-nvidia-nvml = { path = "../plugins/nvidia-nvml" }
 plugin-process-to-cgroup-bridge = { path = "../plugins/process-to-cgroup-bridge" }
 plugin-perf = { path = "../plugins/perf" }
 plugin-procfs = { path = "../plugins/procfs" }
+plugin-quarch = { path = "../plugins/quarch" }
 plugin-rapl = { path = "../plugins/rapl" }
 plugin-socket-control = { path = "../plugins/socket-control" }
 # cgroup-based plugins
@@ -66,5 +67,9 @@ pretty_assertions.workspace = true
 tempfile.workspace = true
 
 [build-dependencies]
-vergen = { version = "9.0.4", default-features = false, features = ["build", "cargo", "rustc"] }
+vergen = { version = "9.0.4", default-features = false, features = [
+    "build",
+    "cargo",
+    "rustc",
+] }
 vergen-gitcl = "1.0.5"
