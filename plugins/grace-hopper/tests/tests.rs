@@ -45,12 +45,13 @@ fn full_plugin_with_multiple_hwmon_sensors() {
     let root = tempdir().unwrap();
 
     let root_path = root.path().to_str().unwrap().to_string();
+    // Socket 0
     let file_path_info = root.path().join("hwmon1/device/power1_oem_info");
     let file_path_average = root.path().join("hwmon1/device/power1_average");
     let file_path_interval = root.path().join("hwmon1/device/power1_average_interval");
     std::fs::create_dir_all(file_path_info.parent().unwrap()).unwrap();
     std::fs::write(file_path_info, "Module Power Socket 0").unwrap();
-    std::fs::write(file_path_average, "60000000").unwrap();
+    std::fs::write(file_path_average, "80000000").unwrap();
     std::fs::write(file_path_interval, "50").unwrap();
 
     let file_path_info = root.path().join("hwmon2/device/power1_oem_info");
@@ -65,16 +66,41 @@ fn full_plugin_with_multiple_hwmon_sensors() {
     let file_path_average = root.path().join("hwmon3/device/power1_average");
     let file_path_interval = root.path().join("hwmon3/device/power1_average_interval");
     std::fs::create_dir_all(file_path_info.parent().unwrap()).unwrap();
-    std::fs::write(file_path_info, "CPU Power Socket 2").unwrap();
-    std::fs::write(file_path_average, "64000000").unwrap();
+    std::fs::write(file_path_info, "CPU Power Socket 0").unwrap();
+    std::fs::write(file_path_average, "42000000").unwrap();
     std::fs::write(file_path_interval, "100").unwrap();
 
     let file_path_info = root.path().join("hwmon6/device/power1_oem_info");
     let file_path_average = root.path().join("hwmon6/device/power1_average");
     let file_path_interval = root.path().join("hwmon6/device/power1_average_interval");
     std::fs::create_dir_all(file_path_info.parent().unwrap()).unwrap();
-    std::fs::write(file_path_info, "SysIO Power Socket 2").unwrap();
-    std::fs::write(file_path_average, "67000000").unwrap();
+    std::fs::write(file_path_info, "SysIO Power Socket 0").unwrap();
+    std::fs::write(file_path_average, "18000000").unwrap();
+    std::fs::write(file_path_interval, "77").unwrap();
+
+    // Socket 1
+    let file_path_info = root.path().join("hwmon4/device/power1_oem_info");
+    let file_path_average = root.path().join("hwmon4/device/power1_average");
+    let file_path_interval = root.path().join("hwmon4/device/power1_average_interval");
+    std::fs::create_dir_all(file_path_info.parent().unwrap()).unwrap();
+    std::fs::write(file_path_info, "Grace Power Socket 1").unwrap();
+    std::fs::write(file_path_average, "40000000").unwrap();
+    std::fs::write(file_path_interval, "50").unwrap();
+
+    let file_path_info = root.path().join("hwmon5/device/power1_oem_info");
+    let file_path_average = root.path().join("hwmon5/device/power1_average");
+    let file_path_interval = root.path().join("hwmon5/device/power1_average_interval");
+    std::fs::create_dir_all(file_path_info.parent().unwrap()).unwrap();
+    std::fs::write(file_path_info, "CPU Power Socket 1").unwrap();
+    std::fs::write(file_path_average, "35000000").unwrap();
+    std::fs::write(file_path_interval, "100").unwrap();
+
+    let file_path_info = root.path().join("hwmon7/device/power1_oem_info");
+    let file_path_average = root.path().join("hwmon7/device/power1_average");
+    let file_path_interval = root.path().join("hwmon7/device/power1_average_interval");
+    std::fs::create_dir_all(file_path_info.parent().unwrap()).unwrap();
+    std::fs::write(file_path_info, "Module Power Socket 1").unwrap();
+    std::fs::write(file_path_average, "5000000").unwrap();
     std::fs::write(file_path_interval, "77").unwrap();
 
     let mut plugins = PluginSet::new();
@@ -113,31 +139,55 @@ fn full_plugin_with_multiple_hwmon_sensors() {
 
                 // check the power measurements
                 let m: Vec<_> = m.into_iter().filter(|p| p.metric == power_metric).collect();
+                // Print:
+                m.iter().find(|p| {
+                    p.attributes()
+                        .find(|(k, v)| {
+                            *k == "sensor" && v.to_string() == "module" && p.resource.id_string().unwrap() == "0"
+                        })
+                        .is_some()
+                });
                 let module = m.iter().find(|p| {
                     p.attributes()
-                        .find(|(k, v)| *k == "sensor" && v.to_string() == "module")
+                        .find(|(k, v)| {
+                            *k == "sensor" && v.to_string() == "module" && p.resource.id_string().unwrap() == "0"
+                        })
                         .is_some()
                 });
                 let grace = m.iter().find(|p| {
                     p.attributes()
-                        .find(|(k, v)| *k == "sensor" && v.to_string() == "grace")
+                        .find(|(k, v)| {
+                            *k == "sensor" && v.to_string() == "grace" && p.resource.id_string().unwrap() == "0"
+                        })
                         .is_some()
                 });
                 let cpu = m.iter().find(|p| {
                     p.attributes()
-                        .find(|(k, v)| *k == "sensor" && v.to_string() == "cpu")
+                        .find(|(k, v)| {
+                            *k == "sensor" && v.to_string() == "cpu" && p.resource.id_string().unwrap() == "0"
+                        })
                         .is_some()
                 });
                 let sysio = m.iter().find(|p| {
                     p.attributes()
-                        .find(|(k, v)| *k == "sensor" && v.to_string() == "sysio")
+                        .find(|(k, v)| {
+                            *k == "sensor" && v.to_string() == "sysio" && p.resource.id_string().unwrap() == "0"
+                        })
+                        .is_some()
+                });
+                let dram = m.iter().find(|p| {
+                    p.attributes()
+                        .find(|(k, v)| {
+                            *k == "sensor" && v.to_string() == "dram" && p.resource.id_string().unwrap() == "0"
+                        })
                         .is_some()
                 });
                 // TODO make it nicer to get an attribute by key
-                assert_eq!(module.unwrap().value.as_u64(), 60000000);
+                assert_eq!(module.unwrap().value.as_u64(), 80000000);
                 assert_eq!(grace.unwrap().value.as_u64(), 62000000);
-                assert_eq!(cpu.unwrap().value.as_u64(), 64000000);
-                assert_eq!(sysio.unwrap().value.as_u64(), 67000000);
+                assert_eq!(cpu.unwrap().value.as_u64(), 42000000);
+                assert_eq!(sysio.unwrap().value.as_u64(), 18000000);
+                assert_eq!(dram.unwrap().value.as_u64(), 2000000);
                 println!("t: {:?}", Timestamp::now());
 
                 // We cannot sleep in the make_input of the next test_source, because the timestamp would not be updated. So, we sleep here.
@@ -156,22 +206,37 @@ fn full_plugin_with_multiple_hwmon_sensors() {
                 let m: Vec<_> = m.into_iter().filter(|p| p.metric == energy_metric).collect();
                 let module = m.iter().find(|p| {
                     p.attributes()
-                        .find(|(k, v)| *k == "sensor" && v.to_string() == "module")
+                        .find(|(k, v)| {
+                            *k == "sensor" && v.to_string() == "module" && p.resource.id_string().unwrap() == "0"
+                        })
                         .is_some()
                 });
                 let grace = m.iter().find(|p| {
                     p.attributes()
-                        .find(|(k, v)| *k == "sensor" && v.to_string() == "grace")
+                        .find(|(k, v)| {
+                            *k == "sensor" && v.to_string() == "grace" && p.resource.id_string().unwrap() == "0"
+                        })
                         .is_some()
                 });
                 let cpu = m.iter().find(|p| {
                     p.attributes()
-                        .find(|(k, v)| *k == "sensor" && v.to_string() == "cpu")
+                        .find(|(k, v)| {
+                            *k == "sensor" && v.to_string() == "cpu" && p.resource.id_string().unwrap() == "0"
+                        })
                         .is_some()
                 });
                 let sysio = m.iter().find(|p| {
                     p.attributes()
-                        .find(|(k, v)| *k == "sensor" && v.to_string() == "sysio")
+                        .find(|(k, v)| {
+                            *k == "sensor" && v.to_string() == "sysio" && p.resource.id_string().unwrap() == "0"
+                        })
+                        .is_some()
+                });
+                let dram = m.iter().find(|p| {
+                    p.attributes()
+                        .find(|(k, v)| {
+                            *k == "sensor" && v.to_string() == "dram" && p.resource.id_string().unwrap() == "0"
+                        })
                         .is_some()
                 });
                 // TODO make it nicer to get an attribute by key
@@ -183,10 +248,12 @@ fn full_plugin_with_multiple_hwmon_sensors() {
                 let grace = grace.unwrap().value.as_f64();
                 let cpu = cpu.unwrap().value.as_f64();
                 let sysio = sysio.unwrap().value.as_f64();
-                assert!(approx_eq(module, 60000.0, TOLERANCE), "bad value {module}");
+                let dram = dram.unwrap().value.as_f64();
+                assert!(approx_eq(module, 80000.0, TOLERANCE), "bad value {module}");
                 assert!(approx_eq(grace, 62000.0, TOLERANCE), "bad value {module}");
-                assert!(approx_eq(cpu, 64000.0, TOLERANCE), "bad value {module}");
-                assert!(approx_eq(sysio, 67000.0, TOLERANCE), "bad value {module}");
+                assert!(approx_eq(cpu, 42000.0, TOLERANCE), "bad value {module}");
+                assert!(approx_eq(sysio, 18000.0, TOLERANCE), "bad value {module}");
+                assert!(approx_eq(dram, 2000.0, TOLERANCE), "bad value {module}");
             },
         );
 
