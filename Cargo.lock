@@ -2614,6 +2614,7 @@ version = "0.1.0"
 dependencies = [
  "alumet",
  "anyhow",
+ "enum-map",
  "humantime-serde",
  "log",
  "serde",

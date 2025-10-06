@@ -1,8 +1,9 @@
 use alumet::{
     agent::{self, plugin::PluginSet},
-    measurement::Timestamp,
+    measurement::{MeasurementPoint, Timestamp},
     pipeline::naming::SourceName,
     plugin::PluginMetadata,
+    resources::Resource,
     test::{RuntimeExpectations, StartupExpectations},
     units::{PrefixedUnit, Unit},
 };
@@ -139,7 +140,6 @@ fn full_plugin_with_multiple_hwmon_sensors() {
 
                 // check the power measurements
                 let m: Vec<_> = m.into_iter().filter(|p| p.metric == power_metric).collect();
-                // Print:
                 m.iter().find(|p| {
                     p.attributes()
                         .find(|(k, v)| {
@@ -272,4 +272,13 @@ fn config_to_toml_table(config: &Config) -> toml::Table {
 
 fn approx_eq(a: f64, b: f64, epsilon: f64) -> bool {
     (b - a).abs() < epsilon
+}
+
+fn get_point<'a>(m: &'a Vec<MeasurementPoint>, resource: Resource, sensor: &str) -> Option<&'a MeasurementPoint> {
+    m.iter().find(|p| {
+        p.resource == resource
+            && p.attributes()
+                .find(|(k, v)| *k == "sensor" && v.to_string() == sensor)
+                .is_some()
+    })
 }

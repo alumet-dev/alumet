@@ -16,6 +16,7 @@ use alumet::{
 };
 
 mod hwmon;
+mod total;
 
 pub struct GraceHopperPlugin {
     config: Config,

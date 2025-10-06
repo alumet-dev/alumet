@@ -124,7 +124,7 @@ pub fn explore(hwmon_path: &Path) -> anyhow::Result<Vec<Device>> {
 
 /// Kind of information provided by the hwmon file.
 /// See https://docs.nvidia.com/grace-perf-tuning-guide/power-thermals.html#power-telemetry.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, enum_map::Enum)]
 pub enum TelemetryKind {
     /// Total power of the socket.
     Grace,
@@ -134,6 +134,27 @@ pub enum TelemetryKind {
     SysIo,
     /// Total power of the GraceHopper, including regulator loss and DRAM, GPU and HBM power.
     Module,
+}
+
+/// Sensor tag, which corresponds to a `TelemetryKind` or to a value computed by the plugin.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, enum_map::Enum)]
+pub enum SensorTagKind {
+    Grace,
+    Cpu,
+    SysIo,
+    Module,
+    Dram,
+}
+
+impl From<TelemetryKind> for SensorTagKind {
+    fn from(value: TelemetryKind) -> Self {
+        match value {
+            TelemetryKind::Grace => SensorTagKind::Grace,
+            TelemetryKind::Cpu => SensorTagKind::Cpu,
+            TelemetryKind::SysIo => SensorTagKind::SysIo,
+            TelemetryKind::Module => SensorTagKind::Module,
+        }
+    }
 }
 
 #[derive(Debug, Error)]
@@ -168,6 +189,18 @@ impl TelemetryKind {
 impl Display for TelemetryKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
+    }
+}
+
+impl SensorTagKind {
+    pub fn as_str_total(&self) -> &'static str {
+        match self {
+            Self::Grace => "grace_total",
+            Self::Cpu => "cpu_total",
+            Self::SysIo => "sysio_total",
+            Self::Module => "module_total",
+            Self::Dram => "dram_total",
+        }
     }
 }
 
