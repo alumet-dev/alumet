@@ -1,3 +1,8 @@
+use std::{
+    collections::HashMap,
+    ops::{Add, Sub},
+};
+
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, MeasurementType, Timestamp},
     metrics::TypedMetricId,
@@ -11,7 +16,8 @@ use crate::{
 };
 
 pub struct GraceHopperSource {
-    probes: Vec<Probe>,
+    /// Hwmon probes for each socket
+    probes: HashMap<u8, Vec<Probe>>,
     metrics: Metrics,
     buf: String,
 }
@@ -44,6 +50,35 @@ impl Probe {
     }
 }
 
+pub struct DramComputation<T>
+where
+    T: Copy + Add<Output = T> + Sub<Output = T> + PartialOrd + Default,
+{
+    /// Grace - cpu - sysio
+    grace_value: Option<T>,
+    cpu_value: Option<T>,
+    sysio_value: Option<T>,
+}
+
+impl<T> DramComputation<T>
+where
+    T: Copy + Add<Output = T> + Sub<Output = T> + PartialOrd + Default,
+{
+    pub fn compute(&self) -> Option<T> {
+        let grace = self.grace_value?;
+        let cpu = self.cpu_value?;
+        let sysio = self.sysio_value?;
+
+        if (cpu + sysio) > grace {
+            // Note: cannot use checked_sub because we want the method to accept both u64 and f64,
+            // and checked_sub does not exist on f64.
+            None
+        } else {
+            Some(grace - cpu - sysio)
+        }
+    }
+}
+
 struct ProbeMeasure {
     power: u64,
     energy: Option<f64>,
@@ -71,7 +106,10 @@ impl PowerMeasure {
 
 impl GraceHopperSource {
     pub fn new(metrics: Metrics, devices: Vec<Device>) -> Self {
-        let probes = devices.into_iter().map(Probe::new).collect();
+        let probes: HashMap<u8, Vec<Probe>> = devices.into_iter().fold(HashMap::new(), |mut sockets, d| {
+            sockets.entry(d.info.socket).or_default().push(Probe::new(d));
+            sockets
+        });
         Self {
             probes,
             metrics,
@@ -107,28 +145,82 @@ impl Source for GraceHopperSource {
         let mut total_energy_module: Option<f64> = None;
 
         // Collect all the powers and energies.
-        for probe in self.probes.iter_mut() {
-            let ProbeMeasure { power, energy } = probe.measure(t, &mut self.buf)?;
+        for (socket, probes) in self.probes.iter_mut() {
+            let mut dram_power: DramComputation<u64> = DramComputation {
+                grace_value: None,
+                sysio_value: None,
+                cpu_value: None,
+            };
+            let mut dram_energy: DramComputation<f64> = DramComputation {
+                grace_value: None,
+                sysio_value: None,
+                cpu_value: None,
+            };
+            for probe in probes {
+                let ProbeMeasure { power, energy } = probe.measure(t, &mut self.buf)?;
 
-            measurements.push(probe_point(t, self.metrics.power, &probe.device, power));
-            if let Some(energy) = energy {
-                measurements.push(probe_point(t, self.metrics.energy, &probe.device, energy));
+                measurements.push(probe_point(t, self.metrics.power, &probe.device, power));
+                if let Some(energy) = energy {
+                    measurements.push(probe_point(t, self.metrics.energy, &probe.device, energy));
+                }
+
+                match probe.device.info.kind {
+                    TelemetryKind::Grace => {
+                        *total_power_grace.get_or_insert_default() += power;
+                        dram_power.grace_value = Some(power);
+                        if let Some(energy) = energy {
+                            *total_energy_grace.get_or_insert_default() += energy;
+                            *dram_energy.grace_value.get_or_insert_default() = energy;
+                        }
+                    }
+                    TelemetryKind::Module => {
+                        *total_power_module.get_or_insert_default() += power;
+                        if let Some(energy) = energy {
+                            *total_energy_module.get_or_insert_default() += energy;
+                        }
+                    }
+                    TelemetryKind::Cpu => {
+                        dram_power.cpu_value = Some(power);
+                        if let Some(energy) = energy {
+                            *dram_energy.cpu_value.get_or_insert_default() += energy;
+                        }
+                    }
+                    TelemetryKind::SysIo => {
+                        dram_power.sysio_value = Some(power);
+                        if let Some(energy) = energy {
+                            *dram_energy.sysio_value.get_or_insert_default() += energy;
+                        }
+                    }
+                }
+            }
+            if let Some(computed_dram_power) = dram_power.compute() {
+                measurements.push(
+                    MeasurementPoint::new(
+                        t,
+                        self.metrics.power,
+                        Resource::Dram { pkg_id: *socket as u32 },
+                        ResourceConsumer::LocalMachine,
+                        computed_dram_power,
+                    )
+                    .with_attr("sensor", "dram"),
+                );
+            } else {
+                log::warn!("could not compute dram power: missing inputs or overflow");
             }
 
-            match probe.device.info.kind {
-                TelemetryKind::Grace => {
-                    *total_power_grace.get_or_insert_default() += power;
-                    if let Some(energy) = energy {
-                        *total_energy_grace.get_or_insert_default() += energy;
-                    }
-                }
-                TelemetryKind::Module => {
-                    *total_power_module.get_or_insert_default() += power;
-                    if let Some(energy) = energy {
-                        *total_energy_module.get_or_insert_default() += energy;
-                    }
-                }
-                _ => (),
+            if let Some(computed_dram_energy) = dram_energy.compute() {
+                measurements.push(
+                    MeasurementPoint::new(
+                        t,
+                        self.metrics.energy,
+                        Resource::Dram { pkg_id: *socket as u32 },
+                        ResourceConsumer::LocalMachine,
+                        computed_dram_energy,
+                    )
+                    .with_attr("sensor", "dram"),
+                );
+            } else {
+                log::warn!("could not compute dram energy: missing inputs or overflow");
             }
         }
 
@@ -167,6 +259,8 @@ impl Source for GraceHopperSource {
 mod tests {
     use alumet::measurement::Timestamp;
     use std::time::Duration;
+
+    use crate::probe::DramComputation;
 
     use super::PowerMeasure;
 
@@ -227,5 +321,56 @@ mod tests {
             power: 71_000000,
         };
         assert_eq!(282_000.0, measure.compute_energy(&lm_init).unwrap());
+    }
+
+    #[test]
+    fn compute_dram() {
+        let test1: DramComputation<u64> = DramComputation {
+            grace_value: Some(19),
+            sysio_value: Some(12),
+            cpu_value: Some(2),
+        };
+        let mut computed_u64 = test1.compute();
+        assert_eq!(computed_u64.unwrap(), 5);
+
+        let test2: DramComputation<u64> = DramComputation {
+            grace_value: Some(20),
+            sysio_value: Some(13),
+            cpu_value: Some(7),
+        };
+        computed_u64 = test2.compute();
+        assert_eq!(computed_u64.unwrap(), 0);
+
+        let test3: DramComputation<u64> = DramComputation {
+            grace_value: Some(10),
+            sysio_value: Some(12),
+            cpu_value: Some(2),
+        };
+        computed_u64 = test3.compute();
+        assert_eq!(computed_u64, None);
+
+        let test4: DramComputation<f64> = DramComputation {
+            grace_value: Some(10.0),
+            sysio_value: Some(3.1),
+            cpu_value: Some(5.0),
+        };
+        let mut computed_f64 = test4.compute();
+        assert_eq!(computed_f64.unwrap(), 1.9);
+
+        let test5: DramComputation<f64> = DramComputation {
+            grace_value: Some(28.3),
+            sysio_value: Some(13.3),
+            cpu_value: Some(15.0),
+        };
+        computed_f64 = test5.compute();
+        assert_eq!(computed_f64.unwrap(), 0.0);
+
+        let test6: DramComputation<f64> = DramComputation {
+            grace_value: Some(15.0),
+            sysio_value: Some(12.58),
+            cpu_value: Some(20.59),
+        };
+        computed_f64 = test6.compute();
+        assert_eq!(computed_f64, None);
     }
 }
