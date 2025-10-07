@@ -1,22 +1,39 @@
-use std::{
-    borrow::Cow,
-    fs::File,
-    io::{self, Write},
-};
+use std::{borrow::Cow, fs::File, io::Write};
 
 use rustc_hash::FxHashMap;
 
 pub struct CsvWriter {
+    /// File, opened for writing.
     file: File,
+
     /// Columns of the header.
+    /// If empty, the header has not been written yet.
     header: Vec<String>,
+
+    /// CSV options,
+    params: CsvParams,
+}
+
+pub struct CsvParams {
+    pub delimiter: char,
+    pub late_delimiter: char,
+}
+
+impl Default for CsvParams {
+    fn default() -> Self {
+        Self {
+            delimiter: ';',
+            late_delimiter: ',',
+        }
+    }
 }
 
 impl CsvWriter {
-    pub fn new(file: File) -> Self {
+    pub fn new(file: File, params: CsvParams) -> Self {
         Self {
             file,
             header: Vec::new(),
+            params,
         }
     }
 
@@ -27,7 +44,7 @@ impl CsvWriter {
     pub fn write_header(&mut self, header: Vec<String>) -> anyhow::Result<()> {
         assert!(self.header.is_empty());
         for column in &header {
-            write!(&mut self.file, "{column};")?;
+            write!(&mut self.file, "{column}{}", self.params.delimiter)?;
         }
         writeln!(&mut self.file, "__late_attributes")?;
         self.header = header;
@@ -35,25 +52,32 @@ impl CsvWriter {
     }
 
     pub fn write_line(&mut self, data: &mut FxHashMap<String, String>) -> anyhow::Result<()> {
+        use std::fmt::Write;
+
         assert!(!self.header.is_empty());
 
         // Write the data in the columns that we know
         for column in &self.header {
             if let Some(value) = data.remove(column) {
+                let value = self.params.escape_string(&value);
                 write!(&mut self.file, "{value}")?;
             }
-            write!(&mut self.file, ";")?;
+            write!(&mut self.file, "{}", self.params.delimiter)?;
         }
 
-        // Write the data in the "late attributes" column
+        // Write the data in the "late attributes" column.
+        // First, build a string. Then escape it if needed and write it into the last column.
         let last = data.len().saturating_sub(1);
+        let mut late_value = String::new();
         for (i, (k, v)) in data.iter().enumerate() {
-            write!(&mut self.file, "{k}={v}")?;
+            let v = self.params.escape_string_late(v);
+            write!(&mut late_value, "{k}={v}")?;
             if i != last {
-                write!(&mut self.file, ",")?;
+                write!(&mut late_value, "{}", self.params.late_delimiter)?;
             }
         }
-        write!(&mut self.file, "\n")?;
+        let late_value = self.params.escape_string(&late_value);
+        writeln!(&mut self.file, "{late_value}")?;
 
         Ok(())
     }
@@ -62,39 +86,15 @@ impl CsvWriter {
         self.file.flush()?;
         Ok(())
     }
-
-    // fn write2(&mut self, columns: &[&str], value: &[&str]) -> anyhow::Result<()> {
-    //     if self.header.is_empty() {}
-    //     Ok(())
-    // }
 }
 
-pub struct CsvHelper {
-    /// The CSV delimiter, such as `';'`.
-    delimiter: char,
-
-    /// Same as `delimiter` but in a string.
-    delimiter_string: String,
-
-    /// How to escape quotes in values, example `'\\"'`
-    escaped_quote: String,
-}
-
-impl CsvHelper {
-    pub fn new(delimiter: char, escaped_quote: String) -> Self {
-        Self {
-            delimiter,
-            delimiter_string: delimiter.to_string(),
-            escaped_quote,
-        }
-    }
-
+impl CsvParams {
     /// Escape a string for CSV formatting.
     ///
     /// See <https://www.ietf.org/rfc/rfc4180.txt>.
     pub fn escape_string<'a>(&self, s: &'a str) -> Cow<'a, str> {
         if s.contains([self.delimiter, '"', '\n', '\r']) {
-            let escaped = s.replace('"', &self.escaped_quote);
+            let escaped = s.replace('"', "\"\"");
             let quoted = format!("\"{escaped}\"");
             Cow::Owned(quoted)
         } else {
@@ -102,24 +102,22 @@ impl CsvHelper {
         }
     }
 
-    pub fn writeln<R: IntoIterator<Item = S>, S: AsRef<str>>(&self, w: &mut impl Write, record: R) -> io::Result<()> {
-        // TODO avoid allocations in there
-        let csv_record: Vec<String> = record
-            .into_iter()
-            .map(|elem| self.escape_string(elem.as_ref()).to_string())
-            .collect();
-        writeln!(w, "{}", csv_record.join(&self.delimiter_string))
+    /// Escape a string for late attributes formatting.
+    pub fn escape_string_late<'a>(&self, s: &'a str) -> Cow<'a, str> {
+        if s.contains(self.late_delimiter) {
+            let escaped = s.replace(self.late_delimiter, &format!("\\{}", self.late_delimiter));
+            Cow::Owned(escaped)
+        } else {
+            Cow::Borrowed(s)
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        fs::File,
-        io::{Read, Write},
-    };
+    use std::{fs::File, io::Write};
 
-    use crate::csv::{CsvHelper, CsvWriter};
+    use crate::csv::{CsvParams, CsvWriter};
     use indoc::indoc;
     use pretty_assertions::assert_eq;
     use rustc_hash::FxHashMap;
@@ -128,7 +126,7 @@ mod tests {
     fn csv_writer() -> anyhow::Result<()> {
         let tmp = tempfile::tempdir()?;
         let path = tmp.path().join("test.csv");
-        let mut writer = CsvWriter::new(File::create(&path)?);
+        let mut writer = CsvWriter::new(File::create(&path)?, CsvParams::default());
         println!("{path:?}");
 
         writer.write_header(vec![
@@ -142,7 +140,7 @@ mod tests {
             ("timestamp".to_owned(), "123456".to_owned()),
             ("value".to_owned(), "25".to_owned()),
             ("metric".to_owned(), "test".to_owned()),
-            ("sensor".to_owned(), "petits pois".to_owned()),
+            ("sensor".to_owned(), "petits;pois".to_owned()),
             ("pc".to_owned(), "thinkpad".to_owned()),
         ]))?;
         writer.write_line(&mut FxHashMap::from_iter(vec![
@@ -150,7 +148,7 @@ mod tests {
             ("metric".to_owned(), "testtttt".to_owned()),
             ("sensor".to_owned(), "local".to_owned()),
             ("gpu".to_owned(), "H200".to_owned()),
-            ("cpu".to_owned(), "EPYC".to_owned()),
+            ("cpu".to_owned(), "EPYC,AMD".to_owned()),
         ]))?;
         writer.write_line(&mut FxHashMap::from_iter(vec![
             ("timestamp".to_owned(), "42".to_owned()),
@@ -165,8 +163,8 @@ mod tests {
             output,
             indoc! {"
             timestamp;metric;value;sensor;pc;__late_attributes
-            123456;test;25;petits pois;thinkpad;
-            ;testtttt;7;local;;gpu=H200,cpu=EPYC
+            123456;test;25;\"petits;pois\";thinkpad;
+            ;testtttt;7;local;;gpu=H200,cpu=EPYC\\,AMD
             42;amd;7;carottes;;
         "}
         );
@@ -176,41 +174,24 @@ mod tests {
 
     #[test]
     fn csv_escape() {
-        let helper: CsvHelper = CsvHelper::new(',', "\"\"".into());
+        let helper = CsvParams {
+            delimiter: ',',
+            late_delimiter: ':',
+        };
         assert_eq!("abcdefg", helper.escape_string("abcdefg"));
         assert_eq!("\"abcd\"\"efg\"", helper.escape_string("abcd\"efg"));
         assert_eq!("\"abcd,efg\"", helper.escape_string("abcd,efg"));
         assert_eq!("abcd;efg", helper.escape_string("abcd;efg"));
         assert_eq!("", helper.escape_string(""));
 
-        let helper: CsvHelper = CsvHelper::new(';', "\\\"".into());
+        let helper = CsvParams {
+            delimiter: ';',
+            late_delimiter: ',',
+        };
         assert_eq!("abcdefg", helper.escape_string("abcdefg"));
-        assert_eq!("\"abcd\\\"efg\"", helper.escape_string("abcd\"efg"));
+        assert_eq!("\"abcd\"\"efg\"", helper.escape_string("abcd\"efg"));
         assert_eq!("\"abcd;efg\"", helper.escape_string("abcd;efg"));
         assert_eq!("abcd,efg", helper.escape_string("abcd,efg"));
         assert_eq!("", helper.escape_string(""));
-    }
-
-    #[test]
-    fn csv_write() {
-        let helper: CsvHelper = CsvHelper::new(',', "\"\"".into());
-
-        let mut res = Vec::new();
-        helper.writeln(&mut res, vec!["a", "b", "c"]).unwrap();
-        assert_eq!("a,b,c\n", String::from_utf8(res).unwrap());
-
-        let mut res = Vec::new();
-        helper.writeln(&mut res, vec![" a", "b  b", "c "]).unwrap();
-        assert_eq!(" a,b  b,c \n", String::from_utf8(res).unwrap());
-
-        let mut res = Vec::new();
-        helper.writeln(&mut res, vec!["a", "b,b,b", "c"]).unwrap();
-        assert_eq!("a,\"b,b,b\",c\n", String::from_utf8(res).unwrap());
-
-        let helper: CsvHelper = CsvHelper::new(';', "\"\"".into());
-
-        let mut res = Vec::new();
-        helper.writeln(&mut res, vec!["a", "b,b,b", "c"]).unwrap();
-        assert_eq!("a;b,b,b;c\n", String::from_utf8(res).unwrap());
     }
 }

@@ -1,17 +1,12 @@
-use std::{
-    collections::HashSet,
-    fs::File,
-    io::{self, BufWriter},
-    path::Path,
-    time::SystemTime,
-};
+use std::{collections::HashSet, fs::File, path::Path, time::SystemTime};
 
-use crate::csv::{CsvHelper, CsvWriter};
+use crate::csv::{CsvParams, CsvWriter};
 use alumet::{
     measurement::MeasurementBuffer,
     pipeline::elements::{error::WriteError, output::OutputContext},
 };
 use alumet::{measurement::WrappedMeasurementValue, pipeline::Output};
+use anyhow::Context;
 use rustc_hash::FxHashMap;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -26,28 +21,25 @@ pub struct CsvOutput {
 
     /// CSV writer
     writer: CsvWriter,
+}
 
-    /// CSV utility
-    csv_helper: CsvHelper,
+pub struct CsvOutputSettings {
+    pub force_flush: bool,
+    pub append_unit_to_metric_name: bool,
+    pub use_unit_display_name: bool,
+    pub params: CsvParams,
 }
 
 impl CsvOutput {
-    pub fn new(
-        output_file: impl AsRef<Path>,
-        force_flush: bool,
-        append_unit_to_metric_name: bool,
-        use_unit_display_name: bool,
-        delimiter: char,
-        escaped_quote: String,
-    ) -> io::Result<Self> {
-        let writer = CsvWriter::new(File::create(output_file)?);
-        let helper = CsvHelper::new(delimiter, escaped_quote);
+    pub fn new(output_file: impl AsRef<Path>, settings: CsvOutputSettings) -> anyhow::Result<Self> {
+        let path = output_file.as_ref();
+        let file = File::create(path).with_context(|| format!("failed to open file for writing {path:?}"))?;
+        let writer = CsvWriter::new(file, settings.params);
         Ok(Self {
-            force_flush,
-            append_unit_to_metric_name,
-            use_unit_display_name,
+            force_flush: settings.force_flush,
+            append_unit_to_metric_name: settings.append_unit_to_metric_name,
+            use_unit_display_name: settings.use_unit_display_name,
             writer,
-            csv_helper: helper,
         })
     }
 }

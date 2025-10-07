@@ -11,6 +11,8 @@ use alumet::plugin::{
 use output::CsvOutput;
 use serde::{Deserialize, Serialize};
 
+use crate::{csv::CsvParams, output::CsvOutputSettings};
+
 pub struct CsvPlugin {
     config: Config,
 }
@@ -34,14 +36,16 @@ impl AlumetPlugin for CsvPlugin {
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
-        let output = Box::new(CsvOutput::new(
-            &self.config.output_path,
-            self.config.force_flush,
-            self.config.append_unit_to_metric_name,
-            self.config.use_unit_display_name,
-            self.config.csv_delimiter,
-            self.config.csv_escaped_quote.take().unwrap_or(String::from("\"\"")),
-        )?);
+        let settings = CsvOutputSettings {
+            force_flush: self.config.force_flush,
+            append_unit_to_metric_name: self.config.append_unit_to_metric_name,
+            use_unit_display_name: self.config.use_unit_display_name,
+            params: CsvParams {
+                delimiter: self.config.csv_delimiter,
+                late_delimiter: self.config.csv_late_delimiter,
+            },
+        };
+        let output = Box::new(CsvOutput::new(&self.config.output_path, settings)?);
         alumet.add_blocking_output("out", output)?;
         Ok(())
     }
@@ -64,7 +68,8 @@ pub struct Config {
     pub use_unit_display_name: bool,
     /// The CSV delimiter, such as `;`
     pub csv_delimiter: char,
-    pub csv_escaped_quote: Option<String>,
+    /// The delimiter between the entries in `__late_attributes`.
+    pub csv_late_delimiter: char,
 }
 
 impl Default for Config {
@@ -75,7 +80,7 @@ impl Default for Config {
             use_unit_display_name: true,
             append_unit_to_metric_name: true,
             csv_delimiter: ';',
-            csv_escaped_quote: None,
+            csv_late_delimiter: ',',
         }
     }
 }
