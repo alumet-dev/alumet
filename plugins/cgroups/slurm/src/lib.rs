@@ -86,7 +86,7 @@ impl AlumetPlugin for SlurmPlugin {
                 add_source_in_pause_state: config.add_source_in_pause_state,
                 ..Default::default()
             },
-            source_setup: source::JobSourceSetup::new(config)?,
+            source_setup: source::JobSourceSetup::new(config, tagger)?,
             shared_hierarchy,
         };
         self.starting_state = Some(starting_state);

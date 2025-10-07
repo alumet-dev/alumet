@@ -1,11 +1,10 @@
 use alumet::pipeline::elements::source::trigger::TriggerSpec;
 use util_cgroups::Cgroup;
 
-use crate::attr::{JOB_REGEX_SLURM1, JOB_REGEX_SLURM2, JOB_STEP_REGEX, JobTagger, find_jobid_in_attrs};
+use crate::attr::{JobTagger, find_jobid_in_attrs};
 use util_cgroups_plugins::{
     cgroup_events::{CgroupSetupCallback, ProbeSetup, SourceSettings},
     metrics::{AugmentedMetrics, Metrics},
-    regex::RegexAttributesExtrator,
 };
 
 #[derive(Clone)]
@@ -16,11 +15,11 @@ pub struct JobSourceSetup {
 }
 
 impl JobSourceSetup {
-    pub fn new(config: super::Config) -> anyhow::Result<Self> {
+    pub fn new(config: super::Config, tagger: JobTagger) -> anyhow::Result<Self> {
         let trigger = TriggerSpec::at_interval(config.poll_interval);
 
         Ok(Self {
-            tagger: JobTagger::new()?,
+            tagger,
             trigger,
             jobs_only: config.jobs_only,
         })
