@@ -32,6 +32,28 @@ The **cpu** measurements have an additional attribute `kind`, which can be one o
 - `system`: time spent in kernel mode only
 - `user`: time spent in user mode only
 
+## Annotation of the Measurements Provided by Other Plugins
+
+Other plugins, such as the [`process-to-cgroup-bridge`](../../process-to-cgroup-bridge/README.md), can produce measurements related to the cgroups of Slurm jobs.
+However, they cannot add job-specific information (such as the job id) to the measurements.
+
+To do that, use the annotation feature of the `slurm` plugin by enabling the following configuration option.
+
+```toml
+annotate_foreign_measurements = true
+```
+
+Be sure to enable the `slurm` plugin **after** the plugins that produce the measurements that you want to annotate.
+For instance, the `slurm` configuration section should be after the `process-to-cgroup-bridge` section.
+
+```toml
+[plugins.process-to-cgroup-bridge]
+…
+
+[plugins.slurm]
+…
+```
+
 ## Configuration
 
 Here is an example of how to configure this plugin.

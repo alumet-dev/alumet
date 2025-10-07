@@ -69,6 +69,7 @@ impl AlumetPlugin for RawCgroupPlugin {
             ReactorCallbacks {
                 probe_setup,
                 on_removal: NoCallback,
+                on_fs_mount: NoCallback,
             },
             alumet.pipeline_control(),
         )

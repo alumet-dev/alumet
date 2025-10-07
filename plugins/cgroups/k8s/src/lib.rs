@@ -90,6 +90,7 @@ impl AlumetPlugin for K8sPlugin {
             ReactorCallbacks {
                 probe_setup,
                 on_removal: NoCallback,
+                on_fs_mount: NoCallback,
             },
             alumet.pipeline_control(),
         )

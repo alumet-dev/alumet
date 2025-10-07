@@ -12,8 +12,14 @@ use util_cgroups_plugins::{
     metrics::Metrics,
 };
 
+use crate::{
+    attr::JobTagger,
+    transform::{CachedCgroupHierarchy, JobAnnotationTransform, OptionalSharedHierarchy, SharedCgroupHierarchy},
+};
+
 mod attr;
 mod source;
+mod transform;
 
 /// Gathers metrics for slurm jobs.
 ///
@@ -58,6 +64,21 @@ impl AlumetPlugin for SlurmPlugin {
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         let config = self.config.take().unwrap();
 
+        let tagger = JobTagger::new()?;
+        let mut shared_hierarchy = OptionalSharedHierarchy::default();
+
+        // If enabled, create the annotation transform.
+        if config.annotate_foreign_measurements {
+            let shared = SharedCgroupHierarchy::default();
+            shared_hierarchy.enable(shared.clone());
+
+            let transform = JobAnnotationTransform {
+                tagger: tagger.clone(),
+                cgroup_v2_hierarchy: CachedCgroupHierarchy::new(shared),
+            };
+            alumet.add_transform("annotation", Box::new(transform))?;
+        }
+
         // Prepare for cgroup detection.
         let starting_state = StartingState {
             metrics: Metrics::create(alumet)?,
@@ -65,7 +86,8 @@ impl AlumetPlugin for SlurmPlugin {
                 add_source_in_pause_state: config.add_source_in_pause_state,
                 ..Default::default()
             },
-            source_setup: source::JobSourceSetup::new(config)?,
+            source_setup: source::JobSourceSetup::new(config, tagger)?,
+            shared_hierarchy,
         };
         self.starting_state = Some(starting_state);
         Ok(())
@@ -73,12 +95,14 @@ impl AlumetPlugin for SlurmPlugin {
 
     fn post_pipeline_start(&mut self, alumet: &mut AlumetPostStart) -> anyhow::Result<()> {
         let s = self.starting_state.take().unwrap();
+
         let reactor = CgroupReactor::new(
             s.reactor_config,
             s.metrics,
             ReactorCallbacks {
                 probe_setup: s.source_setup,
                 on_removal: NoCallback,
+                on_fs_mount: s.shared_hierarchy,
             },
             alumet.pipeline_control(),
         )
@@ -97,24 +121,33 @@ impl AlumetPlugin for SlurmPlugin {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
-    /// Interval between two Slurm measurement
+    /// Interval between two measurements.
     #[serde(with = "humantime_serde")]
     pub poll_interval: Duration,
+
     /// Interval between two scans of the cgroup v1 hierarchies.
     /// Only applies to cgroup v1 hierarchies (cgroupv2 supports inotify).
     #[serde(default)]
     #[serde(with = "humantime_serde")]
     pub cgroupv1_refresh_interval: Option<Duration>,
+
     /// Only monitor the job cgroup related metrics and skip the others
     pub jobs_only: bool,
 
-    /// If true, the slurm sources will be started in pause state.
-    /// If None: the value is false.
+    /// If `true`, the slurm sources will be started in pause state.
+    /// The default value is `false`.
     ///
     /// This behavior is necessary to have fine-grained control over which cgroup to monitor.
     /// !! It's essentially needed for advanced Alumet setup with a control plugin that manage the state of sources.
     #[serde(default)]
     pub add_source_in_pause_state: bool,
+
+    /// If `true`, adds attributes like `job_id` to the measurements produced by other plugins.
+    /// The default value is `false`.
+    ///
+    /// The measurements must have the `cgroup` resource consumer, and **cgroup v2** must be used on the node.
+    #[serde(default)]
+    pub annotate_foreign_measurements: bool,
 }
 
 impl Default for Config {
@@ -125,6 +158,7 @@ impl Default for Config {
             cgroupv1_refresh_interval: None,
             jobs_only: true,
             add_source_in_pause_state: false,
+            annotate_foreign_measurements: false,
         }
     }
 }
@@ -133,4 +167,5 @@ pub struct StartingState {
     metrics: Metrics,
     reactor_config: ReactorConfig,
     source_setup: source::JobSourceSetup,
+    shared_hierarchy: OptionalSharedHierarchy,
 }

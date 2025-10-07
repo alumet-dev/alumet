@@ -9,7 +9,7 @@ use crate::{
     transform::JobInfoAttacher,
 };
 use util_cgroups_plugins::{
-    cgroup_events::{CgroupReactor, ReactorCallbacks, ReactorConfig},
+    cgroup_events::{CgroupReactor, NoCallback, ReactorCallbacks, ReactorConfig},
     metrics::Metrics,
 };
 
@@ -86,6 +86,7 @@ impl AlumetPlugin for OarPlugin {
             ReactorCallbacks {
                 probe_setup: s.source_setup,
                 on_removal: s.job_cleaner,
+                on_fs_mount: NoCallback,
             },
             alumet.pipeline_control(),
         )
