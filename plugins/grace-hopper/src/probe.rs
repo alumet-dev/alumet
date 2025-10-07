@@ -9,10 +9,12 @@ use alumet::{
     pipeline::{Source, elements::error::PollError},
     resources::{Resource, ResourceConsumer},
 };
+use enum_map::EnumMap;
 
 use crate::{
     Metrics,
-    hwmon::{Device, TelemetryKind},
+    hwmon::{Device, SensorTagKind, TelemetryKind},
+    total::PerKindTotals,
 };
 
 pub struct GraceHopperSource {
@@ -50,11 +52,16 @@ impl Probe {
     }
 }
 
+/// Helper to estimate the DRAM power.
+///
+/// ## Why?
+///
+/// Grace and Grace-hopper superchips do not provide a sensor that is dedicated to the RAM.
+/// However, it is possible to estimation the power consumption of the RAM by using the existing sensors.
 pub struct DramComputation<T>
 where
-    T: Copy + Add<Output = T> + Sub<Output = T> + PartialOrd + Default,
+    T: Copy + Add<Output = T> + Sub<Output = T> + PartialOrd,
 {
-    /// Grace - cpu - sysio
     grace_value: Option<T>,
     cpu_value: Option<T>,
     sysio_value: Option<T>,
@@ -62,8 +69,12 @@ where
 
 impl<T> DramComputation<T>
 where
-    T: Copy + Add<Output = T> + Sub<Output = T> + PartialOrd + Default,
+    T: Copy + Add<Output = T> + Sub<Output = T> + PartialOrd,
 {
+    /// Estimates the DRAM power and energy by computing `grace - cpu - sysio`.
+    ///
+    /// This is not the _best_ estimation possible, but it's good enough for the moment.
+    /// It overestimates the consumption of the DRAM, because it contains the consumption of some controllers
     pub fn compute(&self) -> Option<T> {
         let grace = self.grace_value?;
         let cpu = self.cpu_value?;
@@ -138,25 +149,31 @@ impl Source for GraceHopperSource {
             .with_attr("sensor", dev.info.kind.as_str())
         }
 
-        // Compute some sums. One of grace/module is the total consumption of the superchip.
-        let mut total_power_grace: Option<u64> = None;
-        let mut total_power_module: Option<u64> = None;
-        let mut total_energy_grace: Option<f64> = None;
-        let mut total_energy_module: Option<f64> = None;
+        fn total_point<T: MeasurementType>(
+            t: Timestamp,
+            metric: TypedMetricId<T>,
+            kind: Option<SensorTagKind>,
+            value: T::T,
+        ) -> MeasurementPoint {
+            let m = MeasurementPoint::new(t, metric, Resource::LocalMachine, ResourceConsumer::LocalMachine, value);
+            match kind {
+                Some(kind) => m.with_attr("sensor", kind.as_str_total()),
+                None => m.with_attr("sensor", "total"),
+            }
+        }
+
+        // Compute the sum per kind of sensor.
+        let mut total_power = PerKindTotals::new();
+        let mut total_energy = PerKindTotals::new();
 
         // Collect all the powers and energies.
         for (socket, probes) in self.probes.iter_mut() {
-            let mut dram_power: DramComputation<u64> = DramComputation {
-                grace_value: None,
-                sysio_value: None,
-                cpu_value: None,
-            };
-            let mut dram_energy: DramComputation<f64> = DramComputation {
-                grace_value: None,
-                sysio_value: None,
-                cpu_value: None,
-            };
+            // Keep track of some values per-probe to estimate the dram consumption.
+            let mut local_power: EnumMap<TelemetryKind, Option<u64>> = enum_map::enum_map! { _ => None};
+            let mut local_energy: EnumMap<TelemetryKind, Option<f64>> = enum_map::enum_map! { _ => None};
+
             for probe in probes {
+                let kind = probe.device.info.kind;
                 let ProbeMeasure { power, energy } = probe.measure(t, &mut self.buf)?;
 
                 measurements.push(probe_point(t, self.metrics.power, &probe.device, power));
@@ -164,36 +181,23 @@ impl Source for GraceHopperSource {
                     measurements.push(probe_point(t, self.metrics.energy, &probe.device, energy));
                 }
 
-                match probe.device.info.kind {
-                    TelemetryKind::Grace => {
-                        *total_power_grace.get_or_insert_default() += power;
-                        dram_power.grace_value = Some(power);
-                        if let Some(energy) = energy {
-                            *total_energy_grace.get_or_insert_default() += energy;
-                            *dram_energy.grace_value.get_or_insert_default() = energy;
-                        }
-                    }
-                    TelemetryKind::Module => {
-                        *total_power_module.get_or_insert_default() += power;
-                        if let Some(energy) = energy {
-                            *total_energy_module.get_or_insert_default() += energy;
-                        }
-                    }
-                    TelemetryKind::Cpu => {
-                        dram_power.cpu_value = Some(power);
-                        if let Some(energy) = energy {
-                            *dram_energy.cpu_value.get_or_insert_default() += energy;
-                        }
-                    }
-                    TelemetryKind::SysIo => {
-                        dram_power.sysio_value = Some(power);
-                        if let Some(energy) = energy {
-                            *dram_energy.sysio_value.get_or_insert_default() += energy;
-                        }
-                    }
+                local_power[kind] = Some(power);
+                local_energy[kind] = energy;
+
+                total_power.push(kind.into(), power);
+                if let Some(energy) = energy {
+                    total_energy.push(kind.into(), energy);
                 }
             }
+
+            // Estimate dram power consumption.
+            let dram_power: DramComputation<u64> = DramComputation {
+                grace_value: local_power[TelemetryKind::Grace],
+                cpu_value: local_power[TelemetryKind::Cpu],
+                sysio_value: local_power[TelemetryKind::SysIo],
+            };
             if let Some(computed_dram_power) = dram_power.compute() {
+                total_power.push(SensorTagKind::Dram, computed_dram_power);
                 measurements.push(
                     MeasurementPoint::new(
                         t,
@@ -208,7 +212,14 @@ impl Source for GraceHopperSource {
                 log::warn!("could not compute dram power: missing inputs or overflow");
             }
 
+            // Idem with energy.
+            let dram_energy: DramComputation<f64> = DramComputation {
+                grace_value: local_energy[TelemetryKind::Grace],
+                cpu_value: local_energy[TelemetryKind::Cpu],
+                sysio_value: local_energy[TelemetryKind::SysIo],
+            };
             if let Some(computed_dram_energy) = dram_energy.compute() {
+                total_energy.push(SensorTagKind::Dram, computed_dram_energy);
                 measurements.push(
                     MeasurementPoint::new(
                         t,
@@ -224,32 +235,22 @@ impl Source for GraceHopperSource {
             }
         }
 
-        // Find the total consumption.
+        // Push the totals
+        for (kind, total) in total_power.iter() {
+            measurements.push(total_point(t, self.metrics.power, Some(kind), total));
+        }
+        for (kind, total) in total_energy.iter() {
+            measurements.push(total_point(t, self.metrics.energy, Some(kind), total));
+        }
+
+        // Find the total consumption of the superchip.
         // On GraceHopper superchips: the "module" power.
         // On Grace superchips: the sum of all the "grace" power (there is no "module" device).
-        if let Some(total_power) = total_power_module.or(total_power_grace) {
-            measurements.push(
-                MeasurementPoint::new(
-                    t,
-                    self.metrics.power,
-                    Resource::LocalMachine,
-                    ResourceConsumer::LocalMachine,
-                    total_power,
-                )
-                .with_attr("sensor", "total"),
-            );
+        if let Some(total_power) = total_power[SensorTagKind::Module].or(total_power[SensorTagKind::Grace]) {
+            measurements.push(total_point(t, self.metrics.power, None, total_power));
         }
-        if let Some(total_energy) = total_energy_module.or(total_energy_grace) {
-            measurements.push(
-                MeasurementPoint::new(
-                    t,
-                    self.metrics.energy,
-                    Resource::LocalMachine,
-                    ResourceConsumer::LocalMachine,
-                    total_energy,
-                )
-                .with_attr("sensor", "total"),
-            );
+        if let Some(total_energy) = total_energy[SensorTagKind::Module].or(total_energy[SensorTagKind::Grace]) {
+            measurements.push(total_point(t, self.metrics.energy, None, total_energy));
         }
         Ok(())
     }

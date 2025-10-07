@@ -13,27 +13,42 @@ Here are the metrics collected by the plugin.
 
 |Name|Type|Unit|Description|Attributes|More information|
 |----|----|----|-----------|----------|-----------------|
-|`grace_instant_power`|uint|microWatt|Power consumption|[sensor](#sensor)| If the `resource_kind` is `LocalMachine` then the value is the sum of all sensors of the same type|
-|`grace_energy_consumption`|float|milliJoule|Energy consumed since the previous measurement|[Sensor](#sensor)| If the `resource_kind` is `LocalMachine` then the value is the sum of all sensors of the same type |
+|`grace_instant_power`|uint|microWatt|Power consumption|[sensor](#hardware-sensors)| If the `resource_kind` is `LocalMachine` then the value is the sum of all sensors of the same type|
+|`grace_energy_consumption`|float|milliJoule|Energy consumed since the previous measurement|[Sensor](#hardware-sensors)| If the `resource_kind` is `LocalMachine` then the value is the sum of all sensors of the same type |
 
 The hardware sensors do not provide the energy, only the power.
 The plugin computes the energy consumption with a discrete integral on the power values.
 
 ### Attributes
 
-#### sensor
+#### Hardware Sensors
 
 The Grace and Grace Hopper superchips track the power consumption of [several areas](https://docs.nvidia.com/grace-perf-tuning-guide/power-thermals.html#fig-grace-power-telemetry-sensors).
 The area is indicated by the `sensor` attribute of the measurements points.
 
-The possible values are:
+The base possible values are:
 
-|Value|Description|Grace|Grace Hopper|
+|`sensor` value|Description|Grace|Grace Hopper|
 |-----|-----------|-----|------------|
 |`module`|Total power of the Grace Hopper module, including regulator loss and DRAM, GPU and HBM power.|No|Yes|
 |`grace`|Power of the Grace socket (the socket number is indicated by the point's resource id)|Yes|Yes|
 |`cpu`|CPU rail power|Yes|Yes|
 |`sysio`|SOC rail power|Yes|Yes|
+
+Refer to the next section for more values.
+
+#### Sums and Estimations
+
+The `grace-hopper` plugins computes additional values and tag them with a different `sensor` value, according to the table below.
+
+|`sensor` value|Description|
+|-----|-----------|
+|`dram`|Estimated power or energy consumption of the DRAM (memory)|
+|`module_total`|sum of all `module` values for the corresponding metric|
+|`grace_total`|sum of all `grace` values|
+|`cpu_total`  |sum of all `cpu` values|
+|`sysio_total`|sum of all `sysio` values|
+|`dram_total`|sum of all `dram` values|
 
 ## Configuration
 
