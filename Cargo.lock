@@ -2555,6 +2555,7 @@ dependencies = [
  "indoc",
  "log",
  "pretty_assertions",
+ "rustc-hash",
  "serde",
  "tempfile",
  "time",

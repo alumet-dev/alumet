@@ -1,27 +1,22 @@
 use std::{
-    collections::{HashMap, HashSet},
-    fmt::Write as OtherWrite,
+    collections::HashSet,
     fs::File,
-    io::{self, BufWriter, Write},
+    io::{self, BufWriter},
     path::Path,
     time::SystemTime,
 };
 
-use crate::csv::CsvHelper;
+use crate::csv::{CsvHelper, CsvWriter};
 use alumet::{
     measurement::MeasurementBuffer,
     pipeline::elements::{error::WriteError, output::OutputContext},
 };
 use alumet::{measurement::WrappedMeasurementValue, pipeline::Output};
-use anyhow::Context;
+use rustc_hash::FxHashMap;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 pub struct CsvOutput {
-    /// The attributes that we have written to the header.
-    /// None if the header has not been written yet.
-    attributes_in_header: Option<HashSet<String>>,
-
     /// parameter: do we flush after each write(measurements)?
     force_flush: bool,
 
@@ -29,8 +24,8 @@ pub struct CsvOutput {
     append_unit_to_metric_name: bool,
     use_unit_display_name: bool,
 
-    /// File writer
-    writer: BufWriter<File>,
+    /// CSV writer
+    writer: CsvWriter,
 
     /// CSV utility
     csv_helper: CsvHelper,
@@ -45,10 +40,9 @@ impl CsvOutput {
         delimiter: char,
         escaped_quote: String,
     ) -> io::Result<Self> {
-        let writer = BufWriter::new(File::create(output_file)?);
+        let writer = CsvWriter::new(File::create(output_file)?);
         let helper = CsvHelper::new(delimiter, escaped_quote);
         Ok(Self {
-            attributes_in_header: None,
             force_flush,
             append_unit_to_metric_name,
             use_unit_display_name,
@@ -68,14 +62,15 @@ fn collect_attribute_keys(buf: &MeasurementBuffer) -> HashSet<String> {
 
 impl Output for CsvOutput {
     fn write(&mut self, measurements: &MeasurementBuffer, ctx: &OutputContext) -> Result<(), WriteError> {
-        if self.attributes_in_header.is_none() && !measurements.is_empty() {
+        log::trace!("writing csv measurements {measurements:?}");
+        if !self.writer.is_initialized() {
+            log::trace!("initializing csv header");
             // Collect the attributes that are present in the measurements.
             // Then, sort the keys to ensure a consistent order between calls to `CsvOutput::write`.
             let attr_keys: HashSet<String> = collect_attribute_keys(measurements).into_iter().collect();
-            let mut attr_sorted: Vec<String> = attr_keys.iter().cloned().collect();
+            let mut attr_sorted: Vec<&str> = attr_keys.iter().map(|k| k.as_str()).collect();
             attr_sorted.sort();
 
-            // Build the CSV header
             let mut header = Vec::with_capacity(8 + attr_sorted.len());
             header.extend(&[
                 "metric",
@@ -86,41 +81,35 @@ impl Output for CsvOutput {
                 "consumer_kind",
                 "consumer_id",
             ]);
-            header.extend(attr_sorted.iter().map(String::as_str));
-            header.push("__late_attributes");
-
-            self.csv_helper.writeln(&mut self.writer, header)?;
-            self.attributes_in_header = Some(attr_keys);
+            header.extend(attr_sorted);
+            let header = header.into_iter().map(String::from).collect();
+            log::trace!("writing header {header:?}");
+            self.writer.write_header(header)?;
         }
 
-        let attr_keys = self.attributes_in_header.as_ref().unwrap();
-        let mut attr_sorted: Vec<&String> = attr_keys.iter().collect();
-        attr_sorted.sort();
+        for m in measurements {
+            log::trace!("writing {m:?}");
+            let mut data = FxHashMap::default();
 
-        for m in measurements.iter() {
-            // get the full definition of the metric
-            let full_metric = ctx
-                .metrics
-                .by_id(&m.metric)
-                .with_context(|| format!("Unknown metric {:?}", m.metric))?;
+            let metric = ctx.metrics.by_id(&m.metric).expect("unknown metric");
+            let metric_name = metric.name.clone();
+            let unit = &metric.unit;
 
-            // extract the metric name, appending its unit if configured so
-            let metric_name = if self.append_unit_to_metric_name {
-                let unit_string = if self.use_unit_display_name {
-                    full_metric.unit.display_name()
+            let unit_string = if self.append_unit_to_metric_name {
+                if self.use_unit_display_name {
+                    unit.display_name()
                 } else {
-                    full_metric.unit.unique_name()
-                };
-                if unit_string.is_empty() {
-                    full_metric.name.to_owned()
-                } else {
-                    format!("{}_{}", full_metric.name, unit_string)
+                    unit.unique_name()
                 }
             } else {
-                full_metric.name.clone()
+                String::new()
+            };
+            let metric_string = if unit_string.is_empty() {
+                metric_name
+            } else {
+                format!("{metric_name}_{unit_string}")
             };
 
-            // convert every field to string
             let datetime: OffsetDateTime = SystemTime::from(m.timestamp).into();
             let datetime = datetime.format(&Rfc3339)?;
 
@@ -133,47 +122,19 @@ impl Output for CsvOutput {
             let consumer_kind = m.consumer.kind().to_owned();
             let consumer_id = m.consumer.id_display().to_string();
 
-            // Start to build the record
-            let mut record = vec![
-                metric_name,
-                datetime,
-                value,
-                resource_kind,
-                resource_id,
-                consumer_kind,
-                consumer_id,
-            ];
+            data.insert("metric".to_owned(), metric_string);
+            data.insert("timestamp".to_owned(), datetime);
+            data.insert("value".to_owned(), value);
+            data.insert("resource_kind".to_owned(), resource_kind);
+            data.insert("resource_id".to_owned(), resource_id);
+            data.insert("consumer_kind".to_owned(), consumer_kind);
+            data.insert("consumer_id".to_owned(), consumer_id);
 
-            // Handle known as well as new attributes.
-            let mut known_attrs = HashMap::new();
-            let mut late_attrs = String::new();
-
-            for (key, value) in m.attributes() {
-                let value_str = value.to_string();
-                if attr_keys.contains(key) {
-                    known_attrs.insert(key, value_str);
-                } else {
-                    if !late_attrs.is_empty() {
-                        late_attrs.push_str(", ");
-                    }
-                    write!(
-                        late_attrs,
-                        "{}={}",
-                        escape_late_attribute(key),
-                        escape_late_attribute(&value_str)
-                    )?;
-                }
+            for (k, v) in m.attributes() {
+                data.insert(k.to_owned(), v.to_string());
             }
 
-            // Add attributes knows in order
-            for key in &attr_sorted {
-                record.push(known_attrs.get(key.as_str()).cloned().unwrap_or_default());
-            }
-
-            // Push the late attributes as one value
-            record.push(late_attrs);
-            // Write the record
-            self.csv_helper.writeln(&mut self.writer, record)?;
+            self.writer.write_line(&mut data)?;
         }
 
         if self.force_flush {

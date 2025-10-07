@@ -19,6 +19,8 @@ use indoc::indoc;
 use plugin_csv::{Config, CsvPlugin};
 use tempfile;
 
+use pretty_assertions::assert_eq;
+
 pub const TIMEOUT: Duration = Duration::from_secs(10);
 
 fn config_to_toml_table(config: &Config) -> toml::Table {
@@ -89,7 +91,7 @@ fn csv_output() {
            test_metric_u64;1970-01-01T00:00:00Z;1;local_machine;;local_machine;;value1;;
            test_metric_f64;1970-01-01T00:00:00Z;0.5;local_machine;;local_machine;;;value2;
            test_metric_f64;1970-01-01T00:00:00Z;0.75;local_machine;;local_machine;;;;
-           test_metric_u64;1970-01-01T00:00:00Z;0;local_machine;;local_machine;;;;late_attributes_1=value1, late_attributes_2=value2
+           test_metric_u64;1970-01-01T00:00:00Z;0;local_machine;;local_machine;;;;late_attributes_1=value1,late_attributes_2=value2
         "#
     };
 
