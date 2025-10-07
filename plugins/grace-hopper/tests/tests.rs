@@ -131,6 +131,7 @@ fn full_plugin_with_multiple_hwmon_sensors() {
                 let m = ctx.measurements();
                 let power_metric = ctx.metrics().by_name(METRIC_POWER).unwrap().0;
                 let energy_metric = ctx.metrics().by_name(METRIC_ENERGY).unwrap().0;
+                println!("t: {:?}", Timestamp::now());
 
                 // we should have no energy for the moment
                 assert!(
@@ -140,55 +141,50 @@ fn full_plugin_with_multiple_hwmon_sensors() {
 
                 // check the power measurements
                 let m: Vec<_> = m.into_iter().filter(|p| p.metric == power_metric).collect();
-                m.iter().find(|p| {
-                    p.attributes()
-                        .find(|(k, v)| {
-                            *k == "sensor" && v.to_string() == "module" && p.resource.id_string().unwrap() == "0"
-                        })
-                        .is_some()
-                });
-                let module = m.iter().find(|p| {
-                    p.attributes()
-                        .find(|(k, v)| {
-                            *k == "sensor" && v.to_string() == "module" && p.resource.id_string().unwrap() == "0"
-                        })
-                        .is_some()
-                });
-                let grace = m.iter().find(|p| {
-                    p.attributes()
-                        .find(|(k, v)| {
-                            *k == "sensor" && v.to_string() == "grace" && p.resource.id_string().unwrap() == "0"
-                        })
-                        .is_some()
-                });
-                let cpu = m.iter().find(|p| {
-                    p.attributes()
-                        .find(|(k, v)| {
-                            *k == "sensor" && v.to_string() == "cpu" && p.resource.id_string().unwrap() == "0"
-                        })
-                        .is_some()
-                });
-                let sysio = m.iter().find(|p| {
-                    p.attributes()
-                        .find(|(k, v)| {
-                            *k == "sensor" && v.to_string() == "sysio" && p.resource.id_string().unwrap() == "0"
-                        })
-                        .is_some()
-                });
-                let dram = m.iter().find(|p| {
-                    p.attributes()
-                        .find(|(k, v)| {
-                            *k == "sensor" && v.to_string() == "dram" && p.resource.id_string().unwrap() == "0"
-                        })
-                        .is_some()
-                });
-                // TODO make it nicer to get an attribute by key
-                assert_eq!(module.unwrap().value.as_u64(), 80000000);
-                assert_eq!(grace.unwrap().value.as_u64(), 62000000);
-                assert_eq!(cpu.unwrap().value.as_u64(), 42000000);
-                assert_eq!(sysio.unwrap().value.as_u64(), 18000000);
-                assert_eq!(dram.unwrap().value.as_u64(), 2000000);
-                println!("t: {:?}", Timestamp::now());
+
+                let module_0 = get_point(&m, Resource::CpuPackage { id: 0 }, "module").unwrap();
+                let module_1 = get_point(&m, Resource::CpuPackage { id: 1 }, "module").unwrap();
+                let module_total = get_point(&m, Resource::LocalMachine, "module_total").unwrap();
+                assert_eq!(module_0.value.as_u64(), 80000000);
+                assert_eq!(module_1.value.as_u64(), 5000000);
+                assert_eq!(
+                    module_total.value.as_u64(),
+                    module_0.value.as_u64() + module_1.value.as_u64()
+                );
+
+                let grace_0 = get_point(&m, Resource::CpuPackage { id: 0 }, "grace").unwrap();
+                let grace_1 = get_point(&m, Resource::CpuPackage { id: 1 }, "grace").unwrap();
+                let grace_total = get_point(&m, Resource::LocalMachine, "grace_total").unwrap();
+                assert_eq!(grace_0.value.as_u64(), 62000000);
+                assert_eq!(grace_1.value.as_u64(), 40000000);
+                assert_eq!(
+                    grace_total.value.as_u64(),
+                    grace_0.value.as_u64() + grace_1.value.as_u64()
+                );
+
+                let cpu_0 = get_point(&m, Resource::CpuPackage { id: 0 }, "cpu").unwrap();
+                let cpu_1 = get_point(&m, Resource::CpuPackage { id: 1 }, "cpu").unwrap();
+                let cpu_total = get_point(&m, Resource::LocalMachine, "cpu_total").unwrap();
+                assert_eq!(cpu_0.value.as_u64(), 42000000);
+                assert_eq!(cpu_1.value.as_u64(), 35000000);
+                assert_eq!(cpu_total.value.as_u64(), cpu_0.value.as_u64() + cpu_1.value.as_u64());
+
+                let sysio_0 = get_point(&m, Resource::CpuPackage { id: 0 }, "sysio").unwrap();
+                assert!(
+                    get_point(&m, Resource::CpuPackage { id: 1 }, "sysio").is_none(),
+                    "there should be no sysio_1"
+                );
+                let sysio_total = get_point(&m, Resource::LocalMachine, "sysio_total").unwrap();
+                assert_eq!(sysio_0.value.as_u64(), 18000000);
+                assert_eq!(sysio_total.value.as_u64(), sysio_0.value.as_u64());
+
+                let dram_0 = get_point(&m, Resource::Dram { pkg_id: 0 }, "dram").unwrap();
+                assert!(
+                    get_point(&m, Resource::Dram { pkg_id: 1 }, "dram").is_none(),
+                    "there should be no dram_1 because there is no sysio_1"
+                );
+                let dram_total = get_point(&m, Resource::LocalMachine, "dram_total").unwrap();
+                assert_eq!(dram_total.value.as_u64(), dram_0.value.as_u64());
 
                 // We cannot sleep in the make_input of the next test_source, because the timestamp would not be updated. So, we sleep here.
                 std::thread::sleep(Duration::from_secs(1))
@@ -201,54 +197,25 @@ fn full_plugin_with_multiple_hwmon_sensors() {
             |ctx| {
                 println!("t: {:?}", Timestamp::now());
                 let m = ctx.measurements();
+
                 // check the energy measurements
                 let energy_metric = ctx.metrics().by_name(METRIC_ENERGY).unwrap().0;
                 let m: Vec<_> = m.into_iter().filter(|p| p.metric == energy_metric).collect();
-                let module = m.iter().find(|p| {
-                    p.attributes()
-                        .find(|(k, v)| {
-                            *k == "sensor" && v.to_string() == "module" && p.resource.id_string().unwrap() == "0"
-                        })
-                        .is_some()
-                });
-                let grace = m.iter().find(|p| {
-                    p.attributes()
-                        .find(|(k, v)| {
-                            *k == "sensor" && v.to_string() == "grace" && p.resource.id_string().unwrap() == "0"
-                        })
-                        .is_some()
-                });
-                let cpu = m.iter().find(|p| {
-                    p.attributes()
-                        .find(|(k, v)| {
-                            *k == "sensor" && v.to_string() == "cpu" && p.resource.id_string().unwrap() == "0"
-                        })
-                        .is_some()
-                });
-                let sysio = m.iter().find(|p| {
-                    p.attributes()
-                        .find(|(k, v)| {
-                            *k == "sensor" && v.to_string() == "sysio" && p.resource.id_string().unwrap() == "0"
-                        })
-                        .is_some()
-                });
-                let dram = m.iter().find(|p| {
-                    p.attributes()
-                        .find(|(k, v)| {
-                            *k == "sensor" && v.to_string() == "dram" && p.resource.id_string().unwrap() == "0"
-                        })
-                        .is_some()
-                });
-                // TODO make it nicer to get an attribute by key
+
+                let energy_module_0 = get_point(&m, Resource::CpuPackage { id: 0 }, "module").unwrap();
+                let energy_grace_0 = get_point(&m, Resource::CpuPackage { id: 0 }, "grace").unwrap();
+                let energy_cpu_0 = get_point(&m, Resource::CpuPackage { id: 0 }, "cpu").unwrap();
+                let energy_sysio_0 = get_point(&m, Resource::CpuPackage { id: 0 }, "sysio").unwrap();
+                let energy_dram_0 = get_point(&m, Resource::Dram { pkg_id: 0 }, "dram").unwrap();
 
                 // std::thread::sleep is not exact, and it's not the only thing that delays the source.
                 // Apply a tolerance when checking the values.
                 const TOLERANCE: f64 = 250.0;
-                let module = module.unwrap().value.as_f64();
-                let grace = grace.unwrap().value.as_f64();
-                let cpu = cpu.unwrap().value.as_f64();
-                let sysio = sysio.unwrap().value.as_f64();
-                let dram = dram.unwrap().value.as_f64();
+                let module = energy_module_0.value.as_f64();
+                let grace = energy_grace_0.value.as_f64();
+                let cpu = energy_cpu_0.value.as_f64();
+                let sysio = energy_sysio_0.value.as_f64();
+                let dram = energy_dram_0.value.as_f64();
                 assert!(approx_eq(module, 80000.0, TOLERANCE), "bad value {module}");
                 assert!(approx_eq(grace, 62000.0, TOLERANCE), "bad value {module}");
                 assert!(approx_eq(cpu, 42000.0, TOLERANCE), "bad value {module}");
@@ -274,11 +241,13 @@ fn approx_eq(a: f64, b: f64, epsilon: f64) -> bool {
     (b - a).abs() < epsilon
 }
 
-fn get_point<'a>(m: &'a Vec<MeasurementPoint>, resource: Resource, sensor: &str) -> Option<&'a MeasurementPoint> {
-    m.iter().find(|p| {
-        p.resource == resource
-            && p.attributes()
-                .find(|(k, v)| *k == "sensor" && v.to_string() == sensor)
-                .is_some()
-    })
+fn get_point<'a>(m: &'a Vec<&'a MeasurementPoint>, resource: Resource, sensor: &str) -> Option<&'a MeasurementPoint> {
+    m.iter()
+        .find(|p| {
+            p.resource == resource
+                && p.attributes()
+                    .find(|(k, v)| *k == "sensor" && v.to_string() == sensor)
+                    .is_some()
+        })
+        .map(|p| &**p)
 }
