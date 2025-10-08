@@ -10,6 +10,7 @@ repository.workspace = true
 alumet.workspace = true
 anyhow.workspace = true
 log.workspace = true
+rustc-hash.workspace = true
 serde = { workspace = true, features = ["derive"] }
 time = { version = "0.3.36", features = ["formatting"] }
 

@@ -19,6 +19,8 @@ use indoc::indoc;
 use plugin_csv::{Config, CsvPlugin};
 use tempfile;
 
+use pretty_assertions::assert_eq;
+
 pub const TIMEOUT: Duration = Duration::from_secs(10);
 
 fn config_to_toml_table(config: &Config) -> toml::Table {
@@ -76,20 +78,20 @@ fn csv_output() {
     // Prepare the scenarios
 
     let expected_string_no_late_attributes = indoc! {
-        r#"metric;timestamp;value;resource_kind;resource_id;consumer_kind;consumer_id;attributes_1;__late_attributes
-           test_metric_u64;1970-01-01T00:00:00Z;0;local_machine;;local_machine;;value1;
-           test_metric_u64;1970-01-01T00:00:00Z;1;local_machine;;local_machine;;;
-           test_metric_f64;1970-01-01T00:00:00Z;0.5;local_machine;;local_machine;;;
-           test_metric_f64;1970-01-01T00:00:00Z;0.75;local_machine;;local_machine;;value1;
+        r#"metric;timestamp;value;resource_kind;resource_id;consumer_kind;consumer_id;attributes_1;attributes_2;__late_attributes
+           test_metric_u64;1970-01-01T00:00:00Z;0;local_machine;;local_machine;;value1;value2;
+           test_metric_u64;1970-01-01T00:00:00Z;1;local_machine;;local_machine;;value1;;
+           test_metric_f64;1970-01-01T00:00:00Z;0.5;local_machine;;local_machine;;;value2;
+           test_metric_f64;1970-01-01T00:00:00Z;0.75;local_machine;;local_machine;;;;
         "#
     };
     let expected_string_with_late_attributes = indoc! {
-        r#"metric;timestamp;value;resource_kind;resource_id;consumer_kind;consumer_id;attributes_1;__late_attributes
-           test_metric_u64;1970-01-01T00:00:00Z;0;local_machine;;local_machine;;value1;
-           test_metric_u64;1970-01-01T00:00:00Z;1;local_machine;;local_machine;;;
-           test_metric_f64;1970-01-01T00:00:00Z;0.5;local_machine;;local_machine;;;
-           test_metric_f64;1970-01-01T00:00:00Z;0.75;local_machine;;local_machine;;value1;
-           test_metric_u64;1970-01-01T00:00:00Z;0;local_machine;;local_machine;;;late_attributes_1=value1, late_attributes_2=value2
+        r#"metric;timestamp;value;resource_kind;resource_id;consumer_kind;consumer_id;attributes_1;attributes_2;__late_attributes
+           test_metric_u64;1970-01-01T00:00:00Z;0;local_machine;;local_machine;;value1;value2;
+           test_metric_u64;1970-01-01T00:00:00Z;1;local_machine;;local_machine;;value1;;
+           test_metric_f64;1970-01-01T00:00:00Z;0.5;local_machine;;local_machine;;;value2;
+           test_metric_f64;1970-01-01T00:00:00Z;0.75;local_machine;;local_machine;;;;
+           test_metric_u64;1970-01-01T00:00:00Z;0;local_machine;;local_machine;;;;late_attributes_1=value1,late_attributes_2=value2
         "#
     };
 
@@ -102,13 +104,15 @@ fn csv_output() {
             move |ctx: &mut OutputCheckInputContext| -> MeasurementBuffer {
                 // Prepare input ( multiple points with/without attributes u64 or f64)
                 let metrics = TestMetrics::get(ctx);
-                let point1 = simple_point(metrics.metric_u64, WrappedMeasurementValue::U64(0))
-                    .with_attr("attributes_1", "value1");
-                let point2 = simple_point(metrics.metric_u64, WrappedMeasurementValue::U64(1));
 
-                let point3 = simple_point(metrics.metric_f64, WrappedMeasurementValue::F64(0.5));
-                let point4 = simple_point(metrics.metric_f64, WrappedMeasurementValue::F64(0.75))
+                let point1 = simple_point(metrics.metric_u64, WrappedMeasurementValue::U64(0))
+                    .with_attr("attributes_1", "value1")
+                    .with_attr("attributes_2", "value2");
+                let point2 = simple_point(metrics.metric_u64, WrappedMeasurementValue::U64(1))
                     .with_attr("attributes_1", "value1");
+                let point3 = simple_point(metrics.metric_f64, WrappedMeasurementValue::F64(0.5))
+                    .with_attr("attributes_2", "value2");
+                let point4 = simple_point(metrics.metric_f64, WrappedMeasurementValue::F64(0.75));
 
                 // Give input to the pipeline
                 MeasurementBuffer::from(vec![point1, point2, point3, point4])

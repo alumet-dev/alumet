@@ -1,27 +1,17 @@
-use std::{
-    collections::HashSet,
-    fs::File,
-    io::{self, BufWriter, Write},
-    path::Path,
-    time::SystemTime,
-};
+use std::{collections::HashSet, fs::File, path::Path, time::SystemTime};
 
-use alumet::measurement::WrappedMeasurementValue;
+use crate::csv::{CsvParams, CsvWriter};
 use alumet::{
     measurement::MeasurementBuffer,
     pipeline::elements::{error::WriteError, output::OutputContext},
 };
+use alumet::{measurement::WrappedMeasurementValue, pipeline::Output};
 use anyhow::Context;
+use rustc_hash::FxHashMap;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
-use crate::csv::CsvHelper;
-
 pub struct CsvOutput {
-    /// The attributes that we have written to the header.
-    /// None if the header has not been written yet.
-    attributes_in_header: Option<HashSet<String>>,
-
     /// parameter: do we flush after each write(measurements)?
     force_flush: bool,
 
@@ -29,31 +19,27 @@ pub struct CsvOutput {
     append_unit_to_metric_name: bool,
     use_unit_display_name: bool,
 
-    /// File writer
-    writer: BufWriter<File>,
+    /// CSV writer
+    writer: CsvWriter,
+}
 
-    /// CSV utility
-    csv_helper: CsvHelper,
+pub struct CsvOutputSettings {
+    pub force_flush: bool,
+    pub append_unit_to_metric_name: bool,
+    pub use_unit_display_name: bool,
+    pub params: CsvParams,
 }
 
 impl CsvOutput {
-    pub fn new(
-        output_file: impl AsRef<Path>,
-        force_flush: bool,
-        append_unit_to_metric_name: bool,
-        use_unit_display_name: bool,
-        delimiter: char,
-        escaped_quote: String,
-    ) -> io::Result<Self> {
-        let writer = BufWriter::new(File::create(output_file)?);
-        let helper = CsvHelper::new(delimiter, escaped_quote);
+    pub fn new(output_file: impl AsRef<Path>, settings: CsvOutputSettings) -> anyhow::Result<Self> {
+        let path = output_file.as_ref();
+        let file = File::create(path).with_context(|| format!("failed to open file for writing {path:?}"))?;
+        let writer = CsvWriter::new(file, settings.params);
         Ok(Self {
-            attributes_in_header: None,
-            force_flush,
-            append_unit_to_metric_name,
-            use_unit_display_name,
+            force_flush: settings.force_flush,
+            append_unit_to_metric_name: settings.append_unit_to_metric_name,
+            use_unit_display_name: settings.use_unit_display_name,
             writer,
-            csv_helper: helper,
         })
     }
 }
@@ -66,17 +52,18 @@ fn collect_attribute_keys(buf: &MeasurementBuffer) -> HashSet<String> {
     res
 }
 
-impl alumet::pipeline::Output for CsvOutput {
+impl Output for CsvOutput {
     fn write(&mut self, measurements: &MeasurementBuffer, ctx: &OutputContext) -> Result<(), WriteError> {
-        if self.attributes_in_header.is_none() && !measurements.is_empty() {
+        log::trace!("writing csv measurements {measurements:?}");
+        if !self.writer.is_initialized() {
+            log::trace!("initializing csv header");
             // Collect the attributes that are present in the measurements.
             // Then, sort the keys to ensure a consistent order between calls to `CsvOutput::write`.
-            let attr_keys = collect_attribute_keys(measurements);
-            let mut attr_keys_sorted: Vec<&str> = attr_keys.iter().map(|s| s.as_str()).collect::<Vec<_>>();
-            attr_keys_sorted.sort();
+            let attr_keys: HashSet<String> = collect_attribute_keys(measurements).into_iter().collect();
+            let mut attr_sorted: Vec<&str> = attr_keys.iter().map(|k| k.as_str()).collect();
+            attr_sorted.sort();
 
-            // Build the CSV header
-            let mut header = Vec::with_capacity(8 + attr_keys_sorted.len());
+            let mut header = Vec::with_capacity(8 + attr_sorted.len());
             header.extend(&[
                 "metric",
                 "timestamp",
@@ -86,40 +73,38 @@ impl alumet::pipeline::Output for CsvOutput {
                 "consumer_kind",
                 "consumer_id",
             ]);
-            header.extend(attr_keys_sorted);
-            header.push("__late_attributes");
-
-            self.csv_helper.writeln(&mut self.writer, header)?;
-
-            self.attributes_in_header = Some(attr_keys);
+            header.extend(attr_sorted);
+            let header = header.into_iter().map(String::from).collect();
+            log::trace!("writing header {header:?}");
+            self.writer.write_header(header)?;
         }
 
-        for m in measurements.iter() {
-            // get the full definition of the metric
-            let full_metric = ctx
-                .metrics
-                .by_id(&m.metric)
-                .with_context(|| format!("Unknown metric {:?}", m.metric))?;
+        for m in measurements {
+            log::trace!("writing {m:?}");
+            let mut data = FxHashMap::default();
 
-            // extract the metric name, appending its unit if configured so
-            let metric_name = if self.append_unit_to_metric_name {
-                let unit_string = if self.use_unit_display_name {
-                    full_metric.unit.display_name()
+            let metric = ctx.metrics.by_id(&m.metric).expect("unknown metric");
+            let metric_name = metric.name.clone();
+            let unit = &metric.unit;
+
+            let unit_string = if self.append_unit_to_metric_name {
+                if self.use_unit_display_name {
+                    unit.display_name()
                 } else {
-                    full_metric.unit.unique_name()
-                };
-                if unit_string.is_empty() {
-                    full_metric.name.to_owned()
-                } else {
-                    format!("{}_{}", full_metric.name, unit_string)
+                    unit.unique_name()
                 }
             } else {
-                full_metric.name.clone()
+                String::new()
+            };
+            let metric_string = if unit_string.is_empty() {
+                metric_name
+            } else {
+                format!("{metric_name}_{unit_string}")
             };
 
-            // convert every field to string
             let datetime: OffsetDateTime = SystemTime::from(m.timestamp).into();
-            let datetime: String = datetime.format(&Rfc3339)?;
+            let datetime = datetime.format(&Rfc3339)?;
+
             let value = match m.value {
                 WrappedMeasurementValue::F64(x) => x.to_string(),
                 WrappedMeasurementValue::U64(x) => x.to_string(),
@@ -129,54 +114,21 @@ impl alumet::pipeline::Output for CsvOutput {
             let consumer_kind = m.consumer.kind().to_owned();
             let consumer_id = m.consumer.id_display().to_string();
 
-            // Start to build the record
-            let mut record = vec![
-                metric_name,
-                datetime,
-                value,
-                resource_kind,
-                resource_id,
-                consumer_kind,
-                consumer_id,
-            ];
+            data.insert("metric".to_owned(), metric_string);
+            data.insert("timestamp".to_owned(), datetime);
+            data.insert("value".to_owned(), value);
+            data.insert("resource_kind".to_owned(), resource_kind);
+            data.insert("resource_id".to_owned(), resource_id);
+            data.insert("consumer_kind".to_owned(), consumer_kind);
+            data.insert("consumer_id".to_owned(), consumer_id);
 
-            // Sort the attributes by key
-            let mut attr_sorted = m.attributes().collect::<Vec<_>>();
-            attr_sorted.sort_by_key(|(k, _)| *k);
-
-            // Handle known as well as new attributes.
-            let mut late_attrs: String = String::new();
-            let mut known_attrs = 0;
-            for (key, value) in attr_sorted {
-                if self.attributes_in_header.as_ref().unwrap().contains(key) {
-                    // known attribute, write in the same order as the header (thanks to the sort)
-                    record.push(value.to_string());
-                    known_attrs += 1;
-                } else {
-                    // unknown attribute, add to the column `__late_attributes`
-                    use std::fmt::Write;
-
-                    if !late_attrs.is_empty() {
-                        late_attrs.push_str(", ");
-                    }
-                    write!(
-                        late_attrs,
-                        "{}={}",
-                        escape_late_attribute(key),
-                        escape_late_attribute(&value.to_string())
-                    )?;
-                }
+            for (k, v) in m.attributes() {
+                data.insert(k.to_owned(), v.to_string());
             }
-            // Add missing attributes as empty values
-            let missing_attributes = self.attributes_in_header.as_ref().unwrap().len() - known_attrs;
-            record.extend(vec![String::from(""); missing_attributes]);
 
-            // Push the late attributes as one value
-            record.push(late_attrs);
-
-            // Write the record
-            self.csv_helper.writeln(&mut self.writer, record)?;
+            self.writer.write_line(&mut data)?;
         }
+
         if self.force_flush {
             log::trace!("flushing BufWriter");
             self.writer.flush()?;
@@ -225,7 +177,7 @@ mod tests {
         let buf = MeasurementBuffer::from_iter([point]);
 
         let result = collect_attribute_keys(&buf);
-        let expected: HashSet<String> = HashSet::new();
+        let expected = HashSet::new();
         assert_eq!(result, expected)
     }
 
@@ -238,7 +190,7 @@ mod tests {
         let buf = MeasurementBuffer::from_iter([point]);
 
         let result = collect_attribute_keys(&buf);
-        let expected: HashSet<String> = HashSet::from_iter(["k1".to_string(), "k2".to_string()]);
+        let expected = HashSet::from_iter(["k1".to_string(), "k2".to_string()]);
         assert_eq!(result, expected)
     }
 }
