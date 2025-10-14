@@ -1,3 +1,6 @@
+//! Serialize measurements with the kwollect format.
+//! See https://www.grid5000.fr/w/Monitoring_Using_Kwollect#Pushing_custom_metrics
+
 use alumet::measurement::{AttributeValue, WrappedMeasurementValue};
 use serde::{Serialize, ser::SerializeMap};
 use std::collections::HashMap;
