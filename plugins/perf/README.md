@@ -60,7 +60,7 @@ hardware_events = [
 ]
 software_events = [
     "PAGE_FAULTS",
-    "CONTEXT_SWITCH",
+    "CONTEXT_SWITCHES",
 #   // any {software-event-name} from the list previously mentionned
 ]
 cache_events = [

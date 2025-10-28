@@ -41,9 +41,9 @@ cpu_energy = { metric = "rapl_consumed_energy", resource_kind = "local_machine",
 # Timeseries related to the resource consumers.
 [plugins.energy-attribution.formulas.attributed_energy.per_consumer]
 # Defines the timeseries `cpu_usage` that is used in the formula, as the measurements points that have:
-# - the metric `cpu_usage_percent`
+# - the metric `cpu_percent`
 # - the attribute `kind` equal to `total`
-cpu_usage = { metric = "cpu_usage_percent", kind = "total" }
+cpu_usage = { metric = "cpu_percent", kind = "total" }
 ```
 
 You can configure multiple formulas. Be sure to give each formula a unique name.
