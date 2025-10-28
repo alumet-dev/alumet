@@ -16,16 +16,18 @@ Refer to the [wikipedia page of TDP](https://en.wikipedia.org/wiki/Thermal_desig
 
 In the first version of the plugin, we consider only the TDP of the CPU.
 
- This plugin requires the cgroupv2 input plugin (k8s) as it needs the input measurements of cgroups v2.
+This plugin requires the cgroupv2 input plugin (k8s) as it needs the input measurements of cgroups v2.
 
 The estimation calculation is done using the following formula:
 
-$$\Large Energy=\frac{cgroupv2*cpu total usage*nb\_vcpu*TDP}{10^6*pooling\_interval*nb\_cpu}$$  
+```math
+\Large Energy=\frac{cgroupv2*cpu\_total\_usage*nb_{\text{vcpu}}*TDP}{10^6*pooling\_interval*nb_{\text{cpu}}}
+```
 
-cgroupv2_cpu_total_usage:   total usage of CPU in micro seconds for a pod
-nb_vcpu:                    number of virtual CPU of the hosting machine where pod is running
-nb_cpu:                     number of physical CPU of the hosting machine where pod is running
-polling_interval:           polling interval of cgroupv2 input plugin
+- $`{cgroupv2*cpu\_total\_usage}`$: Total usage of CPU in micro seconds for a pod.
+- $`nb_{\text{vcpu}}`$: Number of virtual CPU of the hosting machine where pod is running.
+- $`nb_{\text{cpu}}`$: Number of physical CPU of the hosting machine where pod is running
+- $`{polling\_interval}`$: Polling interval of cgroupv2 input plugin.
 
 ## Energy estimation tdp plugin
 
@@ -49,24 +51,26 @@ To work this plugin needs k8s plugin configured, so the needed things are relate
 
 ### Configuration
 
-[plugins.EnergyEstimationTdpPlugin]
+```toml
+[plugins.energy-estimation-tdp]
 poll_interval = "30s"
 tdp = 100.0
 nb_vcpu = 1.0
 nb_cpu = 1.0
+cpu_usage_per_pod = "cpu_time_delta"
+```
 
-pool_interval: must be identical to the poll_interval of input k8s plugin. Default value is 1s.
-
-nb_vcpu: number of virtual cpu allocated to the virtual machine in case of kubernetes nodes are virtual machine. Using the kubectl get node command, you can retrieve the number of vcpu. If the kubernetes nodes are physical machine, assign it to value 1. Default value is 1.
+- `pool_interval`: must be identical to the poll_interval of input k8s plugin. Default value is 1s.
+- `nb_vcpu`: number of virtual cpu allocated to the virtual machine in case of kubernetes nodes are virtual machine. Using the kubectl get node command, you can retrieve the number of vcpu. If the kubernetes nodes are physical machine, assign it to value 1. Default value is 1.
 
 To get the CPU capacity of a kubernetes node, execute the following command:
-kubectl  describe node <node name> | grep cpu -B 2
+
+```bash
+kubectl describe node <node name> | grep cpu -B 2
   Hostname:    <node name>
 Capacity:
   cpu:                32
+```
 
-nb_cpu: number of physical cpu of the hosted machine. Using the lscpu or hwinfo, you can retrieve the number of cpu. If the kubernetes nodes are physical machine, assign it to value 1. Default value is 1.
-
-tdp: Thermal Design power; each CPU has a calculated thermal design value; the value can be find on internet (usually on CPU manufacturer); you need the exact CPU family (using command lscpu or hwinfo). For example, for Intel® Xeon® D Processor, family D-2183IT, the tpd can be found [it's intel documentation page](https://ark.intel.com/content/www/us/en/ark/products/136441/intel-xeon-d-2183it-processor-22m-cache-2-20-ghz.html)
-tdp value is  100W.
-Default value is 100.
+- `nb_cpu`: number of physical cpu of the hosted machine. Using the lscpu or hwinfo, you can retrieve the number of cpu. If the kubernetes nodes are physical machine, assign it to value 1. Default value is 1.
+- `tdp`: Thermal Design power; each CPU has a calculated thermal design value; the value can be find on internet (usually on CPU manufacturer); you need the exact CPU family (using command lscpu or hwinfo). For example, for Intel® Xeon® D Processor, family D-2183IT, the tpd can be found [it's intel documentation page](https://ark.intel.com/content/www/us/en/ark/products/136441/intel-xeon-d-2183it-processor-22m-cache-2-20-ghz.html). The tdp value is 100W (so the default value is 100).
