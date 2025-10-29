@@ -9,7 +9,7 @@ Collects processes and system-related metrics by reading the [proc](https://www.
 
 ## Metrics
 
-There are various information collected by this plugin relative to Kernel, CPU, memory and processes:
+There are various information collected by this plugin relative to Kernel, CPU, memory, network and processes:
 
 |Name|Type|Unit|Description|Resource|ResourceConsumer|Attributes|
 |----|----|----|-----------|--------|----------------|----------|
@@ -20,6 +20,10 @@ There are various information collected by this plugin relative to Kernel, CPU, 
 |`kernel_n_procs_blocked`|Gauge|none|Numbers of processes that are blocked on input/output operations|LocalMachine|LocalMachine||
 |`cpu_time_delta`|CounterDiff|millisecond|CPU usage|LocalMachine|Process|[kind](#kind)|
 |`memory_usage`|Gauge|bytes|Memory usage|LocalMachine|Process|[kind](#kind)|
+|`network_bytes`|Gauge|bytes|Tx/Rx bytes per interface|LocalMachine|LocalMachine|direction,interface|
+|`network_packets`|Gauge|bytes|Tx/Rx packets per interface|LocalMachine|LocalMachine|direction,interface|
+|`network_packet_drops`|Gauge|bytes|Tx/Rx packets dropped per interface|LocalMachine|LocalMachine|direction,interface|
+|`network_errors`|Gauge|bytes|Tx/Rx network errors per interface|LocalMachine|LocalMachine|direction,interface|
 
 - ***Context switches**: Operation allowing a single CPU to manage multiple processes efficiently, involves saving the state of a currently running process and loading the state of another process, enabling multitasking and optimal CPU utilization.
 - ***Forks**: When a process creates a copy of itself.
@@ -72,7 +76,7 @@ To active the plugin to collect metrics relative to the kernel utilization:
 [plugins.procfs.kernel]
 # `true` to enable the monitoring of kernel information.
 enabled = true
-# How frequently should the kernel information be flushed to the rest of the pipeline.
+# Interval between two measurements.
 poll_interval = "5s"
 ```
 
@@ -84,7 +88,7 @@ Moreover, you can collect more or less precise metrics on memory consumption, by
 [plugins.procfs.memory]
 # `true` to enable the monitoring of memory information.
 enabled = true
-# How frequently should the memory information be flushed to the rest of the pipeline.
+# Interval between two measurements.
 poll_interval = "5s"
 # The entry to parse from `/proc/meminfo`.
 metrics = [
@@ -97,6 +101,18 @@ metrics = [
     "Inactive",
     "Mapped",
 ]
+```
+
+### Network metrics
+
+When enabled, it can also provide RX/TX network metrics per interface at the host level. It provides access to bytes, packets, drops and errors from /proc/net/dev:
+
+```toml
+[plugins.procfs.network]
+# `true` to enable the monitoring of host network information.
+enabled = true
+# Interval between two measurements.
+poll_interval = "5s"
 ```
 
 ### Process metrics
@@ -124,7 +140,7 @@ Also, you can monitor groups of processes, i.e. processes defined by common char
 [[plugins.procfs.processes.groups]]
 # Only monitor the processes whose executable path matches this regex.
 exe_regex = ""
-# How frequently should the processes information be refreshed.
+# Interval between two measurements.
 poll_interval = "2s"
 # How frequently should the processes information be flushed to the rest of the pipeline.
 flush_interval = "4s"
