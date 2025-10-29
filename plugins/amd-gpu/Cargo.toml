@@ -10,7 +10,7 @@ anyhow.workspace = true
 log.workspace = true
 humantime-serde.workspace = true
 serde = { workspace = true, features = ["derive"] }
-amd_smi_lib_sys = "0.2.1"
+amd_smi_lib_sys = "0.1.0"
 
 [dev-dependencies]
 alumet = { workspace = true, features = ["test"] }

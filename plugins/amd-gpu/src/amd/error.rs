@@ -5,7 +5,7 @@ use std::{error::Error, fmt::Display};
 ///
 /// # Arguments
 ///
-/// Take a status of [`AmdsmiStatusT`] provided by AMD SMI library to catch dynamically the occurred error.
+/// Take a status of [`amdsmi_status_t`] provided by AMD SMI library to catch dynamically the occurred error.
 #[derive(Debug)]
 pub struct AmdError(pub amdsmi_status_t);
 
