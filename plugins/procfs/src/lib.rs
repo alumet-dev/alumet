@@ -53,10 +53,14 @@ impl AlumetPlugin for ProcfsPlugin {
         if config.processes.enabled {
             let metrics = process::ProcessMetrics {
                 metric_cpu_time_delta: alumet
-                    .create_metric("cpu_time_delta", PrefixedUnit::nano(Unit::Second), "CPU usage")
+                    .create_metric(
+                        "cpu_time_delta",
+                        PrefixedUnit::nano(Unit::Second),
+                        "Time spent executing on the CPU since the previous measurement",
+                    )
                     .context("unable to register metric cpu_time_delta for process probe")?,
                 metric_cpu_percent: alumet
-                    .create_metric("cpu_percent", Unit::Unity, "CPU usage")
+                    .create_metric("cpu_percent", Unit::Percent, "CPU usage percent")
                     .context("unable to register metric cpu_percent for process probe")?,
                 metric_memory_usage: alumet
                     .create_metric("memory_usage", Unit::Byte, "Memory usage")
