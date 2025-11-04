@@ -1,4 +1,4 @@
-use std::{str::FromStr, time::Duration};
+use std::{process::ExitCode, str::FromStr, time::Duration};
 
 use alumet::{
     agent::{
@@ -74,7 +74,7 @@ fn load_plugins_metadata() -> Vec<PluginMetadata> {
 ///
 /// About errors: we use `anyhow::Result` and `context` instead of `expect` to get
 /// nicer error messages (`expect` prints errors with `Debug`).
-fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<ExitCode> {
     init_logger();
 
     // Load plugins metadata.
@@ -99,7 +99,7 @@ fn main() -> anyhow::Result<()> {
 
     // Run CLI commands that run before the config is loaded.
     if run_command_no_config(&args, &plugins)? {
-        return Ok(());
+        return Ok(ExitCode::SUCCESS);
     }
 
     // parse config file
@@ -131,7 +131,7 @@ fn main() -> anyhow::Result<()> {
 
     // Run CLI commands that only require the config and run before the pipeline starts.
     if run_command_no_measurement(&args, &config, &plugins).context("command failed")? {
-        return Ok(());
+        return Ok(ExitCode::SUCCESS);
     }
 
     // begin the creation of the pipeline (we have some settings to apply to it)
@@ -152,37 +152,57 @@ fn main() -> anyhow::Result<()> {
         cli::Command::Exec(exec_args) => {
             let timeout = Duration::from_secs(5);
             let res = exec::exec_process(agent, exec_args.program, exec_args.args, timeout);
-            if let Err(err @ exec::ExecError::ProcessSpawn(program, e)) = &res {
-                match e.kind() {
-                    std::io::ErrorKind::NotFound => {
-                        panic!("{}", exec_hints::handle_not_found(program.clone(), Vec::new()));
-                    }
-                    std::io::ErrorKind::PermissionDenied => {
-                        panic!("{}", exec_hints::handle_permission_denied(program.clone()));
-                    }
-                    _ => {
-                        panic!("{}", err);
+            match &res {
+                Ok(_) if exec_args.ignore_exit_code => (),
+                Ok(process_exit_code) => {
+                    // Attempt to propagate the exit code, if possible.
+                    if process_exit_code.success() {
+                        return Ok(ExitCode::SUCCESS);
+                    } else if let Some(code) = process_exit_code.code().and_then(|i| u8::try_from(i).ok()) {
+                        log::warn!(
+                            "Propagating failure exit code from the child process. Use `exec --ignore-exit-code` to disable the propagation."
+                        );
+                        return Ok(ExitCode::from(code));
+                    } else {
+                        log::warn!(
+                            "Child process exited with {process_exit_code}, which cannot be propagated. Returning ExitCode::FAILURE"
+                        );
+                        return Ok(ExitCode::FAILURE);
                     }
                 }
+                Err(err @ exec::ExecError::ProcessSpawn(program, e)) => {
+                    // print some helpful hints for common problems
+                    match e.kind() {
+                        std::io::ErrorKind::NotFound => {
+                            panic!("{}", exec_hints::handle_not_found(program.clone(), Vec::new()));
+                        }
+                        std::io::ErrorKind::PermissionDenied => {
+                            panic!("{}", exec_hints::handle_permission_denied(program.clone()));
+                        }
+                        _ => {
+                            panic!("{err}");
+                        }
+                    }
+                }
+                Err(err) => panic!("{err}"),
             }
         }
         cli::Command::Watch(process) => {
             let shutdown_timeout = Duration::from_secs(5);
             let res = watch::watch_process(agent, process.pid, shutdown_timeout);
-            if let Err(err @ watch::WatchError::ProcessWait(pid, e)) = &res {
-                match e.kind() {
-                    std::io::ErrorKind::NotFound => {
-                        panic!("PID: {pid} seems to be not found, error: {e}");
-                    }
-                    _ => {
-                        panic!("{}", err);
-                    }
-                }
+
+            if let Err(watch::WatchError::ProcessWait(pid, e)) = &res
+                && e.kind() == std::io::ErrorKind::NotFound
+            {
+                // common problem: the process does not exist
+                panic!("PID: {pid} seems to be not found, error: {e}");
+            } else if let Err(err) = res {
+                panic!("{err}");
             }
         }
         _ => unreachable!("every command should have been handled at this point"),
     }
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
 
 /// Prints a short welcome message.
@@ -399,6 +419,14 @@ mod cli {
     /// CLI arguments for the `exec` command.
     #[derive(Args)]
     pub struct ExecArgs {
+        /// If set, don't propagate the exit code of the executed program.
+        ///
+        /// Note that, if the executed program succeeds but the Alumet agent fails,
+        /// the exit code of the agent will always indicate a failure, whether this
+        /// flag is set or not.
+        #[arg(long, default_value_t = false)]
+        pub ignore_exit_code: bool,
+
         /// The program to run.
         pub program: String,
 
