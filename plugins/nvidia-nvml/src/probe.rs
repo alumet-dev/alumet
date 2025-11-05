@@ -45,6 +45,19 @@ impl NvmlSource {
     }
 }
 
+fn log_timing<T>(label: &str, f: impl FnOnce() -> T) -> T {
+    if log::log_enabled!(log::Level::Debug) {
+        let t0 = Timestamp::now();
+        let res = f();
+        let t1 = Timestamp::now();
+        let delta = t1.duration_since(t0).unwrap();
+        log::debug!("{label}: {} µs", delta.as_micros());
+        res
+    } else {
+        f()
+    }
+}
+
 impl alumet::pipeline::Source for NvmlSource {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         let features = &self.device.features;
@@ -54,11 +67,11 @@ impl alumet::pipeline::Source for NvmlSource {
         let consumer = ResourceConsumer::LocalMachine;
 
         if features.total_energy_consumption {
+            let energy = log_timing("device.total_energy_consumption()", || {
+                device.total_energy_consumption()
+            })?;
             // the difference in milliJoules
-            let diff = self
-                .energy_counter
-                .update(device.total_energy_consumption()?)
-                .difference();
+            let diff = self.energy_counter.update(energy).difference();
             if let Some(milli_joules) = diff {
                 // if meaningful (we need at least two measurements), push
                 measurements.push(MeasurementPoint::new(
@@ -73,12 +86,13 @@ impl alumet::pipeline::Source for NvmlSource {
 
         // Get power consumption in milliWatts
         if features.instant_power {
+            let power = log_timing("device.power_usage()", || device.power_usage())?;
             measurements.push(MeasurementPoint::new(
                 timestamp,
                 self.metrics.instant_power,
                 self.resource.clone(),
                 consumer.clone(),
-                device.power_usage()? as u64,
+                power as u64,
             ))
         }
 
@@ -187,9 +201,10 @@ impl alumet::pipeline::Source for NvmlSource {
                     .duration_since(SystemTime::UNIX_EPOCH.into())?
                     .as_secs();
 
-                let processes_samples = device
-                    .fixed_process_utilization_stats(unix_ts)
-                    .context("process_utilization_stats failed")?;
+                let processes_samples = log_timing("device.fixed_process_utilization_stats()", || {
+                    device.fixed_process_utilization_stats(unix_ts)
+                })
+                .context("process_utilization_stats failed")?;
 
                 for process_sample in processes_samples {
                     let consumer = ResourceConsumer::Process {
