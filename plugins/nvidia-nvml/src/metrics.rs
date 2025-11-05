@@ -7,9 +7,9 @@ use alumet::{
 /// Contains the ids of the measured metrics.
 #[derive(Clone)]
 pub struct Metrics {
-    /// Total electric energy consumed by GPU in J.
-    pub total_energy_consumption: TypedMetricId<u64>,
-    /// Electric energy consumption measured at a given time in μJ.
+    /// Total electric energy consumed by GPU in mJ.
+    pub total_energy_consumption: TypedMetricId<f64>,
+    /// Electric energy consumption measured at a given time in mW.
     pub instant_power: TypedMetricId<u64>,
     /// GPU temperature in °C
     pub temperature_gpu: TypedMetricId<u64>,
