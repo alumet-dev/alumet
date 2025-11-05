@@ -83,102 +83,102 @@ impl alumet::pipeline::Source for NvmlSource {
         }
 
         // Get temperature of GPU in °C
-        if features.temperature_gpu {
-            measurements.push(MeasurementPoint::new(
-                timestamp,
-                self.metrics.temperature_gpu,
-                self.resource.clone(),
-                consumer.clone(),
-                device.temperature(TemperatureSensor::Gpu)? as u64,
-            ));
-        }
+        // if features.temperature_gpu {
+        //     measurements.push(MeasurementPoint::new(
+        //         timestamp,
+        //         self.metrics.temperature_gpu,
+        //         self.resource.clone(),
+        //         consumer.clone(),
+        //         device.temperature(TemperatureSensor::Gpu)? as u64,
+        //     ));
+        // }
 
         // Get the current utilization rates memory for this device major subsystems in percentage
-        if features.major_utilization {
-            let u = device.utilization_rates()?;
-            measurements.push(MeasurementPoint::new(
-                timestamp,
-                self.metrics.major_utilization_gpu,
-                self.resource.clone(),
-                consumer.clone(),
-                u.gpu as u64,
-            ));
-            measurements.push(MeasurementPoint::new(
-                timestamp,
-                self.metrics.major_utilization_memory,
-                self.resource.clone(),
-                consumer.clone(),
-                u.memory as u64,
-            ));
-        }
+        // if features.major_utilization {
+        //     let u = device.utilization_rates()?;
+        //     measurements.push(MeasurementPoint::new(
+        //         timestamp,
+        //         self.metrics.major_utilization_gpu,
+        //         self.resource.clone(),
+        //         consumer.clone(),
+        //         u.gpu as u64,
+        //     ));
+        //     measurements.push(MeasurementPoint::new(
+        //         timestamp,
+        //         self.metrics.major_utilization_memory,
+        //         self.resource.clone(),
+        //         consumer.clone(),
+        //         u.memory as u64,
+        //     ));
+        // }
 
         // Get the current utilization and sampling size in μs for the decoder
-        if features.decoder_utilization {
-            let u = device.decoder_utilization()?;
-            measurements.push(MeasurementPoint::new(
-                timestamp,
-                self.metrics.decoder_utilization,
-                self.resource.clone(),
-                consumer.clone(),
-                u.utilization as u64,
-            ));
-            measurements.push(MeasurementPoint::new(
-                timestamp,
-                self.metrics.decoder_sampling_period_us,
-                self.resource.clone(),
-                consumer.clone(),
-                u.sampling_period as u64,
-            ));
-        }
+        // if features.decoder_utilization {
+        //     let u = device.decoder_utilization()?;
+        //     measurements.push(MeasurementPoint::new(
+        //         timestamp,
+        //         self.metrics.decoder_utilization,
+        //         self.resource.clone(),
+        //         consumer.clone(),
+        //         u.utilization as u64,
+        //     ));
+        //     measurements.push(MeasurementPoint::new(
+        //         timestamp,
+        //         self.metrics.decoder_sampling_period_us,
+        //         self.resource.clone(),
+        //         consumer.clone(),
+        //         u.sampling_period as u64,
+        //     ));
+        // }
 
         // Get the current utilization and sampling size in μs for the encoder
-        if features.encoder_utilization {
-            let u = device.encoder_utilization()?;
-            measurements.push(MeasurementPoint::new(
-                timestamp,
-                self.metrics.encoder_utilization,
-                self.resource.clone(),
-                consumer.clone(),
-                u.utilization as u64,
-            ));
-            measurements.push(MeasurementPoint::new(
-                timestamp,
-                self.metrics.encoder_sampling_period_us,
-                self.resource.clone(),
-                consumer.clone(),
-                u.sampling_period as u64,
-            ));
-        }
+        // if features.encoder_utilization {
+        //     let u = device.encoder_utilization()?;
+        //     measurements.push(MeasurementPoint::new(
+        //         timestamp,
+        //         self.metrics.encoder_utilization,
+        //         self.resource.clone(),
+        //         consumer.clone(),
+        //         u.utilization as u64,
+        //     ));
+        //     measurements.push(MeasurementPoint::new(
+        //         timestamp,
+        //         self.metrics.encoder_sampling_period_us,
+        //         self.resource.clone(),
+        //         consumer.clone(),
+        //         u.sampling_period as u64,
+        //     ));
+        // }
 
-        let n_compute_processes = match features.running_compute_processes {
-            AvailableVersion::Latest => Some(device.running_compute_processes_count()?),
-            AvailableVersion::V2 => Some(device.running_compute_processes_count_v2()?),
-            AvailableVersion::None => None,
-        };
-        if let Some(n) = n_compute_processes {
-            measurements.push(MeasurementPoint::new(
-                timestamp,
-                self.metrics.running_compute_processes,
-                self.resource.clone(),
-                consumer.clone(),
-                n as u64,
-            ));
-        }
+        // let n_compute_processes = match features.running_compute_processes {
+        //     AvailableVersion::Latest => Some(device.running_compute_processes_count()?),
+        //     AvailableVersion::V2 => Some(device.running_compute_processes_count_v2()?),
+        //     AvailableVersion::None => None,
+        // };
+        // if let Some(n) = n_compute_processes {
+        //     measurements.push(MeasurementPoint::new(
+        //         timestamp,
+        //         self.metrics.running_compute_processes,
+        //         self.resource.clone(),
+        //         consumer.clone(),
+        //         n as u64,
+        //     ));
+        // }
 
-        let n_graphic_processes = match features.running_graphics_processes {
-            AvailableVersion::Latest => Some(device.running_graphics_processes_count()?),
-            AvailableVersion::V2 => Some(device.running_graphics_processes_count_v2()?),
-            AvailableVersion::None => None,
-        };
-        if let Some(n) = n_graphic_processes {
-            measurements.push(MeasurementPoint::new(
-                timestamp,
-                self.metrics.running_graphics_processes,
-                self.resource.clone(),
-                consumer.clone(),
-                n as u64,
-            ));
-        }
+        // let n_graphic_processes = match features.running_graphics_processes {
+        //     AvailableVersion::Latest => Some(device.running_graphics_processes_count()?),
+        //     AvailableVersion::V2 => Some(device.running_graphics_processes_count_v2()?),
+        //     AvailableVersion::None => None,
+        // };
+        // if let Some(n) = n_graphic_processes {
+        //     measurements.push(MeasurementPoint::new(
+        //         timestamp,
+        //         self.metrics.running_graphics_processes,
+        //         self.resource.clone(),
+        //         consumer.clone(),
+        //         n as u64,
+        //     ));
+        // }
 
         // Collection of the device processes-scoped measurements
         if features.process_utilization_stats {
@@ -202,30 +202,30 @@ impl alumet::pipeline::Source for NvmlSource {
                         consumer.clone(),
                         process_sample.sm_util as u64,
                     ));
-                    // Frame buffer memory utilization
-                    measurements.push(MeasurementPoint::new(
-                        timestamp,
-                        self.metrics.major_utilization_memory,
-                        self.resource.clone(),
-                        consumer.clone(),
-                        process_sample.mem_util as u64,
-                    ));
-                    // Encoder utilization
-                    measurements.push(MeasurementPoint::new(
-                        timestamp,
-                        self.metrics.encoder_utilization,
-                        self.resource.clone(),
-                        consumer.clone(),
-                        process_sample.enc_util as u64,
-                    ));
-                    // Decoder utilization
-                    measurements.push(MeasurementPoint::new(
-                        timestamp,
-                        self.metrics.decoder_utilization,
-                        self.resource.clone(),
-                        consumer.clone(),
-                        process_sample.dec_util as u64,
-                    ));
+                    // // Frame buffer memory utilization
+                    // measurements.push(MeasurementPoint::new(
+                    //     timestamp,
+                    //     self.metrics.major_utilization_memory,
+                    //     self.resource.clone(),
+                    //     consumer.clone(),
+                    //     process_sample.mem_util as u64,
+                    // ));
+                    // // Encoder utilization
+                    // measurements.push(MeasurementPoint::new(
+                    //     timestamp,
+                    //     self.metrics.encoder_utilization,
+                    //     self.resource.clone(),
+                    //     consumer.clone(),
+                    //     process_sample.enc_util as u64,
+                    // ));
+                    // // Decoder utilization
+                    // measurements.push(MeasurementPoint::new(
+                    //     timestamp,
+                    //     self.metrics.decoder_utilization,
+                    //     self.resource.clone(),
+                    //     consumer.clone(),
+                    //     process_sample.dec_util as u64,
+                    // ));
                 }
             }
             self.last_poll_timestamp = Some(timestamp);
