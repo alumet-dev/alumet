@@ -128,6 +128,11 @@ pub(crate) async fn run_managed(
                         return Err(PipelineError::for_element(source_name, e));
                     }
                 };
+                if log::log_enabled!(log::Level::Debug) {
+                    let end = Timestamp::now();
+                    let delta = end.duration_since(timestamp).unwrap();
+                    log::debug!("source {source_name} polled in {} µs", delta.as_micros());
+                }
 
                 // Flush the measurements, not on every round for performance reasons.
                 // This is done _after_ polling, to ensure that we poll at least once before flushing, even if flush_rounds is 1.

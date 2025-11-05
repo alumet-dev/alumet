@@ -9,7 +9,7 @@ use anyhow::Context;
 use tokio::sync::{broadcast, mpsc};
 
 use crate::{
-    measurement::MeasurementBuffer,
+    measurement::{MeasurementBuffer, Timestamp},
     metrics::online::MetricReader,
     pipeline::{error::PipelineError, naming::TransformName},
 };
@@ -50,6 +50,11 @@ pub async fn run_all_in_order(
             for (i, (name, t)) in &mut transforms.iter_mut().enumerate() {
                 let t_flag = 1 << i;
                 if current_flags & t_flag != 0 {
+                    let mut before = None;
+                    if log::log_enabled!(log::Level::Debug) {
+                        before = Some(Timestamp::now());
+                    }
+
                     match t.apply(&mut measurements, &ctx) {
                         Ok(()) => (),
                         Err(TransformError::UnexpectedInput(e)) => {
@@ -59,6 +64,12 @@ pub async fn run_all_in_order(
                             log::error!("Fatal error in transform {name} (this breaks the transform task!): {e:?}");
                             return Err(PipelineError::for_element(name.to_owned(), e));
                         }
+                    }
+
+                    if let Some(before) = before {
+                        let after = Timestamp::now();
+                        let delta = after.duration_since(before).unwrap();
+                        log::debug!("transform {name} applied in {} µs", delta.as_micros());
                     }
                 }
             }
