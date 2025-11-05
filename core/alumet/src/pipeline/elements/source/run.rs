@@ -104,8 +104,13 @@ pub(crate) async fn run_managed(
         // Wait for the trigger. It can return for two reasons:
         // - "normal case": the underlying mechanism (e.g. timer) triggers <- this is the most likely case
         // - "interrupt case": the underlying mechanism was idle (e.g. sleeping) but a new command arrived
-        let reason = trigger
-            .next(config_change)
+        let wait_for_trigger = trigger.next(config_change);
+
+        // Use cooperative scheduling: don't exhaust the coop budget with the trigger.
+        // Use case: if poll() takes longer than the poll interval, the timer will always expire, and wait_for_trigger
+        // will always be ready, leading to an infinite loop and starvation.
+        // Wrapping the future in cooperative() ensures that it will not loop indefinitely.
+        let reason = tokio::task::coop::cooperative(wait_for_trigger)
             .await
             .map_err(|err| PipelineError::for_element(source_name.clone(), err))?;
 
