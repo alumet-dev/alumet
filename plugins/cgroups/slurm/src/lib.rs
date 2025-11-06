@@ -132,7 +132,10 @@ pub struct Config {
     pub cgroupv1_refresh_interval: Option<Duration>,
 
     /// Only monitor the job cgroup related metrics and skip the others
-    pub jobs_only: bool,
+    pub ignore_non_jobs: bool,
+
+    /// Also monitor the job cgroup subtasks
+    pub jobs_monitoring_level: JobMonitoringLevel,
 
     /// If `true`, the slurm sources will be started in pause state.
     /// The default value is `false`.
@@ -156,7 +159,8 @@ impl Default for Config {
         Self {
             poll_interval: Duration::from_secs(1),
             cgroupv1_refresh_interval: None,
-            jobs_only: true,
+            ignore_non_jobs: true,
+            jobs_monitoring_level: JobMonitoringLevel::Job,
             add_source_in_pause_state: false,
             annotate_foreign_measurements: false,
         }
@@ -168,4 +172,11 @@ pub struct StartingState {
     reactor_config: ReactorConfig,
     source_setup: source::JobSourceSetup,
     shared_hierarchy: OptionalSharedHierarchy,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum JobMonitoringLevel {
+    Job,
+    Step,
 }

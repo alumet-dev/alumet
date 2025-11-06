@@ -1,7 +1,10 @@
 use alumet::pipeline::elements::source::trigger::TriggerSpec;
 use util_cgroups::Cgroup;
 
-use crate::attr::{JobTagger, find_jobid_in_attrs};
+use crate::{
+    JobMonitoringLevel,
+    attr::{JobTagger, find_job_step_in_attrs, find_jobid_in_attrs, try_update_job_step_in_attrs},
+};
 use util_cgroups_plugins::{
     cgroup_events::{CgroupSetupCallback, ProbeSetup, SourceSettings},
     metrics::{AugmentedMetrics, Metrics},
@@ -11,7 +14,8 @@ use util_cgroups_plugins::{
 pub struct JobSourceSetup {
     tagger: JobTagger,
     trigger: TriggerSpec,
-    jobs_only: bool,
+    ignore_non_jobs: bool,
+    jobs_monitoring_level: JobMonitoringLevel,
 }
 
 impl JobSourceSetup {
@@ -21,7 +25,8 @@ impl JobSourceSetup {
         Ok(Self {
             tagger,
             trigger,
-            jobs_only: config.jobs_only,
+            ignore_non_jobs: config.ignore_non_jobs,
+            jobs_monitoring_level: config.jobs_monitoring_level,
         })
     }
 }
@@ -29,18 +34,29 @@ impl JobSourceSetup {
 impl CgroupSetupCallback for JobSourceSetup {
     fn setup_new_probe(&mut self, cgroup: &Cgroup, metrics: &Metrics) -> Option<ProbeSetup> {
         // extracts attributes "job_id", "job_step" and "user_id"
-        let attrs = self.tagger.attributes_for_cgroup(cgroup);
+        let mut attrs = self.tagger.attributes_for_cgroup(cgroup);
 
-        let is_job = !attrs.is_empty();
-        let name = if is_job {
-            // give a nice name to the source
-            let job_id = find_jobid_in_attrs(&attrs).expect("job_id should be set");
-            format!("slurm-job-{}", job_id)
-        } else {
-            // not a job, just a cgroup (for ex. a systemd service)
-            if self.jobs_only {
-                return None; // don't measure this cgroup
+        let job_id = find_jobid_in_attrs(&attrs);
+
+        let name = if let Some(job_id) = job_id {
+            if let Some(step_id) = find_job_step_in_attrs(&attrs) {
+                // This cgroup is a step/subtask related to the job
+                if self.jobs_monitoring_level == JobMonitoringLevel::Step {
+                    // We want to keep it
+                    let tmp_name = format!("{}.{}", job_id, step_id);
+                    try_update_job_step_in_attrs(&mut attrs, tmp_name.clone());
+                    tmp_name
+                } else {
+                    // We don't want to monitor it
+                    return None;
+                }
+            } else {
+                // This cgroup is the main one for the job
+                format!("{}", job_id)
             }
+        } else if self.ignore_non_jobs {
+            return None;
+        } else {
             format!("cgroup {}", cgroup.unique_name())
         };
 

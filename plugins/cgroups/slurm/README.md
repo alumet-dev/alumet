@@ -66,8 +66,11 @@ poll_interval = "1s"
 # Interval between two scans of the cgroup v1 hierarchies.
 # Only applies to cgroup v1 hierarchies (cgroupv2 supports inotify).
 cgroupv1_refresh_interval = "30s"
-# Only monitor the job cgroup related metrics and skip the others
-jobs_only = true
-# If true, the slurm sources will be started in pause state (only for advanced setup with a control plugin enabled)
+# Only monitor the cgroups related to slurm jobs
+ignore_non_jobs = true
+# What level of surveillance should be achieved ? Could be either "job" or "step".
+# "job" means monitoring only main Slurm jobs related cgroups
+# "step" means also monitoring subtask related cgroups of the Slurm jobs
+jobs_monitoring_level = "job"
 add_source_in_pause_state = false
 ```
