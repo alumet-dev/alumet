@@ -32,6 +32,7 @@ pub enum ExecError {
 }
 
 /// Spawns a process that runs `program args` and stops the measurement agent when it exits.
+/// Returns the exit code of the program.
 ///
 /// The measurement sources are triggered before the process spawns and after it exits.
 ///
@@ -41,7 +42,7 @@ pub fn exec_process(
     program: String,
     args: Vec<String>,
     shutdown_timeout: Duration,
-) -> Result<(), ExecError> {
+) -> Result<ExitStatus, ExecError> {
     // At least one measurement.
     if let Err(e) = trigger_measurement_now(&agent.pipeline) {
         log::error!("Could not trigger a first measurement before the child spawn: {e}");
@@ -49,7 +50,7 @@ pub fn exec_process(
 
     // Spawn the process and wait for it to exit.
     let exit_status = exec_child(program, args)?;
-    log::info!("Child process exited with status {exit_status}, Alumet will now stop.");
+    log::info!("Child process exited with {exit_status}, Alumet will now stop.");
 
     // One last measurement.
     if let Err(e) = trigger_measurement_now(&agent.pipeline) {
@@ -62,7 +63,8 @@ pub fn exec_process(
 
     // Stop the pipeline
     agent.pipeline.control_handle().shutdown();
-    agent.wait_for_shutdown(shutdown_timeout).map_err(ExecError::Shutdown)
+    agent.wait_for_shutdown(shutdown_timeout).map_err(ExecError::Shutdown)?;
+    Ok(exit_status)
 }
 
 /// Spawns a child process and waits for it to exit.
