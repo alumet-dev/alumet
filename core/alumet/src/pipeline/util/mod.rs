@@ -2,6 +2,7 @@ pub mod channel;
 pub mod scope;
 pub mod stream;
 pub mod threading;
+pub mod coop;
 
 /// Check (at compile-time) that `T` is [`Send`].
 #[allow(unused)] // used in tests
