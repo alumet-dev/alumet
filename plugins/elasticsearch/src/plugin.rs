@@ -94,7 +94,7 @@ impl Output for ElasticSearchOutput {
     }
 }
 
-mod config {
+pub mod config {
     use std::path::PathBuf;
 
     use anyhow::Context;
@@ -170,7 +170,26 @@ mod config {
 
 #[cfg(test)]
 mod tests {
-    use super::config::{AuthConfig, Config};
+    use alumet::{
+        agent::{
+            self,
+            plugin::{PluginInfo, PluginSet},
+        },
+        pipeline,
+        plugin::PluginMetadata,
+    };
+    use std::{
+        fs::{self},
+        time::Duration,
+    };
+
+    use crate::{ElasticSearchPlugin, api, plugin::config::AuthConfig};
+
+    use super::config::Config;
+
+    fn config_to_toml_table(config: &Config) -> toml::Table {
+        toml::Value::try_from(config).unwrap().as_table().unwrap().clone()
+    }
 
     #[test]
     fn parse_auth_config() {
@@ -196,7 +215,7 @@ mod tests {
             allow_insecure = false
             index_prefix = "alumet"
             metric_unit_as_index_suffix = true
-            
+
             [auth.basic]
             user = "bob"
             password = "very_secure"
@@ -210,5 +229,49 @@ mod tests {
         assert_eq!(parsed.allow_insecure, false);
         assert_eq!(parsed.index_prefix, "alumet");
         assert_eq!(parsed.metric_unit_as_index_suffix, true);
+    }
+
+    #[test]
+    fn try_from_basic_file_api_key_bearer() {
+        // Basic File
+
+        let tmp = tempfile::tempdir().unwrap();
+        let file_path = tmp.path().join("basicfile.csv");
+        fs::write(&file_path, "bob:very_secure").unwrap();
+
+        let auth_config = AuthConfig::BasicFile {
+            file: file_path.to_str().unwrap().to_string(),
+        };
+
+        let result = api::ApiAuthentication::try_from(auth_config).unwrap();
+        let expected = api::ApiAuthentication::Basic {
+            user: "bob".to_string(),
+            password: "very_secure".to_string(),
+        };
+        assert_eq!(result, expected);
+
+        // API key
+
+        let auth_config = AuthConfig::ApiKey {
+            key: "abcd".to_string(),
+        };
+
+        let result = api::ApiAuthentication::try_from(auth_config).unwrap();
+        let expected = api::ApiAuthentication::ApiKey {
+            key: "abcd".to_string(),
+        };
+        assert_eq!(result, expected);
+
+        // Bearer
+
+        let auth_config = AuthConfig::Bearer {
+            token: "token_string".to_string(),
+        };
+
+        let result = api::ApiAuthentication::try_from(auth_config).unwrap();
+        let expected = api::ApiAuthentication::Bearer {
+            token: "token_string".to_string(),
+        };
+        assert_eq!(result, expected);
     }
 }

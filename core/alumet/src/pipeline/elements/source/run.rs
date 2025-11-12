@@ -92,10 +92,8 @@ pub(crate) async fn run_managed(
                 }
             }
             TaskState::Stop => {
-                return Err(PipelineError::for_element(
-                    source_name.clone(),
-                    anyhow::anyhow!("Cannot start {source_name} source in Stop mode"),
-                ));
+                log::warn!("Source {source_name} has been started in Stop state and will stop immediately.");
+                return Ok(());
             }
         }
     }

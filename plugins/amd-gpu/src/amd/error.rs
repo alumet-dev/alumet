@@ -1,4 +1,4 @@
-use amdsmi::AmdsmiStatusT;
+use amd_smi_lib_sys::bindings::amdsmi_status_t;
 use std::{error::Error, fmt::Display};
 
 /// Error treatment concerning AMD SMI library.
@@ -7,7 +7,7 @@ use std::{error::Error, fmt::Display};
 ///
 /// Take a status of [`AmdsmiStatusT`] provided by AMD SMI library to catch dynamically the occurred error.
 #[derive(Debug)]
-pub struct AmdError(pub AmdsmiStatusT);
+pub struct AmdError(pub amdsmi_status_t);
 
 impl Display for AmdError {
     fn fmt(&self, format: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -23,11 +23,13 @@ impl Error for AmdError {
 
 #[cfg(test)]
 mod tests {
+    use amd_smi_lib_sys::bindings::amdsmi_status_t_AMDSMI_STATUS_SUCCESS;
+
     use super::*;
     // Test `fmt` function in `Display` implementation for `AmdError` with AMD SMI error display
     #[test]
     fn test_fmt_display() {
-        let error = AmdError(AmdsmiStatusT::AmdsmiStatusSuccess);
+        let error = AmdError(amdsmi_status_t_AMDSMI_STATUS_SUCCESS);
         let msg = format!("amdsmi error {}", error.0);
         assert_eq!(format!("{error}"), msg);
     }
@@ -35,7 +37,7 @@ mod tests {
     // Test `source` function in `Error` implementation for `AmdError`
     #[test]
     fn test_source() {
-        let error = AmdError(AmdsmiStatusT::AmdsmiStatusSuccess);
+        let error = AmdError(amdsmi_status_t_AMDSMI_STATUS_SUCCESS);
         assert!(error.source().is_none());
     }
 }

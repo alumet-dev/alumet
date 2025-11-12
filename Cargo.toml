@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "agent",
     "core/*",
+    "plugins/amd-gpu",
     "plugins/aggregation",
     "plugins/cgroups/*",
     "plugins/csv",
@@ -20,6 +21,7 @@ members = [
     "plugins/process-to-cgroup-bridge",
     "plugins/procfs",
     "plugins/prometheus-exporter",
+    "plugins/quarch", 
     "plugins/rapl",
     "plugins/relay",
     "plugins/socket-control",
@@ -54,3 +56,6 @@ redundant_field_names = "deny"
 single_char_pattern = "deny"
 unused_enumerate_index = "deny"
 useless_format = "deny"
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin)'] }

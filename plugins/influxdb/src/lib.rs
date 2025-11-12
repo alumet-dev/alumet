@@ -209,12 +209,19 @@ fn ensure_valid_field_key<'a>(reserved_field: &'a str, field_key: &'a str) -> &'
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    /// Address of the host where InfluxDB is running
     pub host: String,
+    /// Token to write on the database
     pub token: String,
+    /// Organisation where to write data
     pub org: String,
+    /// Bucket where to write data   
     pub bucket: String,
+    /// By default, serialize all Alumet attributes as fields. This can be either `"field"` or `"tag".
     pub attributes_as: AttributeAs,
+    /// Always serialize the given list of attributes as InfluxDB tags
     pub attributes_as_tags: Option<HashSet<String>>,
+    /// Always serialize the given list of attributes as InfluxDB fields
     pub attributes_as_fields: Option<HashSet<String>>,
 }
 

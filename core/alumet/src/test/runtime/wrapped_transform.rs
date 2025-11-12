@@ -9,6 +9,7 @@ use crate::{
         Transform,
         elements::{error::TransformError, transform::TransformContext},
     },
+    test::runtime::TransformCheckOutputContext,
 };
 
 use super::pretty::PrettyAny;
@@ -19,7 +20,7 @@ pub(super) struct WrappedTransform {
     pub done_tx: mpsc::Sender<TransformDone>,
 }
 
-pub struct SetTransformOutputCheck(pub Box<dyn Fn(&MeasurementBuffer) + Send>);
+pub struct SetTransformOutputCheck(pub Box<dyn Fn(&mut TransformCheckOutputContext) + Send>);
 pub struct TransformDone;
 
 impl Transform for WrappedTransform {
@@ -50,7 +51,11 @@ impl WrappedTransform {
         match self.set_rx.try_recv() {
             Ok(check) => {
                 log::trace!("applying check");
-                (check.0)(measurements);
+                let mut check_ctx = TransformCheckOutputContext {
+                    measurements,
+                    metrics: ctx.metrics,
+                };
+                (check.0)(&mut check_ctx);
 
                 log::trace!("wrapped transform done");
                 self.done_tx.try_send(TransformDone).unwrap();

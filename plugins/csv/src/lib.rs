@@ -11,6 +11,8 @@ use alumet::plugin::{
 use output::CsvOutput;
 use serde::{Deserialize, Serialize};
 
+use crate::{csv::CsvParams, output::CsvOutputSettings};
+
 pub struct CsvPlugin {
     config: Config,
 }
@@ -34,14 +36,16 @@ impl AlumetPlugin for CsvPlugin {
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
-        let output = Box::new(CsvOutput::new(
-            &self.config.output_path,
-            self.config.force_flush,
-            self.config.append_unit_to_metric_name,
-            self.config.use_unit_display_name,
-            self.config.csv_delimiter,
-            self.config.csv_escaped_quote.take().unwrap_or(String::from("\"\"")),
-        )?);
+        let settings = CsvOutputSettings {
+            force_flush: self.config.force_flush,
+            append_unit_to_metric_name: self.config.append_unit_to_metric_name,
+            use_unit_display_name: self.config.use_unit_display_name,
+            params: CsvParams {
+                delimiter: self.config.csv_delimiter,
+                late_delimiter: self.config.csv_late_delimiter,
+            },
+        };
+        let output = Box::new(CsvOutput::new(&self.config.output_path, settings)?);
         alumet.add_blocking_output("out", output)?;
         Ok(())
     }
@@ -53,18 +57,19 @@ impl AlumetPlugin for CsvPlugin {
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct Config {
+pub struct Config {
     /// Absolute or relative path to the output_file
-    output_path: PathBuf,
+    pub output_path: PathBuf,
     /// Do we flush after each write (measurements)?
-    force_flush: bool,
+    pub force_flush: bool,
     /// Do we append the unit (unique name) to the metric name?
-    append_unit_to_metric_name: bool,
+    pub append_unit_to_metric_name: bool,
     /// Do we use the unit display name (instead of its unique name)?
-    use_unit_display_name: bool,
+    pub use_unit_display_name: bool,
     /// The CSV delimiter, such as `;`
-    csv_delimiter: char,
-    csv_escaped_quote: Option<String>,
+    pub csv_delimiter: char,
+    /// The delimiter between the entries in `__late_attributes`.
+    pub csv_late_delimiter: char,
 }
 
 impl Default for Config {
@@ -75,7 +80,7 @@ impl Default for Config {
             use_unit_display_name: true,
             append_unit_to_metric_name: true,
             csv_delimiter: ';',
-            csv_escaped_quote: None,
+            csv_late_delimiter: ',',
         }
     }
 }

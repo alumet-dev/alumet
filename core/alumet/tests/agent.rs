@@ -176,6 +176,9 @@ fn test_plugin_lifecycle() {
             .is_some()
     );
 
+    // Run for some time
+    std::thread::sleep(Duration::from_secs(1));
+
     // Stop the pipeline
     agent.pipeline.control_handle().shutdown();
     agent.wait_for_shutdown(Duration::from_secs(2)).unwrap();

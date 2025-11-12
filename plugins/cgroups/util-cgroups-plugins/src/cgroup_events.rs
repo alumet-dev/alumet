@@ -7,7 +7,7 @@ use std::{
 use alumet::pipeline::{
     Source,
     control::{PluginControlHandle, request},
-    elements::source::trigger::TriggerSpec,
+    elements::source::{control::TaskState, trigger::TriggerSpec},
 };
 use anyhow::Context;
 use util_cgroups::{Cgroup, CgroupDetector, CgroupHierarchy, CgroupMountWait, CgroupVersion, detect, mount_wait};
@@ -17,6 +17,11 @@ use crate::{
     v1::CgroupV1Probe,
     v2::CgroupV2Probe,
 };
+
+/// Reacts to the mounting of cgroup virtual filesystems.
+pub trait CgroupFsMountCallback: Clone + Send + 'static {
+    fn on_cgroupfs_mounted(&mut self, cgroupfs: &Vec<CgroupHierarchy>) -> anyhow::Result<()>;
+}
 
 /// Reacts to the deletion of cgroups.
 pub trait CgroupRemovalCallback: Clone + Send + 'static {
@@ -29,12 +34,18 @@ pub trait CgroupSetupCallback: Clone + Send + 'static {
     fn setup_new_probe(&mut self, cgroup: &Cgroup, metrics: &Metrics) -> Option<ProbeSetup>;
 }
 
-/// A [`CgroupRemovalCallback`] that does nothing.
+/// A callback that does nothing.
 #[derive(Clone, Copy)]
 pub struct NoCallback;
 
 impl CgroupRemovalCallback for NoCallback {
     fn on_cgroups_removed(&mut self, _cgroups: Vec<Cgroup>) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+
+impl CgroupFsMountCallback for NoCallback {
+    fn on_cgroupfs_mounted(&mut self, _cgroupfs: &Vec<CgroupHierarchy>) -> anyhow::Result<()> {
         Ok(())
     }
 }
@@ -73,6 +84,13 @@ pub struct ReactorConfig {
     /// The cgroup v1 filesystem does not support notifications (inotify), we must rely on manually inspecting the cgroups at regular intervals.
     /// If `None` (the default), uses the default value of [`detect::Config`].
     pub v1_refresh_interval: Option<Duration>,
+
+    /// If true, the reactor will add new cgroup sources in pause state.
+    ///
+    /// This behavior is necessary to have fine-grained control over which cgroup to monitor.
+    /// For most use cases this should be set to false.
+    /// It's essentially needed for advanced Alumet setup with a control plugin that manage the state of sources.
+    pub add_source_in_pause_state: bool,
 }
 
 impl Default for ReactorConfig {
@@ -80,12 +98,16 @@ impl Default for ReactorConfig {
         Self {
             v1_coalesce_delay: Some(Duration::from_secs(1)),
             v1_refresh_interval: None,
+            add_source_in_pause_state: false,
         }
     }
 }
 
 #[derive(Clone)]
-pub struct ReactorCallbacks<S: CgroupSetupCallback, R: CgroupRemovalCallback> {
+pub struct ReactorCallbacks<M: CgroupFsMountCallback, S: CgroupSetupCallback, R: CgroupRemovalCallback> {
+    /// Called when a cgroup hierarchy is detected, that is, when a cgroupfs is mounted.
+    pub on_fs_mount: M,
+
     /// Called when a new cgroup is detected.
     ///
     /// Its role is to setup the probe (source) associated to this cgroup.
@@ -118,37 +140,37 @@ impl AliveDetectors {
     }
 }
 
-struct WaitCallback<S: CgroupSetupCallback, R: CgroupRemovalCallback> {
+struct WaitCallback<M: CgroupFsMountCallback, S: CgroupSetupCallback, R: CgroupRemovalCallback> {
     detectors: AliveDetectors,
     rt: tokio::runtime::Runtime,
-    state: CloneableState<S, R>,
+    state: CloneableState<M, S, R>,
 }
 
-struct DetectionCallback<S: CgroupSetupCallback, R: CgroupRemovalCallback> {
+struct DetectionCallback<M: CgroupFsMountCallback, S: CgroupSetupCallback, R: CgroupRemovalCallback> {
     rt: tokio::runtime::Handle,
-    state: CloneableState<S, R>,
+    state: CloneableState<M, S, R>,
 }
 
 /// The state of the callback closure.
 /// In a sub-structure to make it easier to clone when moving into a closure.
 #[derive(Clone)]
-struct CloneableState<S: CgroupSetupCallback, R: CgroupRemovalCallback> {
+struct CloneableState<M: CgroupFsMountCallback, S: CgroupSetupCallback, R: CgroupRemovalCallback> {
     // Store the detectors so that they keep working.
     metrics: Metrics,
-    callbacks: ReactorCallbacks<S, R>,
+    callbacks: ReactorCallbacks<M, S, R>,
     alumet_control: PluginControlHandle,
     detector_config: detect::Config,
 }
 
 impl CgroupReactor {
     /// Configures and starts a cgroup "notification" system with some callbacks that will:
-    /// - automatically the mounting of cgroupfs
+    /// - detect the mounting of cgroupfs
     /// - create an Alumet source for every new cgroup (some cgroups can be skipped, depending on the setup callback)
     /// - react to the removal of cgroups
     pub fn new(
         config: ReactorConfig,
         metrics: Metrics,
-        callbacks: ReactorCallbacks<impl CgroupSetupCallback, impl CgroupRemovalCallback>,
+        callbacks: ReactorCallbacks<impl CgroupFsMountCallback, impl CgroupSetupCallback, impl CgroupRemovalCallback>,
         alumet_control: PluginControlHandle,
     ) -> anyhow::Result<Self> {
         let detectors = AliveDetectors::new();
@@ -156,16 +178,22 @@ impl CgroupReactor {
         if let Some(refresh_interval) = config.v1_refresh_interval {
             detector_config.v1_refresh_interval = refresh_interval;
         }
+        detector_config.add_source_in_pause_state = config.add_source_in_pause_state;
         let callback = WaitCallback::new(metrics, callbacks, alumet_control, detectors.clone(), detector_config);
         let wait = CgroupMountWait::new(config.v1_coalesce_delay, callback)?;
         Ok(Self { wait, detectors })
     }
 }
 
-impl<S: CgroupSetupCallback, R: CgroupRemovalCallback> WaitCallback<S, R> {
+impl<M, S, R> WaitCallback<M, S, R>
+where
+    M: CgroupFsMountCallback,
+    S: CgroupSetupCallback,
+    R: CgroupRemovalCallback,
+{
     fn new(
         metrics: Metrics,
-        callbacks: ReactorCallbacks<S, R>,
+        callbacks: ReactorCallbacks<M, S, R>,
         alumet_control: PluginControlHandle,
         detectors: AliveDetectors,
         detector_config: detect::Config,
@@ -187,8 +215,21 @@ impl<S: CgroupSetupCallback, R: CgroupRemovalCallback> WaitCallback<S, R> {
     }
 }
 
-impl<S: CgroupSetupCallback, R: CgroupRemovalCallback> mount_wait::Callback for WaitCallback<S, R> {
+impl<M, S, R> mount_wait::Callback for WaitCallback<M, S, R>
+where
+    M: CgroupFsMountCallback,
+    S: CgroupSetupCallback,
+    R: CgroupRemovalCallback,
+{
     fn on_cgroupfs_mounted(&mut self, hierarchies: Vec<CgroupHierarchy>) -> anyhow::Result<ControlFlow<()>> {
+        // execute the callback
+        self.state
+            .callbacks
+            .on_fs_mount
+            .on_cgroupfs_mounted(&hierarchies)
+            .context("callback on_fs_mount failed")?;
+
+        // start a detector for each hierarchy
         for h in hierarchies {
             let config = self.state.detector_config.clone();
             let callback = DetectionCallback {
@@ -198,15 +239,29 @@ impl<S: CgroupSetupCallback, R: CgroupRemovalCallback> mount_wait::Callback for 
             let detector = CgroupDetector::new(h, config, callback)?;
             self.detectors.push(detector);
         }
+
+        // Don't listen for new cgroup filesystems, because:
+        // - on cgroups v2, there is only one hierarchy
+        // - on cgroups v1, we coalesce multiple mount events together, so they should all arrive in the same Vec
         Ok(ControlFlow::Break(()))
     }
 }
 
 const DISPATCH_TIMEOUT: Duration = Duration::from_secs(1);
 
-impl<S: CgroupSetupCallback, R: CgroupRemovalCallback> detect::Callback for DetectionCallback<S, R> {
+impl<M, S, R> detect::Callback for DetectionCallback<M, S, R>
+where
+    M: CgroupFsMountCallback,
+    S: CgroupSetupCallback,
+    R: CgroupRemovalCallback,
+{
     fn on_cgroups_created(&mut self, cgroups: Vec<Cgroup>) -> anyhow::Result<()> {
         log::debug!("detected new cgroups: {cgroups:?}");
+
+        let init_source_state = match self.state.detector_config.add_source_in_pause_state {
+            false => TaskState::Run,
+            true => TaskState::Pause,
+        };
 
         // create the sources
         let mut sources = Vec::with_capacity(cgroups.len());
@@ -240,9 +295,8 @@ impl<S: CgroupSetupCallback, R: CgroupRemovalCallback> detect::Callback for Dete
 
         // spawn the sources on the Alumet pipeline
         for (source, pers) in sources {
-            // TODO spawn the source in a Paused state if requested by the setup
             let dispatch_task = self.state.alumet_control.dispatch(
-                request::create_one().add_source(&pers.name, source, pers.trigger),
+                request::create_one().add_source_with_state(&pers.name, source, pers.trigger, init_source_state),
                 DISPATCH_TIMEOUT,
             );
             self.rt
@@ -276,12 +330,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn no_remove_callback() {
+    fn no_callback() {
         // ensure that it compiles
         fn _f(probe_setup: impl CgroupSetupCallback) {
             ReactorCallbacks {
                 probe_setup,
                 on_removal: NoCallback,
+                on_fs_mount: NoCallback,
             };
         }
     }

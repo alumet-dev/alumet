@@ -86,13 +86,20 @@ fn test_k8s_cgroupv2() -> anyhow::Result<()> {
         handle.send_wait(
             request::list_elements(
                 ElementListFilter::kind(ElementKind::Source)
-                    .plugin("cgroups")
+                    .plugin("k8s")
                     .name(source_name),
             ),
             TIMEOUT,
         ),
     )?;
-    assert!(!elements.is_empty(), "source not found: {source_name}");
+    let all_sources = rt.block_on(handle.send_wait(
+        request::list_elements(ElementListFilter::kind(ElementKind::Source)),
+        TIMEOUT,
+    ))?;
+    assert!(
+        !elements.is_empty(),
+        "source not found: {source_name}, all sources: {all_sources:?}"
+    );
 
     // check that the API has been called the appropriate number of times
     api_mock.assert();

@@ -113,7 +113,9 @@ impl Plugin for TestPlugin {
             b_counter: 0,
             n_polled: self.counters.n_polled.clone(),
         });
-        let trigger = trigger::builder::time_interval(Duration::from_secs(1)).build().unwrap();
+        let trigger = trigger::builder::time_interval(Duration::from_millis(250))
+            .build()
+            .unwrap();
         alumet.add_source("test", source, trigger)?;
         alumet.add_transform(
             "test",

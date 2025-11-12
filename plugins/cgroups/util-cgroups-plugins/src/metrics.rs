@@ -72,34 +72,37 @@ impl Metrics {
         let cpu_time_delta = alumet.create_metric::<u64>(
             "cpu_time_delta",
             PrefixedUnit::nano(Unit::Second),
-            "Total CPU usage time by the cgroup since last measurement",
+            "Time spent by the cgroup on the CPU since the previous measurement",
         )?;
         let cpu_percent = alumet.create_metric::<f64>(
             "cpu_percent",
             Unit::Percent,
-            "The ratio of CPU used by the cgroup since last measurement",
+            "Part of the CPU used by the cgroup since the previous measurement (1 core fully used = 100%)",
         )?;
-        let memory_usage =
-            alumet.create_metric::<u64>("memory_usage", Unit::Byte, "Memory currently used by the cgroup")?;
+        let memory_usage = alumet.create_metric::<u64>(
+            "memory_usage",
+            Unit::Byte,
+            "The total amount of memory currently being used by the cgroup and its descendants (at least in cgroupv2).",
+        )?;
         let memory_anonymous = alumet.create_metric::<u64>(
             "cgroup_memory_anonymous",
             Unit::Byte,
-            "Anonymous used memory, corresponding to running process and various allocated memory",
+            "Amount of memory used in anonymous mappings",
         )?;
         let memory_file = alumet.create_metric::<u64>(
             "cgroup_memory_file",
             Unit::Byte,
-            "Files memory, corresponding to open files and descriptors",
+            "Amount of memory used to cache filesystem data, including tmpfs and shared memory.",
         )?;
         let memory_kernel_stack = alumet.create_metric::<u64>(
             "cgroup_memory_kernel_stack",
             Unit::Byte,
-            "Memory reserved for kernel operations",
+            "Amount of memory allocated to kernel stacks.",
         )?;
         let memory_pagetables = alumet.create_metric::<u64>(
             "cgroup_memory_pagetables",
             Unit::Byte,
-            "Memory used to manage correspondence between virtual and physical addresses",
+            "Amount of memory allocated for page tables (which map virtual addresses to physical addresses).",
         )?;
         Ok(Self {
             cpu_time_delta,

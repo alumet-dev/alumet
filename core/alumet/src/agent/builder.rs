@@ -143,7 +143,15 @@ impl Builder {
         fn init_plugin(p: PluginInfo) -> anyhow::Result<Box<dyn Plugin>> {
             let name = p.metadata.name;
             let version = p.metadata.version;
-            let config = ConfigTable(p.config.unwrap_or_default());
+            let config = match p.config {
+                Some(config) => Some(ConfigTable(config)),
+                None => {
+                    // no config has been provided for this plugin, use its default config
+                    (p.metadata.default_config)()
+                        .with_context(|| format!("failed to generate default config of plugin {name} v{version}"))?
+                }
+            };
+            let config = config.unwrap_or_default();
             log::debug!("Initializing plugin {name} v{version} with config {config:?}...");
 
             // call init
@@ -430,7 +438,7 @@ fn print_stats(
         .join("\n");
     let disabled_list: String = disabled_plugins
         .iter()
-        .map(|p| format!("    - {} v {}", p.metadata.name, p.metadata.version))
+        .map(|p| format!("    - {} v{}", p.metadata.name, p.metadata.version))
         .collect::<Vec<_>>()
         .join("\n");
     let n_enabled = enabled_plugins.len();

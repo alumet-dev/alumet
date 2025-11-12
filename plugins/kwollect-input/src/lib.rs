@@ -12,14 +12,17 @@ use alumet::{
         event::{self},
         rust::{AlumetPlugin, deserialize_config, serialize_config},
     },
-    units::Unit,
+    units::{PrefixedUnit, Unit, UnitPrefix},
 };
 use anyhow::Context;
 use chrono::{DateTime, FixedOffset, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
+use std::{
+    str::FromStr,
+    sync::{Arc, Mutex},
+};
 use time::OffsetDateTime;
 
 mod kwollect;
@@ -53,6 +56,7 @@ impl AlumetPlugin for KwollectPluginInput {
             hostname: config.hostname,
             login: config.login,
             password: config.password,
+            utc_offset: config.utc_offset,
             metrics: config.metrics,
             metric_ids: Vec::new(),
         };
@@ -64,39 +68,69 @@ impl AlumetPlugin for KwollectPluginInput {
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         log::info!("Kwollect-input plugin is starting");
 
-        // Create a metric for the source.
+        // Create metric(s) for the source
         let mut config = self.config.lock().unwrap();
         let mut metric_ids = Vec::with_capacity(config.metrics.len());
+
         for metric_name in &config.metrics {
-            if metric_name == "wattmetre_power_watt" {
-                let kwollect_metric = alumet
-                    .create_metric::<f64>(
-                        metric_name,
-                        Unit::Watt,
-                        format!("Power consumption metric: {metric_name}"),
-                    )
-                    .expect("Failed to create metric");
-                metric_ids.push(kwollect_metric);
+            let unit_str = extract_unit_from_metric_name(metric_name);
+            let prefixed_unit = if let Ok(unit) = PrefixedUnit::from_str(unit_str) {
+                unit
+            } else if let Ok(base_unit) = Unit::from_str(unit_str) {
+                PrefixedUnit {
+                    base_unit,
+                    prefix: UnitPrefix::Plain,
+                }
             } else {
-                panic!(
-                    "This plugin is only designed for the 'wattmetre_power_watt' metric at the moment. Please use it."
-                );
-            }
+                // fallback: create a custom unit if it doesn't exists
+                PrefixedUnit {
+                    base_unit: Unit::Custom {
+                        unique_name: unit_str.to_string(),
+                        display_name: unit_str.to_string(),
+                    },
+                    prefix: UnitPrefix::Plain,
+                }
+            };
+
+            let kwollect_metric = alumet
+                .create_metric::<f64>(
+                    metric_name,
+                    prefixed_unit, // Base unit for Alumet
+                    format!("Metric: {metric_name}"),
+                )
+                .expect("Failed to create metric");
+
+            metric_ids.push(kwollect_metric);
         }
+
         config.metric_ids = metric_ids;
         Ok(())
     }
 
+    /// This function sets up a subscription to react when a consumer measurement event ends. When triggered, it:
+    /// 1. Records the start and end times of the Alumet pipeline. Kwollect expects timestamps in Paris timezone
+    ///    (UTC+2) so we converted it.
+    /// 2. Builds and sends a request to KwollectSource using these timestamps. The pipeline waits for a response
+    ///    (timeout: 5 seconds) to ensure the source is registered before proceeding.
+    /// 3. Ensures the pipeline waits for the source’s response before completing, using Alumet’s
+    ///    async_runtime and block_on. The Alumet pipeline uses an asynchronous runtime for concurrency, and this
+    ///    function needs to block the pipeline until the Kwollect request is processed so async_runtime.block_on
+    ///    runs the async code (request sending and triggering) synchronously, forcing the pipeline to wait for
+    ///    completion.
     fn post_pipeline_start(&mut self, alumet: &mut AlumetPostStart) -> anyhow::Result<()> {
         let control_handle = alumet.pipeline_control();
-        let paris_offset = FixedOffset::east_opt(2 * 3600).unwrap();
-        let start_alumet: OffsetDateTime = SystemTime::now().into();
-        let system_time: SystemTime = convert_to_system_time(start_alumet);
-        let start_utc = convert_to_utc(system_time);
-        let start_paris = start_utc.with_timezone(&paris_offset);
         let config_cloned = self.config.clone();
         let async_runtime = alumet.async_runtime().clone();
 
+        let start_alumet: OffsetDateTime = SystemTime::now().into();
+        let system_time: SystemTime = convert_to_system_time(start_alumet);
+        let start_utc = convert_to_utc(system_time);
+        let paris_offset = if let Some(hours) = config_cloned.lock().unwrap().utc_offset {
+            FixedOffset::east_opt(hours * 3600).unwrap()
+        } else {
+            FixedOffset::east_opt(0).unwrap() // fallback : UTC
+        };
+        let start_paris = start_utc.with_timezone(&paris_offset);
         event::end_consumer_measurement().subscribe(move |_evt| {
             log::debug!("End consumer measurement event received");
             let config = config_cloned.lock().unwrap();
@@ -112,6 +146,7 @@ impl AlumetPlugin for KwollectPluginInput {
                 metrics: config.metrics.clone(),
                 login: config.login.clone(),
                 password: config.password.clone(),
+                utc_offset: config.utc_offset,
             };
 
             let url = build_kwollect_url(&config_for_url, &start_paris, &end_paris);
@@ -171,6 +206,60 @@ impl AlumetPlugin for KwollectPluginInput {
     }
 }
 
+/// Normalizes a unit string to the UCUM standard if not already done by Alumet Core.
+/// Note: Some metrics are not enabled for Prometheus exporter:
+///     `prom_all_metrics`, `prom_default_metrics`, `prom_nvgpu_all_metrics`,
+///     `prom_nvgpu_default_metrics`.
+///     Use the Prometheus exporter plugin instead for these metrics.
+fn normalize_unit(unit_str: &str) -> &str {
+    match unit_str {
+        "watt" => "W",           // UCUM standard
+        "kilowatt" => "kW",      // UCUM standard
+        "watthour" => "W.h",     // UCUM standard
+        "celsius" => "Cel",      // UCUM standard
+        "percent" | "%" => "%",  // UCUM standard
+        "VA" => "V.A",           // Not UCUM standard (Volt-Ampere)
+        "VAr" => "V.A_r",        // Not UCUM standard (Reactive Volt-Ampere)
+        "amp" | "ampere" => "A", // UCUM standard
+        "volt" => "V",           // UCUM standard
+        "hertz" => "Hz",         // UCUM standard
+        "lux" => "lx",           // UCUM standard
+        "bar" => "bar",          // UCUM standard
+        "deg" => "°",            // UCUM standard
+        "m/s" => "m/s",          // UCUM standard
+        "rpm" => "rpm",          // Not UCUM standard
+        "cfm" => "[cft_i]/min",  // UCUM standard (cubic foot per minute)
+        "bytes" => "By",         // UCUM standard
+        "packets" => "1",        // UCUM standard for a count
+        _ => unit_str,           // Return as-is if already UCUM or unknown
+    }
+}
+
+/// Extracts the unit from a metric name.
+/// The unit is typically the last segment of the metric name, unless the name ends with "total".
+/// In that case, the unit is the segment before "total", or the segment before "discard" or "error" if present.
+fn extract_unit_from_metric_name(metric_name: &str) -> &str {
+    let parts: Vec<&str> = metric_name.split('_').collect();
+    // Special handling if the last part is "total"
+    if parts.len() >= 3
+        && let Some(last_segment) = parts.last()
+        && last_segment == &"total"
+    {
+        let second_last_segment = parts[parts.len() - 2];
+        if second_last_segment == "discard" || second_last_segment == "error" {
+            let unit_index = parts.len() - 3;
+            let unit = parts[unit_index];
+            return normalize_unit(unit);
+        } else {
+            let unit = parts[parts.len() - 2];
+            return normalize_unit(unit);
+        }
+    }
+    // Default: last segment is the unit
+    let unit_str = parts.last().expect("Metric name cannot be empty");
+    normalize_unit(unit_str)
+}
+
 fn convert_to_system_time(offset_date_time: OffsetDateTime) -> SystemTime {
     SystemTime::from(offset_date_time)
 }
@@ -213,6 +302,7 @@ struct Config {
     pub metrics: Vec<String>,
     pub login: String,
     pub password: String,
+    pub utc_offset: Option<i32>,
 }
 
 struct ParsedConfig {
@@ -220,6 +310,7 @@ struct ParsedConfig {
     hostname: String,
     login: String,
     password: String,
+    utc_offset: Option<i32>,
     metrics: Vec<String>,
     metric_ids: Vec<TypedMetricId<f64>>,
 }
@@ -227,11 +318,12 @@ struct ParsedConfig {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            site: "lyon".to_string(),
-            hostname: "taurus-7".to_string(),
-            metrics: vec!["wattmetre_power_watt".to_string()],
+            site: "cluster".to_string(),
+            hostname: "node".to_string(),
+            metrics: vec!["metric".to_string()],
             login: "login".to_string(),
             password: "password".to_string(),
+            utc_offset: Some(2), // UTC+2 (CEST, Central European Summer Time; note: UTC+1/CET applies in winter)
         }
     }
 }

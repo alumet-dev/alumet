@@ -168,7 +168,7 @@ impl Debug for PluginMetadata {
 /// let my_table: ConfigTable = serialized;
 /// let deserialized: MyConfig = deserialize_config(my_table).expect("deserialization failed");
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ConfigTable(pub toml::Table);
 
 /// Trait for plugins.

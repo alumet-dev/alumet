@@ -15,10 +15,10 @@ One source will be created per GPU device.
 
 |Name|Type|Unit|Description|Resource|ResourceConsumer|Attributes|
 |----|----|----|-----------|---------|-----------------|----------|
-|`nvml_energy_consumption`|Counter Diff|Joule|Average between 2 measurement points based on the consumed energy since the last boot|GPU|LocalMachine||
-|`nvml_instant_power`|Gauge|Milliwatt|Instant power consumption|GPU|LocalMachine||
+|`nvml_energy_consumption`|Counter Diff|milliJoule|Average between 2 measurement points based on the consumed energy since the last boot|GPU|LocalMachine||
+|`nvml_instant_power`|Gauge|milliWatt|Instant power consumption|GPU|LocalMachine||
 |`nvml_temperature_gpu`|Gauge|Celsius|Main temperature emitted by a given device|GPU|LocalMachine||
-|`nvml_gpu_utilization`|Gauge|Percentage|GPU rate utilization|GPU|LocalMachine||
+|`nvml_gpu_utilization`|Gauge|Percentage (0-100)|GPU rate utilization|GPU|LocalMachine||
 |`nvml_encoder_sampling_period`|Gauge|Microsecond|Current utilization and sampling size for the encoder|GPU|LocalMachine||
 |`nvml_decoder_sampling_period`|Gauge|Microsecond|Current utilization and sampling size for the decoder|GPU|LocalMachine||
 |`nvml_n_compute_processes`|Gauge|None|Relevant currently running computing processes data|GPU|LocalMachine||
