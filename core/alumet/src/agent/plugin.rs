@@ -198,6 +198,8 @@ impl PluginSet {
     pub fn set_plugin_enabled(&mut self, plugin_name: &str, enabled: bool) {
         if let Some(plugin) = self.0.get_mut(plugin_name) {
             plugin.enabled = enabled;
+        } else {
+            log::error!("Plugin {plugin_name} is not available in this binary of Alumet Agent.");
         }
     }
 

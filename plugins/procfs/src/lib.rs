@@ -13,6 +13,7 @@ use rlimit::{Resource, getrlimit, setrlimit};
 
 mod kernel;
 mod memory;
+mod network;
 mod process;
 mod serde_regex;
 
@@ -50,6 +51,9 @@ impl AlumetPlugin for ProcfsPlugin {
         if config.memory.enabled {
             start_memory_probe(config.memory, alumet)?;
         }
+        if config.network.enabled {
+            start_network_probe(config.network, alumet)?;
+        }
         if config.processes.enabled {
             let metrics = process::ProcessMetrics {
                 metric_cpu_time_delta: alumet
@@ -66,7 +70,6 @@ impl AlumetPlugin for ProcfsPlugin {
                     .create_metric("memory_usage", Unit::Byte, "Memory usage")
                     .context("unable to register metric memory for process probe")?,
             };
-
             match config.processes.strategy {
                 config::ProcessWatchStrategy::SystemWatcher => {
                     start_process_watcher(config.processes, alumet, metrics);
@@ -95,6 +98,18 @@ fn start_kernel_probe(
     let source =
         kernel::KernelStatsProbe::new(metrics, procfs::KernelStats::PATH).context("unable to create kernel probe")?;
     alumet.add_source("kernel", Box::new(source), trigger)?;
+    Ok(())
+}
+
+fn start_network_probe(
+    config_network: config::NetworkMonitoring,
+    alumet: &mut alumet::plugin::AlumetPluginStart<'_>,
+) -> Result<(), anyhow::Error> {
+    let trigger = TriggerSpec::at_interval(config_network.poll_interval);
+    let metrics = network::NetworkMetrics::new(alumet).context("unable to register metrics for network probe")?;
+    let source = network::NetworkProbe::new(metrics, procfs::net::InterfaceDeviceStatus::PATH)
+        .context("unable to create network probe")?;
+    alumet.add_source("network", Box::new(source), trigger)?;
     Ok(())
 }
 
@@ -208,11 +223,20 @@ mod config {
     pub struct Config {
         pub kernel: KernelStatsMonitoring,
         pub memory: MeminfoMonitoring,
+        pub network: NetworkMonitoring,
         pub processes: ProcessMonitoring,
     }
 
     #[derive(Serialize, Deserialize)]
     pub struct KernelStatsMonitoring {
+        #[serde(default = "default_enabled")]
+        pub enabled: bool,
+        #[serde(with = "humantime_serde")]
+        pub poll_interval: Duration,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    pub struct NetworkMonitoring {
         #[serde(default = "default_enabled")]
         pub enabled: bool,
         #[serde(with = "humantime_serde")]
@@ -286,6 +310,15 @@ mod config {
     }
 
     impl Default for KernelStatsMonitoring {
+        fn default() -> Self {
+            Self {
+                enabled: true,
+                poll_interval: Duration::from_secs(5),
+            }
+        }
+    }
+
+    impl Default for NetworkMonitoring {
         fn default() -> Self {
             Self {
                 enabled: true,
