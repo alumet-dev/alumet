@@ -131,10 +131,10 @@ pub struct Config {
     #[serde(with = "humantime_serde")]
     pub cgroupv1_refresh_interval: Option<Duration>,
 
-    /// Only monitor the job cgroup related metrics and skip the others
+    /// Only monitor the cgroups related to slurm jobs.
     pub ignore_non_jobs: bool,
 
-    /// Also monitor the job cgroup subtasks
+    /// At which level do we monitor the Slurm jobs.
     pub jobs_monitoring_level: JobMonitoringLevel,
 
     /// If `true`, the slurm sources will be started in pause state.

@@ -3,7 +3,7 @@ use util_cgroups::Cgroup;
 
 use crate::{
     JobMonitoringLevel,
-    attr::{JobTagger, find_job_step_in_attrs, find_jobid_in_attrs, try_update_job_step_in_attrs},
+    attr::{JobTagger, find_job_step_in_attrs, find_jobid_in_attrs},
 };
 use util_cgroups_plugins::{
     cgroup_events::{CgroupSetupCallback, ProbeSetup, SourceSettings},
@@ -34,21 +34,22 @@ impl JobSourceSetup {
 impl CgroupSetupCallback for JobSourceSetup {
     fn setup_new_probe(&mut self, cgroup: &Cgroup, metrics: &Metrics) -> Option<ProbeSetup> {
         // extracts attributes "job_id", "job_step" and "user_id"
-        let mut attrs = self.tagger.attributes_for_cgroup(cgroup);
+        let attrs = self.tagger.attributes_for_cgroup(cgroup);
 
         let job_id = find_jobid_in_attrs(&attrs);
 
         let name = if let Some(job_id) = job_id {
             if let Some(step_id) = find_job_step_in_attrs(&attrs) {
                 // This cgroup is a step/subtask related to the job
-                if self.jobs_monitoring_level == JobMonitoringLevel::Step {
-                    // We want to keep it
-                    let tmp_name = format!("{}.{}", job_id, step_id);
-                    try_update_job_step_in_attrs(&mut attrs, tmp_name.clone());
-                    tmp_name
-                } else {
-                    // We don't want to monitor it
-                    return None;
+                match self.jobs_monitoring_level {
+                    JobMonitoringLevel::Step => {
+                        // We want to keep it
+                        format!("{}.{}", job_id, step_id)
+                    }
+                    JobMonitoringLevel::Job => {
+                        // We don't want to monitor it
+                        return None;
+                    }
                 }
             } else {
                 // This cgroup is the main one for the job

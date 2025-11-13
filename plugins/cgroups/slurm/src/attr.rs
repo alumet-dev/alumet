@@ -20,15 +20,6 @@ pub fn find_job_step_in_attrs(attrs: &[(String, AttributeValue)]) -> Option<Stri
     })
 }
 
-pub fn try_update_job_step_in_attrs(attrs: &mut Vec<(String, AttributeValue)>, new_value: String) {
-    for (k, v) in attrs.iter_mut() {
-        if k == "job_step" {
-            *v = AttributeValue::String(new_value.clone());
-            return;
-        }
-    }
-}
-
 #[derive(Clone)]
 pub struct JobTagger {
     extractor_v1: RegexAttributesExtrator,
@@ -116,26 +107,6 @@ mod tests {
     #[test]
     fn test_find_job_step_in_empty_vec() {
         let attrs: Vec<(String, AttributeValue)> = vec![];
-        assert_eq!(find_job_step_in_attrs(&attrs), None);
-    }
-
-    #[test]
-    fn test_try_update_job_step_in_attrs() {
-        let mut attrs: Vec<(String, AttributeValue)> = vec![
-            ("job_step".to_string(), AttributeValue::String("Michel".to_string())),
-            ("Saphira".to_string(), AttributeValue::String("Eragon".to_string())),
-        ];
-        try_update_job_step_in_attrs(&mut attrs, "Aurore".to_string());
-        assert_eq!(find_job_step_in_attrs(&attrs), Some("Aurore".to_string()));
-    }
-
-    #[test]
-    fn test_empty_try_update_job_step_in_attrs() {
-        let mut attrs: Vec<(String, AttributeValue)> = vec![
-            ("not_job_step".to_string(), AttributeValue::String("Michel".to_string())),
-            ("Saphira".to_string(), AttributeValue::String("Eragon".to_string())),
-        ];
-        try_update_job_step_in_attrs(&mut attrs, "Aurore".to_string());
         assert_eq!(find_job_step_in_attrs(&attrs), None);
     }
 }
