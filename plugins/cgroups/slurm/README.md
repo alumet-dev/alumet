@@ -68,9 +68,11 @@ poll_interval = "1s"
 cgroupv1_refresh_interval = "30s"
 # Only monitor the cgroups related to slurm jobs
 ignore_non_jobs = true
-# What level of surveillance should be achieved ? Could be either "job" or "step".
+# What level of surveillance should be achieved ? Could be either "job", "step", "substep" or "task".
 # "job" means monitoring only main Slurm jobs related cgroups
-# "step" means also monitoring subtask related cgroups of the Slurm jobs
+# "step" means also monitoring step related cgroups of the Slurm jobs
+# "substep" means also monitoring substep related cgroups of the Slurm jobs besides step and job
+# "task" means also monitoring task related cgroups of the Slurm jobs besides substep, step and job
 jobs_monitoring_level = "job"
 add_source_in_pause_state = false
 ```

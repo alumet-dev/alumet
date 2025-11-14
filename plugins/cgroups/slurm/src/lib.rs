@@ -179,4 +179,6 @@ pub struct StartingState {
 pub enum JobMonitoringLevel {
     Job,
     Step,
+    SubStep,
+    Task,
 }

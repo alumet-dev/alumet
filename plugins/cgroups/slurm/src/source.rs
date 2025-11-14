@@ -3,7 +3,7 @@ use util_cgroups::Cgroup;
 
 use crate::{
     JobMonitoringLevel,
-    attr::{JobTagger, find_job_step_in_attrs, find_jobid_in_attrs},
+    attr::{JobTagger, find_jobid_in_attrs, find_key_in_attrs},
 };
 use util_cgroups_plugins::{
     cgroup_events::{CgroupSetupCallback, ProbeSetup, SourceSettings},
@@ -37,23 +37,62 @@ impl CgroupSetupCallback for JobSourceSetup {
         let attrs = self.tagger.attributes_for_cgroup(cgroup);
 
         let job_id = find_jobid_in_attrs(&attrs);
+        let step_id = find_key_in_attrs("step", &attrs);
+        let sub_step = find_key_in_attrs("sub_step", &attrs);
+        let task_id = find_key_in_attrs("task", &attrs);
 
         let name = if let Some(job_id) = job_id {
-            if let Some(step_id) = find_job_step_in_attrs(&attrs) {
-                // This cgroup is a step/subtask related to the job
-                match self.jobs_monitoring_level {
-                    JobMonitoringLevel::Step => {
-                        // We want to keep it
-                        format!("{}.{}", job_id, step_id)
+            match self.jobs_monitoring_level {
+                JobMonitoringLevel::Job => {
+                    if step_id.is_some() || sub_step.is_some() || task_id.is_some() {
+                        return None;
+                    } else {
+                        // it's job level
+                        format!("{}", job_id)
                     }
-                    JobMonitoringLevel::Job => {
-                        // We don't want to monitor it
+                }
+                JobMonitoringLevel::Step => {
+                    if sub_step.is_some() || task_id.is_some() {
+                        return None;
+                    } else if step_id.is_none() {
+                        // it's job level
+                        format!("{}", job_id)
+                    } else {
+                        // it's step level
+                        step_id.unwrap().to_string()
+                    }
+                }
+                JobMonitoringLevel::SubStep => {
+                    if task_id.is_some() {
+                        return None;
+                    } else if step_id.is_none() && sub_step.is_none() {
+                        // it's job level
+                        format!("{}", job_id)
+                    } else if sub_step.is_none() {
+                        // it's step level
+                        step_id.unwrap().to_string()
+                    } else {
+                        // it's sub step level
+                        format!("{}.{}", step_id.unwrap(), sub_step.unwrap())
+                    }
+                }
+                JobMonitoringLevel::Task => {
+                    if task_id.is_some() {
+                        // it's task level
+                        format!("{}.{}.{}", step_id.unwrap(), sub_step.unwrap(), task_id.unwrap())
+                    } else if step_id.is_none() && sub_step.is_none() && task_id.is_none() {
+                        // it's job level
+                        format!("{}", job_id)
+                    } else if sub_step.is_none() && task_id.is_none() {
+                        // it's step level
+                        step_id.unwrap().to_string()
+                    } else if task_id.is_none() {
+                        //it's substep level
+                        format!("{}.{}", step_id.unwrap(), sub_step.unwrap())
+                    } else {
                         return None;
                     }
                 }
-            } else {
-                // This cgroup is the main one for the job
-                format!("{}", job_id)
             }
         } else if self.ignore_non_jobs {
             return None;
