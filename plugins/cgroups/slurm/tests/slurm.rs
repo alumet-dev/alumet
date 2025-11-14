@@ -47,7 +47,7 @@ fn test_default_config() {
     let config_table = result.unwrap();
     let config: Config = deserialize_config(config_table).expect("ERROR : Failed to deserialize config");
 
-    assert_eq!(config.jobs_only, true);
+    assert_eq!(config.ignore_non_jobs, true);
     assert_eq!(config.poll_interval, Duration::from_secs(1));
 }
 
@@ -79,7 +79,7 @@ fn test_correct_run_with_no_jobs() {
     let mut plugins = PluginSet::new();
     let config = Config {
         poll_interval: Duration::from_secs(1),
-        jobs_only: true,
+        ignore_non_jobs: true,
         ..Default::default()
     };
     plugins.add_plugin(PluginInfo {
