@@ -8,6 +8,12 @@ pub struct Config {
     #[serde(with = "humantime_serde")]
     pub(crate) poll_interval: Duration,
     pub(crate) jobs_only: bool,
+    /// If `true`, adds attributes like `job_id` to the measurements produced by other plugins.
+    /// The default value is `false`.
+    ///
+    /// The measurements must have the `cgroup` resource consumer, and **cgroup v2** must be used on the node.
+    #[serde(default)]
+    pub annotate_foreign_measurements: bool,
 }
 
 impl Default for Config {
@@ -17,6 +23,7 @@ impl Default for Config {
             oar_version: OarVersion::Oar3,
             poll_interval: Duration::from_secs(1),
             jobs_only: true,
+            annotate_foreign_measurements: false
         }
     }
 }
