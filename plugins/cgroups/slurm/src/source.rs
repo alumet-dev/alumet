@@ -3,23 +3,22 @@ use util_cgroups::Cgroup;
 
 use crate::{
     JobMonitoringLevel,
-    attr::{JobTagger, find_jobid_in_attrs, find_key_in_attrs},
+    attr::{SlurmJobTagger, find_jobid_in_attrs, find_key_in_attrs},
 };
 use util_cgroups_plugins::{
-    cgroup_events::{CgroupSetupCallback, ProbeSetup, SourceSettings},
-    metrics::{AugmentedMetrics, Metrics},
+    cgroup_events::{CgroupSetupCallback, ProbeSetup, SourceSettings}, job_annotation_transform::JobTagger, metrics::{AugmentedMetrics, Metrics}
 };
 
 #[derive(Clone)]
 pub struct JobSourceSetup {
-    tagger: JobTagger,
+    tagger: SlurmJobTagger,
     trigger: TriggerSpec,
     ignore_non_jobs: bool,
     jobs_monitoring_level: JobMonitoringLevel,
 }
 
 impl JobSourceSetup {
-    pub fn new(config: super::Config, tagger: JobTagger) -> anyhow::Result<Self> {
+    pub fn new(config: super::Config, tagger: SlurmJobTagger) -> anyhow::Result<Self> {
         let trigger = TriggerSpec::at_interval(config.poll_interval);
 
         Ok(Self {
