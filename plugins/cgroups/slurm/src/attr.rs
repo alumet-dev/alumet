@@ -68,7 +68,7 @@ pub struct SlurmJobTagger {
 }
 
 impl SlurmJobTagger {
-    fn new() -> anyhow::Result<Self> {
+    pub fn new() -> anyhow::Result<Self> {
         Ok(Self {
             extractor_v1: RegexAttributesExtrator::new(JOB_REGEX_SLURM1)?,
             extractor_v2: RegexAttributesExtrator::new(JOB_REGEX_SLURM2)?,
