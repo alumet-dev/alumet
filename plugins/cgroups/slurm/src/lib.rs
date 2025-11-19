@@ -8,16 +8,17 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 use util_cgroups_plugins::{
-    cgroup_events::{CgroupReactor, NoCallback, ReactorCallbacks, ReactorConfig}, job_annotation_transform::{CachedCgroupHierarchy, JobAnnotationTransform, OptionalSharedHierarchy, SharedCgroupHierarchy}, metrics::Metrics
+    cgroup_events::{CgroupReactor, NoCallback, ReactorCallbacks, ReactorConfig},
+    job_annotation_transform::{
+        CachedCgroupHierarchy, JobAnnotationTransform, OptionalSharedHierarchy, SharedCgroupHierarchy,
+    },
+    metrics::Metrics,
 };
 
-use crate::{
-    attr::SlurmJobTagger,
-};
+use crate::attr::SlurmJobTagger;
 
 mod attr;
 mod source;
-
 
 /// Gathers metrics for slurm jobs.
 ///

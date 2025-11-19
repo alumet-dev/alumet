@@ -10,7 +10,10 @@ use crate::{
     job_tracker::JobTracker,
 };
 use util_cgroups_plugins::{
-    cgroup_events::{CgroupSetupCallback, ProbeSetup, SourceSettings}, job_annotation_transform::JobTagger, metrics::{AugmentedMetrics, Metrics}, regex::RegexAttributesExtrator
+    cgroup_events::{CgroupSetupCallback, ProbeSetup, SourceSettings},
+    job_annotation_transform::JobTagger,
+    metrics::{AugmentedMetrics, Metrics},
+    regex::RegexAttributesExtrator,
 };
 
 #[derive(Clone)]

@@ -1,7 +1,7 @@
 use alumet::measurement::AttributeValue;
 use util_cgroups::Cgroup;
-use util_cgroups_plugins::regex::RegexAttributesExtrator;
 use util_cgroups_plugins::job_annotation_transform::JobTagger;
+use util_cgroups_plugins::regex::RegexAttributesExtrator;
 
 pub const JOB_REGEX_SLURM1: &str = "/slurm/uid_(?<user_id__u64>[0-9]+)/job_(?<job_id__u64>[0-9]+)";
 pub const JOB_REGEX_SLURM2: &str = "/slurmstepd.scope/job_(?<job_id__u64>[0-9]+)(?<remaining>(/.*)?)";
@@ -77,7 +77,7 @@ impl SlurmJobTagger {
 }
 
 impl JobTagger for SlurmJobTagger {
-    fn attributes_for_cgroup(&self, cgroup: &Cgroup) -> Vec<(String, AttributeValue)> {
+    fn attributes_for_cgroup(&mut self, cgroup: &Cgroup) -> Vec<(String, AttributeValue)> {
         // extracts attributes "job_id" and ("user" or "user_id")
         let extractor = match cgroup.hierarchy().version() {
             util_cgroups::CgroupVersion::V1 => &self.extractor_v1,

@@ -23,7 +23,7 @@ impl Default for Config {
             oar_version: OarVersion::Oar3,
             poll_interval: Duration::from_secs(1),
             jobs_only: true,
-            annotate_foreign_measurements: false
+            annotate_foreign_measurements: false,
         }
     }
 }

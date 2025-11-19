@@ -1,5 +1,6 @@
 use std::sync::{Arc, Mutex};
 
+use crate::cgroup_events::CgroupFsMountCallback;
 use alumet::{
     measurement::{AttributeValue, MeasurementBuffer},
     pipeline::{
@@ -10,13 +11,10 @@ use alumet::{
 };
 use anyhow::anyhow;
 use util_cgroups::{Cgroup, CgroupHierarchy, CgroupVersion};
-use crate::cgroup_events::CgroupFsMountCallback;
 
-
-pub trait JobTagger : Send {
-    fn attributes_for_cgroup(&self, cgroup: &Cgroup) -> Vec<(String, AttributeValue)>;
+pub trait JobTagger: Send {
+    fn attributes_for_cgroup(&mut self, cgroup: &Cgroup) -> Vec<(String, AttributeValue)>;
 }
-
 
 /// Adds job-related attributes to cgroup measurements that do not have these attributes yet.
 pub struct JobAnnotationTransform<T: JobTagger> {
@@ -24,7 +22,7 @@ pub struct JobAnnotationTransform<T: JobTagger> {
     pub cgroup_v2_hierarchy: CachedCgroupHierarchy,
 }
 
-impl<T: JobTagger> Transform  for JobAnnotationTransform<T> {
+impl<T: JobTagger> Transform for JobAnnotationTransform<T> {
     fn apply(&mut self, measurements: &mut MeasurementBuffer, _: &TransformContext) -> Result<(), TransformError> {
         for m in measurements.iter_mut() {
             if let ResourceConsumer::ControlGroup { path: cgroup_path } = &m.consumer
@@ -64,7 +62,7 @@ impl<T: JobTagger> Transform  for JobAnnotationTransform<T> {
         }
         Ok(())
     }
-    
+
     fn finish(&mut self, ctx: &TransformContext) -> Result<(), TransformError> {
         Ok(())
     }

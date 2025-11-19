@@ -5,10 +5,16 @@ use alumet::plugin::{
 use anyhow::Context;
 
 use crate::{
-    attr::OarJobTagger, job_tracker::{JobCleaner, JobTracker}, transform::JobInfoAttacher
+    attr::OarJobTagger,
+    job_tracker::{JobCleaner, JobTracker},
+    transform::JobInfoAttacher,
 };
 use util_cgroups_plugins::{
-    cgroup_events::{CgroupReactor, NoCallback, ReactorCallbacks, ReactorConfig}, job_annotation_transform::{CachedCgroupHierarchy, JobAnnotationTransform, OptionalSharedHierarchy, SharedCgroupHierarchy}, metrics::Metrics
+    cgroup_events::{CgroupReactor, NoCallback, ReactorCallbacks, ReactorConfig},
+    job_annotation_transform::{
+        CachedCgroupHierarchy, JobAnnotationTransform, OptionalSharedHierarchy, SharedCgroupHierarchy,
+    },
+    metrics::Metrics,
 };
 
 mod attr;

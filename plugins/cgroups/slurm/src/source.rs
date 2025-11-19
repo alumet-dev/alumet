@@ -6,7 +6,9 @@ use crate::{
     attr::{SlurmJobTagger, find_jobid_in_attrs, find_key_in_attrs},
 };
 use util_cgroups_plugins::{
-    cgroup_events::{CgroupSetupCallback, ProbeSetup, SourceSettings}, job_annotation_transform::JobTagger, metrics::{AugmentedMetrics, Metrics}
+    cgroup_events::{CgroupSetupCallback, ProbeSetup, SourceSettings},
+    job_annotation_transform::JobTagger,
+    metrics::{AugmentedMetrics, Metrics},
 };
 
 #[derive(Clone)]

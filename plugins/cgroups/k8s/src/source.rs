@@ -1,7 +1,8 @@
-use alumet::{measurement::AttributeValue, pipeline::elements::source::trigger::TriggerSpec};
+use alumet::pipeline::elements::source::trigger::TriggerSpec;
 
 use util_cgroups_plugins::{
     cgroup_events::{CgroupSetupCallback, ProbeSetup, SourceSettings},
+    job_annotation_transform::JobTagger,
     metrics::{AugmentedMetrics, Metrics},
 };
 
@@ -18,21 +19,13 @@ impl CgroupSetupCallback for SourceSetup {
         metrics: &Metrics,
     ) -> Option<util_cgroups_plugins::cgroup_events::ProbeSetup> {
         // if this is a pod, gets its uid, otherwise ignore this cgroup
-        let pod_uid = super::pods::extract_pod_uid_from_cgroup(cgroup.fs_path())?;
+        let attrs = self.k8s_pods.attributes_for_cgroup(cgroup);
 
-        // get pod infos and add them as attributes to every measurement produced by the source
-        let pod_infos = self
-            .k8s_pods
-            .get(&pod_uid)
-            .inspect_err(|e| log::error!("failed to get K8S pod infos for pod {pod_uid}: {e:#}"))
-            .ok()??;
+        if attrs.is_empty() {
+            // We don't want to monitor if empty
+            return None;
+        }
 
-        let attrs = vec![
-            ("uid".to_string(), AttributeValue::String(pod_uid)),
-            ("name".to_string(), AttributeValue::String(pod_infos.name)),
-            ("namespace".to_string(), AttributeValue::String(pod_infos.namespace)),
-            ("node".to_string(), AttributeValue::String(pod_infos.node)),
-        ];
         let metrics = AugmentedMetrics::with_common_attr_vec(metrics, attrs);
 
         // setup the trigger according to the plugin's config

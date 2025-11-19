@@ -21,16 +21,16 @@ impl OarJobTagger {
 }
 
 impl JobTagger for OarJobTagger {
-    fn attributes_for_cgroup(&self, cgroup: &util_cgroups::Cgroup) -> Vec<(String, AttributeValue)> {
+    fn attributes_for_cgroup(&mut self, cgroup: &util_cgroups::Cgroup) -> Vec<(String, AttributeValue)> {
         let extractor = match cgroup.hierarchy().version() {
             util_cgroups::CgroupVersion::V1 => &self.extractor_v2,
             util_cgroups::CgroupVersion::V2 => &self.extractor_v3,
         };
         // extracts attributes "job_id" and ("user" or "user_id")
-        let mut attrs = extractor
+        let attrs = extractor
             .extract(cgroup.canonical_path())
             .expect("bad regex: it should only match if the input can be parsed into the specified types");
-        
+
         attrs
     }
 }
