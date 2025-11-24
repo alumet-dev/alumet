@@ -10,3 +10,4 @@ pub mod job_annotation_transform;
 pub mod metrics;
 pub mod regex;
 mod self_stop;
+mod tests;

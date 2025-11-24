@@ -4525,6 +4525,7 @@ dependencies = [
  "anyhow",
  "env_logger",
  "humantime-serde",
+ "lazy_static",
  "log",
  "pretty_assertions",
  "regex",

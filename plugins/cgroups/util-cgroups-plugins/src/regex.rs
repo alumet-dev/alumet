@@ -59,6 +59,7 @@ impl RegexAttributesExtrator {
     /// If it does not match the regex, returns `Ok(())` and does not modify the vec.
     /// Capture groups that don't have a name or that don't match are ignored.
     pub fn extract_into(&self, input: &str, attrs: &mut Vec<(String, AttributeValue)>) -> anyhow::Result<()> {
+        println!("Decouverte nouveau cgroup: extract_into: {:?} vs {:?}", input, attrs);
         if let Some(cap) = self.regex.captures(input) {
             // Optimistically reserve some space, because most of the time we expect to match all groups.
             attrs.reserve(self.groups.len());
