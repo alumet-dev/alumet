@@ -142,11 +142,10 @@ impl AutoNodePodRegistry {
         self.refresh()?;
 
         // Is the pod here? If not, it must have been deleted in the meantime => return None.
-        let ret = match self.pods.get(pod_uid) {
+        match self.pods.get(pod_uid) {
             Some(infos) => Ok(Some(infos.to_owned())),
             None => Ok(None),
-        };
-        ret
+        }
     }
 }
 

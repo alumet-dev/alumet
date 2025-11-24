@@ -44,7 +44,7 @@ fn extract_values(path: &str) -> Option<JobDetails> {
     if element_len >= 1 {
         // First element : step_X -> X
         let step = parts[0];
-        let num = step.strip_prefix("step_")?;
+        let num = step.strip_prefix("step_").unwrap_or(step);
         out.step = Some(num.to_string());
     }
 
@@ -142,6 +142,16 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
+    fn test_find_jobid_in_attrs_not_u64() {
+        let attrs: Vec<(String, AttributeValue)> = vec![
+            ("job_id".to_string(), AttributeValue::String("19".to_string())),
+            ("Saphira".to_string(), AttributeValue::String("Eragon".to_string())),
+        ];
+        find_jobid_in_attrs(&attrs);
+    }
+
+    #[test]
     fn test_find_jobstep_in_attrs() {
         let attrs: Vec<(String, AttributeValue)> = vec![
             ("job_step".to_string(), AttributeValue::String("1910".to_string())),
@@ -163,5 +173,102 @@ mod tests {
     fn test_find_job_step_in_empty_vec() {
         let attrs: Vec<(String, AttributeValue)> = vec![];
         assert_eq!(find_key_in_attrs("Eugène Delacroix", &attrs), None);
+    }
+
+    #[test]
+    fn test_fn_extract_values_empty() {
+        let mut part = "";
+        assert!(extract_values(part).is_none());
+        part = "/";
+        assert!(extract_values(part).is_none());
+        part = "//";
+        assert!(extract_values(part).is_none());
+    }
+
+    #[test]
+    fn test_fn_extract_values_len_1() {
+        let mut part = "step_19";
+        let mut ret = extract_values(part);
+        assert!(ret.is_some());
+        let mut ret_unwraped = ret.unwrap();
+        assert_eq!(ret_unwraped.step.unwrap(), "19".to_string());
+        assert!(ret_unwraped.sub_step.is_none());
+        assert!(ret_unwraped.task.is_none());
+
+        part = "step_-1/";
+        ret = extract_values(part);
+        assert!(ret.is_some());
+        ret_unwraped = ret.unwrap();
+        assert_eq!(ret_unwraped.step.unwrap(), "-1".to_string());
+        assert!(ret_unwraped.sub_step.is_none());
+        assert!(ret_unwraped.task.is_none());
+
+        part = "54";
+        ret = extract_values(part);
+        assert!(ret.is_some());
+        ret_unwraped = ret.unwrap();
+        assert_eq!(ret_unwraped.step.unwrap(), "54".to_string());
+        assert!(ret_unwraped.sub_step.is_none());
+        assert!(ret_unwraped.task.is_none());
+    }
+
+    #[test]
+    fn test_fn_extract_values_len_2() {
+        let mut part = "step_15/All_Hope_Is_Gone";
+        let mut ret = extract_values(part);
+        assert!(ret.is_some());
+        let mut ret_unwraped = ret.unwrap();
+        assert_eq!(ret_unwraped.step.unwrap(), "15".to_string());
+        assert_eq!(ret_unwraped.sub_step.unwrap(), "All_Hope_Is_Gone".to_string());
+        assert!(ret_unwraped.task.is_none());
+
+        part = "step_-101/.5:_The_Gray_Chapter";
+        ret = extract_values(part);
+        assert!(ret.is_some());
+        ret_unwraped = ret.unwrap();
+        assert_eq!(ret_unwraped.step.unwrap(), "-101".to_string());
+        assert_eq!(ret_unwraped.sub_step.unwrap(), ".5:_The_Gray_Chapter".to_string());
+        assert!(ret_unwraped.task.is_none());
+    }
+
+    #[test]
+    fn test_fn_extract_values_len_3() {
+        let mut part = "step_5/We_Are_Not_Your_Kind/task_-58";
+        let mut ret = extract_values(part);
+        assert!(ret.is_some());
+        let mut ret_unwraped = ret.unwrap();
+        assert_eq!(ret_unwraped.step.unwrap(), "5".to_string());
+        assert_eq!(ret_unwraped.sub_step.unwrap(), "We_Are_Not_Your_Kind".to_string());
+        assert_eq!(ret_unwraped.task.unwrap(), "-58".to_string());
+
+        part = "step_-101/The_End,_So_Far/task_2022";
+        ret = extract_values(part);
+        assert!(ret.is_some());
+        ret_unwraped = ret.unwrap();
+        assert_eq!(ret_unwraped.step.unwrap(), "-101".to_string());
+        assert_eq!(ret_unwraped.sub_step.unwrap(), "The_End,_So_Far".to_string());
+        assert_eq!(ret_unwraped.task.unwrap(), "2022");
+
+        part = "step_69/Vol._3:_(The_Subliminal_Verses)/2008";
+        ret = extract_values(part);
+        assert!(ret.is_some());
+        ret_unwraped = ret.unwrap();
+        assert_eq!(ret_unwraped.step.unwrap(), "69".to_string());
+        assert_eq!(
+            ret_unwraped.sub_step.unwrap(),
+            "Vol._3:_(The_Subliminal_Verses)".to_string()
+        );
+        assert_eq!(ret_unwraped.task.unwrap(), "2008");
+    }
+
+    #[test]
+    fn test_fn_extract_values_len_above() {
+        let part = "step_12/Iowa/2001/Slipknot/1999";
+        let ret = extract_values(part);
+        assert!(ret.is_some());
+        let ret_unwraped = ret.unwrap();
+        assert_eq!(ret_unwraped.step.unwrap(), "12".to_string());
+        assert_eq!(ret_unwraped.sub_step.unwrap(), "Iowa".to_string());
+        assert_eq!(ret_unwraped.task.unwrap(), "2001".to_string());
     }
 }
