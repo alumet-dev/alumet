@@ -9,7 +9,6 @@ description = "Common code to create cgroup-based Alumet plugins."
 alumet.workspace = true
 anyhow.workspace = true
 humantime-serde.workspace = true
-lazy_static = "1.5.0"
 log.workspace = true
 regex = { version = "1.11.1", default-features = false, features = ["std", "perf"] }
 rustc-hash.workspace = true
@@ -19,13 +18,13 @@ tokio = { workspace = true, features = ["rt"] }
 util-cgroups = { path = "../util-cgroups", features = ["manually"]}
 
 [dev-dependencies]
-tempfile.workspace = true
-toml.workspace = true
 alumet = { workspace = true, features = ["test"] }
 env_logger.workspace = true
+expecting = "0.6.0"
 pretty_assertions.workspace = true
 serde = { workspace = true, features = ["derive"] }
-lazy_static = "1.5.0"
+tempfile.workspace = true
+toml.workspace = true
 
 [lints]
 workspace = true

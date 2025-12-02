@@ -75,7 +75,7 @@ impl AlumetPlugin for SlurmPlugin {
                 tagger: tagger.clone(),
                 cgroup_v2_hierarchy: CachedCgroupHierarchy::new(shared),
             };
-            alumet.add_transform("slurm-annotation", Box::new(transform))?;
+            alumet.add_transform("slurm/annotation", Box::new(transform))?;
         }
 
         // Prepare for cgroup detection.

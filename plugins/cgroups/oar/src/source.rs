@@ -27,18 +27,17 @@ pub struct JobSourceSetup {
 
 impl JobSourceSetup {
     pub fn new(config: super::config::Config, tracker: JobTracker, tagger: OarJobTagger) -> anyhow::Result<Self> {
-        println!("Decouverte nouveau cgroup: new");
         let trigger = TriggerSpec::at_interval(config.poll_interval);
         match config.oar_version {
             OarVersion::Oar2 => Ok(Self {
-                tagger: tagger,
+                tagger,
                 username_from_userid: false,
                 trigger,
                 tracker,
                 jobs_only: config.jobs_only,
             }),
             OarVersion::Oar3 => Ok(Self {
-                tagger: tagger,
+                tagger,
                 username_from_userid: true,
                 trigger,
                 tracker,
@@ -51,7 +50,6 @@ impl JobSourceSetup {
 impl CgroupSetupCallback for JobSourceSetup {
     fn setup_new_probe(&mut self, cgroup: &Cgroup, metrics: &Metrics) -> Option<ProbeSetup> {
         // extracts attributes "job_id" and ("user" or "user_id")
-        println!("Decouverte nouveau cgroup: setup_new_probe: {:?}", cgroup);
         let mut attrs = self.tagger.attributes_for_cgroup(cgroup);
 
         let is_job = !attrs.is_empty();

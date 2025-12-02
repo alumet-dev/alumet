@@ -18,11 +18,11 @@ impl CgroupSetupCallback for SourceSetup {
         cgroup: &util_cgroups::Cgroup,
         metrics: &Metrics,
     ) -> Option<util_cgroups_plugins::cgroup_events::ProbeSetup> {
-        // if this is a pod, gets its uid, otherwise ignore this cgroup
+        // Retrieves associated attributes
         let attrs = self.k8s_pods.attributes_for_cgroup(cgroup);
 
         if attrs.is_empty() {
-            // We don't want to monitor if empty
+            // If empty, this is NOT a pod
             return None;
         }
 

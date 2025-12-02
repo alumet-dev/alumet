@@ -63,7 +63,7 @@ impl<T: JobTagger> Transform for JobAnnotationTransform<T> {
         Ok(())
     }
 
-    fn finish(&mut self, ctx: &TransformContext) -> Result<(), TransformError> {
+    fn finish(&mut self, _ctx: &TransformContext) -> Result<(), TransformError> {
         Ok(())
     }
 }
@@ -73,7 +73,7 @@ impl<T: JobTagger> Transform for JobAnnotationTransform<T> {
 pub struct SharedCgroupHierarchy(Arc<Mutex<Option<CgroupHierarchy>>>);
 
 impl SharedCgroupHierarchy {
-    fn set(&self, value: CgroupHierarchy) {
+    pub fn set(&self, value: CgroupHierarchy) {
         *self.0.lock().unwrap() = Some(value);
     }
 }
