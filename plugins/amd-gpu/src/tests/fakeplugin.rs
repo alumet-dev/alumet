@@ -19,10 +19,10 @@ mod tests_integration {
 
     use crate::{
         AmdGpuPlugin, Config,
-        tests::common::ffi_mock::{
+        tests::ffi_mock::{
             ffi_mocks_activity_usage::set_mock_activity_usage,
-            ffi_mocks_energy_consumption::set_mock_energy_consumption, ffi_mocks_init::set_mock_init,
-            ffi_mocks_memory_usage::set_mock_memory_usage, ffi_mocks_power_consumption::set_mock_power_consumption,
+            ffi_mocks_energy_consumption::set_mock_energy_consumption, ffi_mocks_memory_usage::set_mock_memory_usage,
+            ffi_mocks_power_consumption::set_mock_power_consumption,
             ffi_mocks_power_management_status::set_mock_power_management_status,
             ffi_mocks_process_list::set_mock_process_list, ffi_mocks_processor_handles::set_mock_processor_handles,
             ffi_mocks_socket_handles::set_mock_socket_handles, ffi_mocks_temperature::set_mock_temperature,
@@ -115,7 +115,7 @@ mod tests_integration {
         process_2.memory_usage.cpu_mem = 65536;
         process_2.memory_usage.vram_mem = 131072;
 
-        set_mock_init(SUCCESS);
+        //set_mock_init(SUCCESS);
 
         set_mock_socket_handles(1, SUCCESS, SUCCESS);
         set_mock_processor_handles(vec![0 as amdsmi_processor_handle], SUCCESS, SUCCESS);

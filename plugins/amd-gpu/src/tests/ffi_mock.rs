@@ -18,25 +18,37 @@ pub mod ffi_mock_common {
 #[cfg(test)]
 pub mod ffi_mocks_init {
     use super::ffi_mock_common::*;
+    use crate::bindings::libamd_smi;
+    use std::sync::OnceLock;
 
     thread_local! {
-        static MOCK: Cell<amdsmi_status_t> = Cell::new(SUCCESS);
+        pub static MOCK_STATUS: Cell<amdsmi_status_t> =
+            Cell::new(amdsmi_status_t_AMDSMI_STATUS_SUCCESS);
     }
 
-    pub fn set_mock_init(val: amdsmi_status_t) {
-        MOCK.with(|v| v.set(val));
+    pub fn set_mock_status(status: amdsmi_status_t) {
+        MOCK_STATUS.with(|c| c.set(status));
     }
 
-    // Mock of `amdsmi_init` FFI function from AMD-SMI
-    #[unsafe(no_mangle)]
-    pub extern "C" fn amdsmi_init(_flag: amdsmi_init_flags_t) -> amdsmi_status_t {
-        MOCK.with(|v| v.get())
+    unsafe extern "C" fn mock_amdsmi_init(_flags: u64) -> amdsmi_status_t {
+        MOCK_STATUS.with(|c| c.get())
     }
 
-    // Mock of `amdsmi_shut_down` FFI function from AMD-SMI
-    #[unsafe(no_mangle)]
-    pub extern "C" fn amdsmi_shut_down() -> amdsmi_status_t {
-        MOCK.with(|v| v.get())
+    unsafe extern "C" fn mock_amdsmi_shutdown() -> amdsmi_status_t {
+        MOCK_STATUS.with(|c| c.get())
+    }
+
+    pub fn mocked_lib() -> libamd_smi {
+        let mut lib = unsafe { libamd_smi::new("libamd_smi.so").unwrap() };
+        lib.amdsmi_init = Ok(mock_amdsmi_init);
+        lib.amdsmi_shut_down = Ok(mock_amdsmi_shutdown);
+        lib
+    }
+
+    static MOCK_INSTANCE: OnceLock<libamd_smi> = OnceLock::new();
+
+    pub fn get_mock() -> &'static libamd_smi {
+        MOCK_INSTANCE.get_or_init(mocked_lib)
     }
 }
 

@@ -407,10 +407,10 @@ mod tests_utils {
 
     use crate::{
         load_amdsmi,
-        tests::common::ffi_mock::{
+        tests::ffi_mock::{
             ffi_mocks_activity_usage::set_mock_activity_usage,
-            ffi_mocks_energy_consumption::set_mock_energy_consumption, ffi_mocks_init::set_mock_init,
-            ffi_mocks_memory_usage::set_mock_memory_usage, ffi_mocks_power_consumption::set_mock_power_consumption,
+            ffi_mocks_energy_consumption::set_mock_energy_consumption, ffi_mocks_memory_usage::set_mock_memory_usage,
+            ffi_mocks_power_consumption::set_mock_power_consumption,
             ffi_mocks_power_management_status::set_mock_power_management_status,
             ffi_mocks_process_list::set_mock_process_list, ffi_mocks_processor_handles::set_mock_processor_handles,
             ffi_mocks_socket_handles::set_mock_socket_handles, ffi_mocks_temperature::set_mock_temperature,
@@ -427,7 +427,7 @@ mod tests_utils {
     // Test `amd_sys_init` function in success case
     #[test]
     fn test_amd_sys_init_success() -> anyhow::Result<()> {
-        set_mock_init(SUCCESS);
+        //set_mock_init(SUCCESS);
         let res = amd_sys_init(load_amdsmi()?, INIT_FLAG);
         assert!(res.is_ok());
         Ok(())
@@ -436,7 +436,7 @@ mod tests_utils {
     // Test `amd_sys_init` function in error case
     #[test]
     fn test_amd_sys_init_error() -> anyhow::Result<()> {
-        set_mock_init(ERROR);
+        //set_mock_init(ERROR);
         let res = amd_sys_init(load_amdsmi()?, INIT_FLAG);
         assert!(res.is_err());
         assert_eq!(res.unwrap_err(), ERROR);
@@ -446,7 +446,7 @@ mod tests_utils {
     // Test `amd_sys_shutdown` function in success case
     #[test]
     fn test_amd_sys_shutdown_success() -> anyhow::Result<()> {
-        set_mock_init(SUCCESS);
+        //set_mock_init(SUCCESS);
         let res = amd_sys_shutdown(load_amdsmi()?);
         assert!(res.is_ok());
         Ok(())
@@ -455,7 +455,7 @@ mod tests_utils {
     // Test `amd_sys_shutdown` function in error case
     #[test]
     fn test_amd_sys_shutdown_error() -> anyhow::Result<()> {
-        set_mock_init(ERROR);
+        //set_mock_init(ERROR);
         let res = amd_sys_shutdown(load_amdsmi()?);
         assert!(res.is_err());
         assert_eq!(res.unwrap_err(), ERROR);

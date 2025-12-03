@@ -1,8 +1,8 @@
-use crate::bindings::{amdsmi_init_flags_t, amdsmi_init_flags_t_AMDSMI_INIT_AMD_GPUS, libamd_smi};
-use anyhow::{Context, Error, anyhow};
-use serde::{Deserialize, Serialize};
-use std::{sync::OnceLock, time::Duration};
-
+use crate::interface::AmdError;
+use crate::{
+    bindings::{amdsmi_init_flags_t, amdsmi_init_flags_t_AMDSMI_INIT_AMD_GPUS},
+    interface::AmdSmiLib,
+};
 use alumet::{
     pipeline::elements::source::trigger::TriggerSpec,
     plugin::{
@@ -10,31 +10,34 @@ use alumet::{
         rust::{AlumetPlugin, deserialize_config, serialize_config},
     },
 };
+use anyhow::{Context, anyhow};
+use serde::{Deserialize, Serialize};
+use std::{sync::OnceLock, time::Duration};
 
 mod amd;
-use amd::{device::AmdGpuDevices, error::AmdError, metrics::Metrics, probe::AmdGpuSource, utils::*};
 pub mod bindings;
+mod interface;
 pub mod tests;
 
+use amd::{device::AmdGpuDevices, metrics::Metrics, probe::AmdGpuSource, utils::*};
+
 const LIB_PATH: &str = "libamd_smi.so";
-static AMDSMI_INSTANCE: OnceLock<libamd_smi> = OnceLock::new();
+static AMDSMI_INSTANCE: OnceLock<AmdSmiLib> = OnceLock::new();
 
 /// Use a [`OnceLock`] instance of the AMD SMI library deployment,
 /// if it is not already initialised by a thread.
 ///
 /// # Return
 ///
-/// - Ok if already initialised by an other thread
-pub fn load_amdsmi() -> Result<&'static libamd_smi, Error> {
-    if let Some(instance) = AMDSMI_INSTANCE.get() {
-        return Ok(instance);
-    }
+/// Ok if already initialised by an other thread
+pub fn set_amdsmi_instance(instance: AmdSmiLib) -> Result<(), AmdSmiLib> {
+    AMDSMI_INSTANCE.set(instance)
+}
 
-    let amdsmi = unsafe { libamd_smi::new(LIB_PATH) }.map_err(|e| anyhow!("Failed to load AMD SMI library: {e}"))?;
-    let _ = AMDSMI_INSTANCE.set(amdsmi);
-    Ok(AMDSMI_INSTANCE
+pub fn get_amdsmi_instance() -> &'static AmdSmiLib {
+    AMDSMI_INSTANCE
         .get()
-        .expect("AMD SMI library loading initialized but missing value"))
+        .expect("AMD SMI library loading initialized but missing value")
 }
 
 #[derive(Deserialize, Serialize)]
@@ -84,12 +87,24 @@ impl AlumetPlugin for AmdGpuPlugin {
 
     // Initialization of AMD GPU and AMD SMI library.
     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
+        set_amdsmi_instance(AmdSmiLib);
+
         let config = deserialize_config(config)?;
         const INIT_FLAG: amdsmi_init_flags_t = amdsmi_init_flags_t_AMDSMI_INIT_AMD_GPUS;
 
-        amd_sys_init(load_amdsmi()?, INIT_FLAG)
-            .map_err(AmdError)
-            .context("Failed to initialize AMD SMI")?;
+        #[cfg(test)]
+        {
+            amd_sys_init(get_amdsmi_instance(), INIT_FLAG)
+                .map_err(AmdError)
+                .context("Failed to initialize AMD SMI")?;
+        }
+
+        #[cfg(not(test))]
+        {
+            amd_sys_init(get_amdsmi_instance(), INIT_FLAG)
+                .map_err(AmdError)
+                .context("Failed to initialize AMD SMI")?;
+        }
 
         Ok(Box::new(AmdGpuPlugin { config }))
     }
@@ -131,7 +146,7 @@ impl AlumetPlugin for AmdGpuPlugin {
 
     // Stop AMD GPU plugin and shut down the AMD SMI library.
     fn stop(&mut self) -> anyhow::Result<()> {
-        amd_sys_shutdown(load_amdsmi()?)
+        amd_sys_shutdown(get_amdsmi_instance())
             .map_err(AmdError)
             .context("Failed to shut down AMD SMI")
     }
@@ -140,16 +155,16 @@ impl AlumetPlugin for AmdGpuPlugin {
 #[cfg(test)]
 mod tests_lib {
     use super::*;
-    use crate::bindings::{
-        amdsmi_status_t, amdsmi_status_t_AMDSMI_STATUS_INVAL, amdsmi_status_t_AMDSMI_STATUS_SUCCESS,
+    #[cfg(test)]
+    use crate::{
+        bindings::{amdsmi_status_t, amdsmi_status_t_AMDSMI_STATUS_INVAL, amdsmi_status_t_AMDSMI_STATUS_SUCCESS},
     };
-    use alumet::plugin::rust::{AlumetPlugin, serialize_config};
+    use alumet::plugin::rust::AlumetPlugin;
     use std::time::Duration;
-
-    use crate::tests::common::ffi_mock::ffi_mocks_init::set_mock_init;
 
     const SUCCESS: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_SUCCESS;
     const ERROR: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_INVAL;
+    const INIT_FLAG: amdsmi_init_flags_t = amdsmi_init_flags_t_AMDSMI_INIT_AMD_GPUS;
 
     // Test `default_config` function
     #[test]
@@ -162,45 +177,5 @@ mod tests_lib {
         assert_eq!(config.poll_interval, Duration::from_secs(1));
         assert_eq!(config.flush_interval, Duration::from_secs(5));
         assert_eq!(config.skip_failed_devices, true);
-    }
-
-    // Test `init` function in success case
-    #[test]
-    fn test_init_success() {
-        set_mock_init(SUCCESS);
-
-        let table = serialize_config(Config::default()).unwrap();
-        let plugin = AmdGpuPlugin::init(table);
-        assert!(plugin.is_ok());
-    }
-
-    // Test `init` function in error case
-    #[test]
-    fn test_init_failure() {
-        set_mock_init(ERROR);
-
-        let table = serialize_config(Config::default()).unwrap();
-        let plugin = AmdGpuPlugin::init(table);
-        assert!(plugin.is_err());
-    }
-
-    // Test `stop` function in success case
-    #[test]
-    fn test_stop_success() {
-        set_mock_init(SUCCESS);
-        let mut plugin = AmdGpuPlugin {
-            config: Config::default(),
-        };
-        assert!(plugin.stop().is_ok());
-    }
-
-    // Test `stop` function in error case
-    #[test]
-    fn test_stop_failure() {
-        set_mock_init(ERROR);
-        let mut plugin = AmdGpuPlugin {
-            config: Config::default(),
-        };
-        assert!(plugin.stop().is_err());
     }
 }

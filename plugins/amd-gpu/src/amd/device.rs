@@ -104,7 +104,7 @@ mod tests_device {
         amdsmi_status_t_AMDSMI_STATUS_SUCCESS,
     };
 
-    use crate::tests::common::ffi_mock::{
+    use crate::tests::ffi_mock::{
         ffi_mocks_processor_handles::set_mock_processor_handles, ffi_mocks_socket_handles::set_mock_socket_handles,
         ffi_mocks_uuid::set_mock_uuid,
     };
