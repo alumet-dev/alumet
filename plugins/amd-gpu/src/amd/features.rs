@@ -1,4 +1,4 @@
-use crate::{bindings::*, load_amdsmi};
+use crate::{bindings::*, get_amdsmi_instance};
 use std::fmt::Display;
 
 use super::utils::*;
@@ -48,7 +48,7 @@ impl OptionalFeatures {
         const VOLTAGE_SENSOR_TYPE: amdsmi_voltage_type_t = amdsmi_voltage_type_t_AMDSMI_VOLT_TYPE_VDDGFX;
         const VOLTAGE_METRIC: amdsmi_voltage_metric_t = amdsmi_voltage_metric_t_AMDSMI_VOLT_CURRENT;
 
-        let amdsmi = load_amdsmi().map_err(|_| amdsmi_status_t_AMDSMI_STATUS_DRM_ERROR)?;
+        let amdsmi = get_amdsmi_instance();
 
         let mut gpu_temperatures = Vec::new();
         let mut gpu_memories_usage = Vec::new();
