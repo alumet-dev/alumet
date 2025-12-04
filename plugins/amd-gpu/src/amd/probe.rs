@@ -1,5 +1,7 @@
-use crate::bindings::*;
-use crate::load_amdsmi;
+use crate::{
+    bindings::*,
+    interface::{MEMORY_TYPE, SENSOR_TYPE},
+};
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
     pipeline::{Source, elements::error::PollError},
@@ -9,14 +11,14 @@ use alumet::{
 use anyhow::Result;
 use std::{borrow::Cow, ffi::CStr};
 
-use super::{device::ManagedDevice, error::AmdError, features::OptionalFeatures, metrics::Metrics, utils::*};
+use super::{device::ManagedDevice, features::OptionalFeatures, metrics::Metrics};
 
 /// Measurement source that queries AMD GPU devices.
-pub struct AmdGpuSource {
+pub struct AmdGpuSource<'a> {
     /// Internal state to compute the difference between two increments of the counter.
     energy_counter: CounterDiff,
     /// Handle to the GPU, with features information.
-    device: ManagedDevice,
+    device: ManagedDevice<'a>,
     /// Alumet metrics IDs.
     metrics: Metrics,
     /// Alumet resource ID.
@@ -24,9 +26,9 @@ pub struct AmdGpuSource {
 }
 
 /// SAFETY: The amd libary is thread-safe and returns pointers to a safe global state, which we can pass to other threads.
-unsafe impl Send for ManagedDevice {}
+unsafe impl<'a> Send for ManagedDevice<'a> {}
 
-impl AmdGpuSource {
+impl<'a> AmdGpuSource<'a> {
     pub fn new(device: ManagedDevice, metrics: Metrics) -> Result<AmdGpuSource, amdsmi_status_t> {
         let bus_id = Cow::Owned(device.bus_id.clone());
         Ok(AmdGpuSource {
@@ -41,14 +43,13 @@ impl AmdGpuSource {
     pub fn handle_gpu_activity(
         &self,
         features: &OptionalFeatures,
-        handle: amdsmi_processor_handle,
         measurements: &mut MeasurementAccumulator,
         timestamp: Timestamp,
         consumer: ResourceConsumer,
     ) -> anyhow::Result<()> {
         Ok(
             if features.gpu_activity_usage
-                && let Ok(value) = get_device_activity(load_amdsmi()?, handle)
+                && let Ok(value) = self.device.handle.get_device_activity()
             {
                 const KEY: &str = "activity_type";
                 let gfx = value.gfx_activity;
@@ -98,13 +99,12 @@ impl AmdGpuSource {
     fn handle_gpu_processes(
         &self,
         features: &OptionalFeatures,
-        handle: amdsmi_processor_handle,
         measurements: &mut MeasurementAccumulator,
         timestamp: Timestamp,
     ) -> anyhow::Result<()> {
         Ok(
             if features.gpu_process_info
-                && let Ok(process_list) = get_device_process_list(load_amdsmi()?, handle).map_err(AmdError)
+                && let Ok(process_list) = self.device.handle.get_device_process_list()
             {
                 const KEY: &str = "process_name";
                 for process in process_list {
@@ -207,21 +207,19 @@ impl AmdGpuSource {
     }
 }
 
-impl Source for AmdGpuSource {
+impl<'a> Source for AmdGpuSource<'a> {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         let features = &self.device.features;
-        let handle = self.device.handle;
 
         // No consumer, we just monitor the device here
         let consumer = ResourceConsumer::LocalMachine;
 
         // GPU engine data usage metric pushed
-        self.handle_gpu_activity(features, handle, measurements, timestamp, consumer.clone())?;
+        self.handle_gpu_activity(features, measurements, timestamp, consumer.clone())?;
 
         // GPU energy consumption metric pushed
         if features.gpu_energy_consumption
-            && let Ok((energy, resolution, _timestamp)) =
-                get_device_energy(load_amdsmi().expect("msg"), handle).map_err(AmdError)
+            && let Ok((energy, resolution, _timestamp)) = self.device.handle.get_device_energy_consumption()
         {
             let diff = self.energy_counter.update(energy).difference();
             if let Some(value) = diff {
@@ -237,8 +235,8 @@ impl Source for AmdGpuSource {
 
         // GPU instant electric power consumption metric pushed
         if features.gpu_power_consumption
-            && get_device_power_managment(load_amdsmi().expect("msg"), handle).map_err(AmdError)?
-            && let Ok(value) = get_device_power(load_amdsmi().expect("msg"), handle).map_err(AmdError)
+            && self.device.handle.get_device_power_managment()?
+            && let Ok(value) = self.device.handle.get_device_power_consumption()
         {
             measurements.push(MeasurementPoint::new(
                 timestamp,
@@ -250,13 +248,11 @@ impl Source for AmdGpuSource {
         }
 
         // GPU instant electric power consumption metric pushed
-        if features.gpu_voltage && get_device_power_managment(load_amdsmi().expect("msg"), handle).map_err(AmdError)? {
+        if features.gpu_voltage {
             const SENSOR_TYPE: amdsmi_voltage_type_t = amdsmi_voltage_type_t_AMDSMI_VOLT_TYPE_VDDGFX;
             const METRIC: amdsmi_voltage_type_t = amdsmi_voltage_metric_t_AMDSMI_VOLT_CURRENT;
 
-            if let Ok(value) =
-                get_device_voltage(load_amdsmi().expect("msg"), handle, SENSOR_TYPE, METRIC).map_err(AmdError)
-            {
+            if let Ok(value) = self.device.handle.get_device_voltage(SENSOR_TYPE, METRIC) {
                 measurements.push(MeasurementPoint::new(
                     timestamp,
                     self.metrics.gpu_voltage,
@@ -275,7 +271,7 @@ impl Source for AmdGpuSource {
                 .find(|(m, _)| (*m) == (*mem_type))
                 .map(|(_, v)| *v)
                 .unwrap_or(false)
-                && let Ok(value) = get_device_memory_usage(load_amdsmi().expect("msg"), handle, *mem_type)
+                && let Ok(value) = self.device.handle.get_device_memory_usage(*mem_type)
             {
                 measurements.push(
                     MeasurementPoint::new(
@@ -300,7 +296,7 @@ impl Source for AmdGpuSource {
                 .find(|(s, _)| (*s) == (*sensor))
                 .map(|(_, v)| *v)
                 .unwrap_or(false)
-                && let Ok(value) = get_device_temperature(load_amdsmi().expect("msg"), handle, *sensor, METRIC)
+                && let Ok(value) = self.device.handle.get_device_temperature(*sensor, METRIC)
             {
                 measurements.push(
                     MeasurementPoint::new(
@@ -316,7 +312,7 @@ impl Source for AmdGpuSource {
         }
 
         // Push GPU compute-graphic process informations if processes existing
-        self.handle_gpu_processes(features, handle, measurements, timestamp)?;
+        self.handle_gpu_processes(features, measurements, timestamp)?;
 
         Ok(())
     }
