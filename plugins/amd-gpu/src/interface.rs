@@ -10,6 +10,7 @@ use thiserror::Error;
 use crate::bindings::*;
 
 const LIB_PATH: &str = "libamd_smi.so";
+const INIT_FLAG: amdsmi_init_flags_t = amdsmi_init_flags_t_AMDSMI_INIT_AMD_GPUS;
 
 pub const SUCCESS: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_SUCCESS;
 pub const ERROR: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_INVAL;
@@ -82,7 +83,6 @@ impl AmdSmiLib {
     ///
     /// - A [`amdsmi_status_t`] error if we can't to retrieve the value
     pub fn init() -> Result<Self, AmdInitError> {
-        const INIT_FLAG: amdsmi_init_flags_t = amdsmi_init_flags_t_AMDSMI_INIT_AMD_GPUS;
         let amdsmi = unsafe { libamd_smi::new(LIB_PATH) }?;
         let result = unsafe { amdsmi.amdsmi_init(INIT_FLAG.into()) };
 
@@ -100,9 +100,8 @@ impl AmdSmiLib {
     /// # Returns
     ///
     /// - A [`amdsmi_status_t`] error if we can't to retrieve the value
-    pub fn stop(&mut self) -> Result<(), AmdError> {
+    pub fn stop(&self) -> Result<(), AmdError> {
         let result = unsafe { self.amdsmi.amdsmi_shut_down() };
-
         if result == SUCCESS {
             Ok(())
         } else {
