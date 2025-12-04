@@ -1,7 +1,8 @@
-use crate::{bindings::*, get_amdsmi_instance};
+use crate::{
+    bindings::*,
+    interface::{MEMORY_TYPE, ProcessorHandle, SENSOR_TYPE},
+};
 use std::fmt::Display;
-
-use super::utils::*;
 
 const NO_PERM: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_NO_PERM;
 const NOT_SUPPORTED: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_NOT_SUPPORTED;
@@ -43,47 +44,48 @@ pub fn is_supported<T>(res: Result<T, amdsmi_status_t>) -> Result<bool, amdsmi_s
 
 impl OptionalFeatures {
     /// Detect the features available on the given device.
-    pub fn detect_on(processor_handle: amdsmi_processor_handle) -> Result<Self, amdsmi_status_t> {
+    pub fn detect_on(processor_handle: &ProcessorHandle) -> Result<Self, amdsmi_status_t> {
         const TEMP_METRIC: amdsmi_temperature_metric_t = amdsmi_temperature_metric_t_AMDSMI_TEMP_CURRENT;
         const VOLTAGE_SENSOR_TYPE: amdsmi_voltage_type_t = amdsmi_voltage_type_t_AMDSMI_VOLT_TYPE_VDDGFX;
         const VOLTAGE_METRIC: amdsmi_voltage_metric_t = amdsmi_voltage_metric_t_AMDSMI_VOLT_CURRENT;
-
-        let amdsmi = get_amdsmi_instance();
 
         let mut gpu_temperatures = Vec::new();
         let mut gpu_memories_usage = Vec::new();
 
         for &(mem_type, _) in &MEMORY_TYPE {
-            let supported = is_supported(get_device_memory_usage(&amdsmi, processor_handle, mem_type))?;
+            let supported = is_supported(processor_handle.get_device_memory_usage(mem_type).map_err(|e| e.0))?;
             gpu_memories_usage.push((mem_type, supported));
         }
 
         for &(sensor, _) in &SENSOR_TYPE {
-            let supported = is_supported(get_device_temperature(&amdsmi, processor_handle, sensor, TEMP_METRIC))?;
+            let supported = is_supported(
+                processor_handle
+                    .get_device_temperature(sensor, TEMP_METRIC)
+                    .map_err(|e| e.0),
+            )?;
             gpu_temperatures.push((sensor, supported));
         }
 
         Ok(Self {
-            gpu_activity_usage: is_supported(get_device_activity(&amdsmi, processor_handle))?,
-            gpu_energy_consumption: is_supported(get_device_energy(&amdsmi, processor_handle))?,
-            gpu_power_consumption: is_supported(get_device_power(&amdsmi, processor_handle))?,
-            gpu_power_state_management: is_supported(get_device_power_managment(&amdsmi, processor_handle))?,
-            gpu_process_info: is_supported(get_device_process_list(&amdsmi, processor_handle))?,
-            gpu_voltage: is_supported(get_device_voltage(
-                &amdsmi,
-                processor_handle,
-                VOLTAGE_SENSOR_TYPE,
-                VOLTAGE_METRIC,
-            ))?,
+            gpu_activity_usage: is_supported(processor_handle.get_device_activity().map_err(|e| e.0))?,
+            gpu_energy_consumption: is_supported(processor_handle.get_device_energy_consumption().map_err(|e| e.0))?,
+            gpu_power_consumption: is_supported(processor_handle.get_device_power_consumption().map_err(|e| e.0))?,
+            gpu_power_state_management: is_supported(processor_handle.get_device_power_managment().map_err(|e| e.0))?,
+            gpu_process_info: is_supported(processor_handle.get_device_process_list().map_err(|e| e.0))?,
+            gpu_voltage: is_supported(
+                processor_handle
+                    .get_device_voltage(VOLTAGE_SENSOR_TYPE, VOLTAGE_METRIC)
+                    .map_err(|e| e.0),
+            )?,
             gpu_memories_usage,
             gpu_temperatures,
         })
     }
 
     /// Test and return the availability of feature on a given
-    pub fn with_detected_features(
-        device: amdsmi_processor_handle,
-    ) -> Result<(amdsmi_processor_handle, Self), amdsmi_status_t> {
+    pub fn with_detected_features<'a>(
+        device: &'a ProcessorHandle<'a>,
+    ) -> Result<(&'a ProcessorHandle<'a>, Self), amdsmi_status_t> {
         Self::detect_on(device).map(|features| (device, features))
     }
 
