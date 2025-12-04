@@ -1,8 +1,4 @@
-use crate::interface::AmdError;
-use crate::{
-    bindings::{amdsmi_init_flags_t, amdsmi_init_flags_t_AMDSMI_INIT_AMD_GPUS},
-    interface::AmdSmiLib,
-};
+use crate::interface::{AmdError, AmdSmiLib};
 use alumet::{
     pipeline::elements::source::trigger::TriggerSpec,
     plugin::{
@@ -86,25 +82,9 @@ impl AlumetPlugin for AmdGpuPlugin {
 
     // Initialization of AMD GPU and AMD SMI library.
     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
-        set_amdsmi_instance(AmdSmiLib);
-
         let config = deserialize_config(config)?;
-        const INIT_FLAG: amdsmi_init_flags_t = amdsmi_init_flags_t_AMDSMI_INIT_AMD_GPUS;
-
-        #[cfg(test)]
-        {
-            amd_sys_init(get_amdsmi_instance(), INIT_FLAG)
-                .map_err(AmdError)
-                .context("Failed to initialize AMD SMI")?;
-        }
-
-        #[cfg(not(test))]
-        {
-            amd_sys_init(get_amdsmi_instance(), INIT_FLAG)
-                .map_err(AmdError)
-                .context("Failed to initialize AMD SMI")?;
-        }
-
+        let amdsmi = AmdSmiLib::init().context("Failed to initialize AMD SMI")?;
+        set_amdsmi_instance(amdsmi).map_err(|_| anyhow!("Failed to set AMDSMI instance"))?;
         Ok(Box::new(AmdGpuPlugin { config }))
     }
 
@@ -145,9 +125,7 @@ impl AlumetPlugin for AmdGpuPlugin {
 
     // Stop AMD GPU plugin and shut down the AMD SMI library.
     fn stop(&mut self) -> anyhow::Result<()> {
-        amd_sys_shutdown(get_amdsmi_instance())
-            .map_err(AmdError)
-            .context("Failed to shut down AMD SMI")
+        get_amdsmi_instance().stop().context("Failed to shut down AMD SMI")
     }
 }
 
@@ -163,7 +141,6 @@ mod tests_lib {
 
     const SUCCESS: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_SUCCESS;
     const ERROR: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_INVAL;
-    const INIT_FLAG: amdsmi_init_flags_t = amdsmi_init_flags_t_AMDSMI_INIT_AMD_GPUS;
 
     // Test `default_config` function
     #[test]
