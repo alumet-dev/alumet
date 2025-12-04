@@ -1,25 +1,20 @@
-use crate::{bindings::*, load_amdsmi};
-use anyhow::Context;
 use std::collections::HashMap;
 
-use super::error::AmdError;
 use super::features::OptionalFeatures;
-use super::utils::*;
+use crate::{get_amdsmi_instance, interface::ProcessorHandle};
 
 /// Detected AMD GPU devices via AMDSMI.
-#[derive(Debug)]
-pub struct AmdGpuDevices {
+pub struct AmdGpuDevices<'a> {
     /// Counter of detection errors on AMD GPU device.
     pub failure_count: usize,
     /// Set of parameters that defines an AMD GPU device.
-    pub devices: Vec<ManagedDevice>,
+    pub devices: Vec<ManagedDevice<'a>>,
 }
 
 /// An AMD GPU device that has been probed for available features.
-#[derive(Debug)]
-pub struct ManagedDevice {
+pub struct ManagedDevice<'a> {
     /// A pointer to the device.
-    pub handle: amdsmi_processor_handle,
+    pub handle: ProcessorHandle<'a>,
     /// Status of the various features available or not on a device.
     pub features: OptionalFeatures,
     /// PCI bus ID of the device.
@@ -34,61 +29,63 @@ pub struct DetectionStats {
     pub working_devices: usize,
 }
 
-impl AmdGpuDevices {
-    /// Detects the GPUs that are available on the machine and stores them in a new `AmdDevices` structure.
-    ///
-    /// If `skip_failed_devices` is `true`, ignore inaccessible GPUs. Some fatal errors will still make the function return early with an error.
-    /// If `skip_failed_devices` is `false`, returns an error on the first device that fails.
-    pub fn detect(skip_failed_devices: bool) -> anyhow::Result<AmdGpuDevices> {
-        let mut devices: HashMap<String, ManagedDevice> = HashMap::new();
+impl<'a> AmdGpuDevices<'a> {
+    /// Detects all AMD GPUs and returns an AmdGpuDevices object.
+    pub fn detect(skip_failed_devices: bool) -> anyhow::Result<AmdGpuDevices<'a>> {
+        // Get our global AMD SMI instance
+        let amdsmi = get_amdsmi_instance();
+
+        let mut devices = HashMap::new();
         let mut failure_count = 0;
 
-        for socket_handle in get_socket_handles(load_amdsmi()?).map_err(AmdError)? {
-            // Get processor handles for each socket handle
-            for handle in get_processor_handles(load_amdsmi()?, socket_handle).map_err(AmdError)? {
-                match OptionalFeatures::with_detected_features(handle) {
-                    Ok((gpu, features)) => {
-                        let bus_id = get_device_uuid(load_amdsmi()?, gpu)
-                            .map_err(AmdError)
-                            .context("failed to get the bus ID of device")?;
+        // Iterate over sockets
+        for socket in amdsmi.get_socket_handles()? {
+            // Iterate over processor handles
+            for processor in socket.get_processor_handles()? {
+                // Detect available features
+                match OptionalFeatures::with_detected_features(&processor) {
+                    Ok((_, features)) => {
+                        let bus_id = processor.get_device_uuid()?.to_string();
 
                         if features.has_any() {
-                            // Extract the device pointer because we will manage the lifetimes ourselves.
-                            let device = ManagedDevice {
-                                handle: gpu,
-                                features,
-                                bus_id: bus_id.to_string(),
-                            };
-                            devices.insert(device.bus_id.to_string(), device);
+                            devices.insert(
+                                bus_id.clone(),
+                                ManagedDevice {
+                                    handle: processor,
+                                    features,
+                                    bus_id,
+                                },
+                            );
                         } else {
-                            log::warn!("Skipping GPU device ({bus_id}) because it supports no useful feature.");
+                            log::warn!("Skipping GPU device because it supports no useful feature.");
                             failure_count += 1;
                         }
                     }
+
                     Err(e) => {
                         if skip_failed_devices {
                             failure_count += 1;
                             log::warn!("Skipping GPU device because of error:\n{e:?}");
                         } else {
-                            // don't skip, fail immediately
-                            Err(AmdError(e))?
+                            return Err(crate::AmdError(e).into());
                         }
                     }
-                };
+                }
             }
         }
 
-        let mut devices: Vec<ManagedDevice> = devices.into_values().collect();
+        let mut devices: Vec<ManagedDevice<'a>> = devices.into_values().collect();
         devices.sort_by_key(|device| device.bus_id.clone());
 
         Ok(AmdGpuDevices { devices, failure_count })
     }
 
-    /// Gets and return status of GPU device detection on the operating system.
+    /// Gets statistics about device detection.
     pub fn detection_stats(&self) -> DetectionStats {
         let n_failed = self.failure_count;
         let n_ok = self.devices.len();
         let n_found = n_ok + n_failed;
+
         DetectionStats {
             found_devices: n_found,
             working_devices: n_ok,

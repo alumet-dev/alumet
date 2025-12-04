@@ -11,15 +11,6 @@ use crate::bindings::*;
 
 const LIB_PATH: &str = "libamd_smi.so";
 
-/// Error treatment concerning AMD SMI library.
-///
-/// # Arguments
-///
-/// Take a status of [`amdsmi_status_t`] provided by AMD SMI library to catch dynamically the occurred error.
-#[derive(Debug, Error)]
-#[error("amd-smi library error: {0}")]
-pub struct AmdError(pub amdsmi_status_t);
-
 pub const SUCCESS: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_SUCCESS;
 pub const ERROR: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_INVAL;
 
@@ -57,6 +48,15 @@ pub const SENSOR_TYPE: [(amdsmi_temperature_type_t, &str); 7] = [
     ),
     (amdsmi_temperature_type_t_AMDSMI_TEMPERATURE_TYPE_PLX, "thermal_pci_bus"),
 ];
+
+/// Error treatment concerning AMD SMI library.
+///
+/// # Arguments
+///
+/// Take a status of [`amdsmi_status_t`] provided by AMD SMI library to catch dynamically the occurred error.
+#[derive(Debug, Error)]
+#[error("amd-smi library error: {0}")]
+pub struct AmdError(pub amdsmi_status_t);
 
 #[derive(Debug, Error)]
 pub enum AmdInitError {
@@ -196,8 +196,8 @@ impl<'a> SocketHandle<'a> {
 }
 
 pub struct ProcessorHandle<'a> {
-    amdsmi: &'a AmdSmiLib,
-    inner: amdsmi_processor_handle,
+    pub amdsmi: &'a AmdSmiLib,
+    pub inner: amdsmi_processor_handle,
 }
 
 #[automock]
@@ -274,7 +274,7 @@ impl<'a> ProcessorHandle<'a> {
     /// - `resolution`: Resolution precision of the energy counter in micro Joules.
     /// - `timestamp: Timestamp returned in ns.
     /// - A [`amdsmi_status_t`] error if we can't to retrieve the value
-    pub fn get_device_energy(&self) -> Result<(u64, f32, u64), AmdError> {
+    pub fn get_device_energy_consumption(&self) -> Result<(u64, f32, u64), AmdError> {
         let mut energy = 0;
         let mut resolution = 0.0;
         let mut timestamp = 0;
@@ -331,7 +331,7 @@ impl<'a> ProcessorHandle<'a> {
     ///
     /// - `power`: Pointer for C binding function, to allow it to allocate memory to get its corresponding value in µW.
     /// - A [`amdsmi_status_t`] error if we can't to retrieve the value.
-    pub fn get_device_power(&self) -> Result<amdsmi_power_info_t, AmdError> {
+    pub fn get_device_power_consumption(&self) -> Result<amdsmi_power_info_t, AmdError> {
         unsafe {
             let mut info: amdsmi_power_info_t = zeroed();
             let result = self.amdsmi.amdsmi.amdsmi_get_power_info(self.inner, &mut info);

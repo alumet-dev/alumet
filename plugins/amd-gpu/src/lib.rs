@@ -19,9 +19,8 @@ pub mod bindings;
 mod interface;
 pub mod tests;
 
-use amd::{device::AmdGpuDevices, metrics::Metrics, probe::AmdGpuSource, utils::*};
+use amd::{device::AmdGpuDevices, metrics::Metrics, probe::AmdGpuSource};
 
-const LIB_PATH: &str = "libamd_smi.so";
 static AMDSMI_INSTANCE: OnceLock<AmdSmiLib> = OnceLock::new();
 
 /// Use a [`OnceLock`] instance of the AMD SMI library deployment,
@@ -156,8 +155,8 @@ impl AlumetPlugin for AmdGpuPlugin {
 mod tests_lib {
     use super::*;
     #[cfg(test)]
-    use crate::{
-        bindings::{amdsmi_status_t, amdsmi_status_t_AMDSMI_STATUS_INVAL, amdsmi_status_t_AMDSMI_STATUS_SUCCESS},
+    use crate::bindings::{
+        amdsmi_status_t, amdsmi_status_t_AMDSMI_STATUS_INVAL, amdsmi_status_t_AMDSMI_STATUS_SUCCESS,
     };
     use alumet::plugin::rust::AlumetPlugin;
     use std::time::Duration;
