@@ -1,2 +1,1 @@
-pub mod fakeplugin;
-pub mod ffi_mock;
+pub mod mocks;
