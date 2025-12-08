@@ -1,13 +1,12 @@
 use crate::{
+    amd::utils::{
+        MEMORY_TYPE, METRIC_TEMP, NO_PERM, NOT_SUPPORTED, NOT_YET_IMPLEMENTED, SENSOR_TYPE, UNEXPECTED_DATA,
+        VOLTAGE_METRIC, VOLTAGE_SENSOR_TYPE,
+    },
     bindings::*,
-    interface::{MEMORY_TYPE, ProcessorHandle, SENSOR_TYPE},
+    interface::ProcessorProvider,
 };
-use std::fmt::Display;
-
-const NO_PERM: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_NO_PERM;
-const NOT_SUPPORTED: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_NOT_SUPPORTED;
-const NOT_YET_IMPLEMENTED: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_NOT_YET_IMPLEMENTED;
-const UNEXPECTED_DATA: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_UNEXPECTED_DATA;
+use std::fmt::{self, Display, Formatter};
 
 /// Indicates which features are available on a given ADM GPU device.
 #[derive(Debug, Default)]
@@ -44,11 +43,7 @@ pub fn is_supported<T>(res: Result<T, amdsmi_status_t>) -> Result<bool, amdsmi_s
 
 impl OptionalFeatures {
     /// Detect the features available on the given device.
-    pub fn detect_on(processor_handle: &ProcessorHandle) -> Result<Self, amdsmi_status_t> {
-        const TEMP_METRIC: amdsmi_temperature_metric_t = amdsmi_temperature_metric_t_AMDSMI_TEMP_CURRENT;
-        const VOLTAGE_SENSOR_TYPE: amdsmi_voltage_type_t = amdsmi_voltage_type_t_AMDSMI_VOLT_TYPE_VDDGFX;
-        const VOLTAGE_METRIC: amdsmi_voltage_metric_t = amdsmi_voltage_metric_t_AMDSMI_VOLT_CURRENT;
-
+    pub fn detect_on(processor_handle: &impl ProcessorProvider) -> Result<Self, amdsmi_status_t> {
         let mut gpu_temperatures = Vec::new();
         let mut gpu_memories_usage = Vec::new();
 
@@ -60,7 +55,7 @@ impl OptionalFeatures {
         for &(sensor, _) in &SENSOR_TYPE {
             let supported = is_supported(
                 processor_handle
-                    .get_device_temperature(sensor, TEMP_METRIC)
+                    .get_device_temperature(sensor, METRIC_TEMP)
                     .map_err(|e| e.0),
             )?;
             gpu_temperatures.push((sensor, supported));
@@ -83,9 +78,7 @@ impl OptionalFeatures {
     }
 
     /// Test and return the availability of feature on a given
-    pub fn with_detected_features<'a>(
-        device: &'a ProcessorHandle<'a>,
-    ) -> Result<(&'a ProcessorHandle<'a>, Self), amdsmi_status_t> {
+    pub fn with_detected_features<P: ProcessorProvider>(device: &P) -> Result<(&P, Self), amdsmi_status_t> {
         Self::detect_on(device).map(|features| (device, features))
     }
 
@@ -102,7 +95,7 @@ impl OptionalFeatures {
 }
 
 impl Display for OptionalFeatures {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let mut available = Vec::new();
 
         if self.gpu_activity_usage {
@@ -142,6 +135,17 @@ impl Display for OptionalFeatures {
 #[cfg(test)]
 mod tests_feature {
     use super::*;
+    use crate::{
+        interface::{AmdError, MockProcessorProvider},
+        tests::mocks::tests_mocks::{
+            MOCK_ACTIVITY, MOCK_ENERGY, MOCK_ENERGY_RESOLUTION, MOCK_MEMORY, MOCK_POWER, MOCK_PROCESS,
+            MOCK_TEMPERATURE, MOCK_VOLTAGE,
+        },
+    };
+
+    use std::ptr::eq;
+
+    const TIMESTAMP: u64 = 1712024507665;
 
     // Mock optional features
     fn mock_optional_features() -> OptionalFeatures {
@@ -243,6 +247,73 @@ mod tests_feature {
             gpu_memories_usage: vec![(amdsmi_memory_type_t_AMDSMI_MEM_TYPE_VRAM, true)],
             gpu_temperatures: vec![(amdsmi_temperature_metric_t_AMDSMI_TEMP_CURRENT, true)],
         };
+        assert!(features.has_any());
+    }
+
+    // Test `detect_on` function in success case
+    #[test]
+    fn test_detect_on_success() {
+        let mut mock = MockProcessorProvider::new();
+
+        mock.expect_get_device_activity().returning(|| Ok(MOCK_ACTIVITY));
+
+        mock.expect_get_device_energy_consumption()
+            .returning(|| Ok((MOCK_ENERGY, MOCK_ENERGY_RESOLUTION, TIMESTAMP)));
+
+        mock.expect_get_device_power_consumption().returning(|| Ok(MOCK_POWER));
+
+        mock.expect_get_device_power_managment().returning(|| Ok(true));
+        mock.expect_get_device_process_list()
+            .returning(|| Ok(vec![MOCK_PROCESS]));
+        mock.expect_get_device_voltage().returning(|_, _| Ok(MOCK_VOLTAGE));
+
+        mock.expect_get_device_memory_usage().returning(|mem_type| {
+            MOCK_MEMORY
+                .iter()
+                .find(|(t, _)| *t == mem_type)
+                .map(|(_, v)| Ok(*v))
+                .unwrap_or(Err(AmdError(UNEXPECTED_DATA)))
+        });
+
+        mock.expect_get_device_temperature().returning(|sensor, metric| {
+            if metric != METRIC_TEMP {
+                return Err(AmdError(UNEXPECTED_DATA));
+            }
+            MOCK_TEMPERATURE
+                .iter()
+                .find(|(s, _)| *s == sensor)
+                .map(|(_, v)| Ok(*v))
+                .unwrap_or(Err(AmdError(UNEXPECTED_DATA)))
+        });
+
+        let features = OptionalFeatures::detect_on(&mock).unwrap();
+        assert_eq!(features.gpu_memories_usage.iter().filter(|(_, s)| *s).count(), 2);
+        assert_eq!(features.gpu_temperatures.iter().filter(|(_, s)| *s).count(), 7);
+    }
+
+    // Test `with_detected_features` function in success case
+    #[test]
+    fn test_with_detected_features_success() {
+        let mut mock = MockProcessorProvider::new();
+
+        mock.expect_get_device_activity().returning(|| Ok(MOCK_ACTIVITY));
+
+        mock.expect_get_device_energy_consumption()
+            .returning(|| Err(AmdError(NO_PERM)));
+        mock.expect_get_device_power_consumption().returning(|| Ok(MOCK_POWER));
+        mock.expect_get_device_power_managment().returning(|| Ok(true));
+        mock.expect_get_device_process_list()
+            .returning(|| Ok(vec![MOCK_PROCESS]));
+        mock.expect_get_device_voltage()
+            .returning(|_, _| Err(AmdError(UNEXPECTED_DATA)));
+        mock.expect_get_device_memory_usage()
+            .returning(|_| Err(AmdError(UNEXPECTED_DATA)));
+        mock.expect_get_device_temperature()
+            .returning(|_, _| Err(AmdError(UNEXPECTED_DATA)));
+
+        let (res, features) = OptionalFeatures::with_detected_features(&mock).unwrap();
+
+        assert!(eq(res, &mock));
         assert!(features.has_any());
     }
 }

@@ -76,7 +76,7 @@ The architecture of AMD GPUs is broken down into several type zones associated w
 Here is a configuration example of the plugin. It's part of the ALUMET configuration file (eg: `alumet-config.toml`).
 
 ```toml
-[plugins.amdgpu]
+[plugins.amd-gpu]
 # Time between each activation of the counter source.
 poll_interval = "1s"
 # Initial interval between two flushing of AMD GPU measurements.

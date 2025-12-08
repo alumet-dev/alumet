@@ -1,7 +1,3 @@
-use crate::{
-    bindings::*,
-    interface::{MEMORY_TYPE, SENSOR_TYPE},
-};
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
     pipeline::{Source, elements::error::PollError},
@@ -12,13 +8,18 @@ use anyhow::Result;
 use std::{borrow::Cow, ffi::CStr};
 
 use super::{device::ManagedDevice, features::OptionalFeatures, metrics::Metrics};
+use crate::{
+    amd::utils::{MEMORY_TYPE, METRIC_TEMP, SENSOR_TYPE},
+    bindings::*,
+    interface::ProcessorProvider,
+};
 
 /// Measurement source that queries AMD GPU devices.
-pub struct AmdGpuSource<'a> {
+pub struct AmdGpuSource {
     /// Internal state to compute the difference between two increments of the counter.
     energy_counter: CounterDiff,
     /// Handle to the GPU, with features information.
-    device: ManagedDevice<'a>,
+    device: ManagedDevice,
     /// Alumet metrics IDs.
     metrics: Metrics,
     /// Alumet resource ID.
@@ -26,9 +27,9 @@ pub struct AmdGpuSource<'a> {
 }
 
 /// SAFETY: The amd libary is thread-safe and returns pointers to a safe global state, which we can pass to other threads.
-unsafe impl<'a> Send for ManagedDevice<'a> {}
+unsafe impl Send for ManagedDevice {}
 
-impl<'a> AmdGpuSource<'a> {
+impl AmdGpuSource {
     pub fn new(device: ManagedDevice, metrics: Metrics) -> Result<AmdGpuSource, amdsmi_status_t> {
         let bus_id = Cow::Owned(device.bus_id.clone());
         Ok(AmdGpuSource {
@@ -207,7 +208,7 @@ impl<'a> AmdGpuSource<'a> {
     }
 }
 
-impl<'a> Source for AmdGpuSource<'a> {
+impl Source for AmdGpuSource {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         let features = &self.device.features;
 
@@ -288,15 +289,13 @@ impl<'a> Source for AmdGpuSource<'a> {
 
         // GPU temperatures metric pushed
         for (sensor, label) in &SENSOR_TYPE {
-            const METRIC: amdsmi_temperature_metric_t = amdsmi_temperature_metric_t_AMDSMI_TEMP_CURRENT;
-
             if features
                 .gpu_temperatures
                 .iter()
                 .find(|(s, _)| (*s) == (*sensor))
                 .map(|(_, v)| *v)
                 .unwrap_or(false)
-                && let Ok(value) = self.device.handle.get_device_temperature(*sensor, METRIC)
+                && let Ok(value) = self.device.handle.get_device_temperature(*sensor, METRIC_TEMP)
             {
                 measurements.push(
                     MeasurementPoint::new(
@@ -315,5 +314,217 @@ impl<'a> Source for AmdGpuSource<'a> {
         self.handle_gpu_processes(features, measurements, timestamp)?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests_probe {
+    use crate::{
+        AmdGpuPlugin, Config,
+        amd::utils::{
+            METRIC_LABEL_ACTIVITY, METRIC_LABEL_ENERGY, METRIC_LABEL_MEMORY, METRIC_LABEL_POWER,
+            METRIC_LABEL_PROCESS_CPU, METRIC_LABEL_PROCESS_ENCODE, METRIC_LABEL_PROCESS_GFX, METRIC_LABEL_PROCESS_GTT,
+            METRIC_LABEL_PROCESS_MEMORY, METRIC_LABEL_PROCESS_VRAM, METRIC_LABEL_TEMPERATURE, METRIC_LABEL_VOLTAGE,
+            PLUGIN_NAME,
+        },
+        tests::mocks::tests_mocks::{MOCK_ENERGY, MOCK_UUID, config_to_toml_table},
+    };
+    use alumet::{
+        agent::{
+            self,
+            plugin::{PluginInfo, PluginSet},
+        },
+        measurement::WrappedMeasurementValue,
+        pipeline::naming::SourceName,
+        plugin::PluginMetadata,
+        test::{RuntimeExpectations, StartupExpectations},
+        units::{PrefixedUnit, Unit},
+    };
+    use std::{panic, time::Duration};
+
+    // Test `start` function for amd-gpu plugin metric collect with correct values
+    #[test]
+    fn test_start_success() {
+        let mut plugins = PluginSet::new();
+        let config = Config { ..Default::default() };
+
+        plugins.add_plugin(PluginInfo {
+            metadata: PluginMetadata::from_static::<AmdGpuPlugin>(),
+            enabled: true,
+            config: Some(config_to_toml_table(&config)),
+        });
+
+        let startup_expectations = StartupExpectations::new()
+            .expect_metric::<f64>(METRIC_LABEL_ACTIVITY, Unit::Percent.clone())
+            .expect_metric::<f64>(METRIC_LABEL_ENERGY, PrefixedUnit::milli(Unit::Joule))
+            .expect_metric::<u64>(METRIC_LABEL_MEMORY, Unit::Byte.clone())
+            .expect_metric::<u64>(METRIC_LABEL_POWER, Unit::Watt.clone())
+            .expect_metric::<u64>(METRIC_LABEL_TEMPERATURE, Unit::DegreeCelsius.clone())
+            .expect_metric::<u64>(METRIC_LABEL_VOLTAGE, PrefixedUnit::milli(Unit::Volt))
+            .expect_metric::<u64>(METRIC_LABEL_PROCESS_MEMORY, Unit::Byte.clone())
+            .expect_metric::<u64>(METRIC_LABEL_PROCESS_ENCODE, PrefixedUnit::nano(Unit::Second))
+            .expect_metric::<u64>(METRIC_LABEL_PROCESS_GFX, PrefixedUnit::nano(Unit::Second))
+            .expect_metric::<u64>(METRIC_LABEL_PROCESS_GTT, Unit::Byte.clone())
+            .expect_metric::<u64>(METRIC_LABEL_PROCESS_CPU, Unit::Byte.clone())
+            .expect_metric::<u64>(METRIC_LABEL_PROCESS_VRAM, Unit::Byte.clone())
+            .expect_source(PLUGIN_NAME, MOCK_UUID);
+
+        let source = SourceName::from_str(PLUGIN_NAME, MOCK_UUID);
+
+        let run_expect = RuntimeExpectations::new().test_source(
+            source.clone(),
+            || {},
+            |ctx| {
+                let m = ctx.measurements();
+                let metrics = ctx.metrics();
+                let get_metric = |name| metrics.by_name(name).unwrap().0;
+
+                // GPU activity usage
+                {
+                    let metric = get_metric(METRIC_LABEL_ACTIVITY);
+                    let points: Vec<_> = m.iter().filter(|p| p.metric == metric).collect();
+
+                    for p in points {
+                        let attr_type = p
+                            .attributes()
+                            .find(|(k, _)| *k == "activity_type")
+                            .expect("Missing attribute type")
+                            .1
+                            .to_string();
+
+                        match attr_type.as_str() {
+                            "graphic_core" => assert_eq!(p.value, WrappedMeasurementValue::U64(131072)),
+                            "memory_management" => assert_eq!(p.value, WrappedMeasurementValue::U64(262144)),
+                            "unified_memory_controller" => assert_eq!(p.value, WrappedMeasurementValue::U64(524288)),
+                            e => panic!("Unexpected type {e}"),
+                        }
+                    }
+                }
+
+                // GPU energy consumption
+                {
+                    let metric = get_metric(METRIC_LABEL_ENERGY);
+                    let p = m.iter().find(|p| p.metric == metric).unwrap();
+                    assert_eq!(p.value, WrappedMeasurementValue::F64(MOCK_ENERGY as f64));
+                }
+
+                // GPU memory usage
+                {
+                    let metric = get_metric(METRIC_LABEL_MEMORY);
+                    let points: Vec<_> = m.iter().filter(|p| p.metric == metric).collect();
+
+                    for p in points {
+                        let attr_type = p
+                            .attributes()
+                            .find(|(k, _)| *k == "memory_type")
+                            .expect("Missing attribute type")
+                            .1
+                            .to_string();
+
+                        match attr_type.as_str() {
+                            "memory_graphic_translation_table" => {
+                                assert_eq!(p.value, WrappedMeasurementValue::U64(131072))
+                            }
+                            "memory_video_computing" => assert_eq!(p.value, WrappedMeasurementValue::U64(262144)),
+                            e => panic!("Unexpected type {e}"),
+                        }
+                    }
+                }
+
+                // GPU power consumption
+                {
+                    let metric = get_metric(METRIC_LABEL_POWER);
+                    let p = m.iter().find(|p| p.metric == metric).unwrap();
+                    assert_eq!(p.value, WrappedMeasurementValue::U64(43));
+                }
+
+                // GPU temperatures
+                {
+                    let metric = get_metric(METRIC_LABEL_TEMPERATURE);
+                    let points: Vec<_> = m.iter().filter(|p| p.metric == metric).collect();
+
+                    for p in points {
+                        let attr_type = p
+                            .attributes()
+                            .find(|(k, _)| *k == "sensor_type")
+                            .expect("Missing attribute type")
+                            .1
+                            .to_string();
+
+                        match attr_type.as_str() {
+                            "thermal_global" => assert_eq!(p.value, WrappedMeasurementValue::U64(45)),
+                            "thermal_hotspot" => assert_eq!(p.value, WrappedMeasurementValue::U64(46)),
+                            "thermal_high_bandwidth_memory_0" => assert_eq!(p.value, WrappedMeasurementValue::U64(47)),
+                            "thermal_high_bandwidth_memory_1" => assert_eq!(p.value, WrappedMeasurementValue::U64(48)),
+                            "thermal_high_bandwidth_memory_2" => assert_eq!(p.value, WrappedMeasurementValue::U64(49)),
+                            "thermal_high_bandwidth_memory_3" => assert_eq!(p.value, WrappedMeasurementValue::U64(50)),
+                            "thermal_pci_bus" => assert_eq!(p.value, WrappedMeasurementValue::U64(51)),
+                            e => panic!("Unexpected type {e}"),
+                        }
+                    }
+                }
+
+                // GPU voltage consumption
+                {
+                    let metric = get_metric(METRIC_LABEL_VOLTAGE);
+                    let p = m.iter().find(|p| p.metric == metric).unwrap();
+                    assert_eq!(p.value, WrappedMeasurementValue::U64(830));
+                }
+
+                // GPU processes informations
+                {
+                    let expected_names = "p1";
+                    let process_metrics = [
+                        METRIC_LABEL_PROCESS_MEMORY,
+                        METRIC_LABEL_PROCESS_ENCODE,
+                        METRIC_LABEL_PROCESS_GFX,
+                        METRIC_LABEL_PROCESS_GTT,
+                        METRIC_LABEL_PROCESS_CPU,
+                        METRIC_LABEL_PROCESS_VRAM,
+                    ];
+
+                    for &metric_id in &process_metrics {
+                        let metric = get_metric(metric_id);
+                        let points: Vec<_> = m.iter().filter(|p| p.metric == metric).collect();
+
+                        for p in points {
+                            let process_name = p
+                                .attributes()
+                                .find(|(k, _)| k == &"process_name")
+                                .expect("Missing attribute type")
+                                .1
+                                .to_string();
+
+                            assert!(
+                                expected_names.contains(&process_name.as_str()),
+                                "Unexpected {process_name}"
+                            );
+
+                            let expected_value = match (process_name.as_str(), metric_id) {
+                                ("p1", METRIC_LABEL_PROCESS_MEMORY) => WrappedMeasurementValue::U64(32),
+                                ("p1", METRIC_LABEL_PROCESS_ENCODE) => WrappedMeasurementValue::U64(64),
+                                ("p1", METRIC_LABEL_PROCESS_GFX) => WrappedMeasurementValue::U64(5135145681),
+                                ("p1", METRIC_LABEL_PROCESS_GTT) => WrappedMeasurementValue::U64(256),
+                                ("p1", METRIC_LABEL_PROCESS_CPU) => WrappedMeasurementValue::U64(1024),
+                                ("p1", METRIC_LABEL_PROCESS_VRAM) => WrappedMeasurementValue::U64(2048),
+
+                                e => panic!("Unexpected type and metrics: {e:?}"),
+                            };
+
+                            assert_eq!(p.value, expected_value);
+                        }
+                    }
+                }
+            },
+        );
+
+        let agent = agent::Builder::new(plugins)
+            .with_expectations(startup_expectations)
+            .with_expectations(run_expect)
+            .build_and_start()
+            .unwrap();
+
+        // Send shutdown message
+        agent.wait_for_shutdown(Duration::from_secs(5)).unwrap();
     }
 }
