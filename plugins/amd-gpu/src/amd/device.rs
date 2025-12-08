@@ -1,20 +1,20 @@
 use std::collections::HashMap;
 
 use super::features::OptionalFeatures;
-use crate::{get_amdsmi_instance, interface::ProcessorHandle};
+use crate::interface::{AmdSmiRef, MockableProcessorHandle, ProcessorProvider};
 
 /// Detected AMD GPU devices via AMDSMI.
-pub struct AmdGpuDevices<'a> {
+pub struct AmdGpuDevices {
     /// Counter of detection errors on AMD GPU device.
     pub failure_count: usize,
     /// Set of parameters that defines an AMD GPU device.
-    pub devices: Vec<ManagedDevice<'a>>,
+    pub devices: Vec<ManagedDevice>,
 }
 
 /// An AMD GPU device that has been probed for available features.
-pub struct ManagedDevice<'a> {
+pub struct ManagedDevice {
     /// A pointer to the device.
-    pub handle: ProcessorHandle<'a>,
+    pub handle: MockableProcessorHandle,
     /// Status of the various features available or not on a device.
     pub features: OptionalFeatures,
     /// PCI bus ID of the device.
@@ -29,12 +29,10 @@ pub struct DetectionStats {
     pub working_devices: usize,
 }
 
-impl<'a> AmdGpuDevices<'a> {
+impl AmdGpuDevices {
     /// Detects all AMD GPUs and returns an AmdGpuDevices object.
-    pub fn detect(skip_failed_devices: bool) -> anyhow::Result<AmdGpuDevices<'a>> {
+    pub fn detect(amdsmi: &AmdSmiRef, skip_failed_devices: bool) -> anyhow::Result<Self> {
         // Get our global AMD SMI instance
-        let amdsmi = get_amdsmi_instance();
-
         let mut devices = HashMap::new();
         let mut failure_count = 0;
 
@@ -74,7 +72,7 @@ impl<'a> AmdGpuDevices<'a> {
             }
         }
 
-        let mut devices: Vec<ManagedDevice<'a>> = devices.into_values().collect();
+        let mut devices: Vec<ManagedDevice> = devices.into_values().collect();
         devices.sort_by_key(|device| device.bus_id.clone());
 
         Ok(AmdGpuDevices { devices, failure_count })
@@ -95,40 +93,161 @@ impl<'a> AmdGpuDevices<'a> {
 
 #[cfg(test)]
 mod tests_device {
-    use super::*;
-    use crate::bindings::{
-        amdsmi_processor_handle, amdsmi_status_t, amdsmi_status_t_AMDSMI_STATUS_INVAL,
-        amdsmi_status_t_AMDSMI_STATUS_SUCCESS,
+    use super::AmdSmiRef;
+    use crate::{
+        amd::{
+            device::AmdGpuDevices,
+            utils::{METRIC_TEMP, UNEXPECTED_DATA},
+        },
+        interface::{AmdError, MockProcessorProvider, MockSocketHandle},
+        tests::mocks::tests_mocks::{
+            MOCK_ACTIVITY, MOCK_ENERGY, MOCK_ENERGY_RESOLUTION, MOCK_MEMORY, MOCK_POWER, MOCK_PROCESS,
+            MOCK_TEMPERATURE, MOCK_UUID, MOCK_VOLTAGE,
+        },
     };
 
-    use crate::tests::ffi_mock::{
-        ffi_mocks_processor_handles::set_mock_processor_handles, ffi_mocks_socket_handles::set_mock_socket_handles,
-        ffi_mocks_uuid::set_mock_uuid,
-    };
+    const TIMESTAMP: u64 = 1712024507665;
+    const UUID: &str = "a4ff740f-0000-1000-80ea-e05c945bb3b2";
 
-    const SUCCESS: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_SUCCESS;
-    const ERROR: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_INVAL;
-
-    // Test `detect` function for 1 GPU in case we skip failed devices
+    // Test `detection_stats` function with no GPUs detected
     #[test]
-    fn test_detect_skip_failed_devices() {
-        set_mock_socket_handles(1, SUCCESS, SUCCESS);
-        set_mock_processor_handles(vec![0 as amdsmi_processor_handle], SUCCESS, SUCCESS);
-        set_mock_uuid(vec![0], ERROR);
+    fn test_detection_stats_no_devices() {
+        let devices = AmdGpuDevices {
+            devices: vec![],
+            failure_count: 0,
+        };
 
-        let res = AmdGpuDevices::detect(true).unwrap();
-        assert_eq!(res.failure_count, 1);
-        assert_eq!(res.devices.len(), 0);
+        let stats = devices.detection_stats();
+        assert_eq!(stats.found_devices, 0);
+        assert_eq!(stats.working_devices, 0);
     }
 
-    // Test `detect` function for in case we failed to skip
+    // Test `detection_stats` function with GPUs detected but no working device
     #[test]
-    fn test_detect_fail_skip() {
-        set_mock_socket_handles(1, SUCCESS, SUCCESS);
-        set_mock_processor_handles(vec![0 as amdsmi_processor_handle], SUCCESS, SUCCESS);
-        set_mock_uuid(vec![0], ERROR);
+    fn test_detection_stats_failed() {
+        let devices = AmdGpuDevices {
+            devices: vec![],
+            failure_count: 5,
+        };
 
-        let res = AmdGpuDevices::detect(false);
-        assert!(res.is_err());
+        let stats = devices.detection_stats();
+        assert_eq!(stats.found_devices, 5);
+        assert_eq!(stats.working_devices, 0);
+    }
+
+    // Test `detect` function in success case with valid GPUs and metrics
+    #[test]
+    fn test_detect_success() {
+        let mut mock_init = AmdSmiRef::new();
+        let mut mock_socket = MockSocketHandle::new();
+        let mut mock_processor = MockProcessorProvider::new();
+
+        mock_processor
+            .expect_get_device_uuid()
+            .returning(|| Ok(MOCK_UUID.to_owned()));
+
+        mock_processor
+            .expect_get_device_activity()
+            .returning(|| Ok(MOCK_ACTIVITY));
+
+        mock_processor
+            .expect_get_device_energy_consumption()
+            .returning(|| Ok((MOCK_ENERGY, MOCK_ENERGY_RESOLUTION, TIMESTAMP)));
+
+        mock_processor
+            .expect_get_device_power_consumption()
+            .returning(|| Ok(MOCK_POWER));
+
+        mock_processor
+            .expect_get_device_power_managment()
+            .returning(|| Ok(true));
+        mock_processor
+            .expect_get_device_process_list()
+            .returning(|| Ok(vec![MOCK_PROCESS]));
+        mock_processor
+            .expect_get_device_voltage()
+            .returning(|_, _| Ok(MOCK_VOLTAGE));
+
+        mock_processor.expect_get_device_memory_usage().returning(|mem_type| {
+            MOCK_MEMORY
+                .iter()
+                .find(|(t, _)| *t == mem_type)
+                .map(|(_, v)| Ok(*v))
+                .unwrap_or(Err(AmdError(UNEXPECTED_DATA)))
+        });
+
+        mock_processor
+            .expect_get_device_temperature()
+            .returning(|sensor, metric| {
+                if metric != METRIC_TEMP {
+                    return Err(AmdError(UNEXPECTED_DATA));
+                }
+                MOCK_TEMPERATURE
+                    .iter()
+                    .find(|(s, _)| *s == sensor)
+                    .map(|(_, v)| Ok(*v))
+                    .unwrap_or(Err(AmdError(UNEXPECTED_DATA)))
+            });
+
+        mock_socket
+            .expect_get_processor_handles()
+            .return_once(move || Ok(vec![mock_processor]));
+
+        mock_init
+            .expect_get_socket_handles()
+            .return_once(move || Ok(vec![mock_socket]));
+
+        let res = AmdGpuDevices::detect(&mock_init, false).expect("should work");
+        assert_eq!(res.failure_count, 0);
+    }
+
+    // Test `detect` function for a GPU with no features available
+    #[test]
+    fn test_detect_error_skipped() {
+        let mut mock_init = AmdSmiRef::new();
+        let mut mock_socket = MockSocketHandle::new();
+        let mut mock_processor = MockProcessorProvider::new();
+
+        mock_processor
+            .expect_get_device_uuid()
+            .returning(|| Ok(UUID.to_owned()));
+
+        mock_processor
+            .expect_get_device_activity()
+            .returning(|| Err(AmdError(UNEXPECTED_DATA)));
+        mock_processor
+            .expect_get_device_energy_consumption()
+            .returning(|| Err(AmdError(UNEXPECTED_DATA)));
+        mock_processor
+            .expect_get_device_power_consumption()
+            .returning(|| Err(AmdError(UNEXPECTED_DATA)));
+        mock_processor
+            .expect_get_device_power_managment()
+            .returning(|| Err(AmdError(UNEXPECTED_DATA)));
+        mock_processor
+            .expect_get_device_process_list()
+            .returning(|| Err(AmdError(UNEXPECTED_DATA)));
+        mock_processor
+            .expect_get_device_voltage()
+            .returning(|_, _| Err(AmdError(UNEXPECTED_DATA)));
+        mock_processor
+            .expect_get_device_memory_usage()
+            .returning(|_| Err(AmdError(UNEXPECTED_DATA)));
+        mock_processor
+            .expect_get_device_temperature()
+            .returning(|_, _| Err(AmdError(UNEXPECTED_DATA)));
+
+        mock_socket
+            .expect_get_processor_handles()
+            .return_once(move || Ok(vec![mock_processor]));
+
+        mock_init
+            .expect_get_socket_handles()
+            .return_once(move || Ok(vec![mock_socket]));
+
+        let res = AmdGpuDevices::detect(&mock_init, true).expect("error should be skipped");
+
+        assert_eq!(res.failure_count, 1);
+        assert!(res.devices.is_empty());
     }
 }
