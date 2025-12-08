@@ -20,7 +20,11 @@ pub(crate) async fn run_managed(
     config: Arc<super::task_controller::SharedSourceConfig>,
 ) -> Result<(), PipelineError> {
     /// Flushes the measurement and returns a new buffer.
-    fn flush(buffer: MeasurementBuffer, tx: &mpsc::Sender<MeasurementBuffer>, name: &SourceName) -> MeasurementBuffer {
+    async fn flush(
+        buffer: MeasurementBuffer,
+        tx: &mpsc::Sender<MeasurementBuffer>,
+        name: &SourceName,
+    ) -> MeasurementBuffer {
         // Hint for the new buffer capacity, great if the number of measurements per flush doesn't change much,
         // which is often the case.
         let prev_length = buffer.len();
@@ -35,12 +39,23 @@ pub(crate) async fn run_managed(
                 // the channel Receiver has been closed
                 panic!("source channel should stay open");
             }
-            Err(TrySendError::Full(_buf)) => {
+            Err(TrySendError::Full(buffer)) => {
                 // the channel's buffer is full! reduce the measurement frequency
                 // TODO it would be better to choose which source to slow down based
                 // on its frequency and number of measurements per poll.
                 // buf
-                todo!("buffer is full")
+                log::warn!(
+                    "The buffer [sources -> transforms] is full! Consider increasing poll_interval for some sources"
+                );
+                let t0 = Timestamp::now();
+                tx.send(buffer).await.expect("source channel should stay open");
+                let t1 = Timestamp::now();
+                let delta = t1.duration_since(t0).unwrap();
+                log::debug!(
+                    "{name} flushed {prev_length} measurements, after waiting {} µs",
+                    delta.as_micros()
+                );
+                MeasurementBuffer::with_capacity(prev_length)
             }
         }
     }
@@ -133,7 +148,7 @@ pub(crate) async fn run_managed(
                 // This is done _after_ polling, to ensure that we poll at least once before flushing, even if flush_rounds is 1.
                 if i % trigger.config.flush_rounds == 0 {
                     // flush and create a new buffer
-                    buffer = flush(buffer, &tx, &source_name);
+                    buffer = flush(buffer, &tx, &source_name).await;
                 }
 
                 // only update on some rounds, for performance reasons.
@@ -171,7 +186,7 @@ pub(crate) async fn run_managed(
 
     // source stopped, flush the buffer
     if !buffer.is_empty() {
-        flush(buffer, &tx, &source_name);
+        flush(buffer, &tx, &source_name).await;
     }
 
     // log the name of the source, so we know which source terminates
