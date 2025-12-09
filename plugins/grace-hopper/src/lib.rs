@@ -76,6 +76,7 @@ pub struct Config {
 }
 
 impl Default for Config {
+    #[cfg_attr(tarpaulin, ignore)]
     fn default() -> Self {
         Self {
             poll_interval: Duration::from_secs(1), // 1 Hz

@@ -4535,7 +4535,6 @@ dependencies = [
  "env_logger",
  "expecting",
  "humantime-serde",
- "lazy_static",
  "log",
  "pretty_assertions",
  "regex",

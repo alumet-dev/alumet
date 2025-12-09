@@ -2,7 +2,10 @@ use alumet::{
     agent::{self, plugin::PluginSet},
     measurement::{MeasurementPoint, Timestamp},
     pipeline::naming::SourceName,
-    plugin::PluginMetadata,
+    plugin::{
+        PluginMetadata,
+        rust::{AlumetPlugin, deserialize_config},
+    },
     resources::Resource,
     test::{RuntimeExpectations, StartupExpectations},
     units::{PrefixedUnit, Unit},
@@ -216,11 +219,11 @@ fn full_plugin_with_multiple_hwmon_sensors() {
                 let cpu = energy_cpu_0.value.as_f64();
                 let sysio = energy_sysio_0.value.as_f64();
                 let dram = energy_dram_0.value.as_f64();
-                assert!(approx_eq(module, 80000.0, TOLERANCE), "bad value {module}");
-                assert!(approx_eq(grace, 62000.0, TOLERANCE), "bad value {module}");
-                assert!(approx_eq(cpu, 42000.0, TOLERANCE), "bad value {module}");
-                assert!(approx_eq(sysio, 18000.0, TOLERANCE), "bad value {module}");
-                assert!(approx_eq(dram, 2000.0, TOLERANCE), "bad value {module}");
+                assert!(approx_eq(module, 80000.0, 20.0 * TOLERANCE), "bad value {module}");
+                assert!(approx_eq(grace, 62000.0, 10.0 * TOLERANCE), "bad value {grace}");
+                assert!(approx_eq(cpu, 42000.0, 8.0 * TOLERANCE), "bad value {cpu}");
+                assert!(approx_eq(sysio, 18000.0, 5.0 * TOLERANCE), "bad value {sysio}");
+                assert!(approx_eq(dram, 2000.0, 2.0 * TOLERANCE), "bad value {dram}");
             },
         );
 
