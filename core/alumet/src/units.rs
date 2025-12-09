@@ -108,7 +108,7 @@ impl Unit {
             Unit::DegreeFahrenheit => "[degF]",
             Unit::WattHour => "W.h",
             Unit::Byte => "By",
-            Unit::Percent => "%",
+            Unit::Percent => "Percent",
             Unit::Custom {
                 unique_name,
                 display_name: _,
@@ -132,7 +132,7 @@ impl Unit {
             Unit::DegreeFahrenheit => "°F",
             Unit::WattHour => "Wh",
             Unit::Byte => "B",
-            Unit::Percent => "%",
+            Unit::Percent => "Percent",
             Unit::Custom {
                 unique_name: _,
                 display_name,
@@ -171,7 +171,7 @@ impl FromStr for Unit {
             "[degF]" => Unit::DegreeFahrenheit,
             "W.h" => Unit::WattHour,
             "By" => Unit::Byte,
-            "%" => Unit::Percent,
+            "Percent" => Unit::Percent,
             _ => return Err(anyhow!("Unknown or non standard Unit {s}")),
         };
         Ok(res)
