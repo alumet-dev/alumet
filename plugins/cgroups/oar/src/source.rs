@@ -5,19 +5,20 @@ use anyhow::{Context, anyhow};
 use util_cgroups::Cgroup;
 
 use crate::{
-    attr::{JOB_REGEX_OAR2, JOB_REGEX_OAR3, find_jobid_in_attrs, find_userid_in_attrs},
+    attr::{JOB_REGEX_OAR2, JOB_REGEX_OAR3, OarJobTagger, find_jobid_in_attrs, find_userid_in_attrs},
     config::OarVersion,
     job_tracker::JobTracker,
 };
 use util_cgroups_plugins::{
     cgroup_events::{CgroupSetupCallback, ProbeSetup, SourceSettings},
+    job_annotation_transform::JobTagger,
     metrics::{AugmentedMetrics, Metrics},
     regex::RegexAttributesExtrator,
 };
 
 #[derive(Clone)]
 pub struct JobSourceSetup {
-    extractor: RegexAttributesExtrator,
+    tagger: OarJobTagger,
     username_from_userid: bool,
     trigger: TriggerSpec,
     tracker: JobTracker,
@@ -25,18 +26,18 @@ pub struct JobSourceSetup {
 }
 
 impl JobSourceSetup {
-    pub fn new(config: super::config::Config, tracker: JobTracker) -> anyhow::Result<Self> {
+    pub fn new(config: super::config::Config, tracker: JobTracker, tagger: OarJobTagger) -> anyhow::Result<Self> {
         let trigger = TriggerSpec::at_interval(config.poll_interval);
         match config.oar_version {
             OarVersion::Oar2 => Ok(Self {
-                extractor: RegexAttributesExtrator::new(JOB_REGEX_OAR2)?,
+                tagger,
                 username_from_userid: false,
                 trigger,
                 tracker,
                 jobs_only: config.jobs_only,
             }),
             OarVersion::Oar3 => Ok(Self {
-                extractor: RegexAttributesExtrator::new(JOB_REGEX_OAR3)?,
+                tagger,
                 username_from_userid: true,
                 trigger,
                 tracker,
@@ -49,10 +50,7 @@ impl JobSourceSetup {
 impl CgroupSetupCallback for JobSourceSetup {
     fn setup_new_probe(&mut self, cgroup: &Cgroup, metrics: &Metrics) -> Option<ProbeSetup> {
         // extracts attributes "job_id" and ("user" or "user_id")
-        let mut attrs = self
-            .extractor
-            .extract(cgroup.canonical_path())
-            .expect("bad regex: it should only match if the input can be parsed into the specified types");
+        let mut attrs = self.tagger.attributes_for_cgroup(cgroup);
 
         let is_job = !attrs.is_empty();
         let name: String;

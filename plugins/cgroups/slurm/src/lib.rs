@@ -9,17 +9,16 @@ use serde::{Deserialize, Serialize};
 
 use util_cgroups_plugins::{
     cgroup_events::{CgroupReactor, NoCallback, ReactorCallbacks, ReactorConfig},
+    job_annotation_transform::{
+        CachedCgroupHierarchy, JobAnnotationTransform, OptionalSharedHierarchy, SharedCgroupHierarchy,
+    },
     metrics::Metrics,
 };
 
-use crate::{
-    attr::JobTagger,
-    transform::{CachedCgroupHierarchy, JobAnnotationTransform, OptionalSharedHierarchy, SharedCgroupHierarchy},
-};
+use crate::attr::SlurmJobTagger;
 
 mod attr;
 mod source;
-mod transform;
 
 /// Gathers metrics for slurm jobs.
 ///
@@ -64,7 +63,7 @@ impl AlumetPlugin for SlurmPlugin {
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         let config = self.config.take().unwrap();
 
-        let tagger = JobTagger::new()?;
+        let tagger = SlurmJobTagger::new()?;
         let mut shared_hierarchy = OptionalSharedHierarchy::default();
 
         // If enabled, create the annotation transform.
@@ -76,7 +75,7 @@ impl AlumetPlugin for SlurmPlugin {
                 tagger: tagger.clone(),
                 cgroup_v2_hierarchy: CachedCgroupHierarchy::new(shared),
             };
-            alumet.add_transform("annotation", Box::new(transform))?;
+            alumet.add_transform("slurm/annotation", Box::new(transform))?;
         }
 
         // Prepare for cgroup detection.

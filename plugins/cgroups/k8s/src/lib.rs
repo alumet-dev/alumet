@@ -14,6 +14,9 @@ use crate::{
 use source::SourceSetup;
 use util_cgroups_plugins::{
     cgroup_events::{CgroupReactor, NoCallback, ReactorCallbacks, ReactorConfig},
+    job_annotation_transform::{
+        CachedCgroupHierarchy, JobAnnotationTransform, OptionalSharedHierarchy, SharedCgroupHierarchy,
+    },
     metrics::Metrics,
 };
 
@@ -52,6 +55,7 @@ impl AlumetPlugin for K8sPlugin {
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
         let metrics = Metrics::create(alumet)?;
         let reactor_config = ReactorConfig::default();
+        let mut shared_hierarchy = OptionalSharedHierarchy::default();
 
         // prepare K8S link and test it
         let node = self.config.k8s_node_name();
@@ -63,6 +67,18 @@ impl AlumetPlugin for K8sPlugin {
             .refresh()
             .context("failed to list pods with the K8S API, are the url and token correct?")?;
         log::info!("List of pods refreshed.");
+
+        // If enabled, create the annotation transform.
+        if self.config.annotate_foreign_measurements {
+            let shared = SharedCgroupHierarchy::default();
+            shared_hierarchy.enable(shared.clone());
+
+            let transform = JobAnnotationTransform {
+                tagger: pod_registry.clone(),
+                cgroup_v2_hierarchy: CachedCgroupHierarchy::new(shared),
+            };
+            alumet.add_transform("k8s-annotation", Box::new(transform))?;
+        }
 
         // store the state for later, because we cannot set up everything now
         let starting_state = StartingState {
@@ -123,6 +139,12 @@ pub struct Config {
 
     #[serde(with = "humantime_serde")]
     pub poll_interval: Duration,
+    /// If `true`, adds attributes like `job_id` to the measurements produced by other plugins.
+    /// The default value is `false`.
+    ///
+    /// The measurements must have the `cgroup` resource consumer, and **cgroup v2** must be used on the node.
+    #[serde(default)]
+    pub annotate_foreign_measurements: bool,
 }
 
 #[cfg_attr(tarpaulin, ignore)]
@@ -138,6 +160,7 @@ impl Default for Config {
             k8s_api_url: default_k8s_api_url(),
             token_retrieval: TokenRetrievalConfig::Simple(token::SimpleRetrievalMethod::Auto),
             poll_interval: Duration::from_secs(5),
+            annotate_foreign_measurements: false,
         }
     }
 }

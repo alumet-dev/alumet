@@ -1,7 +1,9 @@
 use std::path::Path;
 
+use alumet::measurement::AttributeValue;
 use anyhow::Context;
 use rustc_hash::FxHashMap;
+use util_cgroups_plugins::job_annotation_transform::JobTagger;
 
 use super::token::Token;
 use api::PodList;
@@ -140,10 +142,11 @@ impl AutoNodePodRegistry {
         self.refresh()?;
 
         // Is the pod here? If not, it must have been deleted in the meantime => return None.
-        match self.pods.get(pod_uid) {
+        let ret = match self.pods.get(pod_uid) {
             Some(infos) => Ok(Some(infos.to_owned())),
             None => Ok(None),
-        }
+        };
+        ret
     }
 }
 
@@ -173,6 +176,29 @@ pub fn extract_pod_uid_from_cgroup(cgroup_fs_path: &Path) -> Option<String> {
     }
     let uid = suffix.strip_suffix(".slice")?.replace('_', "-");
     Some(uid.to_owned())
+}
+
+impl JobTagger for AutoNodePodRegistry {
+    fn attributes_for_cgroup(&mut self, cgroup: &util_cgroups::Cgroup) -> Vec<(String, AttributeValue)> {
+        let Some(pod_uid) = extract_pod_uid_from_cgroup(cgroup.fs_path()) else {
+            return Vec::new();
+        };
+        let attrs = self
+            .get(&pod_uid)
+            .inspect_err(|e| log::error!("failed to get K8S pod infos for pod {pod_uid}: {e:#}"))
+            .ok()
+            .flatten()
+            .map(|pod_infos| {
+                vec![
+                    ("uid".into(), AttributeValue::String(pod_uid)),
+                    ("name".into(), AttributeValue::String(pod_infos.name)),
+                    ("namespace".into(), AttributeValue::String(pod_infos.namespace)),
+                    ("node".into(), AttributeValue::String(pod_infos.node)),
+                ]
+            })
+            .unwrap_or_default();
+        attrs
+    }
 }
 
 #[cfg(test)]

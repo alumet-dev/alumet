@@ -1,7 +1,8 @@
 use std::sync::{Arc, Mutex};
 
+use crate::cgroup_events::CgroupFsMountCallback;
 use alumet::{
-    measurement::MeasurementBuffer,
+    measurement::{AttributeValue, MeasurementBuffer},
     pipeline::{
         Transform,
         elements::{error::TransformError, transform::TransformContext},
@@ -10,17 +11,18 @@ use alumet::{
 };
 use anyhow::anyhow;
 use util_cgroups::{Cgroup, CgroupHierarchy, CgroupVersion};
-use util_cgroups_plugins::cgroup_events::CgroupFsMountCallback;
 
-use crate::attr::JobTagger;
+pub trait JobTagger: Send {
+    fn attributes_for_cgroup(&mut self, cgroup: &Cgroup) -> Vec<(String, AttributeValue)>;
+}
 
 /// Adds job-related attributes to cgroup measurements that do not have these attributes yet.
-pub struct JobAnnotationTransform {
-    pub tagger: JobTagger,
+pub struct JobAnnotationTransform<T: JobTagger> {
+    pub tagger: T,
     pub cgroup_v2_hierarchy: CachedCgroupHierarchy,
 }
 
-impl Transform for JobAnnotationTransform {
+impl<T: JobTagger> Transform for JobAnnotationTransform<T> {
     fn apply(&mut self, measurements: &mut MeasurementBuffer, _: &TransformContext) -> Result<(), TransformError> {
         for m in measurements.iter_mut() {
             if let ResourceConsumer::ControlGroup { path: cgroup_path } = &m.consumer
@@ -60,6 +62,10 @@ impl Transform for JobAnnotationTransform {
         }
         Ok(())
     }
+
+    fn finish(&mut self, _ctx: &TransformContext) -> Result<(), TransformError> {
+        Ok(())
+    }
 }
 
 /// Thread-safe shared value that stores the cgroup v2 hierarchy (for use by the transform).
@@ -67,7 +73,7 @@ impl Transform for JobAnnotationTransform {
 pub struct SharedCgroupHierarchy(Arc<Mutex<Option<CgroupHierarchy>>>);
 
 impl SharedCgroupHierarchy {
-    fn set(&self, value: CgroupHierarchy) {
+    pub fn set(&self, value: CgroupHierarchy) {
         *self.0.lock().unwrap() = Some(value);
     }
 }

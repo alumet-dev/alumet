@@ -5,11 +5,15 @@ use alumet::plugin::{
 use anyhow::Context;
 
 use crate::{
+    attr::OarJobTagger,
     job_tracker::{JobCleaner, JobTracker},
     transform::JobInfoAttacher,
 };
 use util_cgroups_plugins::{
     cgroup_events::{CgroupReactor, NoCallback, ReactorCallbacks, ReactorConfig},
+    job_annotation_transform::{
+        CachedCgroupHierarchy, JobAnnotationTransform, OptionalSharedHierarchy, SharedCgroupHierarchy,
+    },
     metrics::Metrics,
 };
 
@@ -61,13 +65,27 @@ impl AlumetPlugin for OarPlugin {
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         let tracker = JobTracker::new();
         let config = self.config.take().unwrap();
+        let tagger = OarJobTagger::new()?;
+        let mut shared_hierarchy = OptionalSharedHierarchy::default();
+
+        // If enabled, create the annotation transform.
+        if config.annotate_foreign_measurements {
+            let shared = SharedCgroupHierarchy::default();
+            shared_hierarchy.enable(shared.clone());
+
+            let transform = JobAnnotationTransform {
+                tagger: tagger.clone(),
+                cgroup_v2_hierarchy: CachedCgroupHierarchy::new(shared),
+            };
+            alumet.add_transform("oar-annotation", Box::new(transform))?;
+        }
 
         // Prepare for cgroup detection.
         let starting_state = StartingState {
             metrics: Metrics::create(alumet)?,
             reactor_config: ReactorConfig::default(),
             job_cleaner: JobCleaner::with_version(&tracker, config.oar_version)?,
-            source_setup: source::JobSourceSetup::new(config, tracker.clone())?,
+            source_setup: source::JobSourceSetup::new(config, tracker.clone(), tagger)?,
         };
         self.starting_state = Some(starting_state);
 

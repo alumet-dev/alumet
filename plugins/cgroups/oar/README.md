@@ -40,6 +40,28 @@ If a measurement does not have a `job_id` attribute, it gets a new `involved_job
 This allows to know, for each measurement, which job was running at that time.
 For the reasoning behind this feature, see [issue #209](https://github.com/alumet-dev/alumet/issues/209).
 
+## Annotation of the Measurements Provided by Other Plugins
+
+Other plugins, such as the [`process-to-cgroup-bridge`](../../process-to-cgroup-bridge/README.md), can produce measurements related to the cgroups of OAR jobs.
+However, they cannot add job-specific information (such as the job id) to the measurements.
+
+To do that, use the annotation feature of the `oar` plugin by enabling the following configuration option.
+
+```toml
+annotate_foreign_measurements = true
+```
+
+Be sure to enable the `oar` plugin **after** the plugins that produce the measurements that you want to annotate.
+For instance, the `oar` configuration section should be after the `process-to-cgroup-bridge` section.
+
+```toml
+[plugins.process-to-cgroup-bridge]
+…
+
+[plugins.oar]
+…
+```
+
 ## Configuration
 
 Here is an example of how to configure this plugin.

@@ -6,6 +6,7 @@ pub mod v1;
 pub mod v2;
 
 pub mod delta;
+pub mod job_annotation_transform;
 pub mod metrics;
 pub mod regex;
 mod self_stop;

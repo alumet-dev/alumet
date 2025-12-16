@@ -973,6 +973,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6aff27af350e7b53e82aac3e5ab6389abd8f280640ac034508dff0608c4c7e5"
 
 [[package]]
+name = "expecting"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5266ef449ae606caf431b8dd3782bd6830a27384f0cb805596360ee098ba9825"
+dependencies = [
+ "anyhow",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4524,7 +4533,9 @@ dependencies = [
  "alumet",
  "anyhow",
  "env_logger",
+ "expecting",
  "humantime-serde",
+ "lazy_static",
  "log",
  "pretty_assertions",
  "regex",
