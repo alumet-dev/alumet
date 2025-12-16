@@ -1,4 +1,5 @@
 pub mod channel;
+pub mod coop;
 pub mod scope;
 pub mod stream;
 pub mod threading;

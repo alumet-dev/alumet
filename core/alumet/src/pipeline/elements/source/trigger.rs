@@ -77,6 +77,8 @@ pub struct TriggerConstraints {
 pub mod builder;
 
 pub(crate) mod private_impl {
+    // TODO FIXME: this actually implements PartialEq for TriggerSpec publicly
+
     use super::TriggerSpec;
 
     impl PartialEq for TriggerSpec {
@@ -198,6 +200,18 @@ impl Trigger {
             config: spec.loop_params,
             inner,
         })
+    }
+
+    pub(crate) fn new_manual(interruptible: bool) -> Trigger {
+        let manual = TriggerMechanism::Manual(Arc::new(Notify::new()));
+        let inner = TriggerImpl::Single(manual, interruptible.into());
+        Self {
+            config: TriggerLoopParams {
+                flush_rounds: 1,
+                update_rounds: 1,
+            },
+            inner,
+        }
     }
 
     pub fn manual_trigger(&self) -> Option<ManualTrigger> {

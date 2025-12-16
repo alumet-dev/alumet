@@ -50,6 +50,12 @@ pub fn new_autonomous(shutdown_token: CancellationToken) -> SingleSourceControll
     SingleSourceController::Autonomous(shutdown_token)
 }
 
+impl SharedSourceConfig {
+    pub fn take_new_trigger(&self) -> Option<Trigger> {
+        self.new_trigger.lock().unwrap().take()
+    }
+}
+
 impl SingleSourceController {
     pub fn reconfigure(&mut self, command: &Reconfiguration) {
         match self {
