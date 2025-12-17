@@ -70,13 +70,16 @@ impl SingleSourceController {
                         *shared.new_trigger.lock().unwrap() = Some(trigger);
                     }
                 }
+                log::trace!("reconfiguring source with {:p}", *shared);
                 shared.change_notifier.notify_one();
             }
             SingleSourceController::Autonomous(shutdown_token) => match &command {
                 Reconfiguration::SetState(TaskState::Stop) => {
                     shutdown_token.cancel();
                 }
-                _ => log::warn!("unsupported command received for autonomous source, ignoring"),
+                _ => log::warn!(
+                    "unsupported reconfiguration command received for autonomous source, ignoring: {command:?}"
+                ),
             },
         }
     }
@@ -88,7 +91,9 @@ impl SingleSourceController {
                     t.trigger_now();
                 }
             }
-            _ => (),
+            SingleSourceController::Autonomous(_) => {
+                log::warn!("unsupported trigger command received for autonomous source, ignoring");
+            }
         }
     }
 }

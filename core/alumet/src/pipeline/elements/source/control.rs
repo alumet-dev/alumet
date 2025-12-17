@@ -72,6 +72,7 @@ pub enum ConfigureCommand {
     SetTrigger(TriggerSpec),
 }
 
+#[derive(Debug)]
 pub(super) enum Reconfiguration {
     SetState(TaskState),
     SetTrigger(TriggerSpec),
@@ -298,7 +299,7 @@ impl TaskManager {
                     let _guard = runtime.enter();
                     Trigger::new(source.trigger_spec).context("error in Trigger::new")?
                 };
-                log::trace!("new trigger created from the spec");
+                log::trace!("new trigger created from the spec: {trigger:?}");
 
                 // Create a controller to control the async task.
                 let (controller, config) = super::task_controller::new_managed(trigger, source.initial_state);
@@ -306,11 +307,23 @@ impl TaskManager {
                 log::trace!("new controller initialized");
 
                 // Create the future (async task).
-                let source_task = run_managed(name, source.source, self.in_tx.clone(), config);
-                log::trace!("source task created");
+                let source_task = run_managed(name.clone(), source.source, self.in_tx.clone(), config);
+                log::trace!("source task created: {name}");
 
                 // Spawn the future (execute the async task on the thread pool)
-                self.spawned_tasks.spawn_on(source_task, runtime);
+                #[cfg(not(tokio_unstable))]
+                {
+                    self.spawned_tasks.spawn_on(source_task, runtime);
+                }
+                #[cfg(tokio_unstable)]
+                {
+                    // Give a proper name to the tokio's task, so that it's easier to debug (in particular with tokio-console).
+                    // For now, this is an unstable API of tokio.
+                    self.spawned_tasks
+                        .build_task()
+                        .name(name.to_string().as_str())
+                        .spawn_on(source_task, runtime);
+                }
             }
             builder::SourceBuilder::Autonomous(build) => {
                 let token = self.shutdown_token.child_token();
@@ -320,13 +333,13 @@ impl TaskManager {
 
                 let source_task = run_autonomous(name.clone(), source);
                 let controller = super::task_controller::new_autonomous(token);
-                self.controllers.push((name, controller));
+                self.controllers.push((name.clone(), controller));
                 log::trace!("new controller initialized");
 
                 self.spawned_tasks.spawn_on(source_task, &self.rt_normal);
             }
         };
-        log::trace!("source task spawned on the runtime");
+        log::trace!("source task spawned on the runtime: {name}");
         Ok(())
     }
 

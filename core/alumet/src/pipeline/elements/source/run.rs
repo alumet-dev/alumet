@@ -77,22 +77,24 @@ pub(crate) async fn run_managed(
     let init_trigger = config
         .take_new_trigger()
         .expect("the Trigger must be set before starting the source");
-    log::trace!("source {source_name} got initial config");
+    log::trace!("{source_name} got initial config");
 
     // Store measurements in this buffer, and replace it every `flush_rounds` rounds.
     // For now, we don't know how many measurements the source will produce, so we allocate 1 per round.
-    let mut buffer = MeasurementBuffer::with_capacity(init_trigger.config.flush_rounds);
+    let mut buffer = MeasurementBuffer::with_capacity(init_trigger.params.flush_rounds);
 
     // This Notify is used to "interrupt" the trigger mechanism when the source configuration is modified
     // by the control loop.
     let config_change = &config.change_notifier;
 
     // Cooperate nicely with other tasks (avoid starvation).
-    let mut trigger = TriggerCoop::new(init_trigger, config_change);
+    let mut coop = TriggerCoop::new();
+    let mut trigger = init_trigger;
 
     let mut run = false;
     while !run {
         let initial_state = config.atomic_state.load(Ordering::Relaxed);
+        log::trace!("{source_name} initial state: {initial_state}");
         match initial_state.into() {
             TaskState::Run => {
                 run = true; // start the main loop
@@ -120,10 +122,13 @@ pub(crate) async fn run_managed(
         // Wait for the trigger. It can return for two reasons:
         // - "normal case": the underlying mechanism (e.g. timer) triggers <- this is the most likely case
         // - "interrupt case": the underlying mechanism was idle (e.g. sleeping) but a new command arrived
-        let reason = trigger
-            .next()
+        log::trace!("{source_name} waiting for next trigger");
+        let reason = coop
+            .with_budget(trigger.next(config_change))
             .await
             .map_err(|err| PipelineError::for_element(source_name.clone(), err))?;
+
+        log::trace!("{source_name} triggered with reason {reason:?}");
 
         let mut update;
         match reason {
@@ -147,13 +152,13 @@ pub(crate) async fn run_managed(
 
                 // Flush the measurements, not on every round for performance reasons.
                 // This is done _after_ polling, to ensure that we poll at least once before flushing, even if flush_rounds is 1.
-                if i % trigger.params().flush_rounds == 0 {
+                if i % trigger.params.flush_rounds == 0 {
                     // flush and create a new buffer
                     buffer = flush(buffer, &tx, &source_name).await;
                 }
 
                 // only update on some rounds, for performance reasons.
-                update = (i % trigger.params().update_rounds) == 0;
+                update = (i % trigger.params.update_rounds) == 0;
                 i = i.wrapping_add(1);
             }
             TriggerReason::Interrupted => {
@@ -161,22 +166,25 @@ pub(crate) async fn run_managed(
                 update = true;
             }
         };
+        log::trace!("{source_name} update = {update}");
 
         while update {
             let new_state = config.atomic_state.load(Ordering::Relaxed);
+            log::trace!("{source_name} new state: {new_state:?}");
             if let Some(new_trigger) = config.take_new_trigger() {
                 // adapt the buffer size
-                let prev_flush_rounds = trigger.params().flush_rounds;
-                let new_flush_rounds = new_trigger.config.flush_rounds;
+                let prev_flush_rounds = trigger.params.flush_rounds;
+                let new_flush_rounds = new_trigger.params.flush_rounds;
                 adapt_buffer_after_trigger_change(&mut buffer, prev_flush_rounds, new_flush_rounds);
                 // use the new trigger
-                trigger.replace_trigger(new_trigger);
+                trigger = new_trigger;
             }
             match new_state.into() {
                 TaskState::Run => {
                     update = false; // go back to polling
                 }
                 TaskState::Pause => {
+                    log::trace!("{source_name} paused, waiting for state change");
                     config_change.notified().await; // wait for the config to change
                 }
                 TaskState::Stop => {
@@ -187,6 +195,7 @@ pub(crate) async fn run_managed(
     }
 
     // source stopped, flush the buffer
+    log::debug!("{source_name} is stopping...");
     if !buffer.is_empty() {
         flush(buffer, &tx, &source_name).await;
     }

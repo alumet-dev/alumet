@@ -26,11 +26,13 @@ pub struct TriggerSpec {
 }
 
 /// Controls when the [`Source`](super::Source) is polled for measurements.
+#[derive(Debug)]
 pub(crate) struct Trigger {
-    pub config: TriggerLoopParams,
+    pub params: TriggerLoopParams,
     inner: TriggerImpl,
 }
 
+#[derive(Debug)]
 enum TriggerImpl {
     /// Single-mechanism trigger, potentially interruptible.
     Single(TriggerMechanism, Interruptible),
@@ -38,6 +40,7 @@ enum TriggerImpl {
     Double(TriggerMechanism, TriggerMechanism, Interruptible),
 }
 
+#[derive(Debug)]
 enum Interruptible {
     Yes,
     No,
@@ -172,6 +175,7 @@ pub struct ManualTrigger(Arc<Notify>);
 
 impl ManualTrigger {
     pub fn trigger_now(&self) {
+        log::trace!("trigger_now {:p}", self.0);
         self.0.notify_one();
     }
 }
@@ -197,7 +201,7 @@ impl Trigger {
             TriggerImpl::Single(mechanism, interruptible)
         };
         Ok(Self {
-            config: spec.loop_params,
+            params: spec.loop_params,
             inner,
         })
     }
@@ -206,7 +210,7 @@ impl Trigger {
         let manual = TriggerMechanism::Manual(Arc::new(Notify::new()));
         let inner = TriggerImpl::Single(manual, interruptible.into());
         Self {
-            config: TriggerLoopParams {
+            params: TriggerLoopParams {
                 flush_rounds: 1,
                 update_rounds: 1,
             },
@@ -218,7 +222,7 @@ impl Trigger {
         match &self.inner {
             TriggerImpl::Single(TriggerMechanism::Manual(notify), _)
             | TriggerImpl::Double(TriggerMechanism::Manual(notify), _, _)
-            | TriggerImpl::Double(_, TriggerMechanism::Manual(notify), _) => Some(ManualTrigger(notify.clone())),
+            | TriggerImpl::Double(_, TriggerMechanism::Manual(notify), _) => Some(ManualTrigger(Arc::clone(notify))),
             _ => None,
         }
     }
@@ -227,11 +231,13 @@ impl Trigger {
     pub async fn next(&mut self, interrupt: &Notify) -> anyhow::Result<TriggerReason> {
         match &mut self.inner {
             TriggerImpl::Single(mechanism, Interruptible::No) => {
+                log::trace!("single case");
                 // Simple case: wait for the trigger to wake up
                 mechanism.next().await?;
                 Ok(TriggerReason::Triggered)
             }
             TriggerImpl::Single(mechanism, Interruptible::Yes) => {
+                log::trace!("single+interruptible");
                 // wait for the first of two futures: normal trigger or "interruption"
                 tokio::select! {
                     biased; // don't choose the branch randomly (for performance)
@@ -246,6 +252,7 @@ impl Trigger {
                 }
             }
             TriggerImpl::Double(m1, m2, interruptible) => {
+                log::trace!("double (interruptible={interruptible:?})");
                 tokio::select! {
                     biased;
 
@@ -356,7 +363,7 @@ impl fmt::Debug for TriggerMechanism {
             Self::Timerfd(_) => f.write_str("TriggerMechanism::Timerfd"),
             Self::Sleep(_, _) => f.write_str("TriggerMechanism::Sleep"),
             Self::Future(ptr) => write!(f, "TriggerMechanism::Future({ptr:?})"),
-            Self::Manual(_) => f.write_str("TriggerMechanism::Manual"),
+            Self::Manual(notify) => write!(f, "TriggerMechanism::Manual({:p})", *notify),
         }
     }
 }
