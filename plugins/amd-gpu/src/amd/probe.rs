@@ -11,7 +11,6 @@ use super::{device::ManagedDevice, features::OptionalFeatures, metrics::Metrics}
 use crate::{
     amd::utils::{MEMORY_TYPE, METRIC_TEMP, SENSOR_TYPE},
     bindings::*,
-    interface::ProcessorProvider,
 };
 
 /// Measurement source that queries AMD GPU devices.
