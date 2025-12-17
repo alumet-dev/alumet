@@ -112,7 +112,7 @@ mod tests_metrics {
     use crate::{
         AmdError, AmdGpuPlugin, Config,
         amd::utils::{METRIC_TEMP, PLUGIN_NAME, UNEXPECTED_DATA},
-        interface::{AmdSmiRef, MockProcessorProvider, MockSocketHandle},
+        interface::{MockAmdSmiLibProvider, MockProcessorHandleProvider, MockSocketHandleProvider},
         tests::mocks::tests_mocks::{
             MOCK_ACTIVITY, MOCK_ENERGY, MOCK_ENERGY_RESOLUTION, MOCK_MEMORY, MOCK_POWER, MOCK_TEMPERATURE,
             MOCK_TIMESTAMP, MOCK_UUID, MOCK_VOLTAGE, config_to_toml_table,
@@ -131,9 +131,9 @@ mod tests_metrics {
     // Test `start` function for amd-gpu plugin metric collect without device
     #[test]
     fn test_start_error() {
-        let mut mock_init = AmdSmiRef::new();
-        let mut mock_socket = MockSocketHandle::new();
-        let mut mock_processor = MockProcessorProvider::new();
+        let mut mock_init = MockAmdSmiLibProvider::new();
+        let mut mock_socket = MockSocketHandleProvider::new();
+        let mut mock_processor = MockProcessorHandleProvider::new();
 
         mock_processor
             .expect_get_device_uuid()
@@ -182,11 +182,11 @@ mod tests_metrics {
 
         mock_socket
             .expect_get_processor_handles()
-            .return_once(move || Ok(vec![mock_processor]));
+            .return_once(move || Ok(vec![Box::new(mock_processor)]));
 
         mock_init
             .expect_get_socket_handles()
-            .return_once(move || Ok(vec![mock_socket]));
+            .return_once(move || Ok(vec![Box::new(mock_socket)]));
 
         let mut plugins = PluginSet::new();
         let config = Config { ..Default::default() };
