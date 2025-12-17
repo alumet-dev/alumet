@@ -1,6 +1,20 @@
 #[cfg(test)]
 pub mod tests_mocks {
-    use crate::{Config, bindings::*};
+    use crate::{
+        Config,
+        bindings::{
+            amdsmi_engine_usage_t, amdsmi_memory_type_t, amdsmi_memory_type_t_AMDSMI_MEM_TYPE_GTT,
+            amdsmi_memory_type_t_AMDSMI_MEM_TYPE_VRAM, amdsmi_power_info_t, amdsmi_proc_info_t,
+            amdsmi_proc_info_t_engine_usage_, amdsmi_proc_info_t_memory_usage_, amdsmi_temperature_type_t,
+            amdsmi_temperature_type_t_AMDSMI_TEMPERATURE_TYPE_EDGE,
+            amdsmi_temperature_type_t_AMDSMI_TEMPERATURE_TYPE_HBM_0,
+            amdsmi_temperature_type_t_AMDSMI_TEMPERATURE_TYPE_HBM_1,
+            amdsmi_temperature_type_t_AMDSMI_TEMPERATURE_TYPE_HBM_2,
+            amdsmi_temperature_type_t_AMDSMI_TEMPERATURE_TYPE_HBM_3,
+            amdsmi_temperature_type_t_AMDSMI_TEMPERATURE_TYPE_JUNCTION,
+            amdsmi_temperature_type_t_AMDSMI_TEMPERATURE_TYPE_PLX,
+        },
+    };
 
     pub const MOCK_TIMESTAMP: u64 = 1712024507665;
     pub const MOCK_UUID: &str = "a4ff740f-0000-1000-80ea-e05c945bb3b2";

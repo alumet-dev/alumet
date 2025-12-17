@@ -9,6 +9,7 @@ fn main() {
         .headers(["./include/amdsmi.h", "./include/amd_smiConfig.h"])
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .dynamic_library_name("libamd_smi")
+        .raw_line("#![allow(warnings)]")
         .generate()
         .unwrap();
 
