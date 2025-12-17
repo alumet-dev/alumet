@@ -19,18 +19,14 @@ const BUDGET_ANY_TRIGGER: u32 = 5;
 ///
 /// Avoids starvation in case the same trigger is immediately ready too many times in a row.
 /// Unlike [`tokio::task::coop`], `TriggerCoop` has several distinct budgets and a very small limit.
-pub(crate) struct TriggerCoop<'i> {
-    inner: Trigger,
-    interrupt: &'i Notify,
+pub(crate) struct TriggerCoop {
     budget: TriggerBudget,
     previously_ready: Option<TriggerReason>,
 }
 
-pub(crate) struct TriggerCoopNext<'a> {
-    inner: &'a mut Trigger,
-    interrupt: &'a Notify,
-    budget: &'a mut TriggerBudget,
-    previously_ready: &'a mut Option<TriggerReason>,
+pub(crate) struct TriggerCoopNext<'a, F: Future<Output = anyhow::Result<TriggerReason>>> {
+    inner: F,
+    coop: &'a mut TriggerCoop,
 }
 
 #[derive(Debug)]
@@ -94,62 +90,66 @@ impl Default for TriggerBudget {
     }
 }
 
-impl<'i> TriggerCoop<'i> {
-    pub fn new(trigger: Trigger, interrupt: &'i Notify) -> Self {
+impl TriggerCoop {
+    /// Creates a new `TriggerCoop` with a full budget.
+    pub fn new() -> Self {
         Self {
-            inner: trigger,
-            interrupt,
             budget: TriggerBudget::default(),
             previously_ready: None,
         }
     }
 
-    pub fn next(&mut self) -> TriggerCoopNext<'_> {
+    /// Wraps a future with a budget, which limits the number of times that it can be immediately ready in a row.
+    ///
+    /// # Example
+    /// ```ignore
+    /// # async fn f(x: Trigger, interrupt: Notify) {
+    /// let mut coop = TriggerCoop::new();
+    /// let reason = coop.with_budget(trigger.next(&interrupt)).await;
+    /// # }
+    /// ```
+    ///
+    /// # Which futures can I limit?
+    ///
+    /// `TriggerCoop` is meant to work with Alumet's `Trigger`, not with any future. That is why it only supports futures that return `Result<TriggerReason>`.
+    pub fn with_budget<F>(&mut self, future: F) -> TriggerCoopNext<'_, F>
+    where
+        F: Future<Output = anyhow::Result<TriggerReason>>,
+    {
+        // IMPORTANT: the initial version of the coop stored the `Trigger` and generated a new future in poll, by calling `trigger.next()`.
+        // Problem: the future was dropped in the coop's poll, which cancelled it, preventing it from working in scenarios where it should have been woken up later.
+        // The solution is to store the future in `TriggerCoopNext`, so that it's not cancelled while we need it. Also, this makes the separation between trigger-related things and coop-related things more clear: coop only takes care of coop.
         TriggerCoopNext {
-            inner: &mut self.inner,
-            interrupt: self.interrupt,
-            budget: &mut self.budget,
-            previously_ready: &mut self.previously_ready,
+            inner: future,
+            coop: self,
         }
-    }
-
-    /// Replaces the inner `Trigger`, but does not reset the budget.
-    pub fn replace_trigger(&mut self, new_trigger: Trigger) {
-        self.inner = new_trigger;
-    }
-
-    pub fn params(&self) -> &TriggerLoopParams {
-        &self.inner.config
     }
 }
 
-impl<'a> Future for TriggerCoopNext<'a> {
+impl<'a, F: Future<Output = anyhow::Result<TriggerReason>>> Future for TriggerCoopNext<'a, F> {
     type Output = anyhow::Result<TriggerReason>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         // SAFETY: we never use the fields directly after this block,
         // and we never move the data out of `this`.
-        let (mut inner, interrupt, budget, previously_ready) = unsafe {
+        let (fut, budget, previously_ready) = unsafe {
             let this = self.get_unchecked_mut();
             (
                 Pin::new_unchecked(&mut this.inner),
-                this.interrupt,
-                &mut this.budget,
-                &mut this.previously_ready,
+                &mut this.coop.budget,
+                &mut this.coop.previously_ready,
             )
         };
 
-        // pin the future so that we can poll() it
-        let trigger_next = pin!(inner.next(interrupt));
-
         // If we were ready last time, but throttled by the budget, we are ready now.
         if let Some(res) = previously_ready.take() {
+            log::trace!("previously ready! returning now");
             budget.consume(res);
             return Poll::Ready(Ok(res));
         }
 
         // poll the trigger and see what happens
-        match trigger_next.poll(cx) {
+        match fut.poll(cx) {
             Poll::Ready(err @ Err(_)) => {
                 // propagate the error immediately
                 Poll::Ready(err)
@@ -169,7 +169,8 @@ impl<'a> Future for TriggerCoopNext<'a> {
                         // For example, if the underlying trigger was triggered by Notify::notify_one(), this notification
                         // has been consumed by trigger_next.poll() above, and the future will never progress if we don't
                         // remember that it was ready.
-                        **previously_ready = Some(reason);
+                        log::trace!("budget exhausted, throttling");
+                        *previously_ready = Some(reason);
 
                         budget.reset();
                         tokio_yield(cx).map(|_| Ok(reason))
@@ -203,21 +204,26 @@ mod tests {
     fn cooop_triggered_same_manual() {
         let mut cx = Context::from_waker(Waker::noop());
         let interrupt = Notify::new();
-        let trigger = Trigger::new_manual(false);
+        let mut trigger = Trigger::new_manual(false);
         let manual_trigger = trigger.manual_trigger().unwrap();
-        let mut t = TriggerCoop::new(trigger, &interrupt);
+
+        let mut coop = TriggerCoop::new();
 
         // before the trigger action, we should not be ready
+        let fut = coop.with_budget(trigger.next(&interrupt));
         assert!(
-            pin!(t.next()).poll(&mut cx).is_pending(),
+            pin!(fut).poll(&mut cx).is_pending(),
             "should be pending before it is triggered"
         );
 
         // until we reach the budget, we can be ready multiple times in a row
         for _ in 0..BUDGET_SAME_TRIGGER {
-            manual_trigger.trigger_now(); // trigger
-            let next = pin!(t.next());
-            let res = next.poll(&mut cx);
+            // trigger
+            manual_trigger.trigger_now();
+            // try
+            let fut = coop.with_budget(trigger.next(&interrupt));
+            let res = pin!(fut).poll(&mut cx);
+            // assert triggered
             assert!(
                 matches!(res, Poll::Ready(Ok(TriggerReason::Triggered))),
                 "should be ready immediately after manual trigger, but was {res:?}"
@@ -226,16 +232,20 @@ mod tests {
 
         // the budget has now expired
         manual_trigger.trigger_now();
+        let fut = coop.with_budget(trigger.next(&interrupt));
         assert!(
-            pin!(t.next()).poll(&mut cx).is_pending(),
+            pin!(fut).poll(&mut cx).is_pending(),
             "budget has expired, should be pending (cool down)"
         );
 
         // the budget has been reset
         for _ in 0..BUDGET_SAME_TRIGGER {
-            manual_trigger.trigger_now(); // trigger
-            let next = pin!(t.next());
-            let res = next.poll(&mut cx);
+            // trigger
+            manual_trigger.trigger_now();
+            // try
+            let fut = coop.with_budget(trigger.next(&interrupt));
+            let res = pin!(fut).poll(&mut cx);
+            // assert triggered
             assert!(
                 matches!(res, Poll::Ready(Ok(TriggerReason::Triggered))),
                 "should be ready immediately after manual trigger, but was {res:?}"
@@ -244,8 +254,9 @@ mod tests {
 
         // the budget has expired again
         manual_trigger.trigger_now();
+        let fut = coop.with_budget(trigger.next(&interrupt));
         assert!(
-            pin!(t.next()).poll(&mut cx).is_pending(),
+            pin!(fut).poll(&mut cx).is_pending(),
             "budget has expired, should be pending (cool down)"
         );
     }
@@ -254,20 +265,24 @@ mod tests {
     fn cooop_triggered_same_interrupt() {
         let mut cx = Context::from_waker(Waker::noop());
         let interrupt = Notify::new();
-        let trigger = Trigger::new_manual(true);
-        let mut t = TriggerCoop::new(trigger, &interrupt);
+        let mut trigger = Trigger::new_manual(true);
+        let mut coop = TriggerCoop::new();
 
         // before the trigger action, we should not be ready
+        let fut = coop.with_budget(trigger.next(&interrupt));
         assert!(
-            pin!(t.next()).poll(&mut cx).is_pending(),
+            pin!(fut).poll(&mut cx).is_pending(),
             "should be pending before it is triggered"
         );
 
         // until we reach the budget, we can be ready multiple times in a row
         for _ in 0..BUDGET_SAME_TRIGGER {
-            interrupt.notify_one(); // trigger
-            let next = pin!(t.next());
-            let res = next.poll(&mut cx);
+            // trigger
+            interrupt.notify_one();
+            // try
+            let fut = coop.with_budget(trigger.next(&interrupt));
+            let res = pin!(fut).poll(&mut cx);
+            // assert triggered
             assert!(
                 matches!(res, Poll::Ready(Ok(TriggerReason::Interrupted))),
                 "should be ready immediately after interrupt, but was {res:?}"
@@ -276,16 +291,21 @@ mod tests {
 
         // the budget has now expired
         interrupt.notify_one();
+        let fut = coop.with_budget(trigger.next(&interrupt));
+
         assert!(
-            pin!(t.next()).poll(&mut cx).is_pending(),
+            pin!(fut).poll(&mut cx).is_pending(),
             "budget has expired, should be pending (cool down)"
         );
 
         // the budget has been reset
         for _ in 0..BUDGET_SAME_TRIGGER {
-            interrupt.notify_one(); // trigger
-            let next = pin!(t.next());
-            let res = next.poll(&mut cx);
+            // trigger
+            interrupt.notify_one();
+            // try
+            let fut = coop.with_budget(trigger.next(&interrupt));
+            let res = pin!(fut).poll(&mut cx);
+            // assert triggered
             assert!(
                 matches!(res, Poll::Ready(Ok(TriggerReason::Interrupted))),
                 "should be ready immediately after interrupt, but was {res:?}"
@@ -294,8 +314,9 @@ mod tests {
 
         // the budget has expired again
         interrupt.notify_one();
+        let fut = coop.with_budget(trigger.next(&interrupt));
         assert!(
-            pin!(t.next()).poll(&mut cx).is_pending(),
+            pin!(fut).poll(&mut cx).is_pending(),
             "budget has expired, should be pending (cool down)"
         );
     }
@@ -304,13 +325,15 @@ mod tests {
     fn cooop_triggered_any() {
         let mut cx = Context::from_waker(Waker::noop());
         let interrupt = Notify::new();
-        let trigger = Trigger::new_manual(true);
+        let mut trigger = Trigger::new_manual(true);
         let manual_trigger = trigger.manual_trigger().unwrap();
-        let mut t = TriggerCoop::new(trigger, &interrupt);
+
+        let mut coop = TriggerCoop::new();
 
         // before the trigger action, we should not be ready
+        let fut = coop.with_budget(trigger.next(&interrupt));
         assert!(
-            pin!(t.next()).poll(&mut cx).is_pending(),
+            pin!(fut).poll(&mut cx).is_pending(),
             "should be pending before it is triggered"
         );
 
@@ -323,8 +346,9 @@ mod tests {
                 interrupt.notify_one();
             }
             // poll the future
-            let next = pin!(t.next());
-            let res = next.poll(&mut cx);
+            let fut = coop.with_budget(trigger.next(&interrupt));
+            let res = pin!(fut).poll(&mut cx);
+            // assert triggered
             assert!(
                 matches!(res, Poll::Ready(Ok(_))),
                 "should be ready immediately after interrupt, but was {res:?}"
@@ -333,17 +357,20 @@ mod tests {
 
         // the budget has now expired
         interrupt.notify_one();
+        let fut = coop.with_budget(trigger.next(&interrupt));
         assert!(
-            pin!(t.next()).poll(&mut cx).is_pending(),
+            pin!(fut).poll(&mut cx).is_pending(),
             "budget has expired, should be pending (cool down)"
         );
 
         // the budget has been reset
         interrupt.notify_one();
-        assert!(pin!(t.next()).poll(&mut cx).is_ready(), "budget should have been reset");
+        let fut = coop.with_budget(trigger.next(&interrupt));
+        assert!(pin!(fut).poll(&mut cx).is_ready(), "budget should have been reset");
 
         manual_trigger.trigger_now();
-        assert!(pin!(t.next()).poll(&mut cx).is_ready(), "budget should have been reset");
+        let fut = coop.with_budget(trigger.next(&interrupt));
+        assert!(pin!(fut).poll(&mut cx).is_ready(), "budget should have been reset");
     }
 
     #[test]
@@ -351,13 +378,14 @@ mod tests {
         // builder for a busy-loop task
         async fn busy_loop(label: &'static str, counter: Arc<AtomicU32>, limit: u32) -> u32 {
             let interrupt = Notify::new();
-            let trigger = Trigger::new_manual(true);
+            let mut trigger = Trigger::new_manual(true);
             let manual = trigger.manual_trigger().unwrap();
-            let mut trigger = TriggerCoop::new(trigger, &interrupt);
+
+            let mut coop = TriggerCoop::new();
             loop {
                 println!("{label}");
                 manual.trigger_now();
-                let next = trigger.next().await;
+                let next = coop.with_budget(trigger.next(&interrupt)).await;
                 assert_eq!(next.unwrap(), TriggerReason::Triggered, "bad trigger reason");
                 let v = counter.fetch_add(1, Ordering::Relaxed) + 1;
                 println!("{label}: {v}");
@@ -385,8 +413,8 @@ mod tests {
         let handle_c = rt.spawn(task_c);
 
         rt.block_on(async {
-            let res_b = handle_b.await.unwrap();
-            let res_c = handle_c.await.unwrap();
+            let _res_b = handle_b.await.unwrap();
+            let _res_c = handle_c.await.unwrap();
             let res_a = counter_a.load(Ordering::Relaxed);
             assert!(
                 res_a < LIMIT_MAX,
@@ -394,7 +422,7 @@ mod tests {
             );
             // stop a now
             counter_a.store(LIMIT_MAX, Ordering::Relaxed);
-            let res_a = handle_a.await.unwrap();
+            let _res_a = handle_a.await.unwrap();
         });
     }
 }
