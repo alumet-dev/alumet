@@ -415,6 +415,7 @@ impl TestExpectations for RuntimeExpectations {
 
             let task = async move {
                 // Disable everything, except the special output (in order to consume the measurements).
+                log::debug!("Disabling every pipeline element.");
                 let requests: Vec<AnyAnonymousControlRequest> = vec![
                     request::source(SourceNamePattern::wildcard()).disable().into(),
                     request::transform(TransformNamePattern::wildcard()).disable().into(),
@@ -426,6 +427,7 @@ impl TestExpectations for RuntimeExpectations {
                 send_requests(&control, requests).await;
 
                 // Test sources in isolation
+                log::debug!("Testing sources…");
                 for (name, controller) in source_tests.into_iter() {
                     let SourceTestController {
                         checks,
@@ -433,9 +435,12 @@ impl TestExpectations for RuntimeExpectations {
                         mut done_rx,
                     } = controller;
 
-                    if !checks.is_empty() {
-                        log::debug!("Checking {name}...");
+                    if checks.is_empty() {
+                        continue;
                     }
+
+                    log::debug!("Checking {name}...");
+
                     // enable the source
                     control
                         .send_wait(request::source(name.clone()).enable(), CONTROL_TIMEOUT)
@@ -467,9 +472,9 @@ impl TestExpectations for RuntimeExpectations {
                 }
 
                 // From now on, we will use the special "tester" source to send arbitrary data to transform steps and outputs.
-                //
 
                 // Test transforms in isolation
+                log::debug!("Testing transforms…");
                 for (name, controller) in transform_tests.into_iter() {
                     let TransformTestController {
                         checks,
@@ -477,9 +482,11 @@ impl TestExpectations for RuntimeExpectations {
                         mut done_rx,
                     } = controller;
 
-                    if !checks.is_empty() {
-                        log::debug!("Checking {name}...");
+                    if checks.is_empty() {
+                        continue;
                     }
+
+                    log::debug!("Checking {name}...");
 
                     // enable the transform
                     control
@@ -515,6 +522,7 @@ impl TestExpectations for RuntimeExpectations {
                 }
 
                 // Test outputs
+                log::debug!("Testing outputs…");
                 for (name, controller) in output_tests.into_iter() {
                     let OutputTestController {
                         checks,
@@ -522,9 +530,11 @@ impl TestExpectations for RuntimeExpectations {
                         mut done_rx,
                     } = controller;
 
-                    if !checks.is_empty() {
-                        log::debug!("Checking {name}...");
+                    if checks.is_empty() {
+                        continue;
                     }
+
+                    log::debug!("Checking {name}...");
 
                     // Enable the output and discard any pending data, otherwise
                     // the output will see the measurements sent by the tested sources and
