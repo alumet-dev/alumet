@@ -8,7 +8,14 @@ use std::{
 };
 use thiserror::Error;
 
-use crate::{amd::utils::*, bindings::*};
+use crate::{
+    amd::utils::*,
+    bindings::{
+        amdsmi_engine_usage_t, amdsmi_memory_type_t, amdsmi_power_info_t, amdsmi_proc_info_t, amdsmi_processor_handle,
+        amdsmi_socket_handle, amdsmi_status_t, amdsmi_temperature_metric_t, amdsmi_temperature_type_t,
+        amdsmi_voltage_metric_t, amdsmi_voltage_type_t, libamd_smi,
+    },
+};
 
 /// Error treatment concerning AMD SMI library.
 ///
@@ -32,51 +39,80 @@ pub struct AmdSmiLib {
     amdsmi: Arc<libamd_smi>,
 }
 
-#[cfg(not(test))]
-pub type MockableSocketHandle = SocketHandle;
-#[cfg(test)]
-pub type MockableSocketHandle = MockSocketHandle;
+pub struct SocketHandle {
+    amdsmi: AmdSmiLib,
+    inner: amdsmi_socket_handle,
+}
 
-#[cfg(not(test))]
-pub type MockableProcessorHandle = ProcessorHandle;
-#[cfg(test)]
-pub type MockableProcessorHandle = MockProcessorProvider;
+pub struct ProcessorHandle {
+    pub amdsmi: AmdSmiLib,
+    pub inner: amdsmi_processor_handle,
+}
 
-#[cfg(not(test))]
-pub type AmdSmiRef = AmdSmiLib;
-#[cfg(test)]
-pub type AmdSmiRef = MockAmdSmiLib;
+pub type MockableSocketHandle = Box<dyn SocketHandleProvider>;
+pub type MockableProcessorHandle = Box<dyn ProcessorHandleProvider>;
 
 #[automock]
-impl AmdSmiLib {
-    /// Call the unsafe C binding function [`amdsmi_init`] to quit amd-smi library and clean properly its resources.
-    ///
-    /// # Arguments
-    ///
-    /// - `amdsmi_init_flags_t`: A [`amdsmi_init_flags_t`] type value use to define how AMD hardware we need to initialize (GPU, CPU).
+pub trait AmdSmiLibProvider: Send + Sync {
+    fn lib_init() -> Result<Box<dyn AmdSmiLibProvider>, AmdInitError>
+    where
+        Self: Sized;
+    fn lib_stop(&self) -> Result<(), AmdError>;
+    fn get_socket_handles(&self) -> Result<Vec<MockableSocketHandle>, AmdError>;
+}
+
+#[automock]
+pub trait SocketHandleProvider {
+    fn get_processor_handles(&self) -> Result<Vec<MockableProcessorHandle>, AmdError>;
+}
+
+#[automock]
+pub trait ProcessorHandleProvider {
+    fn get_device_uuid(&self) -> Result<String, AmdError>;
+    fn get_device_activity(&self) -> Result<amdsmi_engine_usage_t, AmdError>;
+    fn get_device_energy_consumption(&self) -> Result<(u64, f32, u64), AmdError>;
+    fn get_device_memory_usage(&self, mem_type: amdsmi_memory_type_t) -> Result<u64, AmdError>;
+    fn get_device_power_consumption(&self) -> Result<amdsmi_power_info_t, AmdError>;
+    fn get_device_power_managment(&self) -> Result<bool, AmdError>;
+    fn get_device_process_list(&self) -> Result<Vec<amdsmi_proc_info_t>, AmdError>;
+    fn get_device_temperature(
+        &self,
+        sensor_type: amdsmi_temperature_type_t,
+        metric: amdsmi_temperature_metric_t,
+    ) -> Result<i64, AmdError>;
+    fn get_device_voltage(
+        &self,
+        sensor_type: amdsmi_voltage_type_t,
+        metric: amdsmi_voltage_metric_t,
+    ) -> Result<i64, AmdError>;
+}
+
+#[cfg(not(test))]
+impl AmdSmiLibProvider for AmdSmiLib {
+    /// Call the unsafe C binding function [`amdsmi_init`] to initialize and start amd-smi library with [`INIT_FLAG`].
     ///
     /// # Returns
     ///
-    /// - A [`amdsmi_status_t`] error if we can't to retrieve the value
-    pub fn init() -> Result<Self, AmdInitError> {
-        let amdsmi = unsafe { libamd_smi::new(LIB_PATH) }?;
-        let result = unsafe { amdsmi.amdsmi_init(INIT_FLAG.into()) };
+    /// - A [`AmdError`] error if we can't to retrieve the value
+    fn lib_init() -> Result<Box<dyn AmdSmiLibProvider>, AmdInitError> {
+        let amdsmi = unsafe { libamd_smi::new(LIB_PATH)? };
 
-        if result == SUCCESS {
-            Ok(Self {
-                amdsmi: unsafe { libamd_smi::new(LIB_PATH) }?.into(),
-            })
-        } else {
-            Err(AmdInitError::Init(AmdError(result)))
+        let result = unsafe { amdsmi.amdsmi_init(INIT_FLAG.into()) };
+        if result != SUCCESS {
+            return Err(AmdInitError::Init(AmdError(result)));
         }
+
+        Ok(Box::new(AmdSmiLib {
+            amdsmi: Arc::new(amdsmi),
+        }))
     }
 
     /// Call the unsafe C binding function [`amdsmi_shut_down`] to quit amd-smi library and clean properly its resources.
     ///
     /// # Returns
     ///
-    /// - A [`amdsmi_status_t`] error if we can't to retrieve the value
-    pub fn stop(&self) -> Result<(), AmdError> {
+    /// - A [`AmdError`] error if we can't to retrieve the value
+    fn lib_stop(&self) -> Result<(), AmdError> {
         let result = unsafe { self.amdsmi.amdsmi_shut_down() };
         if result == SUCCESS {
             Ok(())
@@ -89,15 +125,9 @@ impl AmdSmiLib {
     ///
     /// # Returns
     ///
-    /// - Set of [`amdsmi_socket_handle`] pointer to a block of memory to which values will be written.
-    /// - A [`amdsmi_status_t`] error if we can't to retrieve the value
-    #[cfg(test)]
-    pub fn get_socket_handles(&self) -> Result<Vec<MockableSocketHandle>, AmdError> {
-        panic!("you should use the mock in the tests");
-    }
-
-    #[cfg(not(test))]
-    pub fn get_socket_handles(&self) -> Result<Vec<MockableSocketHandle>, AmdError> {
+    /// - Set of [`SocketHandle`] pointer to a block of memory to which values will be written.
+    /// - A [`AmdError`] error if we can't to retrieve the value
+    fn get_socket_handles(&self) -> Result<Vec<MockableSocketHandle>, AmdError> {
         let mut socket_count = 0;
         let result = unsafe { self.amdsmi.amdsmi_get_socket_handles(&mut socket_count, null_mut()) };
         if result != SUCCESS {
@@ -114,9 +144,11 @@ impl AmdSmiLib {
             socket_handles.truncate(socket_count as usize);
             Ok(socket_handles
                 .into_iter()
-                .map(|s| SocketHandle {
-                    amdsmi: self.clone(),
-                    inner: s,
+                .map(|s| {
+                    Box::new(SocketHandle {
+                        amdsmi: self.clone(),
+                        inner: s,
+                    }) as MockableSocketHandle
                 })
                 .collect())
         } else {
@@ -125,18 +157,8 @@ impl AmdSmiLib {
     }
 }
 
-pub struct SocketHandle {
-    amdsmi: AmdSmiLib,
-    inner: amdsmi_socket_handle,
-}
-
-#[automock]
-impl SocketHandle {
-    #[cfg(test)]
-    pub fn get_processor_handles(&self) -> Result<Vec<MockableProcessorHandle>, AmdError> {
-        panic!("you should use the mock in the tests");
-    }
-
+#[cfg(not(test))]
+impl SocketHandleProvider for SocketHandle {
     /// Call the unsafe C binding function [`amdsmi_get_processor_handles`] to retrieve socket handles detected for a give socket.
     ///
     /// # Arguments
@@ -147,8 +169,7 @@ impl SocketHandle {
     ///
     /// - Set of [`ProcessorHandle`] of pointer to a block of memory to which values will be written.
     /// - A [`AmdError`] error if we can't to retrieve the value
-    #[cfg(not(test))]
-    pub fn get_processor_handles(&self) -> Result<Vec<MockableProcessorHandle>, AmdError> {
+    fn get_processor_handles(&self) -> Result<Vec<MockableProcessorHandle>, AmdError> {
         let mut processor_count = 0;
 
         let result = unsafe {
@@ -173,9 +194,11 @@ impl SocketHandle {
             processor_handles.truncate(processor_count as usize);
             Ok(processor_handles
                 .into_iter()
-                .map(|p| ProcessorHandle {
-                    amdsmi: self.amdsmi.clone(),
-                    inner: p,
+                .map(|s| {
+                    Box::new(ProcessorHandle {
+                        amdsmi: self.amdsmi.clone(),
+                        inner: s,
+                    }) as MockableProcessorHandle
                 })
                 .collect())
         } else {
@@ -184,33 +207,8 @@ impl SocketHandle {
     }
 }
 
-#[automock]
-pub trait ProcessorProvider {
-    fn get_device_uuid(&self) -> Result<String, AmdError>;
-    fn get_device_activity(&self) -> Result<amdsmi_engine_usage_t, AmdError>;
-    fn get_device_energy_consumption(&self) -> Result<(u64, f32, u64), AmdError>;
-    fn get_device_memory_usage(&self, mem_type: amdsmi_memory_type_t) -> Result<u64, AmdError>;
-    fn get_device_power_consumption(&self) -> Result<amdsmi_power_info_t, AmdError>;
-    fn get_device_power_managment(&self) -> Result<bool, AmdError>;
-    fn get_device_process_list(&self) -> Result<Vec<amdsmi_proc_info_t>, AmdError>;
-    fn get_device_temperature(
-        &self,
-        sensor_type: amdsmi_temperature_type_t,
-        metric: amdsmi_temperature_metric_t,
-    ) -> Result<i64, AmdError>;
-    fn get_device_voltage(
-        &self,
-        sensor_type: amdsmi_voltage_type_t,
-        metric: amdsmi_voltage_metric_t,
-    ) -> Result<i64, AmdError>;
-}
-
-pub struct ProcessorHandle {
-    pub amdsmi: AmdSmiLib,
-    pub inner: amdsmi_processor_handle,
-}
-
-impl ProcessorProvider for ProcessorHandle {
+#[cfg(not(test))]
+impl ProcessorHandleProvider for ProcessorHandle {
     /// Call the unsafe C binding function [`amdsmi_get_gpu_device_uuid`] to retrieve gpu uuid identifier values.
     /// Convert a declared buffer with an [`AMDSMI_GPU_UUID_SIZE`] in UTF-8 Rust string.
     ///
@@ -223,8 +221,8 @@ impl ProcessorProvider for ProcessorHandle {
     /// - The formatted string corresponding of UUID of a gpu device.
     /// - A [`AmdError`] error if we can't to retrieve the value.
     fn get_device_uuid(&self) -> Result<String, AmdError> {
-        let mut uuid_buffer = vec![0 as c_char; AMDSMI_GPU_UUID_SIZE as usize];
-        let mut uuid_length = AMDSMI_GPU_UUID_SIZE;
+        let mut uuid_buffer = vec![0 as c_char; UUID_LENGTH as usize];
+        let mut uuid_length = UUID_LENGTH;
         let result = unsafe {
             self.amdsmi
                 .amdsmi

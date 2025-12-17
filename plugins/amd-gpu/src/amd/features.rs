@@ -4,7 +4,7 @@ use crate::{
         VOLTAGE_METRIC, VOLTAGE_SENSOR_TYPE,
     },
     bindings::*,
-    interface::ProcessorProvider,
+    interface::ProcessorHandleProvider,
 };
 use std::fmt::{self, Display, Formatter};
 
@@ -43,7 +43,7 @@ pub fn is_supported<T>(res: Result<T, amdsmi_status_t>) -> Result<bool, amdsmi_s
 
 impl OptionalFeatures {
     /// Detect the features available on the given device.
-    pub fn detect_on(processor_handle: &impl ProcessorProvider) -> Result<Self, amdsmi_status_t> {
+    pub fn detect_on(processor_handle: &dyn ProcessorHandleProvider) -> Result<Self, amdsmi_status_t> {
         let mut gpu_temperatures = Vec::new();
         let mut gpu_memories_usage = Vec::new();
 
@@ -78,7 +78,9 @@ impl OptionalFeatures {
     }
 
     /// Test and return the availability of feature on a given
-    pub fn with_detected_features<P: ProcessorProvider>(device: &P) -> Result<(&P, Self), amdsmi_status_t> {
+    pub fn with_detected_features(
+        device: &dyn ProcessorHandleProvider,
+    ) -> Result<(&dyn ProcessorHandleProvider, Self), amdsmi_status_t> {
         Self::detect_on(device).map(|features| (device, features))
     }
 
@@ -136,7 +138,7 @@ impl Display for OptionalFeatures {
 mod tests_feature {
     use super::*;
     use crate::{
-        interface::{AmdError, MockProcessorProvider},
+        interface::{AmdError, MockProcessorHandleProvider},
         tests::mocks::tests_mocks::{
             MOCK_ACTIVITY, MOCK_ENERGY, MOCK_ENERGY_RESOLUTION, MOCK_MEMORY, MOCK_POWER, MOCK_PROCESS,
             MOCK_TEMPERATURE, MOCK_VOLTAGE,
@@ -253,7 +255,7 @@ mod tests_feature {
     // Test `detect_on` function in success case
     #[test]
     fn test_detect_on_success() {
-        let mut mock = MockProcessorProvider::new();
+        let mut mock = MockProcessorHandleProvider::new();
 
         mock.expect_get_device_activity().returning(|| Ok(MOCK_ACTIVITY));
 
@@ -294,7 +296,7 @@ mod tests_feature {
     // Test `with_detected_features` function in success case
     #[test]
     fn test_with_detected_features_success() {
-        let mut mock = MockProcessorProvider::new();
+        let mut mock = MockProcessorHandleProvider::new();
 
         mock.expect_get_device_activity().returning(|| Ok(MOCK_ACTIVITY));
 
