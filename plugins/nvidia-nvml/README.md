@@ -28,6 +28,8 @@ One source will be created per GPU device.
 |`nvml_decoder_utilization`|Gauge|Percentage|GPU video decoder utilization by a process|Process|LocalMachine||
 |`nvml_sm_utilization`|Gauge|Percentage|Utilization of the GPU streaming multiprocessors by a process (3D task and rendering, etc...)|Process|LocalMachine||
 
+Some metrics can be disabled, see the `mode` configuration option.
+
 ## Configuration
 
 Here is an example of how to configure this plugin.
@@ -45,7 +47,22 @@ flush_interval = "5s"
 # If `skip_failed_devices = true` (or is omitted), inspection failures will be logged and the plugin will continue.
 # If `skip_failed_devices = true`, the first failure will make the plugin's startup fail.
 skip_failed_devices = true
+
+# See below
+mode = "full"
 ```
+
+### Choosing the Right Mode
+
+The NVML plugin offers two modes: `full` and `minimal`.
+
+In `full` mode, all the metrics listed in the table above are provided (if they are available on the GPU).
+
+If you want to make the GPU measurement faster, you can use the `minimal` mode.
+
+In `minimal` mode, only `nvml_energy_consumption` and `nvml_instant_power` are provided.
+The only measured value is `nvml_instant_power`. It is used to estimate `nvml_energy_consumption`.
+The `minimal` mode only works on GPU that support the `nvmlDeviceGetPowerUsage` device query (the plugin detects if this is the case on startup).
 
 ## More information
 
