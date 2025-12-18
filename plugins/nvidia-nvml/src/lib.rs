@@ -10,6 +10,11 @@ use alumet::{
     },
 };
 
+use crate::{
+    metrics::{FullMetrics, MinimalMetrics},
+    probe::SourceProvider,
+};
+
 mod device;
 mod features;
 mod metrics;
@@ -68,7 +73,10 @@ impl AlumetPlugin for NvmlPlugin {
                 );
             }
         }
-        let metrics = metrics::Metrics::new(alumet)?;
+        let source_provider = match self.config.mode {
+            Mode::Full => SourceProvider::Full(FullMetrics::new(alumet)?),
+            Mode::Minimal => SourceProvider::Minimal(MinimalMetrics::new(alumet)?),
+        };
 
         for maybe_device in nvml.devices {
             if let Some(device) = maybe_device {
@@ -77,9 +85,9 @@ impl AlumetPlugin for NvmlPlugin {
                     .flush_interval(self.config.flush_interval)
                     .build()?;
 
-                let source: Box<dyn Source> = match self.config.mode {
-                    Mode::Full => Box::new(probe::FullSource::new(device, metrics.clone())?),
-                    Mode::Minimal => Box::new(probe::MinimalSource::new(device, metrics.clone())?),
+                let source: Box<dyn Source> = match &source_provider {
+                    SourceProvider::Full(metrics) => Box::new(probe::FullSource::new(device, metrics.clone())?),
+                    SourceProvider::Minimal(metrics) => Box::new(probe::MinimalSource::new(device, metrics.clone())?),
                 };
                 alumet.add_source(&source_name, source, trigger)?;
             }

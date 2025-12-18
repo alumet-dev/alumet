@@ -6,7 +6,7 @@ use alumet::{
 
 /// Contains the ids of the measured metrics.
 #[derive(Clone)]
-pub struct Metrics {
+pub struct FullMetrics {
     /// Total electric energy consumed by GPU in mJ.
     pub total_energy_consumption: TypedMetricId<f64>,
     /// Electric energy consumption measured at a given time in μJ.
@@ -33,7 +33,15 @@ pub struct Metrics {
     pub running_graphics_processes: TypedMetricId<u64>,
 }
 
-impl Metrics {
+#[derive(Clone)]
+pub struct MinimalMetrics {
+    /// Total electric energy consumed by GPU in mJ (estimated from the power).
+    pub total_energy_consumption: TypedMetricId<f64>,
+    /// Electric energy consumption measured at a given time in μJ.
+    pub instant_power: TypedMetricId<u64>,
+}
+
+impl FullMetrics {
     /// Creates new Alumet metrics for NVML measurements and stores their ids in a `Metrics` structure.
     pub fn new(alumet: &mut AlumetPluginStart) -> Result<Self, MetricCreationError> {
         Ok(Self {
@@ -98,6 +106,23 @@ impl Metrics {
                 "nvml_sm_utilization",
                 Unit::Percent,
                 "Utilization of the GPU streaming multiprocessors by the process",
+            )?,
+        })
+    }
+}
+
+impl MinimalMetrics {
+    pub fn new(alumet: &mut AlumetPluginStart) -> Result<Self, MetricCreationError> {
+        Ok(Self {
+            total_energy_consumption: alumet.create_metric(
+                "nvml_energy_consumption",
+                PrefixedUnit::milli(Unit::Joule),
+                "Energy consumption by the GPU (including memory) since the previous measurement",
+            )?,
+            instant_power: alumet.create_metric(
+                "nvml_instant_power",
+                PrefixedUnit::milli(Unit::Watt),
+                "Instantaneous power of the GPU at the time of the measurement",
             )?,
         })
     }

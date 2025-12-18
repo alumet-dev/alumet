@@ -4,14 +4,23 @@ use std::time::SystemTime;
 
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
-    pipeline::elements::error::PollError,
+    pipeline::{Source, elements::error::PollError},
     plugin::util::CounterDiff,
     resources::{Resource, ResourceConsumer},
 };
 
-use crate::{features::AvailableVersion, metrics::Metrics, nvml_ext::DeviceExt};
+use crate::{
+    features::AvailableVersion,
+    metrics::{FullMetrics, MinimalMetrics},
+    nvml_ext::DeviceExt,
+};
 
 use super::device::ManagedDevice;
+
+pub enum SourceProvider {
+    Full(FullMetrics),
+    Minimal(MinimalMetrics),
+}
 
 /// Measurement source that queries NVML devices.
 pub struct FullSource {
@@ -20,7 +29,7 @@ pub struct FullSource {
     /// Handle to the GPU, with features information.
     device: ManagedDevice,
     /// Alumet metrics IDs.
-    metrics: Metrics,
+    metrics: FullMetrics,
     /// Alumet resource ID.
     resource: Resource,
 
@@ -31,7 +40,7 @@ pub struct FullSource {
 /// A minimal measurement source, that only queries basic NVML info in order to be faster.
 pub struct MinimalSource {
     device: ManagedDevice,
-    metrics: Metrics,
+    metrics: MinimalMetrics,
     resource: Resource,
 
     /// Previous power, to compute the energy
@@ -44,7 +53,7 @@ unsafe impl Send for FullSource {}
 unsafe impl Send for MinimalSource {}
 
 impl FullSource {
-    pub fn new(device: ManagedDevice, metrics: Metrics) -> Result<Self, NvmlError> {
+    pub fn new(device: ManagedDevice, metrics: FullMetrics) -> Result<Self, NvmlError> {
         let bus_id = std::borrow::Cow::Owned(device.bus_id.clone());
         Ok(FullSource {
             energy_counter: CounterDiff::with_max_value(u64::MAX),
@@ -56,7 +65,7 @@ impl FullSource {
     }
 }
 
-impl alumet::pipeline::Source for FullSource {
+impl Source for FullSource {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         let features = &self.device.features;
         let device = self.device.as_wrapper();
@@ -252,7 +261,7 @@ struct PowerMeasure {
 }
 
 impl MinimalSource {
-    pub fn new(device: ManagedDevice, metrics: Metrics) -> anyhow::Result<Self> {
+    pub fn new(device: ManagedDevice, metrics: MinimalMetrics) -> anyhow::Result<Self> {
         let bus_id = std::borrow::Cow::Owned(device.bus_id.clone());
         if !device.features.instant_power {
             return Err(anyhow!(
@@ -268,7 +277,7 @@ impl MinimalSource {
     }
 }
 
-impl alumet::pipeline::Source for MinimalSource {
+impl Source for MinimalSource {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         let device = self.device.as_wrapper();
 
