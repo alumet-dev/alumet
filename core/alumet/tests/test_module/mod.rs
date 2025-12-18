@@ -86,6 +86,7 @@ impl AlumetPlugin for TestedPlugin {
 
 impl Source for CoffeeSource {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, t: Timestamp) -> Result<(), PollError> {
+        log::trace!("polling CoffeeSource");
         measurements.push(MeasurementPoint::new(
             t,
             self.metric,
@@ -223,6 +224,11 @@ fn runtime_source_err() {
 #[serial]
 fn runtime_source_ok() {
     init_logger();
+
+    // enable the use of tokio-console when built with RUSTFLAGS="--cfg tokio_unstable"
+    #[cfg(tokio_unstable)]
+    console_subscriber::init();
+
     let plugins = PluginSet::from(static_plugins![TestedPlugin]);
 
     let runtime = RuntimeExpectations::new().test_source(

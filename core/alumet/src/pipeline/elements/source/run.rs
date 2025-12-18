@@ -7,6 +7,7 @@ use tokio::sync::mpsc::error::TrySendError;
 use crate::measurement::{MeasurementBuffer, Timestamp};
 use crate::pipeline::error::PipelineError;
 use crate::pipeline::naming::SourceName;
+use crate::pipeline::util::coop::TriggerCoop;
 
 use super::control::TaskState;
 use super::error::PollError;
@@ -20,7 +21,11 @@ pub(crate) async fn run_managed(
     config: Arc<super::task_controller::SharedSourceConfig>,
 ) -> Result<(), PipelineError> {
     /// Flushes the measurement and returns a new buffer.
-    fn flush(buffer: MeasurementBuffer, tx: &mpsc::Sender<MeasurementBuffer>, name: &SourceName) -> MeasurementBuffer {
+    async fn flush(
+        buffer: MeasurementBuffer,
+        tx: &mpsc::Sender<MeasurementBuffer>,
+        name: &SourceName,
+    ) -> MeasurementBuffer {
         // Hint for the new buffer capacity, great if the number of measurements per flush doesn't change much,
         // which is often the case.
         let prev_length = buffer.len();
@@ -35,12 +40,23 @@ pub(crate) async fn run_managed(
                 // the channel Receiver has been closed
                 panic!("source channel should stay open");
             }
-            Err(TrySendError::Full(_buf)) => {
+            Err(TrySendError::Full(buffer)) => {
                 // the channel's buffer is full! reduce the measurement frequency
                 // TODO it would be better to choose which source to slow down based
                 // on its frequency and number of measurements per poll.
                 // buf
-                todo!("buffer is full")
+                log::warn!(
+                    "The buffer [sources -> transforms] is full! Consider increasing poll_interval for some sources"
+                );
+                let t0 = Timestamp::now();
+                tx.send(buffer).await.expect("source channel should stay open");
+                let t1 = Timestamp::now();
+                let delta = t1.duration_since(t0).unwrap();
+                log::debug!(
+                    "{name} flushed {prev_length} measurements, after waiting {} µs",
+                    delta.as_micros()
+                );
+                MeasurementBuffer::with_capacity(prev_length)
             }
         }
     }
@@ -58,25 +74,27 @@ pub(crate) async fn run_managed(
     }
 
     // Get the initial source configuration.
-    let mut trigger = config
-        .new_trigger
-        .lock()
-        .unwrap()
-        .take()
+    let init_trigger = config
+        .take_new_trigger()
         .expect("the Trigger must be set before starting the source");
-    log::trace!("source {source_name} got initial config");
+    log::trace!("{source_name} got initial config");
 
     // Store measurements in this buffer, and replace it every `flush_rounds` rounds.
     // For now, we don't know how many measurements the source will produce, so we allocate 1 per round.
-    let mut buffer = MeasurementBuffer::with_capacity(trigger.config.flush_rounds);
+    let mut buffer = MeasurementBuffer::with_capacity(init_trigger.params.flush_rounds);
 
     // This Notify is used to "interrupt" the trigger mechanism when the source configuration is modified
     // by the control loop.
     let config_change = &config.change_notifier;
 
+    // Cooperate nicely with other tasks (avoid starvation).
+    let mut coop = TriggerCoop::new();
+    let mut trigger = init_trigger;
+
     let mut run = false;
     while !run {
         let initial_state = config.atomic_state.load(Ordering::Relaxed);
+        log::trace!("{source_name} initial state: {initial_state}");
         match initial_state.into() {
             TaskState::Run => {
                 run = true; // start the main loop
@@ -104,10 +122,13 @@ pub(crate) async fn run_managed(
         // Wait for the trigger. It can return for two reasons:
         // - "normal case": the underlying mechanism (e.g. timer) triggers <- this is the most likely case
         // - "interrupt case": the underlying mechanism was idle (e.g. sleeping) but a new command arrived
-        let reason = trigger
-            .next(config_change)
+        log::trace!("{source_name} waiting for next trigger");
+        let reason = coop
+            .with_budget(trigger.next(config_change))
             .await
             .map_err(|err| PipelineError::for_element(source_name.clone(), err))?;
+
+        log::trace!("{source_name} triggered with reason {reason:?}");
 
         let mut update;
         match reason {
@@ -131,13 +152,13 @@ pub(crate) async fn run_managed(
 
                 // Flush the measurements, not on every round for performance reasons.
                 // This is done _after_ polling, to ensure that we poll at least once before flushing, even if flush_rounds is 1.
-                if i % trigger.config.flush_rounds == 0 {
+                if i % trigger.params.flush_rounds == 0 {
                     // flush and create a new buffer
-                    buffer = flush(buffer, &tx, &source_name);
+                    buffer = flush(buffer, &tx, &source_name).await;
                 }
 
                 // only update on some rounds, for performance reasons.
-                update = (i % trigger.config.update_rounds) == 0;
+                update = (i % trigger.params.update_rounds) == 0;
                 i = i.wrapping_add(1);
             }
             TriggerReason::Interrupted => {
@@ -145,21 +166,25 @@ pub(crate) async fn run_managed(
                 update = true;
             }
         };
+        log::trace!("{source_name} update = {update}");
 
         while update {
             let new_state = config.atomic_state.load(Ordering::Relaxed);
-            let new_trigger = config.new_trigger.lock().unwrap().take();
-            if let Some(t) = new_trigger {
-                let prev_flush_rounds = trigger.config.flush_rounds;
-                let new_flush_rounds = t.config.flush_rounds;
-                trigger = t;
+            log::trace!("{source_name} new state: {new_state:?}");
+            if let Some(new_trigger) = config.take_new_trigger() {
+                // adapt the buffer size
+                let prev_flush_rounds = trigger.params.flush_rounds;
+                let new_flush_rounds = new_trigger.params.flush_rounds;
                 adapt_buffer_after_trigger_change(&mut buffer, prev_flush_rounds, new_flush_rounds);
+                // use the new trigger
+                trigger = new_trigger;
             }
             match new_state.into() {
                 TaskState::Run => {
                     update = false; // go back to polling
                 }
                 TaskState::Pause => {
+                    log::trace!("{source_name} paused, waiting for state change");
                     config_change.notified().await; // wait for the config to change
                 }
                 TaskState::Stop => {
@@ -170,8 +195,9 @@ pub(crate) async fn run_managed(
     }
 
     // source stopped, flush the buffer
+    log::debug!("{source_name} is stopping...");
     if !buffer.is_empty() {
-        flush(buffer, &tx, &source_name);
+        flush(buffer, &tx, &source_name).await;
     }
 
     // log the name of the source, so we know which source terminates
