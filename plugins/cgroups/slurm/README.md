@@ -61,18 +61,48 @@ Put the following in the configuration file of the Alumet agent (usually `alumet
 
 ```toml
 [plugins.slurm]
-# Interval between two measurements
+# Interval between two measurements.
 poll_interval = "1s"
+
 # Interval between two scans of the cgroup v1 hierarchies.
 # Only applies to cgroup v1 hierarchies (cgroupv2 supports inotify).
 cgroupv1_refresh_interval = "30s"
-# Only monitor the cgroups related to slurm jobs
+
+# Only monitor the cgroups related to slurm jobs.
+# If set to false, non-jobs will also be monitored.
 ignore_non_jobs = true
-# What level of surveillance should be achieved ? Could be either "job", "step", "substep" or "task".
-# "job" means monitoring only main Slurm jobs related cgroups
-# "step" means also monitoring step related cgroups of the Slurm jobs
-# "substep" means also monitoring substep related cgroups of the Slurm jobs besides step and job
-# "task" means also monitoring task related cgroups of the Slurm jobs besides substep, step and job
+
+# At which level should we measure jobs? The possible levels are:
+# - "job": only monitor the top-level cgroup of each job
+# - "step": measure jobs and steps
+# - "substep": measure jobs, steps and substeps
+# - "task": measure jobs, steps, substeps and tasks
 jobs_monitoring_level = "job"
+
+# If true, start the sources in "paused" state.
+# This is useful in combination with other plugins that will resume the sources.
 add_source_in_pause_state = false
 ```
+
+## Levels of Detail
+
+Slurm organizes the execution of calculations into several nested levels.
+Each level obtain a corresponding Linux control group ("cgroup").
+
+Example:
+
+```txt
+job_12/
+├─ step_34/
+   ├─ substep/
+      ├─ task_56/
+```
+
+- **job**: the object that the users submit to Slurm.
+- **job step**: an execution instance launched within a job. A job can contain several sequential or parallel steps.
+- **substep**: sub-step control group. In a typical Slurm installation with cgroup v2, every step gets divided in two parts, which we call "substeps": `user` and `slurm`. The `slurmstepd` program, which manages the step, lives in the `slurm` substep.
+- **task**: the smallest unit of a Slurm job, the task to execute.
+
+Change the value of `jobs_monitoring_level` to select the level of details that you need.
+
+For more details about Slurm jobs, please refer to [the official Slurm documentation](https://slurm.schedmd.com/job_launch.html).
