@@ -1,26 +1,35 @@
-use anyhow::Context;
+use anyhow::{Context, anyhow};
 use nvml_wrapper::{enum_wrappers::device::TemperatureSensor, error::NvmlError};
 use std::time::SystemTime;
 
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
-    pipeline::elements::error::PollError,
+    pipeline::{Source, elements::error::PollError},
     plugin::util::CounterDiff,
     resources::{Resource, ResourceConsumer},
 };
 
-use crate::{features::AvailableVersion, metrics::Metrics, nvml_ext::DeviceExt};
+use crate::{
+    features::AvailableVersion,
+    metrics::{FullMetrics, MinimalMetrics},
+    nvml_ext::DeviceExt,
+};
 
 use super::device::ManagedDevice;
 
+pub enum SourceProvider {
+    Full(FullMetrics),
+    Minimal(MinimalMetrics),
+}
+
 /// Measurement source that queries NVML devices.
-pub struct NvmlSource {
+pub struct FullSource {
     /// Internal state to compute the difference between two increments of the counter.
     energy_counter: CounterDiff,
     /// Handle to the GPU, with features information.
     device: ManagedDevice,
     /// Alumet metrics IDs.
-    metrics: Metrics,
+    metrics: FullMetrics,
     /// Alumet resource ID.
     resource: Resource,
 
@@ -28,14 +37,25 @@ pub struct NvmlSource {
     last_poll_timestamp: Option<Timestamp>,
 }
 
-// The pointer `nvmlDevice_t` returned by NVML can be sent between threads.
-// NVML is thread-safe according to its documentation.
-unsafe impl Send for NvmlSource {}
+/// A minimal measurement source, that only queries basic NVML info in order to be faster.
+pub struct MinimalSource {
+    device: ManagedDevice,
+    metrics: MinimalMetrics,
+    resource: Resource,
 
-impl NvmlSource {
-    pub fn new(device: ManagedDevice, metrics: Metrics) -> Result<NvmlSource, NvmlError> {
+    /// Previous power, to compute the energy
+    previous_power: Option<PowerMeasure>,
+}
+
+// SAFETY: The pointer `nvmlDevice_t` returned by NVML can be sent between threads.
+// NVML is thread-safe according to its documentation.
+unsafe impl Send for FullSource {}
+unsafe impl Send for MinimalSource {}
+
+impl FullSource {
+    pub fn new(device: ManagedDevice, metrics: FullMetrics) -> Result<Self, NvmlError> {
         let bus_id = std::borrow::Cow::Owned(device.bus_id.clone());
-        Ok(NvmlSource {
+        Ok(FullSource {
             energy_counter: CounterDiff::with_max_value(u64::MAX),
             device,
             metrics,
@@ -45,7 +65,7 @@ impl NvmlSource {
     }
 }
 
-impl alumet::pipeline::Source for NvmlSource {
+impl Source for FullSource {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         let features = &self.device.features;
         let device = self.device.as_wrapper();
@@ -66,7 +86,7 @@ impl alumet::pipeline::Source for NvmlSource {
                     self.metrics.total_energy_consumption,
                     self.resource.clone(),
                     consumer.clone(),
-                    milli_joules,
+                    milli_joules as f64,
                 ))
             }
         }
@@ -232,5 +252,73 @@ impl alumet::pipeline::Source for NvmlSource {
         }
 
         Ok(())
+    }
+}
+
+struct PowerMeasure {
+    t: Timestamp,
+    power: u32,
+}
+
+impl MinimalSource {
+    pub fn new(device: ManagedDevice, metrics: MinimalMetrics) -> anyhow::Result<Self> {
+        let bus_id = std::borrow::Cow::Owned(device.bus_id.clone());
+        if !device.features.instant_power {
+            return Err(anyhow!(
+                "minimal mode cannot be used on GPU [{bus_id}]: nvmlDeviceGetPowerUsage is not supported"
+            ));
+        }
+        Ok(Self {
+            device,
+            metrics,
+            resource: Resource::Gpu { bus_id },
+            previous_power: None,
+        })
+    }
+}
+
+impl Source for MinimalSource {
+    fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
+        let device = self.device.as_wrapper();
+
+        // no consumer, we just monitor the device here
+        let consumer = ResourceConsumer::LocalMachine;
+        let power = device.power_usage()?;
+        measurements.push(MeasurementPoint::new(
+            timestamp,
+            self.metrics.instant_power,
+            self.resource.clone(),
+            consumer.clone(),
+            power as u64,
+        ));
+
+        // Estimate the energy consumption.
+        let current_power = PowerMeasure { t: timestamp, power };
+        if let Some(previous) = &self.previous_power {
+            let energy = current_power.compute_energy(previous).unwrap();
+            measurements.push(MeasurementPoint::new(
+                timestamp,
+                self.metrics.total_energy_consumption,
+                self.resource.clone(),
+                consumer.clone(),
+                energy,
+            ));
+        }
+        self.previous_power = Some(current_power);
+        Ok(())
+    }
+}
+
+impl PowerMeasure {
+    /// Computes an energy from a power, using as time the time elapsed between
+    /// the current timestamp and the previous timestamp.
+    ///
+    /// This function first computes the time elapsed between two timestamps.
+    /// It return an error if it's not possible
+    /// The energy is computed using a discrete integral with the formula: Energy = ((Power(t0) + Power(t1)) / 2) * Δt
+    fn compute_energy(&self, previous: &PowerMeasure) -> anyhow::Result<f64> {
+        let time_elapsed = self.t.duration_since(previous.t)?.as_secs_f64();
+        let energy_consumed = ((self.power + previous.power) as f64) * 0.5 * time_elapsed;
+        Ok(energy_consumed)
     }
 }

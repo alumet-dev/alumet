@@ -3,11 +3,16 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 use alumet::{
-    pipeline::elements::source::trigger::TriggerSpec,
+    pipeline::{Source, elements::source::trigger::TriggerSpec},
     plugin::{
         ConfigTable,
         rust::{AlumetPlugin, deserialize_config, serialize_config},
     },
+};
+
+use crate::{
+    metrics::{FullMetrics, MinimalMetrics},
+    probe::SourceProvider,
 };
 
 mod device;
@@ -68,16 +73,23 @@ impl AlumetPlugin for NvmlPlugin {
                 );
             }
         }
-        let metrics = metrics::Metrics::new(alumet)?;
+        let source_provider = match self.config.mode {
+            Mode::Full => SourceProvider::Full(FullMetrics::new(alumet)?),
+            Mode::Minimal => SourceProvider::Minimal(MinimalMetrics::new(alumet)?),
+        };
 
         for maybe_device in nvml.devices {
             if let Some(device) = maybe_device {
                 let source_name = format!("device_{}", device.bus_id);
-                let source = probe::NvmlSource::new(device, metrics.clone())?;
                 let trigger = TriggerSpec::builder(self.config.poll_interval)
                     .flush_interval(self.config.flush_interval)
                     .build()?;
-                alumet.add_source(&source_name, Box::new(source), trigger)?;
+
+                let source: Box<dyn Source> = match &source_provider {
+                    SourceProvider::Full(metrics) => Box::new(probe::FullSource::new(device, metrics.clone())?),
+                    SourceProvider::Minimal(metrics) => Box::new(probe::MinimalSource::new(device, metrics.clone())?),
+                };
+                alumet.add_source(&source_name, source, trigger)?;
             }
         }
         Ok(())
@@ -104,6 +116,21 @@ struct Config {
     /// If `skip_failed_devices = true`, the first failure will make the plugin's startup fail.
     #[serde(default = "default_true")]
     skip_failed_devices: bool,
+
+    /// In "full" mode, get many measurements from the GPU on each poll.
+    /// In "minimal" mode, only measure the power consumption (it must be supported by the GPU).
+    ///
+    /// On some GPUs, the "full" mode is too slow for high frequencies (100 Hz can be hard to reach in full mode).
+    mode: Mode,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum Mode {
+    /// Gathers many NVML metrics.
+    Full,
+    /// Only measure the power consumption, and estimate the energy from the power.
+    Minimal,
 }
 
 fn default_true() -> bool {
@@ -116,6 +143,7 @@ impl Default for Config {
             poll_interval: Duration::from_secs(1), // 1Hz
             flush_interval: Duration::from_secs(5),
             skip_failed_devices: true,
+            mode: Mode::Full,
         }
     }
 }
