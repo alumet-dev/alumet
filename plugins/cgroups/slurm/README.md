@@ -54,6 +54,35 @@ For instance, the `slurm` configuration section should be after the `process-to-
 …
 ```
 
+## Levels of surveillance
+
+First of all, [the official Slurm documentation](https://slurm.schedmd.com/job_launch.html).
+
+Slurm organizes the execution of calculations into several nested levels:
+
+```markdown
+job_AA/
+├─ step_0/
+   ├─ SUBSTEP/
+      ├─ task_BB/
+```
+
+### Job
+
+A job is the object that the user submits to Slurm. The job defines the resources requested and the script or command to be executed.
+
+### Job Step
+
+A job step is an execution instance launched within the resource allocation associated with the job. A job can contain several successive or simultaneous steps. Identified by JobID.StepID. Each step can use all or part of the job's resources.
+
+### Substep
+
+Slurm supports multiple and nested steps: a srun launched in a step can generate a new step. These nested steps themselves have the same mechanisms (tasks, resource management limited to allocation).
+
+### Task
+
+A task is the smallest unit of Slurm in the context of a step. This generally corresponds to an MPI process or an independent computing unit.
+
 ## Configuration
 
 Here is an example of how to configure this plugin.
