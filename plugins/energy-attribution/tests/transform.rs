@@ -25,6 +25,7 @@ const CONFIG_CPU: &str = r#"
         [formulas.attributed_energy]
         expr = "cpu_energy * cpu_usage / 100.0"
         ref = "cpu_energy"
+        retention_time = "60s"
 
         [formulas.attributed_energy.per_resource]
         cpu_energy = { metric = "rapl_consumed_energy", resource_kind = "local_machine", domain = "package_total" }

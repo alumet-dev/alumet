@@ -29,6 +29,11 @@ In this example, we define an attribution formula that produces a new metric `at
 expr = "cpu_energy * cpu_usage / 100.0"
 # the time reference: this is a timeseries, defined by a metric (and other criteria, see below), that will not change during the transformation. Other timeseries can be interpolated in order to have the same timestamps before applying the formula.
 ref = "cpu_energy"
+# The duration the measurement points are kept in memory before being dropped.
+# This need to be coherent with the poll_interval of the metrics involved in this formula.
+# Eg: If the metrics come from sources that poll every 1 second, it's recommanded to define the retention_time to at least 2 seconds.
+# This way the plugin can make use of the precedent values of this metric to make interpolations.
+retention_time = "1s"
 
 # Timeseries related to the resources.
 [plugins.energy-attribution.formulas.attributed_energy.per_resource]
