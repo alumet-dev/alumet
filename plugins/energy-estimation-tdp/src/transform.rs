@@ -30,8 +30,8 @@ impl Transform for EnergyEstimationTdpTransform {
         // Using a nested scope to reduce the lock time.
         log::trace!("enter in apply transform function");
         // usage as time delta
-        let cpu_usage_id = self.metrics.cpu_usage_per_domain.as_u64();
-        let metric_id = self.metrics.domain_estimate_energy;
+        let cpu_usage_id = self.metrics.cpu_usage.as_u64();
+        let metric_id = self.metrics.estimated_consumed_energy;
 
         log::trace!(
             "enter in apply transform function, number of measurements: {}",
@@ -48,10 +48,12 @@ impl Transform for EnergyEstimationTdpTransform {
                     WrappedMeasurementValue::U64(x) => x.to_string(),
                 };
 
-                // from k8s plugin we get the cpu_usage_percent in micro second
-                // energy = cpu_usage_percent * nb_vcpu/nb_cpu * tdp / poll_interval
+                // cpu_usage may come from different plugins and need to be converted to micro second
+                // energy = cpu_usage * nb_vcpu/nb_cpu * tdp / poll_interval
                 let mut estimated_energy = value.parse().unwrap();
-                estimated_energy = estimated_energy * self.config.nb_vcpu / self.config.nb_cpu * self.config.tdp
+                estimated_energy = estimated_energy * self.config.cpu_time_conversion_factor * self.config.nb_vcpu
+                    / self.config.nb_cpu
+                    * self.config.tdp
                     / (1000000.0)
                     / (self.config.poll_interval.as_secs() as f64);
 
@@ -78,10 +80,6 @@ impl Transform for EnergyEstimationTdpTransform {
                         key.as_str(),
                         value_attr.to_string()
                     );
-                    if key.as_str().contains("node") {
-                        let node_value: String = value_attr.to_string();
-                        log::trace!("read attribute node value: {}", node_value);
-                    }
                 }
 
                 let new_m = MeasurementPoint::new(

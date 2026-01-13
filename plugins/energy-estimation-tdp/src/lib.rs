@@ -20,13 +20,13 @@ pub struct EnergyEstimationTdpPlugin {
 }
 
 struct Metrics {
-    // To attribute the CPU consumption to RAPL domains, we need 2 metrics:
-    // - cpu usage per domain
-    // - energy attribution (to store the result)
+    // To report the estimated CPU consumption, we need 2 metrics:
+    // - cpu usage
+    // - energy estimated (to store the result)
 
     // The other parameters (tdp and number of virtual cpu is provided by configuration)
-    cpu_usage_per_domain: RawMetricId,
-    domain_estimate_energy: TypedMetricId<f64>,
+    cpu_usage: RawMetricId,
+    estimated_energy: TypedMetricId<f64>,
 }
 
 impl AlumetPlugin for EnergyEstimationTdpPlugin {
@@ -51,15 +51,15 @@ impl AlumetPlugin for EnergyEstimationTdpPlugin {
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
-        // Create the energy attribution metric and add its id to the
+        // Create the energy estimate metric and add its id to the
         // transform plugin metrics' list.
-        let domain_estimate_energy_metric = alumet.create_metric(
-            "domain_estimate_energy",
+        let estimated_energy_metric = alumet.create_metric(
+            "estimated_consumed_energy",
             Unit::Joule,
-            "CPU domain's estimated energy consumption",
+            "CPU's estimated energy consumption",
         )?;
 
-        let cpu_usage = self.config.as_ref().unwrap().cpu_usage_per_domain.clone();
+        let cpu_usage = self.config.as_ref().unwrap().cpu_usage.clone();
         let config = self.config.take().unwrap();
 
         // Add the transform now but fill its metrics later.
@@ -69,8 +69,8 @@ impl AlumetPlugin for EnergyEstimationTdpPlugin {
                 .with_context(|| format!("metric not found : {}", cpu_usage))?
                 .0;
             let metrics = Metrics {
-                cpu_usage_per_domain: cpu_usage_metric,
-                domain_estimate_energy: domain_estimate_energy_metric,
+                cpu_usage: cpu_usage_metric,
+                estimated_energy: estimated_energy_metric,
             };
 
             let transform = Box::new(EnergyEstimationTdpTransform::new(config, metrics));
@@ -94,17 +94,19 @@ struct Config {
     tdp: f64,
     nb_vcpu: f64,
     nb_cpu: f64,
-    cpu_usage_per_domain: String,
+    cpu_usage: String,
+    cpu_time_conversion_factor: f64,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            poll_interval: Duration::from_secs(1), // 1Hz
+            poll_interval: Duration::from_secs(5), // aligned with input cpu_usage metric poll_interval
             tdp: 100.0,
             nb_vcpu: 1.0,
             nb_cpu: 1.0,
-            cpu_usage_per_domain: String::from("cpu_time_delta"),
+            cpu_usage: String::from("kernel_cpu_time"),
+            cpu_time_conversion_factor: 1000.0,
         }
     }
 }
