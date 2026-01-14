@@ -278,6 +278,7 @@ impl TaskManager {
             set: &mut JoinSet<R>,
             source_task: impl Future<Output = R> + Send + 'static,
             runtime: &tokio::runtime::Handle,
+            _name: SourceName,
         ) {
             #[cfg(not(tokio_unstable))]
             {
@@ -288,7 +289,7 @@ impl TaskManager {
                 // Give a proper name to the tokio's task, so that it's easier to debug (in particular with tokio-console).
                 // For now, this is an unstable API of tokio.
                 set.build_task()
-                    .name(name.to_string().as_str())
+                    .name(_name.to_string().as_str())
                     .spawn_on(source_task, runtime);
             }
         }
@@ -357,7 +358,7 @@ impl TaskManager {
                 match pace {
                     builder::SourcePace::Fast => {
                         // Spawn the future (execute the async task on the thread pool)
-                        spawn_task(&mut self.spawned_tasks, source_task, runtime);
+                        spawn_task(&mut self.spawned_tasks, source_task, runtime, name.clone());
                     }
                     builder::SourcePace::Blocking => {
                         // Spawn a dedicated thread for this future.
@@ -382,7 +383,7 @@ impl TaskManager {
                             let res = result_rx.await.expect("sender dropped, did the thread panic?");
                             res // propagate the result to alumet control
                         };
-                        spawn_task(&mut self.spawned_tasks, thread_waiter, runtime);
+                        spawn_task(&mut self.spawned_tasks, thread_waiter, runtime, name.clone());
                     }
                 }
             }
@@ -397,7 +398,7 @@ impl TaskManager {
                 self.controllers.push((name.clone(), controller));
                 log::trace!("new controller initialized");
 
-                spawn_task(&mut self.spawned_tasks, source_task, &self.rt_normal);
+                spawn_task(&mut self.spawned_tasks, source_task, &self.rt_normal, name.clone());
             }
         };
         log::trace!("source task spawned on the runtime: {name}");
