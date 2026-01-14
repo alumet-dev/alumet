@@ -101,22 +101,28 @@ impl<F> AutonomousSourceBuilder for F where
 ///
 /// Use this type in the pipeline Builder.
 pub enum SourceBuilder {
-    Managed(Box<dyn ManagedSourceBuilder>),
+    Managed(Box<dyn ManagedSourceBuilder>, SourcePace),
     Autonomous(Box<dyn AutonomousSourceBuilder>),
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum SourcePace {
+    Fast,
+    Blocking,
 }
 
 /// Like [`SourceBuilder`] but with a [`Send`] bound on the builder.
 ///
 /// Use this type in the pipeline control loop.
 pub enum SendSourceBuilder {
-    Managed(Box<dyn ManagedSourceBuilder + Send>),
+    Managed(Box<dyn ManagedSourceBuilder + Send>, SourcePace),
     Autonomous(Box<dyn AutonomousSourceBuilder + Send>),
 }
 
 impl From<SendSourceBuilder> for SourceBuilder {
     fn from(value: SendSourceBuilder) -> Self {
         match value {
-            SendSourceBuilder::Managed(b) => SourceBuilder::Managed(b),
+            SendSourceBuilder::Managed(b, s) => SourceBuilder::Managed(b, s),
             SendSourceBuilder::Autonomous(b) => SourceBuilder::Autonomous(b),
         }
     }
@@ -125,7 +131,7 @@ impl From<SendSourceBuilder> for SourceBuilder {
 impl std::fmt::Debug for SourceBuilder {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Managed(_) => f.debug_tuple("Managed").field(&"Box<dyn _>").finish(),
+            Self::Managed(_, s) => f.debug_tuple("Managed").field(&"Box<dyn _>").field(s).finish(),
             Self::Autonomous(_) => f.debug_tuple("Autonomous").field(&"Box<dyn _>").finish(),
         }
     }
@@ -134,7 +140,7 @@ impl std::fmt::Debug for SourceBuilder {
 impl std::fmt::Debug for SendSourceBuilder {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Managed(_) => f.debug_tuple("Managed").field(&"Box<dyn _>").finish(),
+            Self::Managed(_, s) => f.debug_tuple("Managed").field(&"Box<dyn _>").field(s).finish(),
             Self::Autonomous(_) => f.debug_tuple("Autonomous").field(&"Box<dyn _>").finish(),
         }
     }

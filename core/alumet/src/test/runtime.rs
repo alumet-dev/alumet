@@ -272,7 +272,7 @@ impl TestExpectations for RuntimeExpectations {
                 // TODO this may be revisited when/if MeasurementBuffer is augmented with the
                 // origin of the measurements.
                 match builder {
-                    SourceBuilder::Managed(builder) => {
+                    SourceBuilder::Managed(builder, s) => {
                         let wrapped = wrap_managed_source_builder(
                             name,
                             checks,
@@ -280,7 +280,7 @@ impl TestExpectations for RuntimeExpectations {
                             source_tests_before.clone(),
                             metrics_reader_for_sources.clone(),
                         );
-                        SourceBuilder::Managed(wrapped)
+                        SourceBuilder::Managed(wrapped, s)
                     },
                     a @ SourceBuilder::Autonomous(_) => a,
                 }
