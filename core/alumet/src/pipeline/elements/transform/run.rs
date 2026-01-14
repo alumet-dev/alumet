@@ -16,7 +16,7 @@ use crate::{
 
 use super::{Transform, TransformContext, error::TransformError};
 
-pub async fn run_all_in_order(
+pub fn run_all_in_order(
     mut transforms: Vec<(TransformName, Box<dyn Transform>)>,
     mut rx: mpsc::Receiver<MeasurementBuffer>,
     tx: broadcast::Sender<MeasurementBuffer>,
@@ -32,7 +32,7 @@ pub async fn run_all_in_order(
             .join(", ")
     );
     loop {
-        if let Some(mut measurements) = rx.recv().await {
+        if let Some(mut measurements) = rx.blocking_recv() {
             // Update the list of active transforms.
             let current_flags = active_flags.load(Ordering::Relaxed);
             log::trace!("current 'enabled' bitset: {current_flags}");
@@ -43,7 +43,7 @@ pub async fn run_all_in_order(
             // which is bad. Usually, transforms don't need to use the MetricRegistry for a long time (see next TODO).
             // Or, we could store a separate copy of the registry just for transforms.
             // TODO: this point should be emphasized in the transforms docs so that people don't implement bad transforms.
-            let metrics = &metrics_reader.read().await;
+            let metrics = &metrics_reader.blocking_read();
             let ctx = TransformContext { metrics };
 
             // Run the enabled transforms. If one of them fails, the ability to continue running depends on the error type.
@@ -54,6 +54,7 @@ pub async fn run_all_in_order(
                         Ok(()) => (),
                         Err(TransformError::UnexpectedInput(e)) => {
                             log::error!("Transform {name} received unexpected measurements: {e:#}");
+                            // TODO should we really continue here? Transforms are not necessarily independent…
                         }
                         Err(TransformError::Fatal(e)) => {
                             log::error!("Fatal error in transform {name} (this breaks the transform task!): {e:?}");
@@ -73,7 +74,7 @@ pub async fn run_all_in_order(
     }
 
     // the channel has been closed, which means that the pipeline is shutting down
-    let metrics = &metrics_reader.read().await;
+    let metrics = &metrics_reader.blocking_read();
     let ctx = TransformContext { metrics };
     let mut err = Ok(());
     for (name, trans) in transforms.iter_mut() {
