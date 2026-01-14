@@ -1,15 +1,18 @@
 use std::fmt::Debug;
+use std::panic::AssertUnwindSafe;
+use std::sync::Arc;
 
 use anyhow::Context;
 use num_enum::{FromPrimitive, IntoPrimitive};
 use tokio::runtime;
-use tokio::sync::mpsc;
+use tokio::sync::{Notify, mpsc};
 use tokio::task::{JoinError, JoinSet};
 use tokio_util::sync::CancellationToken;
 
 use crate::measurement::MeasurementBuffer;
 use crate::metrics::online::{MetricReader, MetricSender};
 use crate::pipeline::control::matching::SourceMatcher;
+use crate::pipeline::elements::source::builder::SourcePace;
 use crate::pipeline::elements::source::run::{run_autonomous, run_managed};
 use crate::pipeline::error::PipelineError;
 use crate::pipeline::matching::{ElementNamePattern, SourceNamePattern};
@@ -269,8 +272,29 @@ impl TaskManager {
         name: SourceName,
         builder: builder::SourceBuilder,
     ) -> anyhow::Result<()> {
+        /// Spawns a task on a JoinSet.
+        /// When built with tokio unstable features, give a name to the task.
+        fn spawn_task<R: Send + 'static>(
+            set: &mut JoinSet<R>,
+            source_task: impl Future<Output = R> + Send + 'static,
+            runtime: &tokio::runtime::Handle,
+        ) {
+            #[cfg(not(tokio_unstable))]
+            {
+                set.spawn_on(source_task, runtime);
+            }
+            #[cfg(tokio_unstable)]
+            {
+                // Give a proper name to the tokio's task, so that it's easier to debug (in particular with tokio-console).
+                // For now, this is an unstable API of tokio.
+                set.build_task()
+                    .name(name.to_string().as_str())
+                    .spawn_on(source_task, runtime);
+            }
+        }
+
         match builder {
-            builder::SourceBuilder::Managed(build) => {
+            builder::SourceBuilder::Managed(build, pace) => {
                 // Build the source
                 let mut source = build(ctx).context("managed source creation failed")?;
 
@@ -293,11 +317,31 @@ impl TaskManager {
                     &self.rt_normal
                 };
 
+                // If the source is blocking, create a dedicated runtime that we will run on a dedicated thread.
+                let dedicated_rt = if pace == SourcePace::Blocking {
+                    Some(
+                        tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                            .with_context(|| format!("failed to build dedicated runtime for {name}"))?,
+                    )
+                } else {
+                    None
+                };
+
                 // Create the source trigger, which may be interruptible by a config change (depending on the TriggerSpec).
                 // Some triggers need to be built with an executor available, therefore we use `Handle::enter()`.
                 let trigger = {
-                    let _guard = runtime.enter();
-                    Trigger::new(source.trigger_spec).context("error in Trigger::new")?
+                    match &dedicated_rt {
+                        Some(rt) => {
+                            let _guard = rt.enter();
+                            Trigger::new(source.trigger_spec).context("error in Trigger::new")?
+                        }
+                        None => {
+                            let _guard = runtime.enter();
+                            Trigger::new(source.trigger_spec).context("error in Trigger::new")?
+                        }
+                    }
                 };
                 log::trace!("new trigger created from the spec: {trigger:?}");
 
@@ -310,19 +354,36 @@ impl TaskManager {
                 let source_task = run_managed(name.clone(), source.source, self.in_tx.clone(), config);
                 log::trace!("source task created: {name}");
 
-                // Spawn the future (execute the async task on the thread pool)
-                #[cfg(not(tokio_unstable))]
-                {
-                    self.spawned_tasks.spawn_on(source_task, runtime);
-                }
-                #[cfg(tokio_unstable)]
-                {
-                    // Give a proper name to the tokio's task, so that it's easier to debug (in particular with tokio-console).
-                    // For now, this is an unstable API of tokio.
-                    self.spawned_tasks
-                        .build_task()
-                        .name(name.to_string().as_str())
-                        .spawn_on(source_task, runtime);
+                match pace {
+                    builder::SourcePace::Fast => {
+                        // Spawn the future (execute the async task on the thread pool)
+                        spawn_task(&mut self.spawned_tasks, source_task, runtime);
+                    }
+                    builder::SourcePace::Blocking => {
+                        // Spawn a dedicated thread for this future.
+                        let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+                        let source_name = name.clone();
+                        let rt = dedicated_rt.unwrap();
+                        std::thread::spawn(move || {
+                            let work = move || -> anyhow::Result<()> {
+                                rt.block_on(source_task)?;
+                                Ok(())
+                            };
+
+                            let res = match std::panic::catch_unwind(AssertUnwindSafe(|| work())) {
+                                Ok(res) => res,
+                                Err(panic) => Err(anyhow::anyhow!("source thread panicked: {panic:?}")),
+                            };
+                            let res = res.map_err(|e| PipelineError::for_element(source_name, e));
+                            result_tx.send(res).expect("receiver dropped");
+                        });
+                        // Spawn a small task that will stop when the dedicated thread stops, ie when the source_task stops.
+                        let thread_waiter = async move {
+                            let res = result_rx.await.expect("sender dropped, did the thread panic?");
+                            res // propagate the result to alumet control
+                        };
+                        spawn_task(&mut self.spawned_tasks, thread_waiter, runtime);
+                    }
                 }
             }
             builder::SourceBuilder::Autonomous(build) => {
@@ -336,7 +397,7 @@ impl TaskManager {
                 self.controllers.push((name.clone(), controller));
                 log::trace!("new controller initialized");
 
-                self.spawned_tasks.spawn_on(source_task, &self.rt_normal);
+                spawn_task(&mut self.spawned_tasks, source_task, &self.rt_normal);
             }
         };
         log::trace!("source task spawned on the runtime: {name}");

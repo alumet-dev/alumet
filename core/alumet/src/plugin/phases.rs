@@ -10,7 +10,7 @@ use crate::metrics::online::listener::{MetricListener, MetricListenerBuilder};
 use crate::metrics::online::{MetricReader, MetricSender};
 use crate::metrics::registry::MetricRegistry;
 use crate::pipeline::control::key::{OutputKey, SourceKey, TransformKey};
-use crate::pipeline::elements::source::builder::{ManagedSource, SourceBuilder};
+use crate::pipeline::elements::source::builder::{ManagedSource, SourceBuilder, SourcePace};
 use crate::pipeline::elements::source::control::TaskState;
 use crate::pipeline::elements::source::trigger::TriggerSpec;
 use crate::pipeline::elements::{output, source, transform};
@@ -116,6 +116,22 @@ impl<'a> AlumetPluginStart<'a> {
         self.add_source_with_state(name, source, TaskState::Run, trigger_spec)
     }
 
+    /// Adds a _managed_ and **blocking** measurement source to the Alumet pipeline.
+    pub fn add_blocking_source(
+        &mut self,
+        name: &str,
+        source: Box<dyn Source>,
+        trigger_spec: TriggerSpec,
+    ) -> Result<SourceKey, DuplicateNameError> {
+        self.add_blocking_source_builder(name, move |_| {
+            Ok(ManagedSource {
+                trigger_spec,
+                initial_state: TaskState::Run,
+                source,
+            })
+        })
+    }
+
     pub fn add_source_with_state(
         &mut self,
         name: &str,
@@ -146,8 +162,32 @@ impl<'a> AlumetPluginStart<'a> {
         builder: F,
     ) -> Result<SourceKey, DuplicateNameError> {
         let plugin = self.current_plugin_name();
-        self.pipeline_builder
-            .add_source_builder(plugin, name, SourceBuilder::Managed(Box::new(builder)))
+        self.pipeline_builder.add_source_builder(
+            plugin,
+            name,
+            SourceBuilder::Managed(Box::new(builder), SourcePace::Fast),
+        )
+    }
+
+    /// Adds the builder of a _managed_ and **blocking** measurement source to the Alumet pipeline.
+    ///
+    /// Unlike [`add_source`](Self::add_source), the source is not created immediately but during the construction
+    /// of the measurement pipeline. This allows to use some information about the pipeline while
+    /// creating the source. A good use case is to access the late registration of metrics.
+    ///
+    /// The downside is a more complicated code.
+    /// In general, you should prefer to use [`add_source`](Self::add_source) if possible.
+    pub fn add_blocking_source_builder<F: source::builder::ManagedSourceBuilder + 'static>(
+        &mut self,
+        name: &str,
+        builder: F,
+    ) -> Result<SourceKey, DuplicateNameError> {
+        let plugin = self.current_plugin_name();
+        self.pipeline_builder.add_source_builder(
+            plugin,
+            name,
+            SourceBuilder::Managed(Box::new(builder), SourcePace::Blocking),
+        )
     }
 
     /// Adds the builder of an _autonomous_ source to the Alumet pipeline.

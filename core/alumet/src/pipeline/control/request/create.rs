@@ -10,7 +10,7 @@ use crate::pipeline::{
         },
         source::{
             self,
-            builder::{AutonomousSourceBuilder, ManagedSource, ManagedSourceBuilder, SendSourceBuilder},
+            builder::{AutonomousSourceBuilder, ManagedSource, ManagedSourceBuilder, SendSourceBuilder, SourcePace},
             control::TaskState,
             trigger::TriggerSpec,
         },
@@ -137,7 +137,7 @@ impl MultiCreationRequestBuilder {
     where
         F: ManagedSourceBuilder + Send + 'static,
     {
-        let builder = SendSourceBuilder::Managed(Box::new(builder));
+        let builder = SendSourceBuilder::Managed(Box::new(builder), SourcePace::Fast);
         self.sources.push((name.to_string(), builder));
         self
     }
