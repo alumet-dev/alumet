@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use alumet::{
     measurement::{MeasurementBuffer, MeasurementPoint, Timestamp},
     metrics::RawMetricId,
@@ -13,9 +11,6 @@ use alumet::{
 use rustc_hash::{FxBuildHasher, FxHashMap};
 
 use super::prepared::{AttributionParams, PreparedFormula};
-
-/// Don't keep measurement points older than 20 minutes, relative to the newest points.
-const DATA_EXPIRATION_TIME: Duration = Duration::from_secs(60 * 20);
 
 pub struct GenericAttributionTransform {
     state: AttributionState,
@@ -64,18 +59,13 @@ impl ByMetricBuffer {
     fn newest_t(&self) -> Option<Timestamp> {
         self.data
             .values()
-            .filter_map(|buf| buf.first())
+            .filter_map(|buf| buf.last())
             .map(|p| p.timestamp)
             .max()
     }
 
     fn push(&mut self, p: MeasurementPoint) {
         self.data.entry(p.metric).or_default().push(p);
-    }
-
-    fn cleanup(&mut self, ref_last: &Timestamp) {
-        self.remove_before(ref_last);
-        self.last_attributed_t = Some(ref_last.clone());
     }
 
     fn is_new(&self, t: &Timestamp) -> bool {
@@ -86,15 +76,17 @@ impl ByMetricBuffer {
     }
 
     fn remove_before(&mut self, before_excl: &Timestamp) {
-        for buf in self.data.values_mut() {
-            let i_first_ok = buf
+        self.data.retain(|_, buf| {
+            let end = buf
                 .iter()
-                .enumerate()
-                .find_map(|(i, m)| if &m.timestamp < before_excl { None } else { Some(i) });
-            if let Some(end) = i_first_ok {
-                buf.drain(..end);
-            }
-        }
+                .position(|m| m.timestamp >= *before_excl)
+                .unwrap_or(buf.len());
+
+            buf.drain(..end);
+
+            // remove metric key if buffer is empty
+            !buf.is_empty()
+        });
     }
 }
 
@@ -139,6 +131,12 @@ impl Transform for GenericAttributionTransform {
 
         // for each resource
         for (resource, rd) in &mut self.state.buffer_per_resource {
+            log::debug!(
+                "resource={:?} general_points={} consumers={}",
+                resource,
+                rd.general.data.values().map(Vec::len).sum::<usize>(),
+                rd.per_consumer.len(),
+            );
             let general = &rd.general;
 
             // For now, the time reference MUST be a "general" per-resource metric.
@@ -148,11 +146,19 @@ impl Transform for GenericAttributionTransform {
             };
 
             // Compute the timestamp before which the data is too old.
-            let expired_t = rd.general.newest_t().and_then(|t| t.checked_sub(DATA_EXPIRATION_TIME));
+            let expired_t = rd
+                .general
+                .newest_t()
+                .and_then(|t| t.checked_sub(self.state.params.retention_time));
             log::trace!("expired: {expired_t:?}");
 
             // for each consumer of this resource
             for (consumer, cd) in &mut rd.per_consumer {
+                log::debug!(
+                    "consumer={:?} points={}",
+                    consumer,
+                    cd.data.values().map(Vec::len).sum::<usize>(),
+                );
                 // build a map K -> timeseries
                 // with K = RawMetricId
                 // and timeseries = (general points) U (per_consumer points)
@@ -189,7 +195,9 @@ impl Transform for GenericAttributionTransform {
 
                 // compute in which limits we can interpolate
                 let boundaries = sync.interpolation_boundaries();
-                log::trace!("interpolation boundaries for {consumer:?}: {boundaries:?}");
+                log::debug!("interpolation boundaries for {consumer:?}: {boundaries:?}");
+
+                let mut remove_before_ts = expired_t;
                 if let Some(boundaries) = boundaries {
                     // we have enough data to perform an synchronisation, let's do it!
                     let synced = sync.sync_interpolate(&boundaries);
@@ -224,17 +232,21 @@ impl Transform for GenericAttributionTransform {
                         measurements.push(point);
                     }
 
-                    // Remove old per-consumer data.
                     // It's only ok to remove all the points where p.t < ref_last, the others are needed for the interpolation (see diagrams).
-                    cd.cleanup(&boundaries.ref_last.1);
-                } else {
-                    // not enough data yet
-                    // Remove stale data: it could happen that we have some isolated measurements and we'll never get more.
-                    if let Some(expired_t) = expired_t {
-                        cd.cleanup(&expired_t);
-                    }
+                    remove_before_ts = if let Some(expired_t) = remove_before_ts {
+                        Some(boundaries.ref_last.1.max(expired_t))
+                    } else {
+                        Some(boundaries.ref_last.1)
+                    };
+                    cd.last_attributed_t = Some(boundaries.ref_last.1);
+                }
+                if let Some(remove_before_ts) = remove_before_ts {
+                    cd.remove_before(&remove_before_ts);
                 }
             }
+
+            // remove the consumers that have no measurement anymore from the buffer
+            rd.per_consumer.retain(|_, cd| !cd.data.is_empty());
 
             // per-resource data cleanup
             // If we have computed an attribution for every consumer, remove data older than min(last_attributed_t).
@@ -246,9 +258,14 @@ impl Transform for GenericAttributionTransform {
                 .min()
                 .unwrap_or(expired_t)
             {
-                rd.general.cleanup(&useless_t);
+                rd.general.remove_before(&useless_t);
             }
         }
+
+        // remove the resources that have no measurement anymore from the buffer
+        self.state
+            .buffer_per_resource
+            .retain(|_, rd| !rd.general.data.is_empty() || !rd.per_consumer.is_empty());
         Ok(())
     }
 

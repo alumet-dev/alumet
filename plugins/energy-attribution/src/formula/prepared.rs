@@ -5,6 +5,7 @@ use alumet::{
 use anyhow::{Context, anyhow};
 use evalexpr::{ContextWithMutableVariables, HashMapContext, Node};
 use rustc_hash::FxHashMap;
+use std::time::Duration;
 
 pub struct PreparedFormula {
     /// Metric id of the value produced by the formula.
@@ -28,6 +29,8 @@ pub struct AttributionParams {
     pub general_metrics: Vec<RawMetricId>,
     pub consumer_metrics: Vec<RawMetricId>,
     pub temporal_ref_metric: RawMetricId,
+
+    pub retention_time: Duration,
 }
 
 pub trait DataFilter: Send + 'static {
@@ -147,6 +150,7 @@ pub fn prepare(
         general_metrics,
         consumer_metrics,
         temporal_ref_metric,
+        retention_time: config.retention_time,
     };
 
     Ok((formula, params))
