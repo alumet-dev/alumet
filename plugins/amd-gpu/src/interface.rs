@@ -1,5 +1,6 @@
 use mockall::automock;
 use std::{
+    cell::RefCell,
     ffi::CStr,
     mem::{MaybeUninit, transmute, zeroed},
     os::raw::c_char,
@@ -34,43 +35,60 @@ pub enum AmdInitError {
     Load(#[from] libloading::Error),
 }
 
+#[allow(dead_code)]
 #[derive(Clone)]
-pub struct AmdSmiLib {
+pub struct AmdSmi {
     amdsmi: Arc<libamd_smi>,
 }
 
-pub struct SocketHandle {
-    amdsmi: AmdSmiLib,
+pub struct AmdSocketHandle {
+    amdsmi: AmdSmi,
     inner: amdsmi_socket_handle,
 }
 
-pub struct ProcessorHandle {
-    pub amdsmi: AmdSmiLib,
+pub struct AmdProcessorHandle {
+    pub amdsmi: AmdSmi,
     pub inner: amdsmi_processor_handle,
 }
 
-pub type MockableSocketHandle = Box<dyn SocketHandleProvider>;
-pub type MockableProcessorHandle = Box<dyn ProcessorHandleProvider>;
+#[derive(Debug, Default, Clone, Copy)]
+pub struct AmdEnergyConsumptionInfo {
+    /// The energy consumption value of an AMD GPU device since the last boot in micro Joules.
+    pub energy: u64,
+    /// Precision factor of the energy counter in micro Joules.
+    pub resolution: f32,
+    /// The time during which the energy value is recovered in ns.
+    pub timestamp: u64,
+}
+
+pub type MockableAmdSocketHandle = Box<dyn SocketHandleTrait>;
+pub type MockableAmdProcessorHandle = Box<dyn ProcessorHandleTrait>;
+
+type AmdSmiLibFactory = Box<dyn Fn() -> Result<Box<dyn AmdSmiTrait>, AmdInitError>>;
+
+thread_local! {
+    static AMD_SMI_FACTORY: RefCell<Option<AmdSmiLibFactory>> = RefCell::new(None);
+}
 
 #[automock]
-pub trait AmdSmiLibProvider: Send + Sync {
-    fn lib_init() -> Result<Box<dyn AmdSmiLibProvider>, AmdInitError>
+pub trait AmdSmiTrait: Send + Sync {
+    fn lib_init() -> Result<Box<dyn AmdSmiTrait>, AmdInitError>
     where
         Self: Sized;
     fn lib_stop(&self) -> Result<(), AmdError>;
-    fn get_socket_handles(&self) -> Result<Vec<MockableSocketHandle>, AmdError>;
+    fn get_socket_handles(&self) -> Result<Vec<MockableAmdSocketHandle>, AmdError>;
 }
 
 #[automock]
-pub trait SocketHandleProvider {
-    fn get_processor_handles(&self) -> Result<Vec<MockableProcessorHandle>, AmdError>;
+pub trait SocketHandleTrait {
+    fn get_processor_handles(&self) -> Result<Vec<MockableAmdProcessorHandle>, AmdError>;
 }
 
 #[automock]
-pub trait ProcessorHandleProvider {
+pub trait ProcessorHandleTrait {
     fn get_device_uuid(&self) -> Result<String, AmdError>;
     fn get_device_activity(&self) -> Result<amdsmi_engine_usage_t, AmdError>;
-    fn get_device_energy_consumption(&self) -> Result<(u64, f32, u64), AmdError>;
+    fn get_device_energy_consumption(&self) -> Result<AmdEnergyConsumptionInfo, AmdError>;
     fn get_device_memory_usage(&self, mem_type: amdsmi_memory_type_t) -> Result<u64, AmdError>;
     fn get_device_power_consumption(&self) -> Result<amdsmi_power_info_t, AmdError>;
     fn get_device_power_managment(&self) -> Result<bool, AmdError>;
@@ -87,14 +105,38 @@ pub trait ProcessorHandleProvider {
     ) -> Result<i64, AmdError>;
 }
 
-#[cfg(not(test))]
-impl AmdSmiLibProvider for AmdSmiLib {
-    /// Call the unsafe C binding function [`amdsmi_init`] to initialize and start amd-smi library with [`INIT_FLAG`].
-    ///
-    /// # Returns
-    ///
-    /// - A [`AmdError`] error if we can't to retrieve the value
-    fn lib_init() -> Result<Box<dyn AmdSmiLibProvider>, AmdInitError> {
+pub fn init_amd_smi() -> Result<Box<dyn AmdSmiTrait>, AmdInitError> {
+    AMD_SMI_FACTORY.with(|f| {
+        if let Some(factory) = &*f.borrow() {
+            return factory();
+        }
+        <AmdSmi as AmdSmiTrait>::lib_init()
+    })
+}
+
+#[inline]
+fn get_value(status: amdsmi_status_t) -> Result<(), AmdError> {
+    if status == SUCCESS {
+        Ok(())
+    } else {
+        Err(AmdError(status))
+    }
+}
+
+// Allow to the tests to replace the global factory with the mock, instead the real library.
+#[cfg(test)]
+pub fn set_amd_smi_factory<F>(factory: F)
+where
+    F: Fn() -> Result<Box<dyn AmdSmiTrait>, AmdInitError> + 'static,
+{
+    AMD_SMI_FACTORY.with(|f| {
+        *f.borrow_mut() = Some(Box::new(factory));
+    });
+}
+
+impl AmdSmiTrait for AmdSmi {
+    /// Initialize and start amd-smi library with [`INIT_FLAG`].
+    fn lib_init() -> Result<Box<dyn AmdSmiTrait>, AmdInitError> {
         let amdsmi = unsafe { libamd_smi::new(LIB_PATH)? };
 
         let result = unsafe { amdsmi.amdsmi_init(INIT_FLAG.into()) };
@@ -102,32 +144,19 @@ impl AmdSmiLibProvider for AmdSmiLib {
             return Err(AmdInitError::Init(AmdError(result)));
         }
 
-        Ok(Box::new(AmdSmiLib {
+        Ok(Box::new(AmdSmi {
             amdsmi: Arc::new(amdsmi),
         }))
     }
 
-    /// Call the unsafe C binding function [`amdsmi_shut_down`] to quit amd-smi library and clean properly its resources.
-    ///
-    /// # Returns
-    ///
-    /// - A [`AmdError`] error if we can't to retrieve the value
+    /// Quit amd-smi library and clean properly its resources.
     fn lib_stop(&self) -> Result<(), AmdError> {
         let result = unsafe { self.amdsmi.amdsmi_shut_down() };
-        if result == SUCCESS {
-            Ok(())
-        } else {
-            Err(AmdError(result))
-        }
+        get_value(result)
     }
 
-    /// Call the unsafe C binding function [`amdsmi_get_socket_handles`] to retrieve socket handles detected on system.
-    ///
-    /// # Returns
-    ///
-    /// - Set of [`SocketHandle`] pointer to a block of memory to which values will be written.
-    /// - A [`AmdError`] error if we can't to retrieve the value
-    fn get_socket_handles(&self) -> Result<Vec<MockableSocketHandle>, AmdError> {
+    /// Retrieves a set of [`SocketHandle`] structure containing socket handles associated to a GPU device.
+    fn get_socket_handles(&self) -> Result<Vec<MockableAmdSocketHandle>, AmdError> {
         let mut socket_count = 0;
         let result = unsafe { self.amdsmi.amdsmi_get_socket_handles(&mut socket_count, null_mut()) };
         if result != SUCCESS {
@@ -145,10 +174,10 @@ impl AmdSmiLibProvider for AmdSmiLib {
             Ok(socket_handles
                 .into_iter()
                 .map(|s| {
-                    Box::new(SocketHandle {
+                    Box::new(AmdSocketHandle {
                         amdsmi: self.clone(),
                         inner: s,
-                    }) as MockableSocketHandle
+                    }) as MockableAmdSocketHandle
                 })
                 .collect())
         } else {
@@ -157,19 +186,9 @@ impl AmdSmiLibProvider for AmdSmiLib {
     }
 }
 
-#[cfg(not(test))]
-impl SocketHandleProvider for SocketHandle {
-    /// Call the unsafe C binding function [`amdsmi_get_processor_handles`] to retrieve socket handles detected for a give socket.
-    ///
-    /// # Arguments
-    ///
-    /// Pointer on a address coming from [`SocketHandle`].
-    ///
-    /// # Returns
-    ///
-    /// - Set of [`ProcessorHandle`] of pointer to a block of memory to which values will be written.
-    /// - A [`AmdError`] error if we can't to retrieve the value
-    fn get_processor_handles(&self) -> Result<Vec<MockableProcessorHandle>, AmdError> {
+impl SocketHandleTrait for AmdSocketHandle {
+    /// Retrieves a set of [`ProcessorHandle`] structure containing processor handles associated to a GPU device.
+    fn get_processor_handles(&self) -> Result<Vec<MockableAmdProcessorHandle>, AmdError> {
         let mut processor_count = 0;
 
         let result = unsafe {
@@ -195,10 +214,10 @@ impl SocketHandleProvider for SocketHandle {
             Ok(processor_handles
                 .into_iter()
                 .map(|s| {
-                    Box::new(ProcessorHandle {
+                    Box::new(AmdProcessorHandle {
                         amdsmi: self.amdsmi.clone(),
                         inner: s,
-                    }) as MockableProcessorHandle
+                    }) as MockableAmdProcessorHandle
                 })
                 .collect())
         } else {
@@ -207,51 +226,35 @@ impl SocketHandleProvider for SocketHandle {
     }
 }
 
-#[cfg(not(test))]
-impl ProcessorHandleProvider for ProcessorHandle {
-    /// Call the unsafe C binding function [`amdsmi_get_gpu_device_uuid`] to retrieve gpu uuid identifier values.
-    /// Convert a declared buffer with an [`AMDSMI_GPU_UUID_SIZE`] in UTF-8 Rust string.
-    ///
-    /// # Arguments
-    ///
-    /// Address pointer on a AMD GPU device coming from [`ProcessorHandle`].
-    ///
-    /// # Returns
-    ///
-    /// - The formatted string corresponding of UUID of a gpu device.
-    /// - A [`AmdError`] error if we can't to retrieve the value.
+impl ProcessorHandleTrait for AmdProcessorHandle {
+    /// Retrieves the UUID of the GPU device.
     fn get_device_uuid(&self) -> Result<String, AmdError> {
         let mut uuid_buffer = vec![0 as c_char; UUID_LENGTH as usize];
         let mut uuid_length = UUID_LENGTH;
+
         let result = unsafe {
             self.amdsmi
                 .amdsmi
                 .amdsmi_get_gpu_device_uuid(self.inner, &mut uuid_length, uuid_buffer.as_mut_ptr())
         };
 
-        if result == SUCCESS {
-            let c_str = unsafe { CStr::from_ptr(uuid_buffer.as_ptr()) };
-            match c_str.to_str() {
-                Ok(uuid_str) => Ok(uuid_str.to_owned()),
-                Err(_) => Err(AmdError(result)),
-            }
+        get_value(result)?;
+
+        // Create a CStr based on the FFI buffer in checking the presence of an escaping character '\0'
+        let c_str = if uuid_buffer[(uuid_length - 1) as usize] == 0 {
+            unsafe { CStr::from_ptr(uuid_buffer.as_ptr()) }
         } else {
-            Err(AmdError(result))
-        }
+            // If the buffer doesn't had '\0', we create a secure stack buffer with it after a truncate.
+            let mut cstr_buffer = [0 as c_char; UUID_LENGTH as usize + 1];
+            cstr_buffer[..uuid_length as usize].copy_from_slice(&uuid_buffer[..uuid_length as usize]);
+            cstr_buffer[uuid_length as usize] = 0;
+            unsafe { CStr::from_ptr(cstr_buffer.as_ptr()) }
+        };
+
+        c_str.to_str().map(|s| s.to_owned()).map_err(|_| AmdError(result))
     }
 
-    /// Call the unsafe C binding function [`amdsmi_get_gpu_activity`] to retrieve gpu activity values.
-    ///
-    /// # Arguments
-    ///
-    /// Address pointer on a AMD GPU device coming from [`ProcessorHandle`].
-    ///
-    /// # Returns
-    ///
-    /// - `gfx`: Main graphic unit of an AMD GPU that release graphic tasks and rendering in %.
-    /// - `mm`: Unit responsible for managing and accessing VRAM, and coordinating data exchanges between it and the GPU in %.
-    /// - `umc`: Single memory address space accessible from any processor within a system in %.
-    /// - A [`AmdError`] error if we can't to retrieve the value.
+    /// Retrieves a [`amdsmi_engine_usage_t`] structure containing all data about GPU device activities.
     fn get_device_activity(&self) -> Result<amdsmi_engine_usage_t, AmdError> {
         let mut info = MaybeUninit::<amdsmi_engine_usage_t>::uninit();
         let result = unsafe {
@@ -260,58 +263,32 @@ impl ProcessorHandleProvider for ProcessorHandle {
                 .amdsmi_get_gpu_activity(self.inner, info.as_mut_ptr())
         };
 
-        if result == SUCCESS {
-            let info = unsafe { info.assume_init() };
-            Ok(info)
-        } else {
-            Err(AmdError(result))
-        }
+        get_value(result)?;
+        Ok(unsafe { info.assume_init() })
     }
 
-    /// Call the unsafe C binding function [`amdsmi_get_energy_count`] to retrieve gpu energy consumption values.
-    ///
-    /// # Arguments
-    ///
-    /// Address pointer on a AMD GPU device coming from [`ProcessorHandle`].
-    ///
-    /// # Returns
-    ///
-    /// - `energy`: Pointer for C binding function, to allow it to allocate memory to get its corresponding value.
-    /// - `resolution`: Resolution precision of the energy counter in micro Joules.
-    /// - `timestamp: Timestamp returned in ns.
-    /// - A [`AmdError`] error if we can't to retrieve the value.
-    fn get_device_energy_consumption(&self) -> Result<(u64, f32, u64), AmdError> {
-        let mut energy = 0;
-        let mut resolution = 0.0;
-        let mut timestamp = 0;
+    /// Retrieves the energy consumption of the GPU device.
+    fn get_device_energy_consumption(&self) -> Result<AmdEnergyConsumptionInfo, AmdError> {
+        let mut consumption = AmdEnergyConsumptionInfo {
+            energy: 0,
+            resolution: 0.0,
+            timestamp: 0,
+        };
 
         let result = unsafe {
             self.amdsmi.amdsmi.amdsmi_get_energy_count(
                 self.inner,
-                &mut energy as *mut u64,
-                &mut resolution as *mut f32,
-                &mut timestamp as *mut u64,
+                &mut consumption.energy as *mut u64,
+                &mut consumption.resolution as *mut f32,
+                &mut consumption.timestamp as *mut u64,
             )
         };
 
-        if result == SUCCESS {
-            Ok((energy, resolution, timestamp))
-        } else {
-            Err(AmdError(result))
-        }
+        get_value(result)?;
+        Ok(consumption)
     }
 
-    /// Call the unsafe C binding function [`amdsmi_get_gpu_memory_usage`] to retrieve gpu memories used values.
-    ///
-    /// # Arguments
-    ///
-    /// - Address pointer on a AMD GPU device.
-    /// - `mem_type`: Kind of memory used among [`amdsmi_memory_type_t`].
-    ///
-    /// # Returns
-    ///
-    /// - `used`: Pointer for C binding function, to allow it to allocate memory to get its corresponding value in Bytes.
-    /// - A [`AmdError`] error if we can't to retrieve the value.
+    /// Retrieves the memory consumption of the GPU device.
     fn get_device_memory_usage(&self, mem_type: amdsmi_memory_type_t) -> Result<u64, AmdError> {
         let mut used = 0;
         let result = unsafe {
@@ -320,44 +297,20 @@ impl ProcessorHandleProvider for ProcessorHandle {
                 .amdsmi_get_gpu_memory_usage(self.inner, mem_type, &mut used)
         };
 
-        if result == SUCCESS {
-            Ok(used)
-        } else {
-            Err(AmdError(result))
-        }
+        get_value(result)?;
+        Ok(used)
     }
 
-    /// Call the unsafe C binding function [`amdsmi_get_power_info`] to retrieve [`RSMI_POWER_TYPE`] gpu power consumption values.
-    ///
-    /// # Arguments
-    ///
-    /// - `processor_handle`: Address pointer on a AMD GPU device.
-    ///
-    /// # Returns
-    ///
-    /// - `power`: Pointer for C binding function, to allow it to allocate memory to get its corresponding value in µW.
-    /// - A [`AmdError`] error if we can't to retrieve the value.
+    /// Retrieves a [`amdsmi_power_info_t`] structure containing all data about GPU device power consumption.
     fn get_device_power_consumption(&self) -> Result<amdsmi_power_info_t, AmdError> {
-        let mut info: amdsmi_power_info_t = unsafe { zeroed() };
+        let mut info = unsafe { zeroed() };
         let result = unsafe { self.amdsmi.amdsmi.amdsmi_get_power_info(self.inner, &mut info) };
 
-        if result == SUCCESS {
-            Ok(info)
-        } else {
-            Err(AmdError(result))
-        }
+        get_value(result)?;
+        Ok(info)
     }
 
-    /// Call the unsafe C binding function [`amdsmi_is_gpu_power_management_enabled`] to retrieve gpu state flag to enable the power consumption evaluation.
-    ///
-    /// # Arguments
-    ///
-    /// - `processor_handle`: Address pointer on a AMD GPU device.
-    ///
-    /// # Returns
-    ///
-    /// - `enabled`: Pointer for C binding function, to allow it to allocate memory to get its corresponding boolean value.
-    /// - A [`AmdError`] error if we can't to retrieve the value.
+    /// Retrieves the power management status accessability of the GPU device.
     fn get_device_power_managment(&self) -> Result<bool, AmdError> {
         let mut enabled = false;
         let result = unsafe {
@@ -366,25 +319,16 @@ impl ProcessorHandleProvider for ProcessorHandle {
                 .amdsmi_is_gpu_power_management_enabled(self.inner, &mut enabled)
         };
 
-        if result == SUCCESS {
-            Ok(enabled)
-        } else {
-            Err(AmdError(result))
-        }
+        get_value(result)?;
+        Ok(enabled)
     }
 
-    /// Call the unsafe C binding function [`amdsmi_get_temp_metric`] to retrieve gpu temperature values.
+    /// Retrieves the temperature of a given area of the GPU device.
     ///
     /// # Arguments
     ///
-    /// - `processor_handle`: Address pointer on a AMD GPU device.
     /// - `sensor_type`: Temperature retrieved by a [`amdsmi_temperature_metric_t`] sensor on AMD GPU hardware.
     /// - `metric`: Temperature type [`amdsmi_temperature_metric_t`] analysed (current, average...).
-    ///
-    /// # Returns
-    ///
-    /// - `temperature`: Pointer for C binding function, to allow it to allocate memory to get its corresponding value in °C.
-    /// - A [`AmdError`] error if we can't to retrieve the value.
     fn get_device_temperature(
         &self,
         sensor_type: amdsmi_temperature_type_t,
@@ -397,25 +341,16 @@ impl ProcessorHandleProvider for ProcessorHandle {
                 .amdsmi_get_temp_metric(self.inner, sensor_type, metric, &mut temperature)
         };
 
-        if result == SUCCESS {
-            Ok(temperature)
-        } else {
-            Err(AmdError(result))
-        }
+        get_value(result)?;
+        Ok(temperature)
     }
 
-    /// Call the unsafe C binding function [`amdsmi_get_gpu_volt_metric`] to retrieve gpu socket voltage values.
+    /// Retrieves the voltage of a given area of the GPU device.
     ///
     /// # Arguments
     ///
-    /// - `processor_handle`: Address pointer on a AMD GPU device.
     /// - `sensor_type`: Voltage retrieved by a [`amdsmi_voltage_type_t`] sensor on AMD GPU hardware.
     /// - `metric`: Voltage type [`amdsmi_voltage_metric_t`] analysed (current, average...).
-    ///
-    /// # Returns
-    ///
-    /// - `voltage`: Pointer for C binding function, to allow it to allocate memory to get its corresponding value in mV.
-    /// - A [`AmdError`] error if we can't to retrieve the value.
     fn get_device_voltage(
         &self,
         sensor_type: amdsmi_voltage_type_t,
@@ -428,45 +363,37 @@ impl ProcessorHandleProvider for ProcessorHandle {
                 .amdsmi_get_gpu_volt_metric(self.inner, sensor_type, metric, &mut voltage)
         };
 
-        if result == SUCCESS {
-            Ok(voltage)
-        } else {
-            Err(AmdError(result))
-        }
+        get_value(result)?;
+        Ok(voltage)
     }
 
-    /// Call the unsafe C binding function [`amdsmi_get_gpu_process_list`] to retrieve data about running compute processes.
-    ///
-    /// # Arguments
-    ///
-    /// - `processor_handle`: Address pointer on a AMD GPU device.
-    ///
-    /// # Returns
-    ///
-    /// - A vec of [`amdsmi_proc_info_t`] data concerning retrieved processes.
-    /// - If no processes are running we return an empty result.
-    /// - A [`AmdError`] error if we can't to retrieve the value.
+    /// Retrieves a set of [`amdsmi_proc_info_t`] structure containing data about running processes on the GPU device.
     fn get_device_process_list(&self) -> Result<Vec<amdsmi_proc_info_t>, AmdError> {
-        let mut max_processes = 64;
-        let mut process_list = Vec::with_capacity(max_processes as usize);
-        let list = process_list.as_mut_ptr() as *mut amdsmi_proc_info_t;
+        let mut max_processes = 0;
 
         let result = unsafe {
             self.amdsmi
                 .amdsmi
-                .amdsmi_get_gpu_process_list(self.inner, &mut max_processes, list)
+                .amdsmi_get_gpu_process_list(self.inner, &mut max_processes, null_mut())
         };
+
         if result != SUCCESS && result != OVERFLOW {
             return Err(AmdError(result));
         }
 
-        unsafe {
-            process_list.set_len(max_processes as usize);
-        }
+        let mut list = vec![MaybeUninit::<amdsmi_proc_info_t>::uninit(); max_processes as usize];
 
-        let process_info_list =
-            unsafe { transmute::<Vec<MaybeUninit<amdsmi_proc_info_t>>, Vec<amdsmi_proc_info_t>>(process_list) };
+        let result = unsafe {
+            self.amdsmi.amdsmi.amdsmi_get_gpu_process_list(
+                self.inner,
+                &mut max_processes,
+                list.as_mut_ptr() as *mut amdsmi_proc_info_t,
+            )
+        };
 
-        Ok(process_info_list)
+        get_value(result)?;
+
+        let list = unsafe { transmute::<Vec<MaybeUninit<amdsmi_proc_info_t>>, Vec<amdsmi_proc_info_t>>(list) };
+        Ok(list)
     }
 }

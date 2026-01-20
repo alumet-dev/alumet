@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::features::OptionalFeatures;
-use crate::interface::{AmdSmiLibProvider, MockableProcessorHandle};
+use crate::interface::{AmdSmiTrait, MockableAmdProcessorHandle};
 
 /// Detected AMD GPU devices via AMDSMI.
 pub struct AmdGpuDevices {
@@ -14,7 +14,7 @@ pub struct AmdGpuDevices {
 /// An AMD GPU device that has been probed for available features.
 pub struct ManagedDevice {
     /// A pointer to the device.
-    pub handle: MockableProcessorHandle,
+    pub handle: MockableAmdProcessorHandle,
     /// Status of the various features available or not on a device.
     pub features: OptionalFeatures,
     /// PCI bus ID of the device.
@@ -31,8 +31,7 @@ pub struct DetectionStats {
 
 impl AmdGpuDevices {
     /// Detects all AMD GPUs and returns an AmdGpuDevices object.
-    pub fn detect(amdsmi: &dyn AmdSmiLibProvider, skip_failed_devices: bool) -> anyhow::Result<Self> {
-        // Get our global AMD SMI instance
+    pub fn detect(amdsmi: &dyn AmdSmiTrait, skip_failed_devices: bool) -> anyhow::Result<Self> {
         let mut devices = HashMap::new();
         let mut failure_count = 0;
 
@@ -92,14 +91,14 @@ impl AmdGpuDevices {
 }
 
 #[cfg(test)]
-mod tests_device {
+mod test {
     use super::*;
     use crate::{
         amd::utils::{METRIC_TEMP, UNEXPECTED_DATA, UNKNOWN_ERROR},
-        interface::{AmdError, MockAmdSmiLibProvider, MockProcessorHandleProvider, MockSocketHandleProvider},
-        tests::mocks::tests_mocks::{
-            MOCK_ACTIVITY, MOCK_ENERGY, MOCK_ENERGY_RESOLUTION, MOCK_MEMORY, MOCK_POWER, MOCK_PROCESS,
-            MOCK_TEMPERATURE, MOCK_UUID, MOCK_VOLTAGE,
+        interface::{AmdError, MockAmdSmiTrait, MockProcessorHandleTrait, MockSocketHandleTrait},
+        tests::mocks::{
+            MOCK_ACTIVITY, MOCK_ENERGY, MOCK_MEMORY, MOCK_POWER, MOCK_PROCESS, MOCK_TEMPERATURE, MOCK_UUID,
+            MOCK_VOLTAGE,
         },
     };
     use log::LevelFilter::Warn;
@@ -107,9 +106,6 @@ mod tests_device {
         io::Write,
         sync::{Arc, Mutex},
     };
-
-    const TIMESTAMP: u64 = 1712024507665;
-    const UUID: &str = "a4ff740f-0000-1000-80ea-e05c945bb3b2";
 
     // Test `detection_stats` function with no GPUs detected
     #[test]
@@ -140,9 +136,9 @@ mod tests_device {
     // Test `detect` function in success case with valid GPUs and metrics
     #[test]
     fn test_detect_success() {
-        let mut mock_init = MockAmdSmiLibProvider::new();
-        let mut mock_socket = MockSocketHandleProvider::new();
-        let mut mock_processor = MockProcessorHandleProvider::new();
+        let mut mock_init = MockAmdSmiTrait::new();
+        let mut mock_socket = MockSocketHandleTrait::new();
+        let mut mock_processor = MockProcessorHandleTrait::new();
 
         mock_processor
             .expect_get_device_uuid()
@@ -154,7 +150,7 @@ mod tests_device {
 
         mock_processor
             .expect_get_device_energy_consumption()
-            .returning(|| Ok((MOCK_ENERGY, MOCK_ENERGY_RESOLUTION, TIMESTAMP)));
+            .returning(|| Ok(MOCK_ENERGY));
 
         mock_processor
             .expect_get_device_power_consumption()
@@ -206,13 +202,13 @@ mod tests_device {
     // Test `detect` function for a GPU with no features available
     #[test]
     fn test_detect_error_skipped() {
-        let mut mock_init = MockAmdSmiLibProvider::new();
-        let mut mock_socket = MockSocketHandleProvider::new();
-        let mut mock_processor = MockProcessorHandleProvider::new();
+        let mut mock_init = MockAmdSmiTrait::new();
+        let mut mock_socket = MockSocketHandleTrait::new();
+        let mut mock_processor = MockProcessorHandleTrait::new();
 
         mock_processor
             .expect_get_device_uuid()
-            .returning(|| Ok(UUID.to_owned()));
+            .returning(|| Ok(MOCK_UUID.to_owned()));
 
         mock_processor
             .expect_get_device_activity()
@@ -256,13 +252,13 @@ mod tests_device {
     // Test `detect` function with not successfully skipped features of a GPU
     #[test]
     fn test_detect_error_not_skipped() {
-        let mut mock_init = MockAmdSmiLibProvider::new();
-        let mut mock_socket = MockSocketHandleProvider::new();
-        let mut mock_processor = MockProcessorHandleProvider::new();
+        let mut mock_init = MockAmdSmiTrait::new();
+        let mut mock_socket = MockSocketHandleTrait::new();
+        let mut mock_processor = MockProcessorHandleTrait::new();
 
         mock_processor
             .expect_get_device_uuid()
-            .returning(|| Ok(UUID.to_owned()));
+            .returning(|| Ok(MOCK_UUID.to_owned()));
 
         mock_processor
             .expect_get_device_activity()
@@ -316,13 +312,13 @@ mod tests_device {
             .filter_level(Warn)
             .try_init();
 
-        let mut mock_init = MockAmdSmiLibProvider::new();
-        let mut mock_socket = MockSocketHandleProvider::new();
-        let mut mock_processor = MockProcessorHandleProvider::new();
+        let mut mock_init = MockAmdSmiTrait::new();
+        let mut mock_socket = MockSocketHandleTrait::new();
+        let mut mock_processor = MockProcessorHandleTrait::new();
 
         mock_processor
             .expect_get_device_uuid()
-            .returning(|| Ok(UUID.to_owned()));
+            .returning(|| Ok(MOCK_UUID.to_owned()));
 
         mock_processor
             .expect_get_device_activity()

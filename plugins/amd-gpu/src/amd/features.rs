@@ -4,7 +4,7 @@ use crate::{
         VOLTAGE_METRIC, VOLTAGE_SENSOR_TYPE,
     },
     bindings::*,
-    interface::ProcessorHandleProvider,
+    interface::ProcessorHandleTrait,
 };
 use std::fmt::{self, Display, Formatter};
 
@@ -43,7 +43,7 @@ pub fn is_supported<T>(res: Result<T, amdsmi_status_t>) -> Result<bool, amdsmi_s
 
 impl OptionalFeatures {
     /// Detect the features available on the given device.
-    pub fn detect_on(processor_handle: &dyn ProcessorHandleProvider) -> Result<Self, amdsmi_status_t> {
+    pub fn detect_on(processor_handle: &dyn ProcessorHandleTrait) -> Result<Self, amdsmi_status_t> {
         let mut gpu_temperatures = Vec::new();
         let mut gpu_memories_usage = Vec::new();
 
@@ -79,8 +79,8 @@ impl OptionalFeatures {
 
     /// Test and return the availability of feature on a given
     pub fn with_detected_features(
-        device: &dyn ProcessorHandleProvider,
-    ) -> Result<(&dyn ProcessorHandleProvider, Self), amdsmi_status_t> {
+        device: &dyn ProcessorHandleTrait,
+    ) -> Result<(&dyn ProcessorHandleTrait, Self), amdsmi_status_t> {
         Self::detect_on(device).map(|features| (device, features))
     }
 
@@ -135,19 +135,16 @@ impl Display for OptionalFeatures {
 }
 
 #[cfg(test)]
-mod tests_feature {
+mod test {
     use super::*;
     use crate::{
-        interface::{AmdError, MockProcessorHandleProvider},
-        tests::mocks::tests_mocks::{
-            MOCK_ACTIVITY, MOCK_ENERGY, MOCK_ENERGY_RESOLUTION, MOCK_MEMORY, MOCK_POWER, MOCK_PROCESS,
-            MOCK_TEMPERATURE, MOCK_VOLTAGE,
+        interface::{AmdError, MockProcessorHandleTrait},
+        tests::mocks::{
+            MOCK_ACTIVITY, MOCK_ENERGY, MOCK_MEMORY, MOCK_POWER, MOCK_PROCESS, MOCK_TEMPERATURE, MOCK_VOLTAGE,
         },
     };
 
     use std::ptr::eq;
-
-    const TIMESTAMP: u64 = 1712024507665;
 
     // Mock optional features
     fn mock_optional_features() -> OptionalFeatures {
@@ -255,12 +252,12 @@ mod tests_feature {
     // Test `detect_on` function in success case
     #[test]
     fn test_detect_on_success() {
-        let mut mock = MockProcessorHandleProvider::new();
+        let mut mock = MockProcessorHandleTrait::new();
 
         mock.expect_get_device_activity().returning(|| Ok(MOCK_ACTIVITY));
 
         mock.expect_get_device_energy_consumption()
-            .returning(|| Ok((MOCK_ENERGY, MOCK_ENERGY_RESOLUTION, TIMESTAMP)));
+            .returning(|| Ok(MOCK_ENERGY));
 
         mock.expect_get_device_power_consumption().returning(|| Ok(MOCK_POWER));
 
@@ -296,7 +293,7 @@ mod tests_feature {
     // Test `with_detected_features` function in success case
     #[test]
     fn test_with_detected_features_success() {
-        let mut mock = MockProcessorHandleProvider::new();
+        let mut mock = MockProcessorHandleTrait::new();
 
         mock.expect_get_device_activity().returning(|| Ok(MOCK_ACTIVITY));
 

@@ -28,3 +28,4 @@ bindgen = "0.72.1"
 
 [lib]
 crate-type = ["rlib", "dylib"]
+doctest = false
