@@ -1,11 +1,6 @@
-#[cfg(not(test))]
-use crate::interface::AmdSmiLib;
-#[cfg(test)]
-use crate::interface::MockAmdSmiLibProvider;
-
 use crate::{
     amd::utils::PLUGIN_NAME,
-    interface::{AmdError, AmdSmiLibProvider},
+    interface::{AmdError, AmdSmiTrait, init_amd_smi},
 };
 use alumet::{
     pipeline::elements::source::trigger::TriggerSpec,
@@ -52,7 +47,7 @@ impl Default for Config {
 
 pub struct AmdGpuPlugin {
     pub config: Config,
-    pub amdsmi: Box<dyn AmdSmiLibProvider>,
+    pub amdsmi: Box<dyn AmdSmiTrait>,
 }
 
 impl AlumetPlugin for AmdGpuPlugin {
@@ -71,13 +66,7 @@ impl AlumetPlugin for AmdGpuPlugin {
 
     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
         let config = deserialize_config(config)?;
-
-        #[cfg(not(test))]
-        let amdsmi: Box<dyn AmdSmiLibProvider> =
-            <AmdSmiLib as AmdSmiLibProvider>::lib_init().context("Failed to initialize AMD SMI")?;
-        #[cfg(test)]
-        let amdsmi: Box<dyn AmdSmiLibProvider> = Box::new(MockAmdSmiLibProvider::new());
-
+        let amdsmi = init_amd_smi().context("Failed to initialize AMD SMI")?;
         Ok(Box::new(Self { config, amdsmi }))
     }
 
@@ -122,7 +111,9 @@ impl AlumetPlugin for AmdGpuPlugin {
 }
 
 #[cfg(test)]
-mod tests_lib {
+mod test {
+    use crate::interface::{MockAmdSmiTrait, set_amd_smi_factory};
+
     use super::*;
     use alumet::plugin::rust::AlumetPlugin;
     use amd::utils::ERROR;
@@ -148,6 +139,7 @@ mod tests_lib {
     // Test `init` function to initialize the plugin and the amd smi library
     #[test]
     fn test_init_success() {
+        set_amd_smi_factory(|| Ok(Box::new(MockAmdSmiTrait::new())));
         let config: Config = toml::from_str(CONFIGURATION).unwrap();
         let config_table = serialize_config(config).unwrap();
         let _mock = AmdGpuPlugin::init(config_table).unwrap();
@@ -156,7 +148,7 @@ mod tests_lib {
     // Test `stop` function in success case
     #[test]
     fn test_stop_success() {
-        let mut mock = MockAmdSmiLibProvider::new();
+        let mut mock = MockAmdSmiTrait::new();
         mock.expect_lib_stop().returning(|| Ok(()));
 
         let mut plugin = AmdGpuPlugin {
@@ -170,7 +162,7 @@ mod tests_lib {
     // Test `stop` function in error case
     #[test]
     fn test_stop_error() {
-        let mut mock = MockAmdSmiLibProvider::new();
+        let mut mock = MockAmdSmiTrait::new();
         mock.expect_lib_stop().returning(|| Err(AmdError(ERROR)));
 
         let mut plugin = AmdGpuPlugin {

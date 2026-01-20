@@ -17,9 +17,10 @@ pub const LIB_PATH: &str = "libamd_smi.so";
 pub const INIT_FLAG: amdsmi_init_flags_t = amdsmi_init_flags_t_AMDSMI_INIT_AMD_GPUS;
 pub const UUID_LENGTH: u32 = AMDSMI_GPU_UUID_SIZE;
 
-pub const SUCCESS: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_SUCCESS;
 pub const ERROR: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_INVAL;
+pub const SUCCESS: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_SUCCESS;
 pub const OVERFLOW: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_OUT_OF_RESOURCES;
+pub const UNKNOWN_ERROR: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_UNKNOWN_ERROR;
 
 pub const METRIC_TEMP: amdsmi_temperature_metric_t = amdsmi_temperature_metric_t_AMDSMI_TEMP_CURRENT;
 pub const VOLTAGE_SENSOR_TYPE: amdsmi_voltage_type_t = amdsmi_voltage_type_t_AMDSMI_VOLT_TYPE_VDDGFX;
@@ -29,7 +30,6 @@ pub const NO_PERM: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_NO_PERM;
 pub const NOT_SUPPORTED: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_NOT_SUPPORTED;
 pub const NOT_YET_IMPLEMENTED: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_NOT_YET_IMPLEMENTED;
 pub const UNEXPECTED_DATA: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_UNEXPECTED_DATA;
-pub const UNKNOWN_ERROR: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_UNKNOWN_ERROR;
 
 pub const PLUGIN_NAME: &str = "amd-gpu";
 
