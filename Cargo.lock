@@ -114,6 +114,7 @@ dependencies = [
  "toml 0.9.5",
  "vergen",
  "vergen-gitcl",
+ "vergen-lib",
 ]
 
 [[package]]
@@ -2766,7 +2767,7 @@ dependencies = [
 
 [[package]]
 name = "plugin-energy-attribution"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "alumet",
  "anyhow",
