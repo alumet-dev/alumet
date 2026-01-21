@@ -33,7 +33,7 @@ jobs:
       - run: cat /etc/hosts
       - run:
           name: Install required packages.
-          command: sudo apt-get update && sudo apt-get install llvm-dev libclang-dev --no-install-recommends
+          command: sudo apt-get update && sudo apt-get install llvm-dev libclang-dev clang --no-install-recommends
       - restore_cache:
           keys:
             - v2-dependency-cache-{{ checksum ".combined_cache_key" }}
@@ -84,7 +84,7 @@ jobs:
       - run: cat /etc/hosts
       - run:
           name: Install required packages.
-          command: sudo apt-get update && sudo apt-get install llvm-dev libclang-dev musl-dev musl-tools --no-install-recommends
+          command: sudo apt-get update && sudo apt-get install llvm-dev libclang-dev clang musl-dev musl-tools --no-install-recommends
       - run:
           name: Install MUSL toolchain
           command: rustup target add x86_64-unknown-linux-musl
