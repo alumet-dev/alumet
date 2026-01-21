@@ -153,11 +153,11 @@ fn extract_process_id_from_measurement(measurement: &MeasurementPoint) -> anyhow
 /// Groups are identified by (metric_id, consumer, timestamp) and all measurements in each
 /// group are averaged together.
 fn aggregate_cgroups_measurements(measurements: &mut MeasurementBuffer) -> MeasurementBuffer {
-    let mut grouped: HashMap<(RawMetricId, ResourceConsumer, u64), Vec<&MeasurementPoint>> = HashMap::new();
+    let mut grouped: HashMap<(RawMetricId, ResourceConsumer, u128), Vec<&MeasurementPoint>> = HashMap::new();
 
     // Group by (metric_id, consumer, timestamp)
     for point in measurements.iter() {
-        let ts = point.timestamp.duration_since(UNIX_EPOCH.into()).unwrap().as_secs();
+        let ts = point.timestamp.duration_since(UNIX_EPOCH.into()).unwrap().as_millis();
         let key = (point.metric, point.consumer.clone(), ts);
         grouped.entry(key).or_default().push(point);
     }
