@@ -26,7 +26,7 @@ struct Metrics {
 
     // The other parameters (tdp and number of virtual cpu is provided by configuration)
     cpu_usage: RawMetricId,
-    estimated_energy: TypedMetricId<f64>,
+    estimated_consumed_energy: TypedMetricId<f64>,
 }
 
 impl AlumetPlugin for EnergyEstimationTdpPlugin {
@@ -70,7 +70,7 @@ impl AlumetPlugin for EnergyEstimationTdpPlugin {
                 .0;
             let metrics = Metrics {
                 cpu_usage: cpu_usage_metric,
-                estimated_energy: estimated_energy_metric,
+                estimated_consumed_energy: estimated_energy_metric,
             };
 
             let transform = Box::new(EnergyEstimationTdpTransform::new(config, metrics));
@@ -86,7 +86,6 @@ impl AlumetPlugin for EnergyEstimationTdpPlugin {
     }
 }
 
-// for 1st version, tdp, vcpu, cpu are defined in configuration plugin
 #[derive(Serialize, Deserialize)]
 struct Config {
     #[serde(with = "humantime_serde")]
