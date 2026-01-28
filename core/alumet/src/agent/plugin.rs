@@ -130,10 +130,12 @@ impl PluginSet {
     }
 
     /// Extracts the config of each plugin.
+    /// Returns the order in which the plugins appeared in the configuration.
     ///
     /// Use `on_unknown` to choose what to do when the config mentions a plugin that is not in the plugin set.
     ///
     /// # Enabling/disabling plugins
+    ///
     /// If `update_status` is true, enable/disable the plugins according to the configuration.
     /// Plugins that are present in the config are enabled, those that are not present are disabled.
     /// If the configuration of a plugin contains an `enabled` or `enable` boolean key, its value determines
@@ -143,7 +145,7 @@ impl PluginSet {
         global_config: &mut toml::Table,
         update_status: bool,
         on_unknown: UnknownPluginInConfigPolicy,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Vec<String>> {
         // Disable every plugin first.
         if update_status {
             for plugin_info in self.0.values_mut() {
@@ -154,6 +156,7 @@ impl PluginSet {
 
         // Extract the config and enable the plugins that it contains.
         let extracted = super::config::extract_plugins_config(global_config).context("invalid config")?;
+        let mut order = Vec::with_capacity(extracted.len());
         for (plugin_name, (enabled, config)) in extracted {
             if let Some(plugin_info) = self.0.get_mut(&plugin_name) {
                 if update_status {
@@ -173,8 +176,9 @@ impl PluginSet {
                     }
                 }
             }
+            order.push(plugin_name);
         }
-        Ok(())
+        Ok(order)
     }
 
     /// Gets the information about a non-initialized plugin.
@@ -239,16 +243,23 @@ impl PluginSet {
     }
 
     /// Reorders the plugins according to the given slice.
-    pub fn reorder(&mut self, order: &[String]) {
-        let mut reordered = IndexMap::with_capacity(self.0.len());
+    pub fn reorder_partial(&mut self, order: &[String]) {
+        let new_map = IndexMap::with_capacity(self.0.len());
+        let mut old_map = std::mem::replace(&mut self.0, new_map);
+
+        // reorder the plugins in `order`
         for plugin_name in order {
-            if let Some(info) = self.0.swap_remove(plugin_name) {
-                reordered.insert(plugin_name.to_owned(), info);
+            if let Some(info) = old_map.swap_remove(plugin_name) {
+                self.0.insert(plugin_name.to_owned(), info);
             } else {
                 log::error!("plugin {plugin_name} not present in the PluginSet, but present in the ordered list");
             }
         }
-        self.0 = reordered;
+
+        // add the remaining plugins, if any
+        for (plugin_name, info) in old_map {
+            self.0.insert(plugin_name, info);
+        }
     }
 }
 
@@ -502,7 +513,7 @@ mod tests {
             );
 
             // check that reordering works
-            set.reorder(&[String::from("zwei"), String::from("drei"), String::from("eins")]);
+            set.reorder_partial(&[String::from("zwei"), String::from("drei"), String::from("eins")]);
             assert_eq!(
                 set.0.keys().collect::<Vec<_>>(),
                 vec![&String::from("zwei"), &String::from("drei"), &String::from("eins")]

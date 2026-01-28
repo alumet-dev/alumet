@@ -116,13 +116,9 @@ fn main() -> anyhow::Result<ExitCode> {
         .load()
         .context("could not load config file")?;
 
-    // Reorder the plugins according to the configuration.
-    let plugins_in_config_order: Vec<String> = config.keys().cloned().collect();
-    plugins.reorder(&plugins_in_config_order);
-
     // Extract the config of each plugin.
     // If not set by CLI args, use the config to determine which plugins are enabled.
-    plugins
+    let plugins_config_order = plugins
         .extract_config(
             &mut config,
             args.common.plugins.is_none(),
@@ -132,6 +128,9 @@ fn main() -> anyhow::Result<ExitCode> {
 
     // Extract non-plugin config.
     let config = config.try_into::<GeneralConfig>().context("invalid general config")?;
+
+    // Reorder the plugins according to the configuration.
+    plugins.reorder_partial(&plugins_config_order);
 
     // Run CLI commands that only require the config and run before the pipeline starts.
     if run_command_no_measurement(&args, &config, &plugins).context("command failed")? {
