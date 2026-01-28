@@ -116,6 +116,10 @@ fn main() -> anyhow::Result<ExitCode> {
         .load()
         .context("could not load config file")?;
 
+    // Reorder the plugins according to the configuration.
+    let plugins_in_config_order: Vec<String> = config.keys().cloned().collect();
+    plugins.reorder(&plugins_in_config_order);
+
     // Extract the config of each plugin.
     // If not set by CLI args, use the config to determine which plugins are enabled.
     plugins
