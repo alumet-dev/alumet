@@ -1,6 +1,6 @@
 //! Building a set of plugins with their configuration options.
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 
 use anyhow::{Context, anyhow};
 
@@ -63,7 +63,7 @@ pub struct PluginInfo {
 /// A set of non-created plugins, with their metadata and configuration.
 ///
 /// The order of the plugins is preserved: they are stored in the same order as they are added to the set.
-pub struct PluginSet(BTreeMap<String, PluginInfo>);
+pub struct PluginSet(IndexMap<String, PluginInfo>);
 
 /// Filters plugins based on their status.
 pub enum PluginFilter {
@@ -111,7 +111,7 @@ impl From<Vec<PluginMetadata>> for PluginSet {
 impl PluginSet {
     /// Creates a new empty plugin set.
     pub fn new() -> Self {
-        Self(BTreeMap::new())
+        Self(IndexMap::new())
     }
 
     /// Enables the specified plugins and disables all the others.
@@ -237,6 +237,19 @@ impl PluginSet {
             .map(|p| p.metadata)
             .collect()
     }
+
+    /// Reorders the plugins according to the given slice.
+    pub fn reorder(&mut self, order: &[String]) {
+        let mut reordered = IndexMap::with_capacity(self.0.len());
+        for plugin_name in order {
+            if let Some(info) = self.0.swap_remove(plugin_name) {
+                reordered.insert(plugin_name.to_owned(), info);
+            } else {
+                log::error!("plugin {plugin_name} not present in the PluginSet, but present in the ordered list");
+            }
+        }
+        self.0 = reordered;
+    }
 }
 
 impl PluginFilter {
@@ -318,6 +331,12 @@ mod tests {
             assert_eq!(set.0.len(), 1);
             assert!(set.get_plugin(MyPlugin::name()).is_some());
             set
+        }
+
+        fn altered_static_metadata<P: AlumetPlugin + 'static>(new_name: &str) -> PluginMetadata {
+            let mut meta = PluginMetadata::from_static::<P>();
+            meta.name = String::from(new_name);
+            meta
         }
 
         #[test]
@@ -455,6 +474,50 @@ mod tests {
             );
             assert!(plugin_info.enabled);
             assert!(set.is_plugin_enabled("name"));
+        }
+
+        #[test]
+        fn order_and_reorder() {
+            let mut set = PluginSet::new();
+            set.add_plugin(PluginInfo {
+                metadata: altered_static_metadata::<MyPlugin>("eins"),
+                enabled: true,
+                config: None,
+            });
+            set.add_plugin(PluginInfo {
+                metadata: altered_static_metadata::<MyPlugin>("zwei"),
+                enabled: false,
+                config: None,
+            });
+            set.add_plugin(PluginInfo {
+                metadata: altered_static_metadata::<MyPlugin>("drei"),
+                enabled: true,
+                config: None,
+            });
+
+            // check that the order has been preserved
+            assert_eq!(
+                set.0.keys().collect::<Vec<_>>(),
+                vec![&String::from("eins"), &String::from("zwei"), &String::from("drei")]
+            );
+
+            // check that reordering works
+            set.reorder(&[String::from("zwei"), String::from("drei"), String::from("eins")]);
+            assert_eq!(
+                set.0.keys().collect::<Vec<_>>(),
+                vec![&String::from("zwei"), &String::from("drei"), &String::from("eins")]
+            );
+
+            // into_partition() must also preserve the (new) order
+            let (enabled, disabled) = set.into_partition();
+            assert_eq!(
+                enabled.into_iter().map(|p| p.metadata.name).collect::<Vec<_>>(),
+                vec![String::from("drei"), String::from("eins")]
+            );
+            assert_eq!(
+                disabled.into_iter().map(|p| p.metadata.name).collect::<Vec<_>>(),
+                vec![String::from("zwei")]
+            );
         }
     }
 
