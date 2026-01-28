@@ -1,6 +1,5 @@
 use mockall::automock;
 use std::{
-    cell::RefCell,
     ffi::CStr,
     mem::{MaybeUninit, transmute, zeroed},
     os::raw::c_char,
@@ -35,7 +34,6 @@ pub enum AmdInitError {
     Load(#[from] libloading::Error),
 }
 
-#[allow(dead_code)]
 #[derive(Clone)]
 pub struct AmdSmi {
     amdsmi: Arc<libamd_smi>,
@@ -61,21 +59,13 @@ pub struct AmdEnergyConsumptionInfo {
     pub timestamp: u64,
 }
 
+pub type MockableAmdSmi = Arc<dyn AmdSmiTrait>;
 pub type MockableAmdSocketHandle = Box<dyn SocketHandleTrait>;
 pub type MockableAmdProcessorHandle = Box<dyn ProcessorHandleTrait>;
 
-type AmdSmiLibFactory = Box<dyn Fn() -> Result<Box<dyn AmdSmiTrait>, AmdInitError>>;
-
-thread_local! {
-    static AMD_SMI_FACTORY: RefCell<Option<AmdSmiLibFactory>> = RefCell::new(None);
-}
-
 #[automock]
 pub trait AmdSmiTrait: Send + Sync {
-    fn lib_init() -> Result<Box<dyn AmdSmiTrait>, AmdInitError>
-    where
-        Self: Sized;
-    fn lib_stop(&self) -> Result<(), AmdError>;
+    fn stop(&self) -> Result<(), AmdError>;
     fn get_socket_handles(&self) -> Result<Vec<MockableAmdSocketHandle>, AmdError>;
 }
 
@@ -105,15 +95,6 @@ pub trait ProcessorHandleTrait {
     ) -> Result<i64, AmdError>;
 }
 
-pub fn init_amd_smi() -> Result<Box<dyn AmdSmiTrait>, AmdInitError> {
-    AMD_SMI_FACTORY.with(|f| {
-        if let Some(factory) = &*f.borrow() {
-            return factory();
-        }
-        <AmdSmi as AmdSmiTrait>::lib_init()
-    })
-}
-
 #[inline]
 fn get_value(status: amdsmi_status_t) -> Result<(), AmdError> {
     if status == SUCCESS {
@@ -123,34 +104,23 @@ fn get_value(status: amdsmi_status_t) -> Result<(), AmdError> {
     }
 }
 
-// Allow to the tests to replace the global factory with the mock, instead the real library.
-#[cfg(test)]
-pub fn set_amd_smi_factory<F>(factory: F)
-where
-    F: Fn() -> Result<Box<dyn AmdSmiTrait>, AmdInitError> + 'static,
-{
-    AMD_SMI_FACTORY.with(|f| {
-        *f.borrow_mut() = Some(Box::new(factory));
-    });
-}
-
-impl AmdSmiTrait for AmdSmi {
+impl AmdSmi {
     /// Initialize and start amd-smi library with [`INIT_FLAG`].
-    fn lib_init() -> Result<Box<dyn AmdSmiTrait>, AmdInitError> {
+    pub fn init() -> Result<Self, AmdInitError> {
         let amdsmi = unsafe { libamd_smi::new(LIB_PATH)? };
-
         let result = unsafe { amdsmi.amdsmi_init(INIT_FLAG.into()) };
         if result != SUCCESS {
             return Err(AmdInitError::Init(AmdError(result)));
         }
-
-        Ok(Box::new(AmdSmi {
+        Ok(AmdSmi {
             amdsmi: Arc::new(amdsmi),
-        }))
+        })
     }
+}
 
+impl AmdSmiTrait for AmdSmi {
     /// Quit amd-smi library and clean properly its resources.
-    fn lib_stop(&self) -> Result<(), AmdError> {
+    fn stop(&self) -> Result<(), AmdError> {
         let result = unsafe { self.amdsmi.amdsmi_shut_down() };
         get_value(result)
     }
