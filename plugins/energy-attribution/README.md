@@ -6,7 +6,7 @@ It computes a value per resource per consumer, using the formula of your choice 
 
 ## Requirements
 
-To obtain hardware and software measurements, you need to enable other plugins such as `rapl` or `procfs`.
+To obtain hardware and software measurements, you need to enable other plugins such as `rapl` or `tdp` for energy consumption (per resource) and `procfs` or `k8` for hardware usage (per consumer).
 
 ## Metrics
 
@@ -17,6 +17,15 @@ This plugin creates new measurements based on its configuration.
 |chosen by the config| Gauge | Joules | attributed energy | depends on the config| depends on the config|same as the input measurements||
 
 ## Configuration
+
+Some use cases for this plugin are:
+
+- Monitoring host with access to RAPL:
+  - Per resource: RAPL plugin
+  - Per consumer: procfs or K8s plugins
+- Monitoring a host without RAPL (bare metal, ARM):
+  - Per resource: TDP plugin which at the same time requires procfs
+  - Per consumer: K8s plugin
 
 Here is an example of how to configure this plugin.
 Put the following in the configuration file of the Alumet agent (usually `alumet-config.toml`).
