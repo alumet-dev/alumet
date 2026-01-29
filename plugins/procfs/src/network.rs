@@ -2,7 +2,8 @@
 
 use std::{
     fs::File,
-    io::{BufReader, Seek},
+    io::{BufReader, ErrorKind, Seek},
+    path::PathBuf,
 };
 
 use alumet::{
@@ -21,9 +22,18 @@ use procfs::{
 
 /// Reads network metrics from /proc/net/dev
 pub struct NetworkProbe {
-    reader: BufReader<File>,
+    path: PathBuf,
+    reader: ProcNetReader,
     previous: Option<InterfaceDeviceStatus>,
     metrics: NetworkMetrics,
+}
+
+/// How to read `/proc/net/dev`.
+enum ProcNetReader {
+    /// Optimized version, where we open the file only once.
+    Optimized(BufReader<File>),
+    /// Less optimized version where the file is opened each time, to work around a bug.
+    Workaround,
 }
 
 pub struct NetworkMetrics {
@@ -53,11 +63,42 @@ impl NetworkMetrics {
     }
 }
 
+impl ProcNetReader {
+    fn read(&mut self, path: &PathBuf) -> anyhow::Result<InterfaceDeviceStatus> {
+        let res = match self {
+            ProcNetReader::Optimized(reader) => {
+                reader.rewind().with_context(|| format!("failed to rewind {path:?}"))?;
+                InterfaceDeviceStatus::from_buf_read(reader)
+            }
+            ProcNetReader::Workaround => {
+                // A kernel bug makes rewind fail on /proc/net/* (see issue #336) in some versions.
+                // Workaround: reopen the file each time.
+                let file = File::open(&path).with_context(|| format!("cannot open {path:?}"))?;
+                let mut reader = BufReader::new(file);
+                InterfaceDeviceStatus::from_buf_read(&mut reader)
+            }
+        };
+        res.with_context(|| format!("error while parsing {path:?}"))
+    }
+}
+
 impl NetworkProbe {
-    pub fn new(metrics: NetworkMetrics, path: &str) -> anyhow::Result<Self> {
-        let file = File::open(path).with_context(|| format!("cannot open {path}"))?;
+    pub fn new(metrics: NetworkMetrics, path: impl Into<PathBuf>) -> anyhow::Result<Self> {
+        let path = path.into();
+        let mut file = File::open(&path).with_context(|| format!("cannot open {path:?}"))?;
+        let reader = match file.rewind() {
+            Ok(_) => ProcNetReader::Optimized(BufReader::new(file)),
+            Err(e) if e.kind() == ErrorKind::NotSeekable => {
+                log::warn!(
+                    "Cannot rewind on {path:?}, your kernel probably has a bug (see issue #336). A workaround will be used, but the network source will be slower."
+                );
+                ProcNetReader::Workaround
+            }
+            Err(bad) => return Err(anyhow::Error::new(bad).context(format!("cannot rewind {path:?}"))),
+        };
         Ok(Self {
-            reader: BufReader::new(file),
+            path,
+            reader,
             previous: None,
             metrics,
         })
@@ -66,8 +107,7 @@ impl NetworkProbe {
 
 impl Source for NetworkProbe {
     fn poll(&mut self, acc: &mut MeasurementAccumulator, ts: Timestamp) -> Result<(), PollError> {
-        self.reader.rewind()?;
-        let now = InterfaceDeviceStatus::from_buf_read(&mut self.reader).context("error parsing /proc/net/dev")?;
+        let now = self.reader.read(&self.path)?;
         // Only push deltas, not the baseline value before the plugin starts
         if let Some(ref prev) = self.previous {
             for (if_name, now_stats) in &now.0 {
