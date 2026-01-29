@@ -12,10 +12,13 @@ use common::{
     run::{ChildGuard, command_run_agent, run_agent_tee},
 };
 
+use crate::common::TestDir;
+
 /// Checks that the `--relay-server` option works when the relay-client plugin is enabled.
 #[test]
 fn args_bad_relay_server_address() {
-    let tmp_dir = empty_temp_dir("args_bad_relay_server_address").unwrap();
+    let tmp = empty_temp_dir().unwrap();
+    let tmp_dir = tmp.0.path();
     let out = run_agent_tee(
         "alumet-agent",
         &[
@@ -51,19 +54,22 @@ fn client_to_server_to_csv() {
     // These tests are in the same test function because they must NOT run concurrently (same port).
 
     // works in CI
-    client_to_server_to_csv_on_address("ipv4", Some("localhost:50051")).unwrap();
+    let tmp = empty_temp_dir().unwrap();
+    client_to_server_to_csv_on_address(&tmp, Some("localhost:50051")).unwrap();
 
     // doesn't work in CI
     if std::env::var_os("NO_IPV6").is_some() {
         println!("IPv6 test disabled by environment variable.");
     } else {
-        client_to_server_to_csv_on_address("ipv6", Some("[::1]:50051")).unwrap();
-        client_to_server_to_csv_on_address("default", None).unwrap();
+        let tmp = empty_temp_dir().unwrap();
+        client_to_server_to_csv_on_address(&tmp, Some("[::1]:50051")).unwrap();
+        let tmp = empty_temp_dir().unwrap();
+        client_to_server_to_csv_on_address(&tmp, None).unwrap();
     }
 }
 
-fn client_to_server_to_csv_on_address(tag: &str, addr_and_port: Option<&'static str>) -> anyhow::Result<()> {
-    let tmp_dir = empty_temp_dir(&format!("client_to_server_to_csv-{tag}"))?;
+fn client_to_server_to_csv_on_address(tmp: &TestDir, addr_and_port: Option<&'static str>) -> anyhow::Result<()> {
+    let tmp_dir = tmp.0.path();
 
     let server_config = tmp_dir.join("server.toml");
     let client_config = tmp_dir.join("client.toml");

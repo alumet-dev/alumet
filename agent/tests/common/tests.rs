@@ -1,9 +1,9 @@
 use anyhow::Context;
 
-use crate::common::{empty_temp_dir, run::run_agent_tee};
+use crate::common::{TestDir, run::run_agent_tee};
 
-pub fn args_bad_config_no_folder(binary: &str) -> anyhow::Result<()> {
-    let tmp_dir = empty_temp_dir(&format!("{binary}-args_bad_config_no_folder"))?;
+pub fn args_bad_config_no_folder(tmp: &TestDir, binary: &str) -> anyhow::Result<()> {
+    let tmp_dir = tmp.0.path();
     let bad_conf = tmp_dir.join("i-do-not-exist").join("zzzzz.toml");
 
     let bad_conf_filename = bad_conf.to_str().unwrap();
@@ -18,8 +18,8 @@ pub fn args_bad_config_no_folder(binary: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn args_bad_config_missing_file_no_default(binary: &str) -> anyhow::Result<()> {
-    let tmp_dir = empty_temp_dir(&format!("{binary}-args_bad_config_missing_file_no_default"))?;
+pub fn args_bad_config_missing_file_no_default(tmp: &TestDir, binary: &str) -> anyhow::Result<()> {
+    let tmp_dir = tmp.0.path();
     let bad_conf = tmp_dir.join("zzzzz.toml");
 
     let bad_conf_filename = bad_conf.to_str().unwrap();
@@ -38,8 +38,8 @@ pub fn args_bad_config_missing_file_no_default(binary: &str) -> anyhow::Result<(
     Ok(())
 }
 
-pub fn args_regen_config(binary: &str) -> anyhow::Result<()> {
-    let tmp_dir = empty_temp_dir(&format!("{binary}-args_regen_config"))?;
+pub fn args_regen_config(tmp: &TestDir, binary: &str) -> anyhow::Result<()> {
+    let tmp_dir = tmp.0.path();
     let conf = tmp_dir.join("config.toml");
     assert!(!conf.try_exists()?, "config file should not exist: {conf:?}");
 

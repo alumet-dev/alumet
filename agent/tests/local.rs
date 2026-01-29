@@ -15,24 +15,28 @@ const AGENT_BIN: &str = "alumet-agent";
 
 #[test]
 fn help() {
-    let tmp_dir = empty_temp_dir("help").unwrap();
+    let tmp = empty_temp_dir().unwrap();
+    let tmp_dir = tmp.0.path();
     let status = run_agent(AGENT_BIN, &["--help"], &tmp_dir).unwrap();
     assert!(status.success());
 }
 
 #[test]
 fn args_bad_config_no_folder() -> anyhow::Result<()> {
-    tests::args_bad_config_no_folder(AGENT_BIN)
+    let tmp = empty_temp_dir()?;
+    tests::args_bad_config_no_folder(&tmp, AGENT_BIN)
 }
 
 #[test]
 fn args_bad_config_missing_file_no_default() -> anyhow::Result<()> {
-    tests::args_bad_config_missing_file_no_default(AGENT_BIN)
+    let tmp = empty_temp_dir()?;
+    tests::args_bad_config_missing_file_no_default(&tmp, AGENT_BIN)
 }
 
 #[test]
 fn args_regen_config() -> anyhow::Result<()> {
-    tests::args_regen_config(AGENT_BIN)
+    let tmp = empty_temp_dir()?;
+    tests::args_regen_config(&tmp, AGENT_BIN)
 }
 
 #[test]
@@ -62,7 +66,8 @@ fn regen_config_with_plugins() -> anyhow::Result<()> {
 
 #[test]
 fn args_output_exec() -> anyhow::Result<()> {
-    let tmp_dir = empty_temp_dir("args_output_exec").unwrap();
+    let tmp = empty_temp_dir()?;
+    let tmp_dir = tmp.0.path();
     let tmp_file_out = tmp_dir.join("agent-output.csv");
     let tmp_file_conf = tmp_dir.join("agent-config.toml");
     let _ = std::fs::create_dir(&tmp_dir);

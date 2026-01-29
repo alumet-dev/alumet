@@ -42,13 +42,13 @@
 //!
 //! // TODO use the config
 //! ```
-use std::collections::BTreeMap;
 use std::io;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::{borrow::Cow, env::VarError};
 
 use anyhow::anyhow;
+use indexmap::IndexMap;
 use serde::Serialize;
 
 use super::plugin::{PluginFilter, PluginSet};
@@ -420,7 +420,7 @@ pub fn merge_override(original: &mut toml::Table, overrider: toml::Table) {
 /// # // Call the function so that the test runs (the function exists to allow the use of `?`).
 /// # prepare_plugin_configs().unwrap();
 /// ```
-pub fn extract_plugins_config(config: &mut toml::Table) -> Result<BTreeMap<String, (bool, toml::Table)>, BadTypeError> {
+pub fn extract_plugins_config(config: &mut toml::Table) -> Result<IndexMap<String, (bool, toml::Table)>, BadTypeError> {
     /// Extracts the `enabled` key and remaining configuration entries from a plugin section.
     ///
     /// Returns an error if the section or `enabled` key is of the wrong type.
@@ -457,7 +457,7 @@ pub fn extract_plugins_config(config: &mut toml::Table) -> Result<BTreeMap<Strin
     }?;
 
     // Build a map that maps each plugin name to its config
-    let mut res = BTreeMap::new();
+    let mut res = IndexMap::new();
     for (plugin, section) in plugins_table {
         let (enabled, config) = process_plugin_config(&plugin, section)?;
         res.insert(plugin, (enabled, config));

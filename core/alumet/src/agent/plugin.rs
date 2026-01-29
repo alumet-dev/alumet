@@ -1,6 +1,6 @@
 //! Building a set of plugins with their configuration options.
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 
 use anyhow::{Context, anyhow};
 
@@ -63,7 +63,7 @@ pub struct PluginInfo {
 /// A set of non-created plugins, with their metadata and configuration.
 ///
 /// The order of the plugins is preserved: they are stored in the same order as they are added to the set.
-pub struct PluginSet(BTreeMap<String, PluginInfo>);
+pub struct PluginSet(IndexMap<String, PluginInfo>);
 
 /// Filters plugins based on their status.
 pub enum PluginFilter {
@@ -111,7 +111,7 @@ impl From<Vec<PluginMetadata>> for PluginSet {
 impl PluginSet {
     /// Creates a new empty plugin set.
     pub fn new() -> Self {
-        Self(BTreeMap::new())
+        Self(IndexMap::new())
     }
 
     /// Enables the specified plugins and disables all the others.
@@ -130,10 +130,12 @@ impl PluginSet {
     }
 
     /// Extracts the config of each plugin.
+    /// Returns the order in which the plugins appeared in the configuration.
     ///
     /// Use `on_unknown` to choose what to do when the config mentions a plugin that is not in the plugin set.
     ///
     /// # Enabling/disabling plugins
+    ///
     /// If `update_status` is true, enable/disable the plugins according to the configuration.
     /// Plugins that are present in the config are enabled, those that are not present are disabled.
     /// If the configuration of a plugin contains an `enabled` or `enable` boolean key, its value determines
@@ -143,7 +145,7 @@ impl PluginSet {
         global_config: &mut toml::Table,
         update_status: bool,
         on_unknown: UnknownPluginInConfigPolicy,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Vec<String>> {
         // Disable every plugin first.
         if update_status {
             for plugin_info in self.0.values_mut() {
@@ -154,6 +156,7 @@ impl PluginSet {
 
         // Extract the config and enable the plugins that it contains.
         let extracted = super::config::extract_plugins_config(global_config).context("invalid config")?;
+        let mut order = Vec::with_capacity(extracted.len());
         for (plugin_name, (enabled, config)) in extracted {
             if let Some(plugin_info) = self.0.get_mut(&plugin_name) {
                 if update_status {
@@ -173,8 +176,9 @@ impl PluginSet {
                     }
                 }
             }
+            order.push(plugin_name);
         }
-        Ok(())
+        Ok(order)
     }
 
     /// Gets the information about a non-initialized plugin.
@@ -236,6 +240,26 @@ impl PluginSet {
             .filter(|p| filter.accept(p))
             .map(|p| p.metadata)
             .collect()
+    }
+
+    /// Reorders the plugins according to the given slice.
+    pub fn reorder_partial(&mut self, order: &[String]) {
+        let new_map = IndexMap::with_capacity(self.0.len());
+        let mut old_map = std::mem::replace(&mut self.0, new_map);
+
+        // reorder the plugins in `order`
+        for plugin_name in order {
+            if let Some(info) = old_map.swap_remove(plugin_name) {
+                self.0.insert(plugin_name.to_owned(), info);
+            } else {
+                log::error!("plugin {plugin_name} not present in the PluginSet, but present in the ordered list");
+            }
+        }
+
+        // add the remaining plugins, if any
+        for (plugin_name, info) in old_map {
+            self.0.insert(plugin_name, info);
+        }
     }
 }
 
@@ -318,6 +342,12 @@ mod tests {
             assert_eq!(set.0.len(), 1);
             assert!(set.get_plugin(MyPlugin::name()).is_some());
             set
+        }
+
+        fn altered_static_metadata<P: AlumetPlugin + 'static>(new_name: &str) -> PluginMetadata {
+            let mut meta = PluginMetadata::from_static::<P>();
+            meta.name = String::from(new_name);
+            meta
         }
 
         #[test]
@@ -455,6 +485,50 @@ mod tests {
             );
             assert!(plugin_info.enabled);
             assert!(set.is_plugin_enabled("name"));
+        }
+
+        #[test]
+        fn order_and_reorder() {
+            let mut set = PluginSet::new();
+            set.add_plugin(PluginInfo {
+                metadata: altered_static_metadata::<MyPlugin>("eins"),
+                enabled: true,
+                config: None,
+            });
+            set.add_plugin(PluginInfo {
+                metadata: altered_static_metadata::<MyPlugin>("zwei"),
+                enabled: false,
+                config: None,
+            });
+            set.add_plugin(PluginInfo {
+                metadata: altered_static_metadata::<MyPlugin>("drei"),
+                enabled: true,
+                config: None,
+            });
+
+            // check that the order has been preserved
+            assert_eq!(
+                set.0.keys().collect::<Vec<_>>(),
+                vec![&String::from("eins"), &String::from("zwei"), &String::from("drei")]
+            );
+
+            // check that reordering works
+            set.reorder_partial(&[String::from("zwei"), String::from("drei"), String::from("eins")]);
+            assert_eq!(
+                set.0.keys().collect::<Vec<_>>(),
+                vec![&String::from("zwei"), &String::from("drei"), &String::from("eins")]
+            );
+
+            // into_partition() must also preserve the (new) order
+            let (enabled, disabled) = set.into_partition();
+            assert_eq!(
+                enabled.into_iter().map(|p| p.metadata.name).collect::<Vec<_>>(),
+                vec![String::from("drei"), String::from("eins")]
+            );
+            assert_eq!(
+                disabled.into_iter().map(|p| p.metadata.name).collect::<Vec<_>>(),
+                vec![String::from("zwei")]
+            );
         }
     }
 
