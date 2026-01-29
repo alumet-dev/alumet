@@ -21,6 +21,7 @@ use anyhow::Result;
 use std::{
     fs::OpenOptions,
     path::{Path, PathBuf},
+    thread::sleep,
     time::Duration,
 };
 use tempfile::tempdir;
@@ -132,8 +133,8 @@ fn test_correct_run_with_one_job() {
         .expect_metric::<u64>("memory_usage", Unit::Byte.clone())
         .expect_metric::<u64>("cpu_time_delta", PrefixedUnit::nano(Unit::Second));
 
-    let pah_src1 = root.clone();
-    let pah_src2 = root.clone();
+    let path_src1 = root.clone();
+    let path_src2 = root.clone();
     let run_expect = RuntimeExpectations::new()
         .test_source(
             SourceName::from_str("slurm", "job:job_12345"),
@@ -142,7 +143,7 @@ fn test_correct_run_with_one_job() {
                 mock.usage_usec = 50;
                 mock.user_usec = 10;
                 mock.system_usec = 75;
-                let mut path_to_cpu_stat = PathBuf::from(&pah_src1.clone());
+                let mut path_to_cpu_stat = PathBuf::from(&path_src1.clone());
                 path_to_cpu_stat = path_to_cpu_stat.join("system.slice/slurmstepd.scope/job_12345/cpu.stat");
                 let mut file = OpenOptions::new()
                     .read(true) // Allow read
@@ -160,7 +161,7 @@ fn test_correct_run_with_one_job() {
                 mock.usage_usec = 55; // +5
                 mock.user_usec = 12; // +2
                 mock.system_usec = 78; // +3
-                let mut path_to_cpu_stat = PathBuf::from(&pah_src2);
+                let mut path_to_cpu_stat = PathBuf::from(&path_src2);
                 path_to_cpu_stat = path_to_cpu_stat.join("system.slice/slurmstepd.scope/job_12345/cpu.stat");
                 let mut file = OpenOptions::new()
                     .read(true) // Allow read
@@ -340,6 +341,7 @@ fn test_correct_run_with_two_jobs() {
 
 #[test]
 fn test_correct_run_with_one_job_coming_later() {
+    let _ = env_logger::try_init_from_env(env_logger::Env::default());
     // Creation of file hierarchy
     let tmp_root = tempdir().unwrap();
     let root = tmp_root.path().to_path_buf();
@@ -449,6 +451,179 @@ fn test_cgroupv1_two_jobs() {
     agent.wait_for_shutdown(TIMEOUT).unwrap();
 }
 
+#[test]
+fn test_correct_run_with_jobs_monitoring_level_job() {
+    // Creation of file hierarchy
+    let tmp_root = tempdir().unwrap();
+    let root = tmp_root.path().to_path_buf();
+    cgroupv2::create_cgroupv2_tree_slurm_full(&root).unwrap();
+
+    let mut plugins = PluginSet::new();
+    let config = Config {
+        poll_interval: Duration::from_secs(1),
+        jobs_monitoring_level: plugin_slurm::JobMonitoringLevel::Job,
+        annotate_foreign_measurements: false,
+        ..Default::default()
+    };
+    plugins.add_plugin(PluginInfo {
+        metadata: PluginMetadata::from_static::<SlurmPlugin>(),
+        enabled: true,
+        config: Some(config_to_toml_table(&config)),
+    });
+
+    let startup_expectations = StartupExpectations::new()
+        .expect_metric::<u64>("cgroup_memory_anonymous", Unit::Byte.clone())
+        .expect_metric::<u64>("cgroup_memory_file", Unit::Byte.clone())
+        .expect_metric::<u64>("cgroup_memory_kernel_stack", Unit::Byte.clone())
+        .expect_metric::<u64>("cgroup_memory_pagetables", Unit::Byte.clone())
+        .expect_metric::<u64>("memory_usage", Unit::Byte.clone())
+        .expect_metric::<u64>("cpu_time_delta", PrefixedUnit::nano(Unit::Second));
+
+    let path_src1 = root.clone();
+    let path_src2 = root.clone();
+    let run_expect = RuntimeExpectations::new()
+        .test_source(
+            SourceName::from_str("slurm", "job:job_12345"),
+            move || {
+                create_file_hierarchy(path_src1.clone());
+            },
+            |_m| {},
+        )
+        .test_source(
+            SourceName::from_str("slurm", "job:job_12345"),
+            move || {
+                update_file_hierarchy(path_src2.clone());
+            },
+            |ctx| {
+                let m = ctx.measurements();
+                for _elm in m {
+                    todo!("Not yet executed due to RuntimeExpectation limitation")
+                }
+            },
+        );
+
+    let agent = agent::Builder::new(plugins)
+        .with_expectations(startup_expectations)
+        .with_expectations(run_expect)
+        .build_and_start()
+        .unwrap();
+
+    sleep(Duration::from_secs(15));
+    agent.wait_for_shutdown(TIMEOUT).unwrap();
+}
+
+fn create_file_hierarchy(path_src: PathBuf) -> () {
+    // Job
+    let mut mock = CpuStatMock::default();
+    mock.usage_usec = 100;
+    mock.user_usec = 70;
+    mock.system_usec = 30;
+    let path_to_cpu_stat_root = PathBuf::from(&path_src.clone());
+    let path_to_cpu_stat_job = path_to_cpu_stat_root.join("system.slice/slurmstepd.scope/job_12345/cpu.stat");
+    let mut file = OpenOptions::new()
+        .read(true) // Allow read
+        .write(true) // Allows write
+        .open(path_to_cpu_stat_job.clone())
+        .expect("Error when trying to open cpu.stat of slurmstep.scope folder");
+    mock.write_to_file(&mut file).unwrap();
+    // Step
+    mock.usage_usec = 90;
+    mock.user_usec = 65;
+    mock.system_usec = 25;
+    let path_to_cpu_stat_root = PathBuf::from(&path_src.clone());
+    let path_to_cpu_stat_step = path_to_cpu_stat_root.join("system.slice/slurmstepd.scope/job_12345/step_67/cpu.stat");
+    let mut file = OpenOptions::new()
+        .read(true) // Allow read
+        .write(true) // Allows write
+        .open(path_to_cpu_stat_step.clone())
+        .expect("Error when trying to open cpu.stat of slurmstep.scope folder");
+    mock.write_to_file(&mut file).unwrap();
+
+    // Substep
+    mock.usage_usec = 75;
+    mock.user_usec = 55;
+    mock.system_usec = 20;
+    let path_to_cpu_stat_root = PathBuf::from(&path_src.clone());
+    let path_to_cpu_stat_substep =
+        path_to_cpu_stat_root.join("system.slice/slurmstepd.scope/job_12345/step_67/89/cpu.stat");
+    let mut file = OpenOptions::new()
+        .read(true) // Allow read
+        .write(true) // Allows write
+        .open(path_to_cpu_stat_substep.clone())
+        .expect("Error when trying to open cpu.stat of slurmstep.scope folder");
+    mock.write_to_file(&mut file).unwrap();
+
+    // Task
+    mock.usage_usec = 50;
+    mock.user_usec = 40;
+    mock.system_usec = 10;
+    let path_to_cpu_stat_root = PathBuf::from(&path_src.clone());
+    let path_to_cpu_stat_task =
+        path_to_cpu_stat_root.join("system.slice/slurmstepd.scope/job_12345/step_67/89/task_Val_Quarios/cpu.stat");
+    let mut file = OpenOptions::new()
+        .read(true) // Allow read
+        .write(true) // Allows write
+        .open(path_to_cpu_stat_task.clone())
+        .expect("Error when trying to open cpu.stat of slurmstep.scope folder");
+    mock.write_to_file(&mut file).unwrap();
+}
+
+fn update_file_hierarchy(path_src: PathBuf) -> () {
+    // Job
+    let mut mock = CpuStatMock::default();
+    mock.usage_usec = 130;
+    mock.user_usec = 90;
+    mock.system_usec = 40;
+    let path_to_cpu_stat_root = PathBuf::from(&path_src.clone());
+    let path_to_cpu_stat_job = path_to_cpu_stat_root.join("system.slice/slurmstepd.scope/job_12345/cpu.stat");
+    let mut file = OpenOptions::new()
+        .read(true) // Allow read
+        .write(true) // Allows write
+        .open(path_to_cpu_stat_job.clone())
+        .expect("Error when trying to open cpu.stat of slurmstep.scope folder");
+    mock.write_to_file(&mut file).unwrap();
+    // Step
+    mock.usage_usec = 110;
+    mock.user_usec = 75;
+    mock.system_usec = 35;
+    let path_to_cpu_stat_root = PathBuf::from(&path_src.clone());
+    let path_to_cpu_stat_step = path_to_cpu_stat_root.join("system.slice/slurmstepd.scope/job_12345/step_67/cpu.stat");
+    let mut file = OpenOptions::new()
+        .read(true) // Allow read
+        .write(true) // Allows write
+        .open(path_to_cpu_stat_step.clone())
+        .expect("Error when trying to open cpu.stat of slurmstep.scope folder");
+    mock.write_to_file(&mut file).unwrap();
+
+    // Substep
+    mock.usage_usec = 90;
+    mock.user_usec = 65;
+    mock.system_usec = 25;
+    let path_to_cpu_stat_root = PathBuf::from(&path_src.clone());
+    let path_to_cpu_stat_substep =
+        path_to_cpu_stat_root.join("system.slice/slurmstepd.scope/job_12345/step_67/89/cpu.stat");
+    let mut file = OpenOptions::new()
+        .read(true) // Allow read
+        .write(true) // Allows write
+        .open(path_to_cpu_stat_substep.clone())
+        .expect("Error when trying to open cpu.stat of slurmstep.scope folder");
+    mock.write_to_file(&mut file).unwrap();
+
+    // Task
+    mock.usage_usec = 55;
+    mock.user_usec = 43;
+    mock.system_usec = 12;
+    let path_to_cpu_stat_root = PathBuf::from(&path_src.clone());
+    let path_to_cpu_stat_task =
+        path_to_cpu_stat_root.join("system.slice/slurmstepd.scope/job_12345/step_67/89/task_Val_Quarios/cpu.stat");
+    let mut file = OpenOptions::new()
+        .read(true) // Allow read
+        .write(true) // Allows write
+        .open(path_to_cpu_stat_task.clone())
+        .expect("Error when trying to open cpu.stat of slurmstep.scope folder");
+    mock.write_to_file(&mut file).unwrap();
+}
+
 fn config_to_toml_table(config: &Config) -> toml::Table {
     toml::Value::try_from(config).unwrap().as_table().unwrap().clone()
 }
@@ -504,7 +679,7 @@ mod cgroupv2 {
     use super::is_accessible_dir;
     use util_cgroups::measure::v2::mock::{CpuStatMock, MemoryStatMock, MockFileCgroupKV};
 
-    use std::{fs::File, path::PathBuf};
+    use std::{fs::File, path::PathBuf, thread::sleep, time::Duration};
 
     /// Creates the files that a sysfs cgroupv2 folder would have (at least, some of them).
     pub fn create_files(root: &PathBuf) -> anyhow::Result<()> {
@@ -584,6 +759,33 @@ mod cgroupv2 {
         create_folder(&path_to_slurmstepd, job_name2)?;
         let path_inside_job2 = path_to_slurmstepd.clone().join(job_name2);
         create_folder(&path_inside_job2, "step_0")?;
+        Ok(())
+    }
+
+    pub fn create_cgroupv2_tree_slurm_full(root: &PathBuf) -> anyhow::Result<()> {
+        let job_name = "job_12345";
+        let step_name = "step_67";
+        let substep_name = "89";
+        let task_name = "task_Val_Quarios";
+
+        create_files(&root)?;
+        create_folder(&root, "system.slice")?;
+        let path_to_system = root.clone().join("system.slice/");
+
+        create_folder(&path_to_system, "slurmstepd.scope")?;
+        let path_to_slurmstepd = path_to_system.clone().join("slurmstepd.scope/");
+
+        create_folder(&path_to_slurmstepd, job_name)?;
+        let path_job = path_to_slurmstepd.clone().join(job_name);
+
+        create_folder(&path_job, step_name)?;
+        let path_step = path_job.clone().join(step_name);
+
+        create_folder(&path_step, substep_name)?;
+        let path_substep = path_step.clone().join(substep_name);
+
+        create_folder(&path_substep, task_name)?;
+
         Ok(())
     }
 }
