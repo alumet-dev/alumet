@@ -45,8 +45,8 @@ pub struct AmdSocketHandle {
 }
 
 pub struct AmdProcessorHandle {
-    pub amdsmi: AmdSmi,
-    pub inner: amdsmi_processor_handle,
+    amdsmi: AmdSmi,
+    inner: amdsmi_processor_handle,
 }
 
 #[derive(Debug, Default, Clone, Copy)]

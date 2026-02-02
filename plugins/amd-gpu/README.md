@@ -1,7 +1,9 @@
 # AMD GPU plugin
 
 Allows to measure AMD GPU hardware metrics with the ROCm software and `amdsmi` library.
-The new `plugin-amdgpu` currently allows you to detect AMD architecture-based GPUs installed on a machine, and collect the following metrics on each of them :
+The new `plugin-amdgpu` currently allows you to detect AMD architecture-based GPUs installed on a machine, and collect the following metrics on each of them.
+
+**WARNING**: Due to the not truly thread safely behavior of the current `amdsmi` library, all GPUs are collected and polled by the same source.
 
 ## Requirements
 

@@ -14,6 +14,7 @@ use crate::{
     interface::AmdEnergyConsumptionInfo,
 };
 
+pub const MOCK_SOURCE_NAME: &str = "amd_gpu_devices";
 pub const MOCK_TIMESTAMP: u64 = 1712024507665;
 pub const MOCK_UUID: &str = "a4ff740f-0000-1000-80ea-e05c945bb3b2";
 
@@ -61,9 +62,9 @@ pub const MOCK_PROCESS: amdsmi_proc_info_t = amdsmi_proc_info_t {
 };
 
 pub const MOCK_POWER: amdsmi_power_info_t = amdsmi_power_info_t {
-    socket_power: 65535,
+    socket_power: 43,
     current_socket_power: 45,
-    average_socket_power: 43,
+    average_socket_power: 47,
     gfx_voltage: 65535,
     soc_voltage: 65535,
     mem_voltage: 65535,

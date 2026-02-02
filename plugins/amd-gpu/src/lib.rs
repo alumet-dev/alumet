@@ -1,10 +1,7 @@
-use crate::interface::MockableAmdSmi;
-use crate::{
-    amd::utils::PLUGIN_NAME,
-    interface::{AmdError, AmdSmi},
-};
 #[cfg(test)]
-use alumet::plugin::PluginMetadata;
+use crate::interface::MockAmdSmiTrait;
+use crate::interface::MockableAmdSmi;
+use crate::{amd::utils::PLUGIN_NAME, interface::AmdError};
 use alumet::{
     pipeline::elements::source::trigger::TriggerSpec,
     plugin::{
@@ -16,8 +13,15 @@ use anyhow::{Context, anyhow};
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
 
+#[cfg(test)]
+use alumet::plugin::PluginMetadata;
+
+#[allow(warnings)]
+pub mod bindings {
+    include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+}
+
 mod amd;
-mod bindings;
 mod interface;
 mod tests;
 
@@ -58,13 +62,25 @@ impl AmdGpuPlugin {
         Self { config, amdsmi }
     }
 
+    #[cfg(not(test))]
+    fn init_amdsmi() -> anyhow::Result<MockableAmdSmi> {
+        use crate::interface::AmdSmi;
+
+        Ok(Arc::new(AmdSmi::init()?))
+    }
+
+    #[cfg(test)]
+    fn init_amdsmi() -> anyhow::Result<MockableAmdSmi> {
+        Ok(Arc::new(MockAmdSmiTrait::new()))
+    }
+
     #[cfg(test)]
     pub fn test_metadata(amdsmi: MockableAmdSmi) -> PluginMetadata {
         PluginMetadata {
             name: PLUGIN_NAME.to_owned(),
             version: env!("CARGO_PKG_VERSION").to_owned(),
             init: Box::new(move |config_table| {
-                let config: Config = deserialize_config(config_table)?;
+                let config = deserialize_config(config_table)?;
                 Ok(Box::new(AmdGpuPlugin::new(config, amdsmi.clone())))
             }),
             default_config: Box::new(AmdGpuPlugin::default_config),
@@ -88,7 +104,7 @@ impl AlumetPlugin for AmdGpuPlugin {
 
     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
         let config = deserialize_config(config)?;
-        let amdsmi = Arc::from(AmdSmi::init().context("Failed to initialize AMD SMI")?);
+        let amdsmi = Self::init_amdsmi().context("Failed to initialize AMD SMI")?;
         Ok(Box::new(Self::new(config, amdsmi)))
     }
 
@@ -116,14 +132,13 @@ impl AlumetPlugin for AmdGpuPlugin {
         }
 
         let metrics = Metrics::new(alumet)?;
-        for device in amdsmi.devices.into_iter() {
-            let source_name = format!("device_{}", device.bus_id);
-            let source = AmdGpuSource::new(device, metrics.clone()).map_err(AmdError)?;
-            let trigger = TriggerSpec::builder(self.config.poll_interval)
-                .flush_interval(self.config.flush_interval)
-                .build()?;
-            alumet.add_source(&source_name, Box::new(source), trigger)?;
-        }
+        let source = AmdGpuSource::new(amdsmi.devices, metrics);
+        let trigger = TriggerSpec::builder(self.config.poll_interval)
+            .flush_interval(self.config.flush_interval)
+            .build()?;
+
+        alumet.add_source("amd_gpu_devices", Box::new(source), trigger)?;
+
         Ok(())
     }
 
@@ -161,10 +176,13 @@ mod test {
     // Test `init` function to initialize the plugin and the amd smi library
     #[test]
     fn test_init_success() {
-        let plugin = AmdGpuPlugin::test_metadata(Arc::new(MockAmdSmiTrait::new()));
         let config: Config = toml::from_str(CONFIGURATION).unwrap();
         let config_table = serialize_config(config).unwrap();
-        let _mock = (plugin.init)(config_table).unwrap();
+        let plugin = AmdGpuPlugin::init(config_table).unwrap();
+
+        assert_eq!(plugin.config.poll_interval, Duration::from_secs(1));
+        assert_eq!(plugin.config.flush_interval, Duration::from_secs(5));
+        assert_eq!(plugin.config.skip_failed_devices, true);
     }
 
     // Test `stop` function in success case

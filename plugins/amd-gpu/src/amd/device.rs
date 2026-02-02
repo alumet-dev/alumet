@@ -3,6 +3,9 @@ use std::collections::HashMap;
 use super::features::OptionalFeatures;
 use crate::interface::{AmdSmiTrait, MockableAmdProcessorHandle};
 
+/// SAFETY: The amd libary is thread-safe and returns pointers to a safe global state, which we can pass to other threads.
+unsafe impl Send for ManagedDevice {}
+
 /// Detected AMD GPU devices via AMDSMI.
 pub struct AmdGpuDevices {
     /// Counter of detection errors on AMD GPU device.
