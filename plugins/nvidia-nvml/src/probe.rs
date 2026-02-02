@@ -80,14 +80,22 @@ impl Source for FullSource {
                 .update(device.total_energy_consumption()?)
                 .difference();
             if let Some(milli_joules) = diff {
-                // if meaningful (we need at least two measurements), push
-                measurements.push(MeasurementPoint::new(
-                    timestamp,
-                    self.metrics.total_energy_consumption,
-                    self.resource.clone(),
-                    consumer.clone(),
-                    milli_joules as f64,
-                ))
+                // the difference is 0 when the registry hasn't been updated yet
+                // the frequency of the registry update depends on devices, most
+                // of the time between 20ms and 100ms. So this case happens when
+                // the poll frequency is higher than this update frequency. In this
+                // case, we don't push measurements.
+                // note that it doesn't cover the case of a GPU off
+                if milli_joules > 0 {
+                    // if meaningful (we need at least two measurements), push
+                    measurements.push(MeasurementPoint::new(
+                        timestamp,
+                        self.metrics.total_energy_consumption,
+                        self.resource.clone(),
+                        consumer.clone(),
+                        milli_joules as f64,
+                    ))
+                }
             }
         }
 
@@ -295,16 +303,26 @@ impl Source for MinimalSource {
         // Estimate the energy consumption.
         let current_power = PowerMeasure { t: timestamp, power };
         if let Some(previous) = &self.previous_power {
-            let energy = current_power.compute_energy(previous).unwrap();
-            measurements.push(MeasurementPoint::new(
-                timestamp,
-                self.metrics.total_energy_consumption,
-                self.resource.clone(),
-                consumer.clone(),
-                energy,
-            ));
+            // the current power is equal to previous power when the registry
+            // hasn't been updated yet. The frequency of the registry update
+            // depends on devices, most of the time between 20ms and 100ms.
+            // So this case happens when the poll frequency is higher than this
+            // update frequency. In this case, we don't push measurements.
+            // note that it doesn't cover the case of a GPU off
+            if current_power.power > previous.power {
+                let energy = current_power.compute_energy(previous).unwrap();
+                measurements.push(MeasurementPoint::new(
+                    timestamp,
+                    self.metrics.total_energy_consumption,
+                    self.resource.clone(),
+                    consumer.clone(),
+                    energy,
+                ));
+            }
+            self.previous_power = Some(current_power);
+        } else {
+            self.previous_power = Some(current_power);
         }
-        self.previous_power = Some(current_power);
         Ok(())
     }
 }
