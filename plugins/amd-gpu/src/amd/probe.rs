@@ -5,13 +5,13 @@ use alumet::{
     resources::{Resource, ResourceConsumer},
 };
 use anyhow::Result;
-use std::{borrow::Cow, ffi::CStr};
+use std::{borrow::Cow, collections::HashMap, ffi::CStr};
 
-use super::{device::ManagedDevice, features::OptionalFeatures, metrics::Metrics};
+use super::{device::ManagedDevice, metrics::Metrics};
 use crate::{
     amd::utils::{MEMORY_TYPE, METRIC_TEMP, SENSOR_TYPE},
     bindings::{
-        amdsmi_status_t, amdsmi_voltage_metric_t_AMDSMI_VOLT_CURRENT, amdsmi_voltage_type_t,
+        amdsmi_voltage_metric_t_AMDSMI_VOLT_CURRENT, amdsmi_voltage_type_t,
         amdsmi_voltage_type_t_AMDSMI_VOLT_TYPE_VDDGFX,
     },
 };
@@ -19,80 +19,61 @@ use crate::{
 /// Measurement source that queries AMD GPU devices.
 pub struct AmdGpuSource {
     /// Internal state to compute the difference between two increments of the counter.
-    energy_counter: CounterDiff,
+    energy_counters: HashMap<String, CounterDiff>,
     /// Handle to the GPU, with features information.
-    device: ManagedDevice,
+    devices: Vec<ManagedDevice>,
     /// Alumet metrics IDs.
     metrics: Metrics,
-    /// Alumet resource ID.
-    resource: Resource,
 }
 
-/// SAFETY: The amd libary is thread-safe and returns pointers to a safe global state, which we can pass to other threads.
-unsafe impl Send for ManagedDevice {}
-
 impl AmdGpuSource {
-    pub fn new(device: ManagedDevice, metrics: Metrics) -> Result<AmdGpuSource, amdsmi_status_t> {
-        let bus_id = Cow::Owned(device.bus_id.clone());
-        Ok(AmdGpuSource {
-            energy_counter: CounterDiff::with_max_value(u64::MAX),
-            device,
+    pub fn new(devices: Vec<ManagedDevice>, metrics: Metrics) -> Self {
+        let energy_counters = devices
+            .iter()
+            .map(|d| (d.bus_id.clone(), CounterDiff::with_max_value(u64::MAX)))
+            .collect();
+
+        Self {
+            energy_counters,
+            devices,
             metrics,
-            resource: Resource::Gpu { bus_id },
-        })
+        }
     }
 
     /// Retrieves and push all data concerning the activity utilization of a given AMD GPU device.
-    pub fn handle_gpu_activity(
+    fn handle_gpu_activity(
         &self,
-        features: &OptionalFeatures,
+        device: &ManagedDevice,
         measurements: &mut MeasurementAccumulator,
         timestamp: Timestamp,
-        consumer: ResourceConsumer,
+        consumer: &ResourceConsumer,
+        resource: &Resource,
     ) -> anyhow::Result<()> {
+        let features = &device.features;
+
         if features.gpu_activity_usage
-            && let Ok(value) = self.device.handle.get_device_activity()
+            && let Ok(value) = device.handle.get_device_activity()
         {
             const KEY: &str = "activity_type";
-            let gfx = value.gfx_activity;
-            let mm = value.mm_activity;
-            let umc = value.umc_activity;
-            if gfx != 0 {
-                measurements.push(
-                    MeasurementPoint::new(
-                        timestamp,
-                        self.metrics.gpu_activity_usage,
-                        self.resource.clone(),
-                        consumer.clone(),
-                        gfx as f64,
-                    )
-                    .with_attr(KEY, "graphic_core"),
-                );
-            }
-            if mm != 0 {
-                measurements.push(
-                    MeasurementPoint::new(
-                        timestamp,
-                        self.metrics.gpu_activity_usage,
-                        self.resource.clone(),
-                        consumer.clone(),
-                        mm as f64,
-                    )
-                    .with_attr(KEY, "memory_management"),
-                );
-            }
-            if umc != 0 {
-                measurements.push(
-                    MeasurementPoint::new(
-                        timestamp,
-                        self.metrics.gpu_activity_usage,
-                        self.resource.clone(),
-                        consumer.clone(),
-                        umc as f64,
-                    )
-                    .with_attr(KEY, "unified_memory_controller"),
-                );
-            }
+
+            let mut push = |v, label| {
+                if v != 0 {
+                    measurements.push(
+                        MeasurementPoint::new(
+                            timestamp,
+                            self.metrics.gpu_activity_usage,
+                            resource.clone(),
+                            consumer.clone(),
+                            v as f64,
+                        )
+                        .with_attr(KEY, label),
+                    );
+                }
+            };
+
+            push(value.gfx_activity, "graphic_core");
+            push(value.mm_activity, "memory_management");
+            push(value.umc_activity, "unified_memory_controller");
         }
         Ok(())
     }
@@ -100,218 +81,156 @@ impl AmdGpuSource {
     /// Retrieves and push all data concerning the running process ressources consumption of a given AMD GPU device.
     fn handle_gpu_processes(
         &self,
-        features: &OptionalFeatures,
+        device: &ManagedDevice,
         measurements: &mut MeasurementAccumulator,
         timestamp: Timestamp,
+        resource: &Resource,
     ) -> anyhow::Result<()> {
+        let features = &device.features;
+
         if features.gpu_process_info
-            && let Ok(process_list) = self.device.handle.get_device_process_list()
+            && let Ok(process_list) = device.handle.get_device_process_list()
         {
             const KEY: &str = "process_name";
+
             for process in process_list {
                 let consumer = ResourceConsumer::Process { pid: process.pid };
-
-                let mem = process.mem;
-                let gfx = process.engine_usage.gfx;
-                let enc = process.engine_usage.enc;
-                let gtt_mem = process.memory_usage.gtt_mem;
-                let cpu_mem = process.memory_usage.cpu_mem;
-                let vram_mem = process.memory_usage.vram_mem;
 
                 // Process path name
                 let ascii = unsafe { CStr::from_ptr(process.name.as_ptr()) };
                 let name = ascii.to_str().unwrap_or("");
 
-                // Process memory usage
-                if mem != 0 {
-                    measurements.push(
-                        MeasurementPoint::new(
-                            timestamp,
-                            self.metrics.process_memory_usage,
-                            self.resource.clone(),
-                            consumer.clone(),
-                            process.mem,
-                        )
-                        .with_attr(KEY, name.to_string()),
-                    );
-                }
+                let mut push = |metric, value| {
+                    if value != 0 {
+                        measurements.push(
+                            MeasurementPoint::new(timestamp, metric, resource.clone(), consumer.clone(), value)
+                                .with_attr(KEY, name.to_string()),
+                        );
+                    }
+                };
 
-                // Process GFX engine usage
-                if gfx != 0 {
-                    measurements.push(
-                        MeasurementPoint::new(
-                            timestamp,
-                            self.metrics.process_engine_usage_gfx,
-                            self.resource.clone(),
-                            consumer.clone(),
-                            process.engine_usage.gfx,
-                        )
-                        .with_attr(KEY, name.to_string()),
-                    );
-                }
-                // Process encode engine usage
-                if enc != 0 {
-                    measurements.push(
-                        MeasurementPoint::new(
-                            timestamp,
-                            self.metrics.process_engine_usage_encode,
-                            self.resource.clone(),
-                            consumer.clone(),
-                            process.engine_usage.enc,
-                        )
-                        .with_attr(KEY, name.to_string()),
-                    );
-                }
-
-                // Process GTT memory usage
-                if gtt_mem != 0 {
-                    measurements.push(
-                        MeasurementPoint::new(
-                            timestamp,
-                            self.metrics.process_memory_usage_gtt,
-                            self.resource.clone(),
-                            consumer.clone(),
-                            process.memory_usage.gtt_mem,
-                        )
-                        .with_attr(KEY, name.to_string()),
-                    );
-                }
-                // Process CPU memory usage
-                if cpu_mem != 0 {
-                    measurements.push(
-                        MeasurementPoint::new(
-                            timestamp,
-                            self.metrics.process_memory_usage_cpu,
-                            self.resource.clone(),
-                            consumer.clone(),
-                            process.memory_usage.cpu_mem,
-                        )
-                        .with_attr(KEY, name.to_string()),
-                    );
-                }
-                // Process VRAM memory usage
-                if vram_mem != 0 {
-                    measurements.push(
-                        MeasurementPoint::new(
-                            timestamp,
-                            self.metrics.process_memory_usage_vram,
-                            self.resource.clone(),
-                            consumer.clone(),
-                            process.memory_usage.vram_mem,
-                        )
-                        .with_attr(KEY, name.to_string()),
-                    );
-                }
+                push(self.metrics.process_memory_usage, process.mem);
+                push(self.metrics.process_engine_usage_gfx, process.engine_usage.gfx);
+                push(self.metrics.process_engine_usage_encode, process.engine_usage.enc);
+                push(self.metrics.process_memory_usage_gtt, process.memory_usage.gtt_mem);
+                push(self.metrics.process_memory_usage_cpu, process.memory_usage.cpu_mem);
+                push(self.metrics.process_memory_usage_vram, process.memory_usage.vram_mem);
             }
         }
+
         Ok(())
     }
 }
 
 impl Source for AmdGpuSource {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
-        let features = &self.device.features;
-
         // No consumer, we just monitor the device here
         let consumer = ResourceConsumer::LocalMachine;
 
-        // GPU engine data usage metric pushed
-        self.handle_gpu_activity(features, measurements, timestamp, consumer.clone())?;
+        for device in &self.devices {
+            let resource = Resource::Gpu {
+                bus_id: Cow::Owned(device.bus_id.clone()),
+            };
 
-        // GPU energy consumption metric pushed
-        if features.gpu_energy_consumption
-            && let Ok(res) = self.device.handle.get_device_energy_consumption()
-        {
-            let diff = self.energy_counter.update(res.energy).difference();
-            if let Some(value) = diff {
+            let features = &device.features;
+
+            // GPU engine data usage metric pushed
+            self.handle_gpu_activity(device, measurements, timestamp, &consumer, &resource)?;
+
+            // GPU energy consumption metric pushed
+            if features.gpu_energy_consumption
+                && let Ok(res) = device.handle.get_device_energy_consumption()
+                && let Some(counter) = self.energy_counters.get_mut(&device.bus_id)
+                && let Some(diff) = counter.update(res.energy).difference()
+            {
                 measurements.push(MeasurementPoint::new(
                     timestamp,
                     self.metrics.gpu_energy_consumption,
-                    self.resource.clone(),
+                    resource.clone(),
                     consumer.clone(),
-                    (value as f64 * res.resolution as f64) / 1e3,
+                    (diff as f64 * res.resolution as f64) / 1e3,
                 ));
             }
-        }
 
-        // GPU instant electric power consumption metric pushed
-        if features.gpu_power_consumption
-            && self.device.handle.get_device_power_managment()?
-            && let Ok(value) = self.device.handle.get_device_power_consumption()
-        {
-            measurements.push(MeasurementPoint::new(
-                timestamp,
-                self.metrics.gpu_power_consumption,
-                self.resource.clone(),
-                consumer.clone(),
-                value.average_socket_power as u64,
-            ));
-        }
-
-        // GPU instant electric power consumption metric pushed
-        if features.gpu_voltage {
-            const SENSOR_TYPE: amdsmi_voltage_type_t = amdsmi_voltage_type_t_AMDSMI_VOLT_TYPE_VDDGFX;
-            const METRIC: amdsmi_voltage_type_t = amdsmi_voltage_metric_t_AMDSMI_VOLT_CURRENT;
-
-            if let Ok(value) = self.device.handle.get_device_voltage(SENSOR_TYPE, METRIC) {
+            // GPU instant electric power consumption metric pushed
+            if features.gpu_power_consumption
+                && device.handle.get_device_power_managment()?
+                && let Ok(value) = device.handle.get_device_power_consumption()
+            {
                 measurements.push(MeasurementPoint::new(
                     timestamp,
-                    self.metrics.gpu_voltage,
-                    self.resource.clone(),
+                    self.metrics.gpu_power_consumption,
+                    resource.clone(),
                     consumer.clone(),
-                    value as u64,
+                    value.socket_power,
                 ));
             }
-        }
 
-        // GPU memories used metric pushed
-        for (mem_type, label) in &MEMORY_TYPE {
-            if features
-                .gpu_memories_usage
-                .iter()
-                .find(|(m, _)| (*m) == (*mem_type))
-                .map(|(_, v)| *v)
-                .unwrap_or(false)
-                && let Ok(value) = self.device.handle.get_device_memory_usage(*mem_type)
-            {
-                measurements.push(
-                    MeasurementPoint::new(
-                        timestamp,
-                        self.metrics.gpu_memory_usages,
-                        self.resource.clone(),
-                        consumer.clone(),
-                        value,
-                    )
-                    .with_attr("memory_type", label.to_string()),
-                );
-            }
-        }
+            // Voltage
+            if features.gpu_voltage {
+                const SENSOR: amdsmi_voltage_type_t = amdsmi_voltage_type_t_AMDSMI_VOLT_TYPE_VDDGFX;
+                const METRIC: amdsmi_voltage_type_t = amdsmi_voltage_metric_t_AMDSMI_VOLT_CURRENT;
 
-        // GPU temperatures metric pushed
-        for (sensor, label) in &SENSOR_TYPE {
-            if features
-                .gpu_temperatures
-                .iter()
-                .find(|(s, _)| (*s) == (*sensor))
-                .map(|(_, v)| *v)
-                .unwrap_or(false)
-                && let Ok(value) = self.device.handle.get_device_temperature(*sensor, METRIC_TEMP)
-            {
-                measurements.push(
-                    MeasurementPoint::new(
+                if let Ok(value) = device.handle.get_device_voltage(SENSOR, METRIC) {
+                    measurements.push(MeasurementPoint::new(
                         timestamp,
-                        self.metrics.gpu_temperatures,
-                        self.resource.clone(),
+                        self.metrics.gpu_voltage,
+                        resource.clone(),
                         consumer.clone(),
                         value as u64,
-                    )
-                    .with_attr("thermal_zone", label.to_string()),
-                );
+                    ));
+                }
             }
-        }
 
-        // Push GPU compute-graphic process informations if processes existing
-        self.handle_gpu_processes(features, measurements, timestamp)?;
+            // GPU memories used metric pushed
+            for (mem_type, label) in &MEMORY_TYPE {
+                if features
+                    .gpu_memories_usage
+                    .iter()
+                    .find(|(m, _)| *m == *mem_type)
+                    .map(|(_, v)| *v)
+                    .unwrap_or(false)
+                    && let Ok(value) = device.handle.get_device_memory_usage(*mem_type)
+                {
+                    measurements.push(
+                        MeasurementPoint::new(
+                            timestamp,
+                            self.metrics.gpu_memory_usages,
+                            resource.clone(),
+                            consumer.clone(),
+                            value,
+                        )
+                        .with_attr("memory_type", label.to_string()),
+                    );
+                }
+            }
+
+            // GPU temperatures metric pushed
+            for (sensor, label) in &SENSOR_TYPE {
+                if features
+                    .gpu_temperatures
+                    .iter()
+                    .find(|(s, _)| *s == *sensor)
+                    .map(|(_, v)| *v)
+                    .unwrap_or(false)
+                    && let Ok(value) = device.handle.get_device_temperature(*sensor, METRIC_TEMP)
+                {
+                    measurements.push(
+                        MeasurementPoint::new(
+                            timestamp,
+                            self.metrics.gpu_temperatures,
+                            resource.clone(),
+                            consumer.clone(),
+                            value as u64,
+                        )
+                        .with_attr("thermal_zone", label.to_string()),
+                    );
+                }
+            }
+
+            // Push GPU compute-graphic process informations if processes existing
+            self.handle_gpu_processes(device, measurements, timestamp, &resource)?;
+        }
 
         Ok(())
     }
