@@ -1,9 +1,7 @@
-use crate::bindings::{
-    AMDSMI_GPU_UUID_SIZE, amdsmi_init_flags_t, amdsmi_init_flags_t_AMDSMI_INIT_AMD_GPUS, amdsmi_memory_type_t,
-    amdsmi_memory_type_t_AMDSMI_MEM_TYPE_GTT, amdsmi_memory_type_t_AMDSMI_MEM_TYPE_VRAM, amdsmi_status_t,
-    amdsmi_status_t_AMDSMI_STATUS_INVAL, amdsmi_status_t_AMDSMI_STATUS_NO_PERM,
+use amd_smi_wrapper::bindings::{
+    amdsmi_memory_type_t, amdsmi_memory_type_t_AMDSMI_MEM_TYPE_GTT, amdsmi_memory_type_t_AMDSMI_MEM_TYPE_VRAM,
+    amdsmi_status_t, amdsmi_status_t_AMDSMI_STATUS_INVAL, amdsmi_status_t_AMDSMI_STATUS_NO_PERM,
     amdsmi_status_t_AMDSMI_STATUS_NOT_SUPPORTED, amdsmi_status_t_AMDSMI_STATUS_NOT_YET_IMPLEMENTED,
-    amdsmi_status_t_AMDSMI_STATUS_OUT_OF_RESOURCES, amdsmi_status_t_AMDSMI_STATUS_SUCCESS,
     amdsmi_status_t_AMDSMI_STATUS_UNEXPECTED_DATA, amdsmi_status_t_AMDSMI_STATUS_UNKNOWN_ERROR,
     amdsmi_temperature_metric_t, amdsmi_temperature_metric_t_AMDSMI_TEMP_CURRENT, amdsmi_temperature_type_t,
     amdsmi_temperature_type_t_AMDSMI_TEMPERATURE_TYPE_EDGE, amdsmi_temperature_type_t_AMDSMI_TEMPERATURE_TYPE_HBM_0,
@@ -13,13 +11,7 @@ use crate::bindings::{
     amdsmi_voltage_metric_t_AMDSMI_VOLT_CURRENT, amdsmi_voltage_type_t, amdsmi_voltage_type_t_AMDSMI_VOLT_TYPE_VDDGFX,
 };
 
-pub const LIB_PATH: &str = "libamd_smi.so";
-pub const INIT_FLAG: amdsmi_init_flags_t = amdsmi_init_flags_t_AMDSMI_INIT_AMD_GPUS;
-pub const UUID_LENGTH: u32 = AMDSMI_GPU_UUID_SIZE;
-
 pub const ERROR: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_INVAL;
-pub const SUCCESS: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_SUCCESS;
-pub const OVERFLOW: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_OUT_OF_RESOURCES;
 pub const UNKNOWN_ERROR: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_UNKNOWN_ERROR;
 
 pub const METRIC_TEMP: amdsmi_temperature_metric_t = amdsmi_temperature_metric_t_AMDSMI_TEMP_CURRENT;

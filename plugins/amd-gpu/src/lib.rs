@@ -1,7 +1,6 @@
+use crate::amd::utils::PLUGIN_NAME;
 #[cfg(test)]
-use crate::interface::MockAmdSmiTrait;
-use crate::interface::MockableAmdSmi;
-use crate::{amd::utils::PLUGIN_NAME, interface::AmdError};
+use alumet::plugin::PluginMetadata;
 use alumet::{
     pipeline::elements::source::trigger::TriggerSpec,
     plugin::{
@@ -9,23 +8,14 @@ use alumet::{
         rust::{AlumetPlugin, deserialize_config, serialize_config},
     },
 };
+use amd::{device::AmdGpuDevices, metrics::Metrics, probe::AmdGpuSource};
+use amd_smi_wrapper::MockableAmdSmi;
 use anyhow::{Context, anyhow};
 use serde::{Deserialize, Serialize};
-use std::{sync::Arc, time::Duration};
-
-#[cfg(test)]
-use alumet::plugin::PluginMetadata;
-
-#[allow(warnings)]
-pub mod bindings {
-    include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
-}
+use std::time::Duration;
 
 mod amd;
-mod interface;
 mod tests;
-
-use amd::{device::AmdGpuDevices, metrics::Metrics, probe::AmdGpuSource};
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -62,16 +52,20 @@ impl AmdGpuPlugin {
         Self { config, amdsmi }
     }
 
-    #[cfg(not(test))]
     fn init_amdsmi() -> anyhow::Result<MockableAmdSmi> {
-        use crate::interface::AmdSmi;
+        #[cfg(test)]
+        {
+            use amd_smi_wrapper::MockAmdSmi;
 
-        Ok(Arc::new(AmdSmi::init()?))
-    }
+            Ok(MockAmdSmi::new())
+        }
 
-    #[cfg(test)]
-    fn init_amdsmi() -> anyhow::Result<MockableAmdSmi> {
-        Ok(Arc::new(MockAmdSmiTrait::new()))
+        #[cfg(not(test))]
+        {
+            use amd_smi_wrapper::AmdSmi;
+
+            Ok(AmdSmi::init()?)
+        }
     }
 
     #[cfg(test)]
@@ -81,7 +75,7 @@ impl AmdGpuPlugin {
             version: env!("CARGO_PKG_VERSION").to_owned(),
             init: Box::new(move |config_table| {
                 let config = deserialize_config(config_table)?;
-                Ok(Box::new(AmdGpuPlugin::new(config, amdsmi.clone())))
+                Ok(Box::new(AmdGpuPlugin::new(config, amdsmi)))
             }),
             default_config: Box::new(AmdGpuPlugin::default_config),
         }
@@ -109,7 +103,7 @@ impl AlumetPlugin for AmdGpuPlugin {
     }
 
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
-        let amdsmi = AmdGpuDevices::detect(self.amdsmi.as_ref(), self.config.skip_failed_devices)?;
+        let amdsmi = AmdGpuDevices::detect(&self.amdsmi, self.config.skip_failed_devices)?;
 
         let stats = amdsmi.detection_stats();
         if stats.found_devices == 0 {
@@ -142,18 +136,17 @@ impl AlumetPlugin for AmdGpuPlugin {
         Ok(())
     }
 
+    // Stopped automatically by AMD-SMI
     fn stop(&mut self) -> anyhow::Result<()> {
-        self.amdsmi.stop().context("Failed to shut down AMD SMI")
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::interface::MockAmdSmiTrait;
-
     use super::*;
     use alumet::plugin::rust::AlumetPlugin;
-    use amd::utils::ERROR;
+    use amd_smi_wrapper::MockAmdSmi;
     use std::time::Duration;
 
     const CONFIGURATION: &str = r#"
@@ -185,31 +178,17 @@ mod test {
         assert_eq!(plugin.config.skip_failed_devices, true);
     }
 
-    // Test `stop` function in success case
+    // Test `stop` function
     #[test]
     fn test_stop_success() {
-        let mut mock = MockAmdSmiTrait::new();
+        let mut mock = MockAmdSmi::new();
         mock.expect_stop().returning(|| Ok(()));
 
         let mut plugin = AmdGpuPlugin {
             config: Config::default(),
-            amdsmi: Arc::new(mock),
+            amdsmi: mock,
         };
 
         assert!(plugin.stop().is_ok());
-    }
-
-    // Test `stop` function in error case
-    #[test]
-    fn test_stop_error() {
-        let mut mock = MockAmdSmiTrait::new();
-        mock.expect_stop().returning(|| Err(AmdError(ERROR)));
-
-        let mut plugin = AmdGpuPlugin {
-            config: Config::default(),
-            amdsmi: Arc::new(mock),
-        };
-
-        assert!(plugin.stop().is_err());
     }
 }

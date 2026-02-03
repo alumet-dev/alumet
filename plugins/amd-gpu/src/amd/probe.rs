@@ -8,12 +8,9 @@ use anyhow::Result;
 use std::{borrow::Cow, collections::HashMap, ffi::CStr};
 
 use super::{device::ManagedDevice, metrics::Metrics};
-use crate::{
-    amd::utils::{MEMORY_TYPE, METRIC_TEMP, SENSOR_TYPE},
-    bindings::{
-        amdsmi_voltage_metric_t_AMDSMI_VOLT_CURRENT, amdsmi_voltage_type_t,
-        amdsmi_voltage_type_t_AMDSMI_VOLT_TYPE_VDDGFX,
-    },
+use crate::amd::utils::{MEMORY_TYPE, METRIC_TEMP, SENSOR_TYPE};
+use amd_smi_wrapper::bindings::{
+    amdsmi_voltage_metric_t_AMDSMI_VOLT_CURRENT, amdsmi_voltage_type_t, amdsmi_voltage_type_t_AMDSMI_VOLT_TYPE_VDDGFX,
 };
 
 /// Measurement source that queries AMD GPU devices.
@@ -52,7 +49,7 @@ impl AmdGpuSource {
         let features = &device.features;
 
         if features.gpu_activity_usage
-            && let Ok(value) = device.handle.get_device_activity()
+            && let Ok(value) = device.handle.device_activity()
         {
             const KEY: &str = "activity_type";
 
@@ -89,7 +86,7 @@ impl AmdGpuSource {
         let features = &device.features;
 
         if features.gpu_process_info
-            && let Ok(process_list) = device.handle.get_device_process_list()
+            && let Ok(process_list) = device.handle.device_process_list()
         {
             const KEY: &str = "process_name";
 
@@ -139,7 +136,7 @@ impl Source for AmdGpuSource {
 
             // GPU energy consumption metric pushed
             if features.gpu_energy_consumption
-                && let Ok(res) = device.handle.get_device_energy_consumption()
+                && let Ok(res) = device.handle.device_energy_consumption()
                 && let Some(counter) = self.energy_counters.get_mut(&device.bus_id)
                 && let Some(diff) = counter.update(res.energy).difference()
             {
@@ -154,8 +151,8 @@ impl Source for AmdGpuSource {
 
             // GPU instant electric power consumption metric pushed
             if features.gpu_power_consumption
-                && device.handle.get_device_power_managment()?
-                && let Ok(value) = device.handle.get_device_power_consumption()
+                && device.handle.device_power_managment()?
+                && let Ok(value) = device.handle.device_power_consumption()
             {
                 measurements.push(MeasurementPoint::new(
                     timestamp,
@@ -171,7 +168,7 @@ impl Source for AmdGpuSource {
                 const SENSOR: amdsmi_voltage_type_t = amdsmi_voltage_type_t_AMDSMI_VOLT_TYPE_VDDGFX;
                 const METRIC: amdsmi_voltage_type_t = amdsmi_voltage_metric_t_AMDSMI_VOLT_CURRENT;
 
-                if let Ok(value) = device.handle.get_device_voltage(SENSOR, METRIC) {
+                if let Ok(value) = device.handle.device_voltage(SENSOR, METRIC) {
                     measurements.push(MeasurementPoint::new(
                         timestamp,
                         self.metrics.gpu_voltage,
@@ -190,7 +187,7 @@ impl Source for AmdGpuSource {
                     .find(|(m, _)| *m == *mem_type)
                     .map(|(_, v)| *v)
                     .unwrap_or(false)
-                    && let Ok(value) = device.handle.get_device_memory_usage(*mem_type)
+                    && let Ok(value) = device.handle.device_memory_usage(*mem_type)
                 {
                     measurements.push(
                         MeasurementPoint::new(
@@ -213,7 +210,7 @@ impl Source for AmdGpuSource {
                     .find(|(s, _)| *s == *sensor)
                     .map(|(_, v)| *v)
                     .unwrap_or(false)
-                    && let Ok(value) = device.handle.get_device_temperature(*sensor, METRIC_TEMP)
+                    && let Ok(value) = device.handle.device_temperature(*sensor, METRIC_TEMP)
                 {
                     measurements.push(
                         MeasurementPoint::new(
