@@ -1,3 +1,4 @@
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -115,6 +116,7 @@ impl TaskManager {
         tx: broadcast::Sender<MeasurementBuffer>,
         rt_normal: &runtime::Handle,
     ) -> Self {
+        // Prepare the active bitset.
         let mut active_bitset: u64 = 0;
         let mut names_by_bitset_position = Vec::with_capacity(transforms.len());
 
@@ -123,11 +125,30 @@ impl TaskManager {
             names_by_bitset_position.push(name.clone());
         }
 
-        // Start the transforms task.
-        let mut set = JoinSet::new();
+        // Start the transforms thread.
+        // Transforms functions can be CPU intensive, which is why they run on their own thread, isolated from the tokio runtime.
         let active_bitset = Arc::new(AtomicU64::new(active_bitset));
-        let task = run_all_in_order(transforms, rx, tx, active_bitset.clone(), metrics_r);
-        set.spawn_on(task, rt_normal);
+        let active_bitset_2 = Arc::clone(&active_bitset);
+        let (res_tx, res_rx) = tokio::sync::oneshot::channel();
+        std::thread::spawn(move || {
+            let res = match std::panic::catch_unwind(AssertUnwindSafe(move || {
+                run_all_in_order(transforms, rx, tx, active_bitset_2, metrics_r)
+            })) {
+                Ok(res) => res,
+                Err(panic) => Err(PipelineError::internal(anyhow::anyhow!(
+                    "the task that runs the transforms panicked: {panic:?}"
+                ))),
+            };
+            res_tx.send(res).expect("the receiver dropped");
+        });
+
+        // Start a task on a JoinSet so that we can asynchronously wait for it to finish.
+        let mut set = JoinSet::new();
+        let thread_waiter = async move {
+            let res = res_rx.await.expect("the sender dropped, has the thread panicked?");
+            res
+        };
+        set.spawn_on(thread_waiter, rt_normal);
         Self {
             spawned_tasks: set,
             active_bitset,

@@ -85,11 +85,18 @@ impl AlumetPlugin for NvmlPlugin {
                     .flush_interval(self.config.flush_interval)
                     .build()?;
 
-                let source: Box<dyn Source> = match &source_provider {
-                    SourceProvider::Full(metrics) => Box::new(probe::FullSource::new(device, metrics.clone())?),
-                    SourceProvider::Minimal(metrics) => Box::new(probe::MinimalSource::new(device, metrics.clone())?),
+                match &source_provider {
+                    SourceProvider::Full(metrics) => {
+                        // In full mode, the measurement operation can take a long time (> 10ms).
+                        // To avoid slowing down the rest of the pipeline, we tell Alumet that the source is blocking, so that it is isolated.
+                        let source = probe::FullSource::new(device, metrics.clone())?;
+                        alumet.add_blocking_source(&source_name, Box::new(source), trigger)?;
+                    }
+                    SourceProvider::Minimal(metrics) => {
+                        let source = probe::MinimalSource::new(device, metrics.clone())?;
+                        alumet.add_source(&source_name, Box::new(source), trigger)?;
+                    }
                 };
-                alumet.add_source(&source_name, source, trigger)?;
             }
         }
         Ok(())
