@@ -1,4 +1,5 @@
-use crate::{
+use amd_smi_wrapper::{
+    AmdEnergyConsumptionInfo,
     bindings::{
         amdsmi_engine_usage_t, amdsmi_memory_type_t, amdsmi_memory_type_t_AMDSMI_MEM_TYPE_GTT,
         amdsmi_memory_type_t_AMDSMI_MEM_TYPE_VRAM, amdsmi_power_info_t, amdsmi_proc_info_t,
@@ -11,7 +12,6 @@ use crate::{
         amdsmi_temperature_type_t_AMDSMI_TEMPERATURE_TYPE_JUNCTION,
         amdsmi_temperature_type_t_AMDSMI_TEMPERATURE_TYPE_PLX,
     },
-    interface::AmdEnergyConsumptionInfo,
 };
 
 pub const MOCK_SOURCE_NAME: &str = "amd_gpu_devices";

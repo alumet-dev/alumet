@@ -1,6 +1,6 @@
 [package]
 name = "plugin-amd-gpu"
-version = "0.1.0"
+version = "0.1.5"
 edition.workspace = true
 repository.workspace = true
 
@@ -10,22 +10,13 @@ anyhow.workspace = true
 log.workspace = true
 humantime-serde.workspace = true
 serde = { workspace = true, features = ["derive"] }
-libloading = "0.8"
-thiserror.workspace = true
-mockall = "0.14.0"
-mockall_double = "0.3.1"
+amd-smi-wrapper = { git = "https://github.com/victoryeagle77/amd-smi-wrapper.git", branch = "feat/amd-smi-wrapper" }
 
 [dev-dependencies]
 alumet = { workspace = true, features = ["test"] }
 toml.workspace = true
 env_logger.workspace = true
+amd-smi-wrapper = { git = "https://github.com/victoryeagle77/amd-smi-wrapper.git", branch = "feat/amd-smi-wrapper", features = ["mock"] }
 
 [lints]
 workspace = true
-
-[build-dependencies]
-bindgen = "0.72.1"
-
-[lib]
-crate-type = ["rlib", "dylib"]
-doctest = false

@@ -1,10 +1,11 @@
-use crate::{
-    amd::utils::{
-        MEMORY_TYPE, METRIC_TEMP, NO_PERM, NOT_SUPPORTED, NOT_YET_IMPLEMENTED, SENSOR_TYPE, UNEXPECTED_DATA,
-        VOLTAGE_METRIC, VOLTAGE_SENSOR_TYPE,
-    },
-    bindings::*,
-    interface::ProcessorHandleTrait,
+use amd_smi_wrapper::{
+    MockableAmdProcessorHandle,
+    bindings::{amdsmi_memory_type_t, amdsmi_status_t, amdsmi_temperature_metric_t},
+};
+
+use crate::amd::utils::{
+    MEMORY_TYPE, METRIC_TEMP, NO_PERM, NOT_SUPPORTED, NOT_YET_IMPLEMENTED, SENSOR_TYPE, UNEXPECTED_DATA,
+    VOLTAGE_METRIC, VOLTAGE_SENSOR_TYPE,
 };
 use std::fmt::{self, Display, Formatter};
 
@@ -43,33 +44,33 @@ pub fn is_supported<T>(res: Result<T, amdsmi_status_t>) -> Result<bool, amdsmi_s
 
 impl OptionalFeatures {
     /// Detect the features available on the given device.
-    pub fn detect_on(processor_handle: &dyn ProcessorHandleTrait) -> Result<Self, amdsmi_status_t> {
+    pub fn detect_on(processor_handle: &MockableAmdProcessorHandle) -> Result<Self, amdsmi_status_t> {
         let mut gpu_temperatures = Vec::new();
         let mut gpu_memories_usage = Vec::new();
 
         for &(mem_type, _) in &MEMORY_TYPE {
-            let supported = is_supported(processor_handle.get_device_memory_usage(mem_type).map_err(|e| e.0))?;
+            let supported = is_supported(processor_handle.device_memory_usage(mem_type).map_err(|e| e.0))?;
             gpu_memories_usage.push((mem_type, supported));
         }
 
         for &(sensor, _) in &SENSOR_TYPE {
             let supported = is_supported(
                 processor_handle
-                    .get_device_temperature(sensor, METRIC_TEMP)
+                    .device_temperature(sensor, METRIC_TEMP)
                     .map_err(|e| e.0),
             )?;
             gpu_temperatures.push((sensor, supported));
         }
 
         Ok(Self {
-            gpu_activity_usage: is_supported(processor_handle.get_device_activity().map_err(|e| e.0))?,
-            gpu_energy_consumption: is_supported(processor_handle.get_device_energy_consumption().map_err(|e| e.0))?,
-            gpu_power_consumption: is_supported(processor_handle.get_device_power_consumption().map_err(|e| e.0))?,
-            gpu_power_state_management: is_supported(processor_handle.get_device_power_managment().map_err(|e| e.0))?,
-            gpu_process_info: is_supported(processor_handle.get_device_process_list().map_err(|e| e.0))?,
+            gpu_activity_usage: is_supported(processor_handle.device_activity().map_err(|e| e.0))?,
+            gpu_energy_consumption: is_supported(processor_handle.device_energy_consumption().map_err(|e| e.0))?,
+            gpu_power_consumption: is_supported(processor_handle.device_power_consumption().map_err(|e| e.0))?,
+            gpu_power_state_management: is_supported(processor_handle.device_power_managment().map_err(|e| e.0))?,
+            gpu_process_info: is_supported(processor_handle.device_process_list().map_err(|e| e.0))?,
             gpu_voltage: is_supported(
                 processor_handle
-                    .get_device_voltage(VOLTAGE_SENSOR_TYPE, VOLTAGE_METRIC)
+                    .device_voltage(VOLTAGE_SENSOR_TYPE, VOLTAGE_METRIC)
                     .map_err(|e| e.0),
             )?,
             gpu_memories_usage,
@@ -79,8 +80,8 @@ impl OptionalFeatures {
 
     /// Test and return the availability of feature on a given
     pub fn with_detected_features(
-        device: &dyn ProcessorHandleTrait,
-    ) -> Result<(&dyn ProcessorHandleTrait, Self), amdsmi_status_t> {
+        device: &MockableAmdProcessorHandle,
+    ) -> Result<(&MockableAmdProcessorHandle, Self), amdsmi_status_t> {
         Self::detect_on(device).map(|features| (device, features))
     }
 
@@ -136,9 +137,17 @@ impl Display for OptionalFeatures {
 
 #[cfg(test)]
 mod test {
+    use amd_smi_wrapper::{
+        AmdError, MockAmdProcessorHandle,
+        bindings::{
+            amdsmi_memory_type_t_AMDSMI_MEM_TYPE_VRAM, amdsmi_temperature_metric_t_AMDSMI_TEMP_CURRENT,
+            amdsmi_temperature_type_t_AMDSMI_TEMPERATURE_TYPE_EDGE,
+        },
+    };
+
     use super::*;
     use crate::{
-        interface::{AmdError, MockProcessorHandleTrait},
+        amd::utils::UNKNOWN_ERROR,
         tests::mocks::{
             MOCK_ACTIVITY, MOCK_ENERGY, MOCK_MEMORY, MOCK_POWER, MOCK_PROCESS, MOCK_TEMPERATURE, MOCK_VOLTAGE,
         },
@@ -210,7 +219,7 @@ mod test {
     // Test `is_supported` function with other amdsmi status errors
     #[test]
     fn test_is_supported_other_error() {
-        let err = amdsmi_status_t_AMDSMI_STATUS_UNKNOWN_ERROR;
+        let err = UNKNOWN_ERROR;
         let ret: Result<i32, amdsmi_status_t> = Err(err);
         let res = is_supported(ret);
         assert!(res.is_err());
@@ -252,21 +261,19 @@ mod test {
     // Test `detect_on` function in success case
     #[test]
     fn test_detect_on_success() {
-        let mut mock = MockProcessorHandleTrait::new();
+        let mut mock = MockAmdProcessorHandle::new();
 
-        mock.expect_get_device_activity().returning(|| Ok(MOCK_ACTIVITY));
+        mock.expect_device_activity().returning(|| Ok(MOCK_ACTIVITY));
 
-        mock.expect_get_device_energy_consumption()
-            .returning(|| Ok(MOCK_ENERGY));
+        mock.expect_device_energy_consumption().returning(|| Ok(MOCK_ENERGY));
 
-        mock.expect_get_device_power_consumption().returning(|| Ok(MOCK_POWER));
+        mock.expect_device_power_consumption().returning(|| Ok(MOCK_POWER));
 
-        mock.expect_get_device_power_managment().returning(|| Ok(true));
-        mock.expect_get_device_process_list()
-            .returning(|| Ok(vec![MOCK_PROCESS]));
-        mock.expect_get_device_voltage().returning(|_, _| Ok(MOCK_VOLTAGE));
+        mock.expect_device_power_managment().returning(|| Ok(true));
+        mock.expect_device_process_list().returning(|| Ok(vec![MOCK_PROCESS]));
+        mock.expect_device_voltage().returning(|_, _| Ok(MOCK_VOLTAGE));
 
-        mock.expect_get_device_memory_usage().returning(|mem_type| {
+        mock.expect_device_memory_usage().returning(|mem_type| {
             MOCK_MEMORY
                 .iter()
                 .find(|(t, _)| *t == mem_type)
@@ -274,7 +281,7 @@ mod test {
                 .unwrap_or(Err(AmdError(UNEXPECTED_DATA)))
         });
 
-        mock.expect_get_device_temperature().returning(|sensor, metric| {
+        mock.expect_device_temperature().returning(|sensor, metric| {
             if metric != METRIC_TEMP {
                 return Err(AmdError(UNEXPECTED_DATA));
             }
@@ -293,21 +300,20 @@ mod test {
     // Test `with_detected_features` function in success case
     #[test]
     fn test_with_detected_features_success() {
-        let mut mock = MockProcessorHandleTrait::new();
+        let mut mock = MockAmdProcessorHandle::new();
 
-        mock.expect_get_device_activity().returning(|| Ok(MOCK_ACTIVITY));
+        mock.expect_device_activity().returning(|| Ok(MOCK_ACTIVITY));
 
-        mock.expect_get_device_energy_consumption()
+        mock.expect_device_energy_consumption()
             .returning(|| Err(AmdError(NO_PERM)));
-        mock.expect_get_device_power_consumption().returning(|| Ok(MOCK_POWER));
-        mock.expect_get_device_power_managment().returning(|| Ok(true));
-        mock.expect_get_device_process_list()
-            .returning(|| Ok(vec![MOCK_PROCESS]));
-        mock.expect_get_device_voltage()
+        mock.expect_device_power_consumption().returning(|| Ok(MOCK_POWER));
+        mock.expect_device_power_managment().returning(|| Ok(true));
+        mock.expect_device_process_list().returning(|| Ok(vec![MOCK_PROCESS]));
+        mock.expect_device_voltage()
             .returning(|_, _| Err(AmdError(UNEXPECTED_DATA)));
-        mock.expect_get_device_memory_usage()
+        mock.expect_device_memory_usage()
             .returning(|_| Err(AmdError(UNEXPECTED_DATA)));
-        mock.expect_get_device_temperature()
+        mock.expect_device_temperature()
             .returning(|_, _| Err(AmdError(UNEXPECTED_DATA)));
 
         let (res, features) = OptionalFeatures::with_detected_features(&mock).unwrap();
