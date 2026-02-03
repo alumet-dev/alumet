@@ -1,19 +1,18 @@
-use std::{sync::Arc, thread::sleep, time::Duration};
-
 use crate::{
-    AmdError, AmdGpuPlugin, Config,
+    AmdGpuPlugin, Config,
     amd::utils::{
         METRIC_LABEL_ACTIVITY, METRIC_LABEL_ENERGY, METRIC_LABEL_MEMORY, METRIC_LABEL_POWER, METRIC_LABEL_PROCESS_CPU,
         METRIC_LABEL_PROCESS_ENCODE, METRIC_LABEL_PROCESS_GFX, METRIC_LABEL_PROCESS_GTT, METRIC_LABEL_PROCESS_MEMORY,
         METRIC_LABEL_PROCESS_VRAM, METRIC_LABEL_TEMPERATURE, METRIC_LABEL_VOLTAGE, METRIC_TEMP, PLUGIN_NAME,
         UNEXPECTED_DATA, UNKNOWN_ERROR,
     },
-    interface::{MockAmdSmiTrait, MockProcessorHandleTrait, MockSocketHandleTrait},
     tests::mocks::{
         MOCK_ACTIVITY, MOCK_ENERGY, MOCK_MEMORY, MOCK_POWER, MOCK_PROCESS, MOCK_SOURCE_NAME, MOCK_TEMPERATURE,
         MOCK_UUID, MOCK_VOLTAGE,
     },
 };
+use amd_smi_lib::{AmdError, MockAmdSmiTrait, MockProcessorHandleTrait, MockSocketHandleTrait};
+use std::{sync::Arc, thread::sleep, time::Duration};
 
 use alumet::{
     agent::{

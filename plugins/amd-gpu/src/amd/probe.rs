@@ -8,12 +8,9 @@ use anyhow::Result;
 use std::{borrow::Cow, collections::HashMap, ffi::CStr};
 
 use super::{device::ManagedDevice, metrics::Metrics};
-use crate::{
-    amd::utils::{MEMORY_TYPE, METRIC_TEMP, SENSOR_TYPE},
-    bindings::{
-        amdsmi_voltage_metric_t_AMDSMI_VOLT_CURRENT, amdsmi_voltage_type_t,
-        amdsmi_voltage_type_t_AMDSMI_VOLT_TYPE_VDDGFX,
-    },
+use crate::amd::utils::{MEMORY_TYPE, METRIC_TEMP, SENSOR_TYPE};
+use amd_smi_lib::bindings::{
+    amdsmi_voltage_metric_t_AMDSMI_VOLT_CURRENT, amdsmi_voltage_type_t, amdsmi_voltage_type_t_AMDSMI_VOLT_TYPE_VDDGFX,
 };
 
 /// Measurement source that queries AMD GPU devices.

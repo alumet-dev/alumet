@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
+use amd_smi_lib::{AmdError, AmdSmiTrait, MockableAmdProcessorHandle};
+
 use super::features::OptionalFeatures;
-use crate::interface::{AmdSmiTrait, MockableAmdProcessorHandle};
 
 /// SAFETY: The amd libary is thread-safe and returns pointers to a safe global state, which we can pass to other threads.
 unsafe impl Send for ManagedDevice {}
@@ -67,7 +68,7 @@ impl AmdGpuDevices {
                             failure_count += 1;
                             log::warn!("Skipping GPU device because of error: {e:?}");
                         } else {
-                            return Err(crate::AmdError(e).into());
+                            return Err(AmdError(e).into());
                         }
                     }
                 }
@@ -98,12 +99,12 @@ mod test {
     use super::*;
     use crate::{
         amd::utils::{METRIC_TEMP, UNEXPECTED_DATA, UNKNOWN_ERROR},
-        interface::{AmdError, MockAmdSmiTrait, MockProcessorHandleTrait, MockSocketHandleTrait},
         tests::mocks::{
             MOCK_ACTIVITY, MOCK_ENERGY, MOCK_MEMORY, MOCK_POWER, MOCK_PROCESS, MOCK_TEMPERATURE, MOCK_UUID,
             MOCK_VOLTAGE,
         },
     };
+    use amd_smi_lib::{AmdError, MockAmdSmiTrait, MockProcessorHandleTrait, MockSocketHandleTrait};
     use log::LevelFilter::Warn;
     use std::{
         io::Write,

@@ -9,7 +9,7 @@ fn main() {
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
 
     Builder::default()
-        .headers(["./include/amdsmi.h", "./include/amd_smiConfig.h"])
+        .headers(["./include/amdsmi.h"])
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .dynamic_library_name("libamd_smi")
         .generate()

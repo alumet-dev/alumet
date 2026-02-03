@@ -1,10 +1,11 @@
-use crate::{
-    amd::utils::{
-        MEMORY_TYPE, METRIC_TEMP, NO_PERM, NOT_SUPPORTED, NOT_YET_IMPLEMENTED, SENSOR_TYPE, UNEXPECTED_DATA,
-        VOLTAGE_METRIC, VOLTAGE_SENSOR_TYPE,
-    },
-    bindings::*,
-    interface::ProcessorHandleTrait,
+use amd_smi_lib::{
+    ProcessorHandleTrait,
+    bindings::{amdsmi_memory_type_t, amdsmi_status_t, amdsmi_temperature_metric_t},
+};
+
+use crate::amd::utils::{
+    MEMORY_TYPE, METRIC_TEMP, NO_PERM, NOT_SUPPORTED, NOT_YET_IMPLEMENTED, SENSOR_TYPE, UNEXPECTED_DATA,
+    VOLTAGE_METRIC, VOLTAGE_SENSOR_TYPE,
 };
 use std::fmt::{self, Display, Formatter};
 
@@ -136,9 +137,17 @@ impl Display for OptionalFeatures {
 
 #[cfg(test)]
 mod test {
+    use amd_smi_lib::{
+        AmdError, MockProcessorHandleTrait,
+        bindings::{
+            amdsmi_memory_type_t_AMDSMI_MEM_TYPE_VRAM, amdsmi_temperature_metric_t_AMDSMI_TEMP_CURRENT,
+            amdsmi_temperature_type_t_AMDSMI_TEMPERATURE_TYPE_EDGE,
+        },
+    };
+
     use super::*;
     use crate::{
-        interface::{AmdError, MockProcessorHandleTrait},
+        amd::utils::UNKNOWN_ERROR,
         tests::mocks::{
             MOCK_ACTIVITY, MOCK_ENERGY, MOCK_MEMORY, MOCK_POWER, MOCK_PROCESS, MOCK_TEMPERATURE, MOCK_VOLTAGE,
         },
@@ -210,7 +219,7 @@ mod test {
     // Test `is_supported` function with other amdsmi status errors
     #[test]
     fn test_is_supported_other_error() {
-        let err = amdsmi_status_t_AMDSMI_STATUS_UNKNOWN_ERROR;
+        let err = UNKNOWN_ERROR;
         let ret: Result<i32, amdsmi_status_t> = Err(err);
         let res = is_supported(ret);
         assert!(res.is_err());

@@ -1,7 +1,6 @@
+use crate::amd::utils::PLUGIN_NAME;
 #[cfg(test)]
-use crate::interface::MockAmdSmiTrait;
-use crate::interface::MockableAmdSmi;
-use crate::{amd::utils::PLUGIN_NAME, interface::AmdError};
+use alumet::plugin::PluginMetadata;
 use alumet::{
     pipeline::elements::source::trigger::TriggerSpec,
     plugin::{
@@ -9,23 +8,14 @@ use alumet::{
         rust::{AlumetPlugin, deserialize_config, serialize_config},
     },
 };
+use amd::{device::AmdGpuDevices, metrics::Metrics, probe::AmdGpuSource};
+use amd_smi_lib::MockableAmdSmi;
 use anyhow::{Context, anyhow};
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
 
-#[cfg(test)]
-use alumet::plugin::PluginMetadata;
-
-#[allow(warnings)]
-pub mod bindings {
-    include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
-}
-
 mod amd;
-mod interface;
 mod tests;
-
-use amd::{device::AmdGpuDevices, metrics::Metrics, probe::AmdGpuSource};
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -64,13 +54,15 @@ impl AmdGpuPlugin {
 
     #[cfg(not(test))]
     fn init_amdsmi() -> anyhow::Result<MockableAmdSmi> {
-        use crate::interface::AmdSmi;
+        use amd_smi_lib::AmdSmi;
 
         Ok(Arc::new(AmdSmi::init()?))
     }
 
     #[cfg(test)]
     fn init_amdsmi() -> anyhow::Result<MockableAmdSmi> {
+        use amd_smi_lib::MockAmdSmiTrait;
+
         Ok(Arc::new(MockAmdSmiTrait::new()))
     }
 
@@ -149,11 +141,10 @@ impl AlumetPlugin for AmdGpuPlugin {
 
 #[cfg(test)]
 mod test {
-    use crate::interface::MockAmdSmiTrait;
-
     use super::*;
     use alumet::plugin::rust::AlumetPlugin;
     use amd::utils::ERROR;
+    use amd_smi_lib::{AmdError, MockAmdSmiTrait};
     use std::time::Duration;
 
     const CONFIGURATION: &str = r#"

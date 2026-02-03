@@ -8,14 +8,20 @@ use std::{
 };
 use thiserror::Error;
 
-use crate::{
-    amd::utils::*,
-    bindings::{
-        amdsmi_engine_usage_t, amdsmi_memory_type_t, amdsmi_power_info_t, amdsmi_proc_info_t, amdsmi_processor_handle,
-        amdsmi_socket_handle, amdsmi_status_t, amdsmi_temperature_metric_t, amdsmi_temperature_type_t,
-        amdsmi_voltage_metric_t, amdsmi_voltage_type_t, libamd_smi,
-    },
-};
+use crate::bindings::*;
+
+#[allow(warnings)]
+pub mod bindings {
+    include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+}
+
+pub const LIB_PATH: &str = "libamd_smi.so";
+pub const INIT_FLAG: amdsmi_init_flags_t = amdsmi_init_flags_t_AMDSMI_INIT_AMD_GPUS;
+pub const UUID_LENGTH: u32 = AMDSMI_GPU_UUID_SIZE;
+
+pub const ERROR: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_INVAL;
+pub const SUCCESS: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_SUCCESS;
+pub const OVERFLOW: amdsmi_status_t = amdsmi_status_t_AMDSMI_STATUS_OUT_OF_RESOURCES;
 
 /// Error treatment concerning AMD SMI library.
 ///
