@@ -68,3 +68,9 @@ The `minimal` mode only works on GPU that support the `nvmlDeviceGetPowerUsage` 
 
 Not all software use the GPU to its full extent.
 For instance, to obtain non-zero values for the video encoding/decoding metrics, use a video software like `ffmpeg`.
+
+### GPU counter updates
+
+NVML requires 20-100ms to refresh counter values based on GPU model.
+When `poll_interval` is set too low, the plugin queries identical counter values repeatedly during polling.
+Since some measurements are calculated from previous polls, these measurements are discarded rather than reported as zero values.
