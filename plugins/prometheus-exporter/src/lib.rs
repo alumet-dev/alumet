@@ -41,7 +41,6 @@ impl AlumetPlugin for PrometheusPlugin {
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
         // Create a new PrometheusOutput instance
         let output = Box::new(PrometheusOutput::new(
-            self.config.use_unit_display_name,
             self.config.add_attributes_to_labels,
             self.config.port,
             self.config.host.clone(),
@@ -63,7 +62,7 @@ impl AlumetPlugin for PrometheusPlugin {
             // Execute the server inside the current thread runtime
             rt.block_on(async {
                 let state_clone = output_clone.state.clone();
-                let addr_clone = output_clone.addr.clone();
+                let addr_clone = output_clone.addr;
                 let make_svc = make_service_fn(move |_conn| {
                     let state = state_clone.clone();
                     async move {
@@ -155,7 +154,6 @@ struct Config {
     prefix: String,
     suffix: String,
     port: u16,
-    use_unit_display_name: bool,
     add_attributes_to_labels: bool,
 }
 
@@ -166,7 +164,6 @@ impl Default for Config {
             prefix: String::from(""),
             suffix: String::from("_alumet"),
             port: 9091,
-            use_unit_display_name: true,
             add_attributes_to_labels: true,
         }
     }

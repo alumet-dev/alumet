@@ -17,9 +17,6 @@ host = "0.0.0.0"
 prefix = ""
 suffix = "_alumet"
 port = 9091
-# Use the display name of the units instead of their unique name, as specified by the UCUM.
-# See https://ucum.org/ucum for a list of unit and their symbols.
-use_unit_display_name = true
 add_attributes_to_labels = true
 ```
 
