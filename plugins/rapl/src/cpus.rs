@@ -1,8 +1,10 @@
 use anyhow::{Context, anyhow};
+use regex::Regex;
 use std::{
-    fs,
+    fs::read_to_string,
     num::ParseIntError,
     process::{Command, Stdio},
+    str::from_utf8,
 };
 
 /// Cpu id and socket (package) id.
@@ -19,15 +21,6 @@ pub enum CpuVendor {
     Amd,
 }
 
-/// Retrieves the CPUs to monitor (one per socket) in order
-/// to get RAPL perf counters.
-pub fn cpus_to_monitor_with_perf() -> anyhow::Result<Vec<CpuId>> {
-    let path = "/sys/devices/power/cpumask";
-    let mask = fs::read_to_string(path).with_context(|| format!("failed to read {path}"))?;
-    let cpus_and_sockets = parse_cpu_and_socket_list(&mask).with_context(|| format!("failed to parse {path}"))?;
-    Ok(cpus_and_sockets)
-}
-
 fn parse_cpu_and_socket_list(cpulist: &str) -> anyhow::Result<Vec<CpuId>> {
     let cpus = parse_cpu_list(cpulist);
 
@@ -41,10 +34,21 @@ fn parse_cpu_and_socket_list(cpulist: &str) -> anyhow::Result<Vec<CpuId>> {
     Ok(cpus_and_sockets)
 }
 
+fn cpus_to_monitor_with_perf_path(path: &str) -> anyhow::Result<Vec<CpuId>> {
+    let cpulist = read_to_string(path).with_context(|| format!("failed to read {path}"))?;
+    parse_cpu_and_socket_list(&cpulist).with_context(|| format!("failed to parse {path}"))
+}
+
+/// Retrieves the CPUs to monitor (one per socket) in order
+/// to get RAPL perf counters
+pub fn cpus_to_monitor_with_perf() -> anyhow::Result<Vec<CpuId>> {
+    cpus_to_monitor_with_perf_path("/sys/devices/power/cpumask")
+}
+
 fn parse_cpu_list(cpulist: &str) -> anyhow::Result<Vec<u32>> {
     // handles "n" or "start-end"
     fn parse_cpulist_item(item: &str) -> anyhow::Result<Vec<u32>> {
-        let bounds: Vec<u32> = item
+        let bounds = item
             .split('-')
             .map(str::parse)
             .collect::<Result<Vec<u32>, ParseIntError>>()?;
@@ -52,12 +56,12 @@ fn parse_cpu_list(cpulist: &str) -> anyhow::Result<Vec<u32>> {
         match *bounds.as_slice() {
             [start, end] => Ok((start..=end).collect()),
             [n] => Ok(vec![n]),
-            _ => Err(anyhow::anyhow!("invalid cpu_list: {}", item)),
+            _ => Err(anyhow::anyhow!("invalid cpu_list: {item}")),
         }
     }
 
     // this can be "0,64" or "0-1" or maybe "0-1,64-66"
-    let cpus: Vec<u32> = cpulist
+    let cpus = cpulist
         .trim_end()
         .split(',')
         .map(parse_cpulist_item)
@@ -69,10 +73,13 @@ fn parse_cpu_list(cpulist: &str) -> anyhow::Result<Vec<u32>> {
     Ok(cpus)
 }
 
-pub fn online_cpus() -> anyhow::Result<Vec<u32>> {
-    let path = "/sys/devices/system/cpu/online";
-    let list = std::fs::read_to_string(path).with_context(|| format!("failed to parse {path}"))?;
+fn online_cpus_path(path: &str) -> anyhow::Result<Vec<u32>> {
+    let list = read_to_string(path).with_context(|| format!("failed to parse {path}"))?;
     parse_cpu_list(&list)
+}
+
+pub fn online_cpus() -> anyhow::Result<Vec<u32>> {
+    online_cpus_path("/sys/devices/system/cpu/online")
 }
 
 fn run_lscpu() -> anyhow::Result<String> {
@@ -83,12 +90,12 @@ fn run_lscpu() -> anyhow::Result<String> {
         .spawn()
         .context("lscpu should be executable")?;
     let finished = child.wait_with_output()?;
-    Ok(std::str::from_utf8(&finished.stdout)?.to_string())
+    Ok(from_utf8(&finished.stdout)?.to_string())
 }
 
 fn parse_cpu_vendor_from_lscpu(lscpu: &str) -> anyhow::Result<CpuVendor> {
     // find the Vendor ID
-    let vendor_regex = regex::Regex::new(r"Vendor ID:\s+(\w+)")?;
+    let vendor_regex = Regex::new(r"Vendor ID:\s+(\w+)")?;
     let group = vendor_regex
         .captures(lscpu)
         .context("vendor id not found in lscpu output")?
@@ -112,17 +119,11 @@ pub fn cpu_vendor() -> anyhow::Result<CpuVendor> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
 
     #[test]
-    fn test_parse_cpu_vendor_from_lscpu() -> anyhow::Result<()> {
-        let lscpu_result = "Vendor ID:                GenuineIntel";
-        let cpu_vendor = parse_cpu_vendor_from_lscpu(lscpu_result)?;
-        assert_eq!(cpu_vendor, CpuVendor::Intel);
-        Ok(())
-    }
-
-    #[test]
-    fn test_parse_cpumask() -> anyhow::Result<()> {
+    fn test_parse_cpu_and_socket_list() -> anyhow::Result<()> {
         let single = "0";
         assert_eq!(parse_cpu_and_socket_list(single)?, vec![CpuId { cpu: 0, socket: 0 }]);
 
@@ -151,5 +152,67 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn test_parse_cpulist_invalid_item() {
+        let cpulist = "1-2-3";
+        let result = parse_cpu_list(cpulist).unwrap_err();
+        assert!(result.to_string().contains("invalid cpu_list"));
+    }
+
+    #[test]
+    fn test_cpus_to_monitor_with_perf_path() -> anyhow::Result<()> {
+        let mut file = NamedTempFile::new()?;
+        let cpulist = "1-3,5-6";
+        writeln!(file, "{cpulist}")?;
+
+        let result = cpus_to_monitor_with_perf_path(file.path().to_str().unwrap())?;
+        assert_eq!(
+            result,
+            vec![
+                CpuId { cpu: 1, socket: 0 },
+                CpuId { cpu: 2, socket: 1 },
+                CpuId { cpu: 3, socket: 2 },
+                CpuId { cpu: 5, socket: 3 },
+                CpuId { cpu: 6, socket: 4 },
+            ]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_online_cpus_path() -> anyhow::Result<()> {
+        let mut file = NamedTempFile::new()?;
+        let cpulist = "1-3,5-6";
+        writeln!(file, "{cpulist}")?;
+
+        let result = online_cpus_path(file.path().to_str().unwrap())?;
+        assert_eq!(result, vec![1, 2, 3, 5, 6]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_cpu_vendor_from_lscpu() {
+        let intel = "Vendor ID:                GenuineIntel";
+        let amd = "Vendor ID:                AuthenticAMD";
+        assert_eq!(parse_cpu_vendor_from_lscpu(intel).unwrap(), CpuVendor::Intel);
+        assert_eq!(parse_cpu_vendor_from_lscpu(amd).unwrap(), CpuVendor::Amd);
+    }
+
+    #[test]
+    fn test_parse_cpu_vendor_from_lscpu_unsupported() {
+        let lscpu = "Vendor ID:                UnknownVendor";
+        let result = parse_cpu_vendor_from_lscpu(lscpu).unwrap_err();
+        assert!(result.to_string().contains("Unsupported CPU vendor"));
+    }
+
+    #[test]
+    fn test_parse_cpu_vendor_from_lscpu_missing() {
+        let lscpu = "No vendor ID";
+        let result = parse_cpu_vendor_from_lscpu(lscpu).unwrap_err();
+        assert!(result.to_string().contains("vendor id not found in lscpu output"));
     }
 }

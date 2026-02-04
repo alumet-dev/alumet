@@ -1,6 +1,20 @@
-use std::fs::{self, File};
-use std::{io::Write, path::Path};
+use alumet::plugin::util::CounterDiff;
+use nix::unistd::pipe;
+use std::{
+    fs::{File, create_dir_all},
+    io,
+    io::Write,
+    os::fd::{
+        OwnedFd, {FromRawFd, IntoRawFd},
+    },
+    path::Path,
+};
 use tempfile::{TempDir, tempdir};
+
+use crate::perf_event::OpenedPowerEvent;
+use crate::{domains::RaplDomainType, perf_event::PERF_MAX_ENERGY};
+
+pub const SCALE: f32 = 2.3283064365386962890625e-10;
 
 /// Entry to be created in the mock filesystem
 pub enum EntryType<'a> {
@@ -15,14 +29,15 @@ pub struct Entry<'a> {
 }
 
 /// Create all specified entries under the given base path
-pub fn create_mock_layout(base_path: &Path, entries: &[Entry]) -> std::io::Result<()> {
+#[cfg(test)]
+pub fn create_mock_layout(base_path: &Path, entries: &[Entry]) -> io::Result<()> {
     for entry in entries {
         let full_path = base_path.join(entry.path);
         match &entry.entry_type {
-            EntryType::Dir => fs::create_dir_all(&full_path)?,
+            EntryType::Dir => create_dir_all(&full_path)?,
             EntryType::File(content) => {
                 if let Some(parent) = full_path.parent() {
-                    fs::create_dir_all(parent)?;
+                    create_dir_all(parent)?;
                 }
                 let mut file = File::create(full_path)?;
                 file.write_all(content.as_bytes())?;
@@ -32,10 +47,27 @@ pub fn create_mock_layout(base_path: &Path, entries: &[Entry]) -> std::io::Resul
     Ok(())
 }
 
-pub fn create_valid_powercap_mock() -> anyhow::Result<TempDir> {
-    let tmp = tempdir()?;
+#[cfg(test)]
+pub fn fake_opened_power_event() -> (OpenedPowerEvent, OwnedFd) {
+    let (read_fd, write_fd) = pipe().unwrap();
+    let file = unsafe { File::from_raw_fd(read_fd.into_raw_fd()) };
+    (
+        OpenedPowerEvent {
+            fd: file,
+            scale: SCALE.into(),
+            domain: RaplDomainType::Package, // dummy value
+            resource: RaplDomainType::Package.to_resource(0),
+            counter: CounterDiff::with_max_value(PERF_MAX_ENERGY),
+        },
+        write_fd,
+    )
+}
 
-    use EntryType::*;
+#[cfg(test)]
+pub fn create_valid_powercap_mock() -> anyhow::Result<TempDir> {
+    use EntryType::{Dir, File};
+
+    let base_path = tempdir()?;
 
     let entries = [
         Entry {
@@ -124,6 +156,6 @@ pub fn create_valid_powercap_mock() -> anyhow::Result<TempDir> {
         },
     ];
 
-    create_mock_layout(tmp.path(), &entries)?;
-    Ok(tmp)
+    create_mock_layout(base_path.path(), &entries)?;
+    Ok(base_path)
 }
