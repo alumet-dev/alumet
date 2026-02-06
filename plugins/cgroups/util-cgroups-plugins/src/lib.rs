@@ -5,6 +5,7 @@ pub mod v1;
 /// Probe for cgroups v2.
 pub mod v2;
 
+mod cpus;
 pub mod delta;
 pub mod job_annotation_transform;
 pub mod metrics;

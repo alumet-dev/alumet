@@ -2828,7 +2828,7 @@ dependencies = [
 
 [[package]]
 name = "plugin-k8s"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "alumet",
  "anyhow",
@@ -2936,7 +2936,7 @@ dependencies = [
 
 [[package]]
 name = "plugin-oar"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "alumet",
  "anyhow",
@@ -3062,7 +3062,7 @@ dependencies = [
 
 [[package]]
 name = "plugin-raw-cgroups"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "alumet",
  "anyhow",
@@ -3104,7 +3104,7 @@ dependencies = [
 
 [[package]]
 name = "plugin-slurm"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "alumet",
  "anyhow",
@@ -4793,7 +4793,7 @@ dependencies = [
 
 [[package]]
 name = "util-cgroups-plugins"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "alumet",
  "anyhow",

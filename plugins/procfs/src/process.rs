@@ -543,7 +543,7 @@ impl ProcessFilter {
             // cf. https://unix.stackexchange.com/questions/629869/getting-the-executable-name-in-linux-from-proc-and-detect-if-its-truncated
             // TODO in case of PermissionDenied error, print a hint about ptrace access mode PTRACE_MODE_READ_FSCREDS (requires cap SYS_PTRACE or process of same user)
             if let Some(path_string) = p.exe()?.to_str() {
-                if r.is_match(path_string) {
+                if !r.is_match(path_string) {
                     return Ok(false);
                 }
             }
