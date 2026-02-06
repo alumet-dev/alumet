@@ -25,6 +25,14 @@ use alumet::{
 use anyhow::Context;
 use procfs::{self, FromRead, ProcError, process::Process};
 use regex::Regex;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryStatsMode {
+    Quick,
+    SlowButAccurate,
+}
 
 /// Reads process stats from `/proc/<pid>` for some `<pid>`.
 struct ProcessStatsProbe {
@@ -38,8 +46,11 @@ struct ProcessStatsProbe {
 
     /// A reader opened to `/proc/<pid>/stat`
     reader_stat: BufReader<File>,
-    /// A reader opened to `/proc/<pid>/statm`
-    reader_statm: BufReader<File>,
+
+    /// A reader opened to `/proc/<pid>/statm` or to `/proc/<pid>/smaps_rollup`
+    reader_mem: BufReader<File>,
+
+    mem_mode: MemoryStatsMode,
 
     /// The previously measured stats, to compute the difference.
     previous_general_stats: Option<(Timestamp, procfs::process::Stat)>,
@@ -61,12 +72,19 @@ impl ProcessStatsProbe {
         ns_per_ticks: u64,
         push_first_stats: bool,
         metrics: ProcessMetrics,
+        mem_mode: MemoryStatsMode,
     ) -> Result<Self, procfs::ProcError> {
+        let file_mem = match mem_mode {
+            MemoryStatsMode::Quick => process.open_relative("statm")?,
+            MemoryStatsMode::SlowButAccurate => process.open_relative("smaps_rollup")?,
+        };
+
         Ok(Self {
             pid: process.pid,
             ns_per_ticks,
             reader_stat: BufReader::new(process.open_relative("stat")?),
-            reader_statm: BufReader::new(process.open_relative("statm")?),
+            reader_mem: BufReader::new(file_mem),
+            mem_mode,
             previous_general_stats: None,
             push_first_stats,
             metrics,
@@ -98,15 +116,57 @@ fn stop_if_io_not_found(err: io::Error) -> PollError {
     }
 }
 
+struct MemoryStats {
+    virtual_bytes: u64,
+    resident_bytes: u64,
+    shared_bytes: u64,
+}
+
 impl Source for ProcessStatsProbe {
     fn poll(&mut self, buffer: &mut MeasurementAccumulator, t: Timestamp) -> Result<(), PollError> {
         let consumer = ResourceConsumer::Process { pid: self.pid as u32 };
         log::trace!("polled for consumer {consumer:?}");
 
         self.reader_stat.rewind().map_err(stop_if_io_not_found)?;
-        self.reader_statm.rewind().map_err(stop_if_io_not_found)?;
+        self.reader_mem.rewind().map_err(stop_if_io_not_found)?;
         let general_stats = procfs::process::Stat::from_read(&mut self.reader_stat).map_err(stop_if_proc_not_found)?;
-        let memory_stats = procfs::process::StatM::from_read(&mut self.reader_statm).map_err(stop_if_proc_not_found)?;
+
+        // we have two ways of computing memory usage
+        let memory_stats = match self.mem_mode {
+            MemoryStatsMode::Quick => {
+                let statm = procfs::process::StatM::from_read(&mut self.reader_mem).map_err(stop_if_proc_not_found)?;
+                MemoryStats {
+                    virtual_bytes: self.pages_to_bytes(statm.size),
+                    resident_bytes: self.pages_to_bytes(statm.resident),
+                    shared_bytes: self.pages_to_bytes(statm.shared),
+                }
+            }
+            MemoryStatsMode::SlowButAccurate => {
+                let smaps_rollup =
+                    procfs::process::SmapsRollup::from_read(&mut self.reader_mem).map_err(stop_if_proc_not_found)?;
+                let smaps_rollup = &smaps_rollup
+                    .memory_map_rollup
+                    .0
+                    .first()
+                    .context("smaps_rollup returned no data")?
+                    .extension
+                    .map;
+                let rss = smaps_rollup
+                    .get("Rss")
+                    .context("smaps_rollup did not contain field Rss")?;
+                let shared_clean = smaps_rollup
+                    .get("Shared_Clean")
+                    .context("smaps_rollup did not contain field Shared_Clean")?;
+                let shared_dirty = smaps_rollup
+                    .get("Shared_Dirty")
+                    .context("smaps_rollup did not contain field Shared_Dirty")?;
+                MemoryStats {
+                    virtual_bytes: general_stats.vsize, // smaps_rollup does not provide the vm size, but we have it from /proc/<pid>/stat
+                    resident_bytes: *rss,               // already in bytes (converted by the procfs crate)
+                    shared_bytes: shared_clean + shared_dirty, // already in bytes (converted by the procfs crate)
+                }
+            }
+        };
 
         // TODO how to report the state of the process in the timeseries?
         // let state = now.state()?;
@@ -138,13 +198,12 @@ impl Source for ProcessStatsProbe {
             if let Some(prev_t) = prev_t {
                 // cpu_time_delta is in nanoseconds, use delta_t to turn it into a percentage
                 // Note: 100% is *one* core, a process running on multiple core may use more than 100% of cpu.
+                // TODO change this
                 let delta_t = t.duration_since(prev_t).unwrap().as_nanos() as f64;
                 let percent_user = 100.0 * (measurements.user as f64 / delta_t);
                 let percent_system = 100.0 * (measurements.user as f64 / delta_t);
                 let percent_total = 100.0 * ((measurements.user + measurements.system) as f64 / delta_t);
                 // TODO guest value?
-                // TODO metric unit Percent in [0;100]
-                // TODO metric unit PercentFrac in [0;1]
                 buffer.push(
                     MeasurementPoint::new(
                         t,
@@ -186,7 +245,7 @@ impl Source for ProcessStatsProbe {
                 self.metrics.metric_memory_usage,
                 Resource::LocalMachine,
                 consumer.clone(),
-                self.pages_to_bytes(memory_stats.resident),
+                memory_stats.resident_bytes,
             )
             .with_attr("kind", "resident"),
         );
@@ -196,7 +255,7 @@ impl Source for ProcessStatsProbe {
                 self.metrics.metric_memory_usage,
                 Resource::LocalMachine,
                 consumer.clone(),
-                self.pages_to_bytes(memory_stats.shared),
+                memory_stats.shared_bytes,
             )
             .with_attr("kind", "shared"),
         );
@@ -206,7 +265,7 @@ impl Source for ProcessStatsProbe {
                 self.metrics.metric_memory_usage,
                 Resource::LocalMachine,
                 consumer,
-                self.pages_to_bytes(memory_stats.size),
+                memory_stats.virtual_bytes,
             )
             .with_attr("kind", "virtual"),
         );
@@ -318,6 +377,7 @@ pub struct ProcessFilter {
 pub struct MonitoringSettings {
     pub poll_interval: Duration,
     pub flush_interval: Duration,
+    pub mem_mode: MemoryStatsMode,
 }
 
 #[derive(PartialEq, Eq)]
@@ -509,7 +569,7 @@ impl ProcessSourceSpawner {
             })?;
         log::trace!("adding source {source_name} with trigger specification {trigger:?}");
         let source = Box::new(
-            ProcessStatsProbe::new(p, self.ns_per_ticks, true, self.metrics.clone())
+            ProcessStatsProbe::new(p, self.ns_per_ticks, true, self.metrics.clone(), settings.mem_mode)
                 .with_context(|| format!("failed to create source {source_name}"))?,
         );
         create_many.add_source(&source_name, source, trigger);
@@ -546,6 +606,9 @@ impl ProcessFilter {
                 if !r.is_match(path_string) {
                     return Ok(false);
                 }
+            } else {
+                // not valid utf-8
+                return Ok(false);
             }
         }
         Ok(true)
