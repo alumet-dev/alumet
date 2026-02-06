@@ -638,16 +638,16 @@ mod tests {
                 socket_id: Some(0),
                 children: vec![
                     PowerZone {
-                        name: "core".to_string(),
-                        domain: RaplDomainType::PP0,
-                        path: PathBuf::from(format!("{}/intel-rapl:0/intel-rapl:0:0", base_str)),
+                        name: "uncore".to_string(),
+                        domain: RaplDomainType::PP1,
+                        path: PathBuf::from(format!("{}/intel-rapl:0/intel-rapl:0:1", base_str)),
                         socket_id: Some(0),
                         children: Vec::new(),
                     },
                     PowerZone {
-                        name: "uncore".to_string(),
-                        domain: RaplDomainType::PP1,
-                        path: PathBuf::from(format!("{}/intel-rapl:0/intel-rapl:0:1", base_str)),
+                        name: "core".to_string(),
+                        domain: RaplDomainType::PP0,
+                        path: PathBuf::from(format!("{}/intel-rapl:0/intel-rapl:0:0", base_str)),
                         socket_id: Some(0),
                         children: Vec::new(),
                     },

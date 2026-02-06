@@ -30,7 +30,7 @@ use alumet::{
 };
 use serial_test::serial;
 
-const TIMEOUT: Duration = Duration::from_secs(10);
+const TIMEOUT: Duration = Duration::from_secs(5);
 
 struct TestedPlugin;
 struct CoffeeSource {

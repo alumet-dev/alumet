@@ -134,6 +134,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "No value can be greater than max_value!")]
+    #[cfg(debug_assertions)]
     fn test_counter_diff_over_max_value() {
         let mut counter = CounterDiff::with_max_value(255);
         let _ = counter.update(256);
