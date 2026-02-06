@@ -134,7 +134,8 @@ strategy = "watcher"
 
 ### Group process metrics
 
-Also, you can monitor groups of processes, i.e. processes defined by common characteristics. The available filters are `pid` (process id), `ppid` (parent process id) and `exe_regex` (a regular expression that must match the process executable path):
+Processes are monitored by groups defined by common characteristics.
+The available filters are `pid` (process id), `ppid` (parent process id) and `exe_regex` (a regular expression that must match the process executable path):
 
 ```toml
 [[plugins.procfs.processes.groups]]
@@ -144,6 +145,8 @@ exe_regex = ""
 poll_interval = "2s"
 # How frequently should the processes information be flushed to the rest of the pipeline.
 flush_interval = "4s"
+# Which method to use to obtain memory statistics.
+memory_mode = "quick"
 ```
 
 ## More information
@@ -165,3 +168,13 @@ Which results in a remount on the /proc mount point with full visibility of all 
 |1|`noaccess`: Users may not access any `/proc/<pid>/` directories but their own|
 |2|`invisible`: All `/proc/<pid>/` will be fully invisible to other users|
 |4|`ptraceable`: Procfs should only contain `/proc/<pid>/` directories that the caller can ptrace. The capability `CAP_SYS_PTRACE` may be required for PTraceable configuration|
+
+### Memory Mode
+
+There are multiple ways of obtaining the memory usage of a process.
+Some are quick but less accurate (as an optimisation, the kernel does not always provide the last up-to-date value), e.g. reading `/proc/<pid>/statm`
+Others are slower but more accurate, e.g. reading `/proc/<pid>/smaps_rollup`.
+
+You can set `memory_mode` to two values:
+- `quick`: expect a few milliseconds of latency per process
+- `slow_but_accurate`: expect 10x more latency (just to read memory statistics!)
