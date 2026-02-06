@@ -1,0 +1,21 @@
+[package]
+name = "plugin-amd-gpu"
+version = "0.1.5"
+edition.workspace = true
+repository.workspace = true
+
+[dependencies]
+alumet.workspace = true
+anyhow.workspace = true
+log.workspace = true
+humantime-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
+amd-smi-lib = { path = "./amd-smi-lib" }
+
+[dev-dependencies]
+alumet = { workspace = true, features = ["test"] }
+toml.workspace = true
+env_logger.workspace = true
+
+[lints]
+workspace = true

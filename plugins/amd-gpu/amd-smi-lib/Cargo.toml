@@ -1,0 +1,12 @@
+[package]
+name = "amd-smi-lib"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+libloading = "0.8"
+thiserror = "2.0.14"
+mockall = "0.14.0"
+
+[build-dependencies]
+bindgen = "0.72.1"
