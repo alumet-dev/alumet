@@ -546,6 +546,9 @@ impl ProcessFilter {
                 if !r.is_match(path_string) {
                     return Ok(false);
                 }
+            } else {
+                // not valid utf-8
+                return Ok(false);
             }
         }
         Ok(true)
