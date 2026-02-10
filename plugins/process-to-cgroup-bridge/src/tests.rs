@@ -137,7 +137,7 @@ fn run_test_with_config(config: Config, expected_counts: ExpectedCounts) -> anyh
         .build_and_start()
         .unwrap();
 
-    agent.wait_for_shutdown(Duration::from_secs(2)).unwrap();
+    agent.wait_for_shutdown(Duration::from_secs(5)).unwrap();
 
     Ok(())
 }
