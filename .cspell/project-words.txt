@@ -57,6 +57,7 @@ quarchpy
 Raffin
 RAPL
 regen
+rollup
 rustfmt
 sagittaire
 servan

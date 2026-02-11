@@ -152,6 +152,7 @@ fn start_process_watcher(
             let settings = process::MonitoringSettings {
                 poll_interval: group.poll_interval,
                 flush_interval: group.flush_interval,
+                mem_mode: group.memory_mode,
             };
             (filter, settings)
         })
@@ -181,6 +182,7 @@ fn setup_process_event_listener(
     let settings = process::MonitoringSettings {
         poll_interval: config_processes.events.poll_interval,
         flush_interval: config_processes.events.flush_interval,
+        mem_mode: config_processes.events.memory_mode,
     };
 
     alumet.on_pipeline_start(move |ctx| {
@@ -214,7 +216,7 @@ fn increase_file_descriptors_soft_limit() -> Result<(), anyhow::Error> {
 mod config {
     use std::time::Duration;
 
-    use crate::serde_regex;
+    use crate::{process::MemoryStatsMode, serde_regex};
     use regex::Regex;
     use serde::{Deserialize, Serialize};
 
@@ -286,6 +288,7 @@ mod config {
         pub poll_interval: Duration,
         #[serde(with = "humantime_serde")]
         pub flush_interval: Duration,
+        pub memory_mode: MemoryStatsMode,
     }
 
     #[derive(Serialize, Deserialize)]
@@ -307,6 +310,9 @@ mod config {
         /// How frequently should the processes information be flushed to the rest of the pipeline.
         #[serde(with = "humantime_serde")]
         pub flush_interval: Duration,
+
+        /// Which method to use to obtain memory statistics.
+        pub memory_mode: MemoryStatsMode,
     }
 
     impl Default for KernelStatsMonitoring {
@@ -361,10 +367,12 @@ mod config {
                     exe_regex: None, // any process; Regex::new(".*").unwrap() would also work
                     poll_interval: Duration::from_secs(2),
                     flush_interval: Duration::from_secs(4),
+                    memory_mode: MemoryStatsMode::Quick,
                 }],
                 events: EventModeProcessMonitoring {
                     poll_interval: Duration::from_secs(1),
                     flush_interval: Duration::from_secs(4),
+                    memory_mode: MemoryStatsMode::Quick,
                 },
             }
         }
