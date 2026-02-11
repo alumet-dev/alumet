@@ -1,14 +1,15 @@
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
-    pipeline::elements::error::PollError,
+    pipeline::{Source, elements::error::PollError},
     plugin::util::{CounterDiff, CounterDiffUpdate},
     resources::{Resource, ResourceConsumer},
 };
 use anyhow::{Context, Result};
-use perf_event_open_sys as sys;
+use perf_event_open_sys::{self as sys, bindings};
 use std::{
-    fs::{self, File},
+    env,
+    fs::{File, read_dir, read_to_string},
     io::{self, Read},
     os::fd::FromRawFd,
     path::{Path, PathBuf},
@@ -26,10 +27,10 @@ pub(crate) const PERF_MAX_ENERGY: u64 = u64::MAX;
 pub(crate) const PERF_SYSFS_DIR: &str = "/sys/devices/power";
 const PERMISSION_ADVICE: &str = "Try to set kernel.perf_event_paranoid to 0 or -1, or to give CAP_PERFMON to the application's binary (CAP_SYS_ADMIN before Linux 5.8).";
 
-/// manages power events instantiations
+/// Manages power events instantiations
 pub struct PowerEventFactory;
 
-/// describes power event metadata
+/// Describes power event metadata
 #[derive(Debug, Clone, PartialEq)]
 pub struct PowerEvent {
     /// The name of the power event, as reported by the sysfs. This corresponds to a RAPL **domain name**, like "pkg".
@@ -45,22 +46,24 @@ pub struct PowerEvent {
     pub scale: f32,
 }
 
-/// manages power event counter collection
-struct OpenedPowerEvent {
-    fd: File,
-    scale: f64,
-    domain: RaplDomainType,
-    resource: Resource,
-    counter: CounterDiff,
+/// Manages power event counter collection
+pub struct OpenedPowerEvent {
+    pub fd: File,
+    pub scale: f64,
+    pub domain: RaplDomainType,
+    pub resource: Resource,
+    pub counter: CounterDiff,
 }
 
 /// Energy probe based on perf_event for intel RAPL.
 pub struct PerfEventProbe {
     /// Id of the metric to push.
-    metric: TypedMetricId<f64>,
+    pub metric: TypedMetricId<f64>,
     /// Ready-to-use power events with additional metadata.
-    events: Vec<OpenedPowerEvent>,
+    pub events: Vec<OpenedPowerEvent>,
 }
+
+type PerfEventOpen = fn(event: &PowerEvent, pmu_type: u32, cpu: u32) -> io::Result<i32>;
 
 /// Retrieves all RAPL power events from /sys/devices/power base path.
 /// See all_power_events_from_path comments for more details
@@ -73,11 +76,11 @@ pub fn all_power_events() -> Result<Vec<PowerEvent>> {
 /// For instance, there can be `gpu` and
 /// [`psys`](https://patchwork.kernel.org/project/linux-pm/patch/1458253409-13318-1-git-send-email-srinivas.pandruvada@linux.intel.com/).
 pub fn all_power_events_from_path(base_path: &Path) -> Result<Vec<PowerEvent>> {
-    let mut events: Vec<PowerEvent> = Vec::new();
+    let mut events = Vec::new();
 
     // Find all the events
     let power_event_dir = base_path.join("events");
-    for e in fs::read_dir(&power_event_dir).context(format!(
+    for e in read_dir(&power_event_dir).context(format!(
         "Could not read {}. {PERMISSION_ADVICE}",
         power_event_dir
             .into_os_string()
@@ -122,7 +125,7 @@ impl PowerEventFactory {
 
         let file_name = path
             .file_name()
-            .with_context(|| format!("path has no file name: {:?}", path))?
+            .with_context(|| format!("path has no file name: {path:?}"))?
             .to_string_lossy();
 
         if file_name.contains('.') {
@@ -147,7 +150,7 @@ impl PowerEventFactory {
     }
 
     fn code_from_base_path(path: &Path) -> Result<u8> {
-        let read = fs::read_to_string(path).with_context(|| format!("Could not read {path:?}. {PERMISSION_ADVICE}"))?;
+        let read = read_to_string(path).with_context(|| format!("Could not read {path:?}. {PERMISSION_ADVICE}"))?;
         let code_str = read
             .trim_end()
             .strip_prefix("event=0x")
@@ -159,14 +162,14 @@ impl PowerEventFactory {
     fn unit_from_base_path(path: &Path) -> Result<String> {
         let mut path = path.to_path_buf();
         path.set_extension("unit");
-        let unit_str = fs::read_to_string(path)?.trim_end().to_string();
+        let unit_str = read_to_string(path)?.trim_end().to_string();
         Ok(unit_str)
     }
 
     fn scale_from_base_path(path: &Path) -> Result<f32> {
         let mut path = path.to_path_buf();
         path.set_extension("scale");
-        let read = fs::read_to_string(&path)?;
+        let read = read_to_string(&path)?;
         let scale = read
             .trim_end()
             .parse()
@@ -183,13 +186,13 @@ impl PowerEvent {
     /// * `pmu_type` - The type of the RAPL PMU, given by [`pmu_type()`].
     /// * `cpu_id` - Defines which CPU (core) to monitor, given by [`super::cpus_to_monitor()`]
     ///
-    pub fn perf_event_open(&self, pmu_type: u32, cpu_id: u32) -> std::io::Result<i32> {
+    pub fn perf_event_open(&self, pmu_type: u32, cpu_id: u32) -> io::Result<i32> {
         // Only some combination of (pid, cpu) are valid.
         // For RAPL PMU events, we use (-1, cpu) which means "all processes, one cpu".
         let pid = -1; // all processes
         let cpu = cpu_id as i32;
 
-        let mut attr = sys::bindings::perf_event_attr::default();
+        let mut attr = bindings::perf_event_attr::default();
         attr.config = self.code.into();
         attr.type_ = pmu_type;
         attr.size = core::mem::size_of_val(&attr) as u32;
@@ -204,9 +207,16 @@ impl PowerEvent {
     }
 
     /// creates a new OpenedPowerEvent from Self by opening the file using file descriptor provided by perf_event
-    fn open(&self, pmu_type: u32, cpu: u32, socket: u32) -> anyhow::Result<OpenedPowerEvent> {
-        let raw_fd = self.perf_event_open(pmu_type, cpu)?;
+    fn open_event_fd(
+        &self,
+        pmu_type: u32,
+        cpu: u32,
+        socket: u32,
+        perf_open: PerfEventOpen,
+    ) -> anyhow::Result<OpenedPowerEvent> {
+        let raw_fd = perf_open(self, pmu_type, cpu)?;
         let fd = unsafe { File::from_raw_fd(raw_fd) };
+
         Ok(OpenedPowerEvent {
             fd,
             scale: self.scale as f64,
@@ -214,6 +224,14 @@ impl PowerEvent {
             resource: self.domain.to_resource(socket),
             counter: CounterDiff::with_max_value(PERF_MAX_ENERGY),
         })
+    }
+
+    fn real_perf_event_open(event: &PowerEvent, pmu_type: u32, cpu: u32) -> io::Result<i32> {
+        event.perf_event_open(pmu_type, cpu)
+    }
+
+    fn open(&self, pmu_type: u32, cpu: u32, socket: u32) -> anyhow::Result<OpenedPowerEvent> {
+        self.open_event_fd(pmu_type, cpu, socket, Self::real_perf_event_open)
     }
 }
 
@@ -292,9 +310,10 @@ impl PerfEventProbe {
     }
 
     fn handle_insufficient_privileges(e: &anyhow::Error) {
-        fn resolve_application_path() -> std::io::Result<PathBuf> {
-            std::env::current_exe()?.canonicalize()
+        fn resolve_application_path() -> io::Result<PathBuf> {
+            env::current_exe()?.canonicalize()
         }
+
         let app_path = resolve_application_path()
             .ok()
             .and_then(|p| p.to_str().map(|s| s.to_owned()))
@@ -316,7 +335,7 @@ impl PerfEventProbe {
     }
 }
 
-impl alumet::pipeline::Source for PerfEventProbe {
+impl Source for PerfEventProbe {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         let mut totals = DomainTotals::new();
         for evt in &mut self.events {
@@ -361,7 +380,7 @@ fn pmu_type() -> Result<u32> {
 
 /// Retrieves the type of the RAPL PMU (Power Monitoring Unit) in the Linux kernel.
 fn pmu_type_from_path(path: &Path) -> Result<u32> {
-    let read = fs::read_to_string(path).with_context(|| format!("Failed to read {path:?}"))?;
+    let read = read_to_string(path).with_context(|| format!("Failed to read {path:?}"))?;
     let typ = read
         .trim_end()
         .parse()
@@ -372,22 +391,26 @@ fn pmu_type_from_path(path: &Path) -> Result<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests_mock::*;
+    use crate::tests::mocks::*;
 
-    use nix::unistd::write;
-    use std::os::fd::OwnedFd;
+    use nix::unistd::{pipe, write};
+    use std::os::fd::IntoRawFd;
     use tempfile::tempdir;
 
-    #[cfg(test)]
+    static mut FAKE_FD: i32 = -1;
+
+    fn fake_perf_event_open(_event: &PowerEvent, _pmu_type: u32, _cpu: u32) -> std::io::Result<i32> {
+        unsafe { Ok(FAKE_FD) }
+    }
+
     #[test]
     fn test_pmu_type() -> anyhow::Result<()> {
         let tmp = tempdir()?;
         let base_path = tmp.path();
 
-        use EntryType::*;
         let pmu_type_entry = Entry {
             path: "pmu_type",
-            entry_type: File("32"),
+            entry_type: EntryType::File("32"),
         };
         create_mock_layout(base_path, &[pmu_type_entry])?;
         let actual = pmu_type_from_path(&base_path.join("pmu_type"))?;
@@ -398,13 +421,13 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(test)]
     #[test]
     fn test_open_all() -> anyhow::Result<()> {
+        use EntryType::{Dir, File};
+
         let tmp = tempdir()?;
         let base_path = tmp.path();
 
-        use EntryType::*;
         let perf_event_entries = [
             Entry {
                 path: "events",
@@ -416,7 +439,7 @@ mod tests {
             },
             Entry {
                 path: "events/energy-cores.scale",
-                entry_type: File("2.3283064365386962890625e-10"),
+                entry_type: File(&SCALE.to_string()),
             },
             Entry {
                 path: "events/energy-cores.unit",
@@ -428,7 +451,7 @@ mod tests {
             },
             Entry {
                 path: "events/energy-pkg.scale",
-                entry_type: File("2.3283064365386962890625e-10"),
+                entry_type: File(&SCALE.to_string()),
             },
             Entry {
                 path: "events/energy-pkg.unit",
@@ -440,7 +463,7 @@ mod tests {
             },
             Entry {
                 path: "events/energy-psys.scale",
-                entry_type: File("2.3283064365386962890625e-10"),
+                entry_type: File(&SCALE.to_string()),
             },
             Entry {
                 path: "events/energy-psys.unit",
@@ -458,21 +481,21 @@ mod tests {
                 domain: RaplDomainType::Platform,
                 code: 5,
                 unit: "Joules".to_string(),
-                scale: 2.3283064365386962890625e-10,
+                scale: SCALE,
             },
             PowerEvent {
                 name: "pkg".to_string(),
                 domain: RaplDomainType::Package,
                 code: 2,
                 unit: "Joules".to_string(),
-                scale: 2.3283064365386962890625e-10,
+                scale: SCALE,
             },
             PowerEvent {
                 name: "cores".to_string(),
                 domain: RaplDomainType::PP0,
                 code: 1,
                 unit: "Joules".to_string(),
-                scale: 2.3283064365386962890625e-10,
+                scale: SCALE,
             },
         ];
 
@@ -484,27 +507,6 @@ mod tests {
         Ok(())
     }
 
-    fn fake_opened_power_event() -> (OpenedPowerEvent, OwnedFd) {
-        use nix::unistd::pipe;
-        use std::os::fd::IntoRawFd;
-        use std::os::unix::io::FromRawFd;
-
-        let (read_fd, write_fd) = pipe().unwrap();
-
-        let file = unsafe { File::from_raw_fd(read_fd.into_raw_fd()) };
-        (
-            OpenedPowerEvent {
-                fd: file,
-                scale: 2.3283064365386962890625e-10,
-                domain: RaplDomainType::Package, // dummy value
-                resource: RaplDomainType::Package.to_resource(0),
-                counter: CounterDiff::with_max_value(PERF_MAX_ENERGY),
-            },
-            write_fd,
-        )
-    }
-
-    #[cfg(test)]
     #[test]
     fn test_opened_power_event() -> anyhow::Result<()> {
         let (mut opened_power_event, write_fd) = fake_opened_power_event();
@@ -533,6 +535,117 @@ mod tests {
         write(&write_fd, &val5)?;
         let value = opened_power_event.read_counter_diff_in_joules()?;
         assert_eq!(value, Some(1.0));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_open_event_fd() -> anyhow::Result<()> {
+        let (read_fd, _write_fd) = pipe().unwrap();
+        let fake_fd = read_fd.into_raw_fd();
+
+        unsafe {
+            FAKE_FD = fake_fd;
+        }
+
+        let pe = PowerEvent {
+            name: "pkg".into(),
+            domain: RaplDomainType::Package,
+            code: 1,
+            unit: "Joules".into(),
+            scale: SCALE,
+        };
+
+        let opened = pe.open_event_fd(0, 0, 3, fake_perf_event_open)?;
+
+        assert_eq!(opened.domain, RaplDomainType::Package);
+        assert_eq!(opened.scale, SCALE.into());
+        assert_eq!(opened.resource, RaplDomainType::Package.to_resource(3));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_perf_event_open() {
+        let pe = PowerEvent {
+            name: "pkg".into(),
+            domain: RaplDomainType::Package,
+            code: 1,
+            unit: "Joules".into(),
+            scale: SCALE,
+        };
+
+        let result = pe.perf_event_open(32, 0);
+        match result {
+            // OS permissions are enough to pen perf_event
+            Ok(fd) => {
+                assert!(fd >= 0);
+            }
+            // Permission denied
+            Err(e) => {
+                println!("Can't open `perf_event` on this machine: {e}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_name_from_base_path_without_file() -> anyhow::Result<()> {
+        let tmp = tempdir()?;
+        let dir_path = tmp.path();
+
+        let result = PowerEventFactory::name_from_base_path(dir_path)?;
+        assert_eq!(result, None);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_name_from_base_path_without_prefix() -> anyhow::Result<()> {
+        let tmp = tempdir()?;
+        let path = tmp.path().join("power-cores");
+        File::create(&path)?;
+
+        let result = PowerEventFactory::name_from_base_path(&path)?;
+        assert_eq!(result, None);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_domain_type_from_invalid_name() {
+        let result = PowerEventFactory::domain_type_from_name("invalid");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_read_counter_diff_in_joules_none() -> anyhow::Result<()> {
+        const A: u64 = 4;
+        let (mut opened_power_event, write_fd) = fake_opened_power_event();
+
+        write(&write_fd, &A.to_ne_bytes())?;
+
+        let result = opened_power_event.read_counter_diff_in_joules()?;
+        assert_eq!(result, None);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_read_counter_diff_corrected_overflow() -> anyhow::Result<()> {
+        const A: u64 = 4;
+        const B: u64 = 2;
+        const STEP: u64 = 1; // Step for RAPL counter
+
+        let (mut read_fd, write_fd) = fake_opened_power_event();
+
+        write(&write_fd, &(PERF_MAX_ENERGY - A).to_ne_bytes())?;
+        assert_eq!(read_fd.read_counter_diff()?, None);
+
+        write(&write_fd, &B.to_ne_bytes())?;
+
+        // diff = (curr - prev) mod (max + 1)
+        let result = A + B + STEP;
+        assert_eq!(read_fd.read_counter_diff()?, Some(result));
 
         Ok(())
     }
