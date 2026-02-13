@@ -1,25 +1,32 @@
-use core::f64;
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use alumet::{
     measurement::{AttributeValue, MeasurementBuffer, MeasurementPoint, WrappedMeasurementValue},
     pipeline::{
         Transform,
         elements::{error::TransformError, transform::TransformContext},
     },
+    units::{Unit, UnitPrefix},
 };
+use anyhow::anyhow;
+use core::f64;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::Config;
 
 pub struct EnergyEstimationTdpTransform {
     pub config: Config,
     pub metrics: super::Metrics,
+    /// Cached CPU time conversion factor to ensure micro seconds
+    conversion_factor: Option<f64>,
 }
 
 impl EnergyEstimationTdpTransform {
     /// Instantiates a new EnergyAttributionTransform with its private fields initialized.
     pub fn new(config: Config, metrics: super::Metrics) -> Self {
-        Self { config, metrics }
+        Self {
+            config,
+            metrics,
+            conversion_factor: None,
+        }
     }
 }
 
@@ -37,6 +44,41 @@ impl Transform for EnergyEstimationTdpTransform {
             "enter in apply transform function, number of measurements: {}",
             measurements.len()
         );
+        // Return cached value if already computed. Fail if not compatible
+        if self.conversion_factor.is_none() {
+            let cpu_usage_metric = _ctx
+                .metrics
+                .by_id(&self.metrics.cpu_usage)
+                .ok_or_else(|| TransformError::Fatal(anyhow!("cpu_usage metric not found in metric registry")))?;
+
+            let conversion_factor = match (&cpu_usage_metric.unit.base_unit, &cpu_usage_metric.unit.prefix) {
+                // Nanoseconds -> microseconds
+                (Unit::Second, UnitPrefix::Nano) => 1.0 / 1000.0,
+                // Microseconds -> microseconds
+                (Unit::Second, UnitPrefix::Micro) => 1.0,
+                // Milliseconds -> microseconds
+                (Unit::Second, UnitPrefix::Milli) => 1000.0,
+                // Seconds -> microseconds
+                (Unit::Second, UnitPrefix::Plain) => 1_000_000.0,
+                (base, prefix) => {
+                    return Err(TransformError::UnexpectedInput(anyhow!(
+                        "Unsupported cpu_usage unit for tdp plugin: {:?} with prefix {:?}.",
+                        base,
+                        prefix
+                    )));
+                }
+            };
+
+            log::debug!(
+                "Detected cpu_usage unit: {:?} with prefix {:?}, conversion factor: {}",
+                cpu_usage_metric.unit.base_unit,
+                cpu_usage_metric.unit.prefix,
+                conversion_factor
+            );
+
+            self.conversion_factor = Some(conversion_factor);
+        }
+        let conversion_factor = self.conversion_factor.unwrap();
 
         for point in measurements.clone().iter() {
             if point.metric.as_u64() == cpu_usage_id {
@@ -48,11 +90,9 @@ impl Transform for EnergyEstimationTdpTransform {
                     WrappedMeasurementValue::U64(x) => x.to_string(),
                 };
 
-                // cpu_usage may come from different plugins and need to be converted to micro second
                 // energy = cpu_usage * nb_vcpu/nb_cpu * tdp / poll_interval
                 let mut estimated_energy = value.parse().unwrap();
-                estimated_energy = estimated_energy * self.config.cpu_time_conversion_factor * self.config.nb_vcpu
-                    / self.config.nb_cpu
+                estimated_energy = estimated_energy * conversion_factor * self.config.nb_vcpu / self.config.nb_cpu
                     * self.config.tdp
                     / (1000000.0)
                     / (self.config.poll_interval.as_secs() as f64);
