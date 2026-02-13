@@ -64,12 +64,12 @@ impl AlumetPlugin for EnergyEstimationTdpPlugin {
 
         // Add the transform now but fill its metrics later.
         alumet.add_transform_builder("transform", move |ctx| {
-            let cpu_usage_metric = ctx
+            let cpu_usage_raw_metric = ctx
                 .metric_by_name(&cpu_usage)
                 .with_context(|| format!("metric not found : {}", cpu_usage))?
                 .0;
             let metrics = Metrics {
-                cpu_usage: cpu_usage_metric,
+                cpu_usage: cpu_usage_raw_metric,
                 estimated_consumed_energy: estimated_energy_metric,
             };
 
@@ -94,7 +94,6 @@ struct Config {
     nb_vcpu: f64,
     nb_cpu: f64,
     cpu_usage: String,
-    cpu_time_conversion_factor: f64,
 }
 
 impl Default for Config {
@@ -105,7 +104,6 @@ impl Default for Config {
             nb_vcpu: 1.0,
             nb_cpu: 1.0,
             cpu_usage: String::from("kernel_cpu_time"),
-            cpu_time_conversion_factor: 1000.0,
         }
     }
 }

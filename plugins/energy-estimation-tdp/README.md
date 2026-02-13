@@ -10,8 +10,8 @@ The estimation calculation is done using the following formula, we consider only
 \Large Energy(J)=\frac{cpu\_time\_delta*cpu\_time\_conversion\_factor*nb_{\text{vcpu}}*TDP}{10^6*pooling\_interval*nb_{\text{cpu}}}
 ```
 
-- $`{cpu\_time\_delta}`$: Total usage of CPU in micro seconds.
-- $`{cpu\_time\_conversion\_factor}`$: Conversion factor multiplier to ensure $`{cpu\_time\_delta}`$ is in micro seconds.
+- $`{cpu\_time\_delta}`$: Total usage of CPU time.
+- $`{cpu\_time\_conversion\_factor}`$: Automatic conversion factor multiplier to ensure $`{cpu\_time\_delta}`$ is in micro seconds.
 - $`nb_{\text{vcpu}}`$: Number of virtual CPU of the hosting machine.
 - $`nb_{\text{cpu}}`$: Number of logical CPUs of the hosting machine.
 - $`{polling\_interval}`$: Polling interval of the cpu_time_delta.
@@ -31,7 +31,6 @@ tdp = 100.0
 nb_vcpu = 1.0
 nb_cpu = 1.0
 cpu_usage = "kernel_cpu_time"
-cpu_time_conversion_factor = 1000
 ```
 
 - `poll_interval`: must be identical to the poll_interval of input **per_consumer** plugin. Default value is 1s.
@@ -39,4 +38,3 @@ cpu_time_conversion_factor = 1000
 - `nb_cpu`: number of logical cpu of the hosted machine. Using the lscpu or hwinfo, you can retrieve the number of cpu including all sockets.
 - `tdp`: Thermal Design power; each CPU has a calculated thermal design value; the value can be find on internet (usually on CPU manufacturer); you need the exact CPU family (using command lscpu or hwinfo). For example, for Intel® Xeon® D Processor, family D-2183IT, the tpd can be found [it's intel documentation page](https://ark.intel.com/content/www/us/en/ark/products/136441/intel-xeon-d-2183it-processor-22m-cache-2-20-ghz.html). The tdp value is 100W (so the default value is 100).
 - `cpu_usage`: Input metric name that should exist in the metrics pipeline
-- `cpu_time_conversion_factor`: Conversion factor for the cpu_usage to have micro seconds units
