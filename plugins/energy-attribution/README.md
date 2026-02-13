@@ -6,7 +6,7 @@ It computes a value per resource per consumer, using the formula of your choice 
 
 ## Requirements
 
-To obtain hardware and software measurements, you need to enable other plugins such as `rapl` or `tdp` for energy consumption (per resource) and `procfs` or `k8` for hardware usage (per consumer).
+To obtain hardware and software measurements, you need to enable other plugins such as `rapl` or `tdp` for energy consumption (per resource) and `procfs` or any cgroup plugins (`K8s`, `OAR`, `Slurm`) for hardware usage (per consumer).
 
 ## Metrics
 
