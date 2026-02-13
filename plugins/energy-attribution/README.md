@@ -22,10 +22,10 @@ Some use cases for this plugin are:
 
 - Monitoring host with access to RAPL:
   - Per resource: RAPL plugin
-  - Per consumer: procfs or K8s plugins
+  - Per consumer: procfs or any cgroup plugins (K8s, OAR, Slurm)
 - Monitoring a host without RAPL (bare metal, ARM):
   - Per resource: TDP plugin which at the same time requires procfs
-  - Per consumer: K8s plugin
+  - Per consumer: Any cgroup plugins (K8s, OAR, Slurm)
 
 Here is an example of how to configure this plugin.
 Put the following in the configuration file of the Alumet agent (usually `alumet-config.toml`).

@@ -18,10 +18,11 @@ The estimation calculation is done using the following formula, we consider only
 
 ## Requirements
 
-This plugin needs procfs.kernel plugin configured to be able to obtain kernel_cpu_time.
-The cpu measurements have an additional attribute cpu_state, which allow to compute the estimate consumption for individual states of the CPU or as the total consumption (sum with cpu_state!="idle").
+This plugin needs **procfs.kernel plugin activated** to be able to obtain the `kernel_cpu_time` metric.
 
-### Configuration
+The cpu measurements have an additional attribute cpu_state, which allow to compute the estimate consumption for individual states of the CPU or as the total consumption (sum with `cpu_state`!="idle").
+
+## Configuration
 
 ```toml
 [plugins.energy-estimation-tdp]
@@ -33,7 +34,7 @@ cpu_usage = "kernel_cpu_time"
 cpu_time_conversion_factor = 1000
 ```
 
-- `pool_interval`: must be identical to the poll_interval of input k8s plugin. Default value is 1s.
+- `poll_interval`: must be identical to the poll_interval of input **per_consumer** plugin. Default value is 1s.
 - `nb_vcpu`: number of virtual cpu allocated to the virtual machine. If it is a physical machine, assign it to value 1. Default value is 1.
 - `nb_cpu`: number of logical cpu of the hosted machine. Using the lscpu or hwinfo, you can retrieve the number of cpu including all sockets.
 - `tdp`: Thermal Design power; each CPU has a calculated thermal design value; the value can be find on internet (usually on CPU manufacturer); you need the exact CPU family (using command lscpu or hwinfo). For example, for Intel® Xeon® D Processor, family D-2183IT, the tpd can be found [it's intel documentation page](https://ark.intel.com/content/www/us/en/ark/products/136441/intel-xeon-d-2183it-processor-22m-cache-2-20-ghz.html). The tdp value is 100W (so the default value is 100).
