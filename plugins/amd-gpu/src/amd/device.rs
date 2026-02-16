@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use amd_smi_wrapper::{AmdError, MockableAmdProcessorHandle, MockableAmdSmi};
+use amd_smi_wrapper::{AmdError, MockableAmdProcessorHandle};
+
+use crate::MockableAmdSmi;
 
 use super::features::OptionalFeatures;
 
