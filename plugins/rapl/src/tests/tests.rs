@@ -235,7 +235,7 @@ fn test_missing_disable_perf_events() -> anyhow::Result<()> {
 }
 
 #[test]
-fn test_powercap_probe_open_error_propagated() -> anyhow::Result<()> {
+fn test_powercap_probe_error_propagated() -> anyhow::Result<()> {
     let mut plugins = PluginSet::new();
 
     let tmp = tempdir()?;
@@ -254,7 +254,7 @@ fn test_powercap_probe_open_error_propagated() -> anyhow::Result<()> {
         },
         Entry {
             path: "intel-rapl:0/energy_uj",
-            entry_type: EntryType::File("123"),
+            entry_type: EntryType::File("10"),
         },
     ];
 

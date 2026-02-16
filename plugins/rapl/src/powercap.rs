@@ -76,7 +76,6 @@ struct OpenedPowerZone {
 /// Powercap probe collects Alumet metrics related to power zones
 pub struct PowercapProbe {
     metric: TypedMetricId<f64>,
-
     /// Ready-to-use powercap zones with additional metadata
     zones: Vec<OpenedPowerZone>,
 }
