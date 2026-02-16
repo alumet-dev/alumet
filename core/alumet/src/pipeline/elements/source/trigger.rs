@@ -158,7 +158,9 @@ impl TriggerSpec {
 impl Default for TriggerConstraints {
     fn default() -> Self {
         Self {
-            max_update_interval: Duration::MAX,
+            // Don't use Duration::MAX here, or we risk timeout when we shut down
+            // while there are sources with a large poll interval.
+            max_update_interval: Duration::from_secs(2),
             allow_manual_trigger: false,
         }
     }
