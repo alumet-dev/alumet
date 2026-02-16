@@ -160,6 +160,23 @@ impl Source for ProcessStatsProbe {
                 let shared_dirty = smaps_rollup
                     .get("Shared_Dirty")
                     .context("smaps_rollup did not contain field Shared_Dirty")?;
+                let pss = smaps_rollup
+                    .get("Pss")
+                    .context("smaps_rollup did not contain field Pss")?;
+
+                // push pss on its own, it has no equivalent in /proc/<pid>/statm
+                buffer.push(
+                    MeasurementPoint::new(
+                        t,
+                        self.metrics.metric_memory_usage,
+                        Resource::LocalMachine,
+                        consumer.clone(),
+                        *pss,
+                    )
+                    .with_attr("kind", "proportional"),
+                );
+
+                // common memory stats
                 MemoryStats {
                     virtual_bytes: general_stats.vsize, // smaps_rollup does not provide the vm size, but we have it from /proc/<pid>/stat
                     resident_bytes: *rss,               // already in bytes (converted by the procfs crate)
@@ -167,6 +184,36 @@ impl Source for ProcessStatsProbe {
                 }
             }
         };
+        buffer.push(
+            MeasurementPoint::new(
+                t,
+                self.metrics.metric_memory_usage,
+                Resource::LocalMachine,
+                consumer.clone(),
+                memory_stats.resident_bytes,
+            )
+            .with_attr("kind", "resident"),
+        );
+        buffer.push(
+            MeasurementPoint::new(
+                t,
+                self.metrics.metric_memory_usage,
+                Resource::LocalMachine,
+                consumer.clone(),
+                memory_stats.shared_bytes,
+            )
+            .with_attr("kind", "shared"),
+        );
+        buffer.push(
+            MeasurementPoint::new(
+                t,
+                self.metrics.metric_memory_usage,
+                Resource::LocalMachine,
+                consumer.clone(),
+                memory_stats.virtual_bytes,
+            )
+            .with_attr("kind", "virtual"),
+        );
 
         // TODO how to report the state of the process in the timeseries?
         // let state = now.state()?;
@@ -237,39 +284,6 @@ impl Source for ProcessStatsProbe {
             }
         }
         self.previous_general_stats = Some((t, general_stats));
-
-        // Compute RAM usage in the last time slice.
-        buffer.push(
-            MeasurementPoint::new(
-                t,
-                self.metrics.metric_memory_usage,
-                Resource::LocalMachine,
-                consumer.clone(),
-                memory_stats.resident_bytes,
-            )
-            .with_attr("kind", "resident"),
-        );
-        buffer.push(
-            MeasurementPoint::new(
-                t,
-                self.metrics.metric_memory_usage,
-                Resource::LocalMachine,
-                consumer.clone(),
-                memory_stats.shared_bytes,
-            )
-            .with_attr("kind", "shared"),
-        );
-        buffer.push(
-            MeasurementPoint::new(
-                t,
-                self.metrics.metric_memory_usage,
-                Resource::LocalMachine,
-                consumer,
-                memory_stats.virtual_bytes,
-            )
-            .with_attr("kind", "virtual"),
-        );
-
         Ok(())
     }
 }
@@ -452,7 +466,6 @@ impl ProcessWatcher {
         metrics: ProcessMetrics,
         groups: Vec<(ProcessFilter, MonitoringSettings)>,
     ) -> Self {
-        let tps = procfs::ticks_per_second();
         let ns_per_ticks = ns_per_ticks();
         Self {
             watched_processes: HashMap::new(),

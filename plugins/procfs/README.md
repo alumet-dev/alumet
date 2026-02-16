@@ -39,6 +39,7 @@ The kind of the memory is the allocated memory space reserved by the system or t
 |`resident`|Resident set size (same as VmRSS in `/proc/<pid>/status`)|
 |`shared`|Number of resident shared pages (i.e., backed by a file) (same as RssFile+RssShmem in `/proc/<pid>/status`)|
 |`virtual`|Virtual memory size (same as VmSize in `/proc/<pid>/status`)|
+|`proportional`|Process proportional share of the resident set size (same as Pss in `/proc/<pid>/smaps_rollup`). Only available when `memory_mode = "slow_but_accurate"` (see [Process Metrics](#process-metrics))|
 
 The kind of the CPU time delta is the average CPU time spent by various tasks:
 
