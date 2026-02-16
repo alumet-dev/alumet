@@ -155,7 +155,7 @@ fn main() -> anyhow::Result<ExitCode> {
         cli::Command::Exec(exec_args) => {
             let timeout = Duration::from_secs(5);
             let res = exec::exec_process(agent, exec_args.program, exec_args.args, timeout);
-            match &res {
+            match res {
                 Ok(_) if exec_args.ignore_exit_code => (),
                 Ok(process_exit_code) => {
                     // Attempt to propagate the exit code, if possible.
@@ -173,7 +173,7 @@ fn main() -> anyhow::Result<ExitCode> {
                         return Ok(ExitCode::FAILURE);
                     }
                 }
-                Err(err @ exec::ExecError::ProcessSpawn(program, e)) => {
+                Err(ref err @ exec::ExecError::ProcessSpawn(ref program, ref e)) => {
                     // print some helpful hints for common problems
                     match e.kind() {
                         std::io::ErrorKind::NotFound => {
@@ -185,6 +185,13 @@ fn main() -> anyhow::Result<ExitCode> {
                         _ => {
                             panic!("{err}");
                         }
+                    }
+                }
+                Err(exec::ExecError::Shutdown(err)) => {
+                    log::error!("{err}");
+                    for (i, err) in err.errors.iter().enumerate() {
+                        let n = i + 1;
+                        log::error!("({n}) {err}");
                     }
                 }
                 Err(err) => panic!("{err}"),
