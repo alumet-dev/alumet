@@ -62,6 +62,7 @@ pub fn exec_process(
     crate::plugin::event::end_consumer_measurement().publish(EndConsumerMeasurement);
 
     // Stop the pipeline
+    log::debug!("Initiating shutdown.");
     agent.pipeline.control_handle().shutdown();
     agent.wait_for_shutdown(shutdown_timeout).map_err(ExecError::Shutdown)?;
     Ok(exit_status)
