@@ -9,7 +9,6 @@ use alumet::{
     },
 };
 use amd::{device::AmdGpuDevices, metrics::Metrics, probe::AmdGpuSource};
-use amd_smi_wrapper::MockableAmdSmi;
 use anyhow::{Context, anyhow};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -46,6 +45,21 @@ pub struct AmdGpuPlugin {
     pub config: Config,
     pub amdsmi: MockableAmdSmi,
 }
+
+#[cfg(test)]
+pub type MockableAmdSmi = amd_smi_wrapper::MockableAmdSmi;
+#[cfg(not(test))]
+pub type MockableAmdSmi = amd_smi_wrapper::AmdSmi;
+
+#[cfg(test)]
+pub type MockableAmdSocketHandle = amd_smi_wrapper::MockAmdSocketHandle;
+#[cfg(not(test))]
+pub type MockableAmdSocketHandle = amd_smi_wrapper::AmdSocketHandle;
+
+#[cfg(test)]
+pub type MockableAmdProcessorHandle = amd_smi_wrapper::MockAmdProcessorHandle;
+#[cfg(not(test))]
+pub type MockableAmdProcessorHandle = amd_smi_wrapper::AmdProcessorHandle;
 
 impl AmdGpuPlugin {
     fn new(config: Config, amdsmi: MockableAmdSmi) -> Self {
