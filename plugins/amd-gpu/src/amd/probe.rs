@@ -9,22 +9,26 @@ use std::{borrow::Cow, collections::HashMap, ffi::CStr};
 
 use super::{device::ManagedDevice, metrics::Metrics};
 use crate::amd::utils::{MEMORY_TYPE, METRIC_TEMP, SENSOR_TYPE};
-use amd_smi_wrapper::bindings::{
-    amdsmi_voltage_metric_t_AMDSMI_VOLT_CURRENT, amdsmi_voltage_type_t, amdsmi_voltage_type_t_AMDSMI_VOLT_TYPE_VDDGFX,
+use amd_smi_wrapper::{
+    ProcessorHandle,
+    bindings::{
+        amdsmi_voltage_metric_t_AMDSMI_VOLT_CURRENT, amdsmi_voltage_type_t,
+        amdsmi_voltage_type_t_AMDSMI_VOLT_TYPE_VDDGFX,
+    },
 };
 
 /// Measurement source that queries AMD GPU devices.
-pub struct AmdGpuSource {
+pub struct AmdGpuSource<H: ProcessorHandle> {
     /// Internal state to compute the difference between two increments of the counter.
     energy_counters: HashMap<String, CounterDiff>,
     /// Handle to the GPU, with features information.
-    devices: Vec<ManagedDevice>,
+    devices: Vec<ManagedDevice<H>>,
     /// Alumet metrics IDs.
     metrics: Metrics,
 }
 
-impl AmdGpuSource {
-    pub fn new(devices: Vec<ManagedDevice>, metrics: Metrics) -> Self {
+impl<H: ProcessorHandle> AmdGpuSource<H> {
+    pub fn new(devices: Vec<ManagedDevice<H>>, metrics: Metrics) -> Self {
         let energy_counters = devices
             .iter()
             .map(|d| (d.bus_id.clone(), CounterDiff::with_max_value(u64::MAX)))
@@ -40,7 +44,7 @@ impl AmdGpuSource {
     /// Retrieves and push all data concerning the activity utilization of a given AMD GPU device.
     fn handle_gpu_activity(
         &self,
-        device: &ManagedDevice,
+        device: &ManagedDevice<H>,
         measurements: &mut MeasurementAccumulator,
         timestamp: Timestamp,
         consumer: &ResourceConsumer,
@@ -75,10 +79,10 @@ impl AmdGpuSource {
         Ok(())
     }
 
-    /// Retrieves and push all data concerning the running process ressources consumption of a given AMD GPU device.
+    /// Retrieves and push all data concerning the running process resources consumption of a given AMD GPU device.
     fn handle_gpu_processes(
         &self,
-        device: &ManagedDevice,
+        device: &ManagedDevice<H>,
         measurements: &mut MeasurementAccumulator,
         timestamp: Timestamp,
         resource: &Resource,
@@ -119,7 +123,7 @@ impl AmdGpuSource {
     }
 }
 
-impl Source for AmdGpuSource {
+impl<H: ProcessorHandle> Source for AmdGpuSource<H> {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         // No consumer, we just monitor the device here
         let consumer = ResourceConsumer::LocalMachine;

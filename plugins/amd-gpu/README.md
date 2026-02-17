@@ -3,17 +3,11 @@
 Allows to measure AMD GPU hardware metrics with the ROCm software and `amdsmi` library.
 The new `plugin-amdgpu` currently allows you to detect AMD architecture-based GPUs installed on a machine, and collect the following metrics on each of them.
 
-**WARNING**: Due to the not truly thread safely behavior of the current `amdsmi` library, all GPUs are collected and polled by the same source.
-
 ## Requirements
 
 - Linux operating system.
 - AMD GPU(s).
-- Installation of libdrm.
-- Installation of clang and libclang.
-- Installation of `amdsmi` software : https://rocm.docs.amd.com/projects/install-on-linux/en/latest/install/quick-start.html and if it doesn't work properly on your linux distribution:
-  - Installation of a recent [cmake](https://cmake.org/) version.
-  - Build `amdsmi` [source](https://github.com/ROCm/amdsmi.git) code manually with recent cmake version (otherwise the builder will fail to compile and show the version you need to have).
+- Installation of `amd-smi-lib` package.
 - Set and configure some permissions on system to run properly all metrics: https://rocm.docs.amd.com/projects/install-on-linux/en/latest/install/prerequisites.html#configuring-permissions-for-gpu-access.
 
 ## Metrics
@@ -91,51 +85,4 @@ skip_failed_devices = true
 
 ## More information
 
-If you want to thoroughly test the AMD GPU plugin, especially to observe the usage of the GPU and its specific engines and units by process, in increasing the number of running process on an AMD GPU:
-
-- First, you can install `hipcc` compiler, and use it to compile a small C++ program usign a HIP kernel on a GPU, to perform various tasks on it :
-
-```cpp
-#include <stdio.h>
-#include "hip/hip_runtime.h"
-
-#define DIM 1024
-
-__global__ void multiply(double *A, int n) {
-    int id = blockDim.x * blockIdx.x + threadIdx.x;
-    if (id < n) {
-        A[id] = 2.0 * A[id];
-    }
-}
-
-int main() {
-    int N = DIM * DIM;
-    size_t size = N * sizeof(double);
-
-    double *h_A = (double*)malloc(size);
-    for (int i = 0; i < N; i++) {
-        h_A[i] = (double)i;
-    }
-
-    double *d_A;
-    hipMalloc(&d_A, size);
-    hipMemcpy(d_A, h_A, size, hipMemcpyHostToDevice);
-
-    int threadsPerBlock = 256;
-    int blocksPerGrid = (N + threadsPerBlock - 1) / threadsPerBlock;
-    multiply<<<blocksPerGrid, threadsPerBlock>>>(d_A, N);
-    hipMemcpy(h_A, d_A, size, hipMemcpyDeviceToHost);
-
-    free(h_A);
-    hipFree(d_A);
-
-    return 0;
-}
-```
-
-- Secondly, you can install `ffmpeg` and import a testing video into your test environment. This tool will allow you to test the GPU's video encoding and decoding processes to optimize the use of graphic effects and the overall graphics card. Run it at the same time as the alumet agent is running:
-
-```bash
-ffmpeg -y -vaapi_device /dev/dri/renderD128 -i <your_video.format> -vf 'format=nv12,hwupload' -c:v h264_vaapi -b:v 2M <your_output.format>
-ffmpeg -y -hwaccel vaapi -vaapi_device /dev/dri/renderD128 -i <your_video.format> -vf 'format=nv12,hwupload' -c:v h264_vaapi <your_output.format>
-```
+Due to the not truly thread safely behavior of the current `amdsmi` library, all GPUs are collected and polled by the same source.
