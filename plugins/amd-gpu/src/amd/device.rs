@@ -1,26 +1,24 @@
 use std::collections::HashMap;
 
-use amd_smi_wrapper::{AmdError, MockableAmdProcessorHandle};
-
-use crate::MockableAmdSmi;
+use amd_smi_wrapper::{AmdError, AmdInterface, ProcessorHandle, SocketHandle};
 
 use super::features::OptionalFeatures;
 
 /// SAFETY: The amd libary is thread-safe and returns pointers to a safe global state, which we can pass to other threads.
-unsafe impl Send for ManagedDevice {}
+unsafe impl<H: ProcessorHandle> Send for ManagedDevice<H> {}
 
 /// Detected AMD GPU devices via AMDSMI.
-pub struct AmdGpuDevices {
+pub struct AmdGpuDevices<H: ProcessorHandle> {
     /// Counter of detection errors on AMD GPU device.
     pub failure_count: usize,
     /// Set of parameters that defines an AMD GPU device.
-    pub devices: Vec<ManagedDevice>,
+    pub devices: Vec<ManagedDevice<H>>,
 }
 
 /// An AMD GPU device that has been probed for available features.
-pub struct ManagedDevice {
+pub struct ManagedDevice<H: ProcessorHandle> {
     /// A pointer to the device.
-    pub handle: MockableAmdProcessorHandle,
+    pub handle: H,
     /// Status of the various features available or not on a device.
     pub features: OptionalFeatures,
     /// PCI bus ID of the device.
@@ -35,9 +33,12 @@ pub struct DetectionStats {
     pub working_devices: usize,
 }
 
-impl AmdGpuDevices {
+impl<H: ProcessorHandle> AmdGpuDevices<H> {
     /// Detects all AMD GPUs and returns an AmdGpuDevices object.
-    pub fn detect(amdsmi: &MockableAmdSmi, skip_failed_devices: bool) -> anyhow::Result<Self> {
+    pub fn detect<A>(amdsmi: &A, skip_failed_devices: bool) -> anyhow::Result<Self>
+    where
+        A: AmdInterface<SocketHandle: SocketHandle<ProcessorHandle = H>>,
+    {
         let mut devices = HashMap::new();
         let mut failure_count = 0;
 
@@ -64,7 +65,6 @@ impl AmdGpuDevices {
                             failure_count += 1;
                         }
                     }
-
                     Err(e) => {
                         if skip_failed_devices {
                             failure_count += 1;
@@ -77,8 +77,8 @@ impl AmdGpuDevices {
             }
         }
 
-        let mut devices: Vec<ManagedDevice> = devices.into_values().collect();
-        devices.sort_by_key(|device| device.bus_id.clone());
+        let mut devices: Vec<_> = devices.into_values().collect();
+        devices.sort_by_key(|d| d.bus_id.clone());
 
         Ok(AmdGpuDevices { devices, failure_count })
     }
@@ -106,7 +106,7 @@ mod test {
             MOCK_VOLTAGE,
         },
     };
-    use amd_smi_wrapper::{AmdError, MockAmdProcessorHandle, MockAmdSmi, MockAmdSocketHandle};
+    use amd_smi_wrapper::{AmdError, MockAmdInterface, MockProcessorHandle, MockSocketHandle};
     use log::LevelFilter::Warn;
     use std::{
         io::Write,
@@ -116,7 +116,7 @@ mod test {
     // Test `detection_stats` function with no GPUs detected
     #[test]
     fn test_detection_stats_no_devices() {
-        let devices = AmdGpuDevices {
+        let devices: AmdGpuDevices<MockProcessorHandle> = AmdGpuDevices {
             devices: vec![],
             failure_count: 0,
         };
@@ -129,7 +129,7 @@ mod test {
     // Test `detection_stats` function with GPUs detected but no working device
     #[test]
     fn test_detection_stats_failed() {
-        let devices = AmdGpuDevices {
+        let devices: AmdGpuDevices<MockProcessorHandle> = AmdGpuDevices {
             devices: vec![],
             failure_count: 5,
         };
@@ -142,9 +142,9 @@ mod test {
     // Test `detect` function in success case with valid GPUs and metrics
     #[test]
     fn test_detect_success() {
-        let mut mock_init = MockAmdSmi::new();
-        let mut mock_socket = MockAmdSocketHandle::new();
-        let mut mock_processor = MockAmdProcessorHandle::new();
+        let mut mock_init = MockAmdInterface::new();
+        let mut mock_socket = MockSocketHandle::new();
+        let mut mock_processor = MockProcessorHandle::new();
 
         mock_processor
             .expect_device_uuid()
@@ -202,9 +202,9 @@ mod test {
     // Test `detect` function for a GPU with no features available
     #[test]
     fn test_detect_error_skipped() {
-        let mut mock_init = MockAmdSmi::new();
-        let mut mock_socket = MockAmdSocketHandle::new();
-        let mut mock_processor = MockAmdProcessorHandle::new();
+        let mut mock_init = MockAmdInterface::new();
+        let mut mock_socket = MockSocketHandle::new();
+        let mut mock_processor = MockProcessorHandle::new();
 
         mock_processor
             .expect_device_uuid()
@@ -252,9 +252,9 @@ mod test {
     // Test `detect` function with not successfully skipped features of a GPU
     #[test]
     fn test_detect_error_not_skipped() {
-        let mut mock_init = MockAmdSmi::new();
-        let mut mock_socket = MockAmdSocketHandle::new();
-        let mut mock_processor = MockAmdProcessorHandle::new();
+        let mut mock_init = MockAmdInterface::new();
+        let mut mock_socket = MockSocketHandle::new();
+        let mut mock_processor = MockProcessorHandle::new();
 
         mock_processor
             .expect_device_uuid()
@@ -312,9 +312,9 @@ mod test {
             .filter_level(Warn)
             .try_init();
 
-        let mut mock_init = MockAmdSmi::new();
-        let mut mock_socket = MockAmdSocketHandle::new();
-        let mut mock_processor = MockAmdProcessorHandle::new();
+        let mut mock_init = MockAmdInterface::new();
+        let mut mock_socket = MockSocketHandle::new();
+        let mut mock_processor = MockProcessorHandle::new();
 
         mock_processor
             .expect_device_uuid()

@@ -1,5 +1,5 @@
 use amd_smi_wrapper::{
-    MockableAmdProcessorHandle,
+    ProcessorHandle,
     bindings::{amdsmi_memory_type_t, amdsmi_status_t, amdsmi_temperature_metric_t},
 };
 
@@ -44,7 +44,7 @@ pub fn is_supported<T>(res: Result<T, amdsmi_status_t>) -> Result<bool, amdsmi_s
 
 impl OptionalFeatures {
     /// Detect the features available on the given device.
-    pub fn detect_on(processor_handle: &MockableAmdProcessorHandle) -> Result<Self, amdsmi_status_t> {
+    pub fn detect_on(processor_handle: &impl ProcessorHandle) -> Result<Self, amdsmi_status_t> {
         let mut gpu_temperatures = Vec::new();
         let mut gpu_memories_usage = Vec::new();
 
@@ -79,9 +79,7 @@ impl OptionalFeatures {
     }
 
     /// Test and return the availability of feature on a given
-    pub fn with_detected_features(
-        device: &MockableAmdProcessorHandle,
-    ) -> Result<(&MockableAmdProcessorHandle, Self), amdsmi_status_t> {
+    pub fn with_detected_features<H: ProcessorHandle>(device: &H) -> Result<(&H, Self), amdsmi_status_t> {
         Self::detect_on(device).map(|features| (device, features))
     }
 
@@ -138,7 +136,7 @@ impl Display for OptionalFeatures {
 #[cfg(test)]
 mod test {
     use amd_smi_wrapper::{
-        AmdError, MockAmdProcessorHandle,
+        AmdError, MockProcessorHandle,
         bindings::{
             amdsmi_memory_type_t_AMDSMI_MEM_TYPE_VRAM, amdsmi_temperature_metric_t_AMDSMI_TEMP_CURRENT,
             amdsmi_temperature_type_t_AMDSMI_TEMPERATURE_TYPE_EDGE,
@@ -261,7 +259,7 @@ mod test {
     // Test `detect_on` function in success case
     #[test]
     fn test_detect_on_success() {
-        let mut mock = MockAmdProcessorHandle::new();
+        let mut mock = MockProcessorHandle::new();
 
         mock.expect_device_activity().returning(|| Ok(MOCK_ACTIVITY));
 
@@ -300,7 +298,7 @@ mod test {
     // Test `with_detected_features` function in success case
     #[test]
     fn test_with_detected_features_success() {
-        let mut mock = MockAmdProcessorHandle::new();
+        let mut mock = MockProcessorHandle::new();
 
         mock.expect_device_activity().returning(|| Ok(MOCK_ACTIVITY));
 

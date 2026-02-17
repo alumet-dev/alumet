@@ -11,7 +11,7 @@ use crate::{
         MOCK_UUID, MOCK_VOLTAGE,
     },
 };
-use amd_smi_wrapper::{AmdError, MockAmdProcessorHandle, MockAmdSmi, MockAmdSocketHandle};
+use amd_smi_wrapper::{AmdError, MockAmdInterface, MockProcessorHandle, MockSocketHandle};
 use std::{thread::sleep, time::Duration};
 
 use alumet::{
@@ -35,12 +35,12 @@ fn config_to_toml_table(config: &Config) -> toml::Table {
 // Test to start AMD GPU plugin integration in ALUMET with available GPU device and metrics
 #[test]
 fn test_start_success() {
-    let mut mock_init = MockAmdSmi::new();
+    let mut mock_init = MockAmdInterface::new();
 
     mock_init.expect_socket_handles().returning(|| {
-        let mut mock_socket = MockAmdSocketHandle::new();
+        let mut mock_socket = MockSocketHandle::new();
         mock_socket.expect_processor_handles().returning(|| {
-            let mut mock_processor = MockAmdProcessorHandle::new();
+            let mut mock_processor = MockProcessorHandle::new();
 
             mock_processor
                 .expect_device_uuid()
@@ -319,7 +319,7 @@ fn test_start_success() {
 // Test to start AMD GPU plugin integration in ALUMET without GPU device
 #[test]
 fn test_start_error() {
-    let mut mock_init = MockAmdSmi::new();
+    let mut mock_init = MockAmdInterface::new();
     mock_init.expect_socket_handles().returning(|| Ok(vec![]));
     mock_init.expect_stop().returning(|| Ok(()));
 
@@ -340,12 +340,12 @@ fn test_start_error() {
 // Test to start AMD GPU plugin integration in ALUMET with GPU device detected but no metrics available
 #[test]
 fn test_start_success_without_stats() {
-    let mut mock_init = MockAmdSmi::new();
+    let mut mock_init = MockAmdInterface::new();
 
     mock_init.expect_socket_handles().returning(|| {
-        let mut mock_socket = MockAmdSocketHandle::new();
+        let mut mock_socket = MockSocketHandle::new();
         mock_socket.expect_processor_handles().returning(|| {
-            let mut mock_processor = MockAmdProcessorHandle::new();
+            let mut mock_processor = MockProcessorHandle::new();
             mock_processor
                 .expect_device_uuid()
                 .returning(|| Ok(MOCK_UUID.to_owned()));
