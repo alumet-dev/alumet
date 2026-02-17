@@ -59,13 +59,13 @@ impl AlumetPlugin for EnergyEstimationTdpPlugin {
             "CPU's estimated energy consumption",
         )?;
 
-        let cpu_usage = self.config.as_ref().unwrap().cpu_usage.clone();
+        let cpu_usage = "kernel_cpu_time";
         let config = self.config.take().unwrap();
 
         // Add the transform now but fill its metrics later.
         alumet.add_transform_builder("transform", move |ctx| {
             let cpu_usage_raw_metric = ctx
-                .metric_by_name(&cpu_usage)
+                .metric_by_name(cpu_usage)
                 .with_context(|| format!("metric not found : {}", cpu_usage))?
                 .0;
             let metrics = Metrics {
@@ -93,17 +93,15 @@ struct Config {
     tdp: f64,
     nb_vcpu: f64,
     nb_cpu: f64,
-    cpu_usage: String,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            poll_interval: Duration::from_secs(5), // aligned with input cpu_usage metric poll_interval
+            poll_interval: Duration::from_secs(5), // aligned with input kernel_cpu_time metric poll_interval
             tdp: 100.0,
             nb_vcpu: 1.0,
             nb_cpu: 1.0,
-            cpu_usage: String::from("kernel_cpu_time"),
         }
     }
 }
