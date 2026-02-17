@@ -18,23 +18,47 @@ The estimation calculation is done using the following formula, we consider only
 
 ## Requirements
 
-This plugin needs **procfs.kernel plugin activated** to be able to obtain the `kernel_cpu_time` metric.
+This plugin needs **procfs.kernel plugin activated** to be able to obtain the `kernel_cpu_time` metric. The estimation per process/pod/oar/slurm shall be performed by linking the energy-attribution plugin.
 
-The cpu measurements have an additional attribute cpu_state, which allow to compute the estimate consumption for individual states of the CPU or as the total consumption (sum with `cpu_state`!="idle").
+## Metrics
+
+Here are the metrics created by the transform plugin.
+
+|Name|Type|Unit|Description|Resource|ResourceConsumer|Attributes|More information|
+|----|----|----|-----------|--------|----------------|----------|----------------|
+|estimated_consumed_energy|Gauge|Joule|CPU's estimated energy consumption|LocalMachine|LocalMachine|[cpu_state](#cpu_state)||
+
+### Attributes
+
+#### cpu_state
+
+The CPU states is an attribute that indicates the kind of cpu time that is measured:
+
+|Value|Description|
+|-----|-----------|
+|`user`|Time spent in user mode|
+|`nice`|Time spent in user mode with low priority (nice)|
+|`system`|Time spent in system mode|
+|`idle`|Time spent in the idle state|
+|`irq`|Time servicing interrupts|
+|`softirq`|Time servicing soft interrupts|
+|`steal`|Time of stolen time. Stolen time is the time spent in other operating systems when running in a virtualized environment.|
+|`guest`|Time spent running a virtual CPU for guest operating systems under control of the linux kernel|
+|`guest_nice`|Time spent running a niced guest|
+
+The estimate energy consumption is given for each `cpu_state`. Thus, the total consumption shall be obtained as the sum for `cpu_state`!="idle"
 
 ## Configuration
 
 ```toml
 [plugins.energy-estimation-tdp]
-poll_interval = "5s"
+poll_interval = "5s" # must be aligned with kernel_cpu_time's poll_interval
 tdp = 100.0
 nb_vcpu = 1.0
 nb_cpu = 1.0
-cpu_usage = "kernel_cpu_time"
 ```
 
-- `poll_interval`: must be identical to the poll_interval of input **per_consumer** plugin. Default value is 1s.
+- `poll_interval`: must be identical to the poll_interval of input **procfs.kernel** plugin which provides kernel_cpu_time.
 - `nb_vcpu`: number of virtual cpu allocated to the virtual machine. If it is a physical machine, assign it to value 1. Default value is 1.
 - `nb_cpu`: number of logical cpu of the hosted machine. Using the lscpu or hwinfo, you can retrieve the number of cpu including all sockets.
 - `tdp`: Thermal Design power; each CPU has a calculated thermal design value; the value can be find on internet (usually on CPU manufacturer); you need the exact CPU family (using command lscpu or hwinfo). For example, for Intel® Xeon® D Processor, family D-2183IT, the tpd can be found [it's intel documentation page](https://ark.intel.com/content/www/us/en/ark/products/136441/intel-xeon-d-2183it-processor-22m-cache-2-20-ghz.html). The tdp value is 100W (so the default value is 100).
-- `cpu_usage`: Input metric name that should exist in the metrics pipeline
