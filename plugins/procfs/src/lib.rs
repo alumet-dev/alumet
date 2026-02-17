@@ -124,7 +124,11 @@ fn start_memory_probe(
         .map(|procfs_entry_name| {
             let metric_name = convert_to_snake_case(&procfs_entry_name);
             let metric = alumet
-                .create_metric(&metric_name, PrefixedUnit::kilo(Unit::Byte), "?")
+                .create_metric(
+                    &metric_name,
+                    Unit::Byte,
+                    format!("{procfs_entry_name} entry in /proc/meminfo, converted to bytes"),
+                )
                 .with_context(|| format!("unable to register metric {metric_name} for memory probe"))?;
             Ok((procfs_entry_name, metric))
         })
