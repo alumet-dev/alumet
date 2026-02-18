@@ -261,6 +261,12 @@ impl Source for FullSource {
 
         Ok(())
     }
+
+    fn reset(&mut self) -> anyhow::Result<()> {
+        self.energy_counter.reset();
+        self.last_poll_timestamp = None;
+        Ok(())
+    }
 }
 
 struct PowerMeasure {
@@ -323,6 +329,11 @@ impl Source for MinimalSource {
         } else {
             self.previous_power = Some(current_power);
         }
+        Ok(())
+    }
+
+    fn reset(&mut self) -> anyhow::Result<()> {
+        self.previous_power = None;
         Ok(())
     }
 }
