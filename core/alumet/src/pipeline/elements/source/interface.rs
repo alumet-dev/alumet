@@ -10,4 +10,11 @@ pub type AutonomousSource = Pin<Box<dyn Future<Output = anyhow::Result<()>> + Se
 pub trait Source: Send {
     /// Polls the source for new measurements.
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError>;
+
+    /// Resets the source’s internal state when it is paused.
+    /// A default no-op implementation is provided, but you may want to override it to properly clear the source’s state.
+    /// This helps avoid measurement inconsistencies when the source resumes after a pause (e.g: for CounterDiff or "last timestamp" values).
+    fn reset(&mut self) -> anyhow::Result<()> {
+        Ok(())
+    }
 }

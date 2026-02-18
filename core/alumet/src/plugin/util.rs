@@ -69,6 +69,11 @@ impl CounterDiff {
         self.previous_value = Some(new_value);
         res
     }
+
+    /// Resets the counter diff state.
+    pub fn reset(&mut self) {
+        self.previous_value = None;
+    }
 }
 
 impl CounterDiffUpdate {
@@ -138,5 +143,24 @@ mod tests {
     fn test_counter_diff_over_max_value() {
         let mut counter = CounterDiff::with_max_value(255);
         let _ = counter.update(256);
+    }
+
+    #[test]
+    fn test_reset() {
+        let mut counter = CounterDiff::with_max_value(10);
+
+        let mut diff = counter.update(1);
+        assert_eq!(diff, CounterDiffUpdate::FirstTime);
+
+        diff = counter.update(2);
+        assert_eq!(diff, CounterDiffUpdate::Difference(1));
+
+        counter.reset();
+
+        diff = counter.update(3);
+        assert_eq!(diff, CounterDiffUpdate::FirstTime);
+
+        diff = counter.update(4);
+        assert_eq!(diff, CounterDiffUpdate::Difference(1));
     }
 }
