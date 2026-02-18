@@ -184,7 +184,11 @@ pub(crate) async fn run_managed(
                     update = false; // go back to polling
                 }
                 TaskState::Pause => {
-                    log::trace!("{source_name} paused, waiting for state change");
+                    log::trace!("{source_name} has been paused; resetting its internal state");
+                    if let Err(e) = source.reset() {
+                        log::error!("Failed to reset {source_name}: {e:?}");
+                    };
+                    log::trace!("{source_name} is now waiting to restart or stop permanently");
                     config_change.notified().await; // wait for the config to change
                 }
                 TaskState::Stop => {
