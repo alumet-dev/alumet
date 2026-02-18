@@ -42,7 +42,10 @@ fn load_plugins_metadata() -> Vec<PluginMetadata> {
     // plugins that only work on Linux
     #[cfg(target_os = "linux")]
     {
+        use plugin_amd_gpu::AmdSmiProvider;
+
         plugins.extend(static_plugins![
+            plugin_amd_gpu::AmdGpuPlugin::<AmdSmiProvider>,
             plugin_socket_control::SocketControlPlugin,
             plugin_k8s::K8sPlugin,
             plugin_slurm::SlurmPlugin,
