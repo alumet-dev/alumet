@@ -356,6 +356,13 @@ impl alumet::pipeline::Source for PowercapProbe {
         }
         Ok(())
     }
+
+    fn reset(&mut self) -> anyhow::Result<()> {
+        for zone in &mut self.zones {
+            zone.counter.reset();
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
