@@ -352,6 +352,13 @@ impl alumet::pipeline::Source for PerfEventProbe {
         }
         Ok(())
     }
+
+    fn reset(&mut self) -> anyhow::Result<()> {
+        for event in &mut self.events {
+            event.counter.reset();
+        }
+        Ok(())
+    }
 }
 
 /// Retrieves the type of the RAPL PMU (Power Monitoring Unit) in the Linux kernel.

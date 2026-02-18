@@ -89,4 +89,10 @@ impl Source for CgroupV1Probe {
         }
         Ok(())
     }
+
+    fn reset(&mut self) -> anyhow::Result<()> {
+        self.delta_counters.reset();
+        self.last_timestamp = None;
+        Ok(())
+    }
 }

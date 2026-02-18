@@ -254,6 +254,16 @@ impl Source for GraceHopperSource {
         }
         Ok(())
     }
+
+    fn reset(&mut self) -> anyhow::Result<()> {
+        for (_, probes) in self.probes.iter_mut() {
+            for probe in probes {
+                probe.prev_power = None;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]

@@ -7,6 +7,14 @@ pub struct CpuDeltaCounters {
     pub system: CounterDiff,
 }
 
+impl CpuDeltaCounters {
+    pub fn reset(&mut self) {
+        self.usage.reset();
+        self.user.reset();
+        self.system.reset();
+    }
+}
+
 impl Default for CpuDeltaCounters {
     fn default() -> Self {
         Self {
