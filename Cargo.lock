@@ -83,10 +83,12 @@ dependencies = [
  "libc",
  "log",
  "plugin-aggregation",
+ "plugin-amd-gpu",
  "plugin-csv",
  "plugin-elasticsearch",
  "plugin-energy-attribution",
  "plugin-energy-estimation-tdp",
+ "plugin-filter",
  "plugin-grace-hopper",
  "plugin-influxdb",
  "plugin-k8s",
@@ -2915,6 +2917,17 @@ dependencies = [
  "humantime-serde",
  "log",
  "serde",
+]
+
+[[package]]
+name = "plugin-filter"
+version = "0.1.0"
+dependencies = [
+ "alumet",
+ "anyhow",
+ "log",
+ "serde",
+ "toml 0.9.5",
 ]
 
 [[package]]

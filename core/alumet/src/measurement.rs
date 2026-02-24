@@ -484,6 +484,13 @@ impl MeasurementBuffer {
     pub fn to_vec(&self) -> Vec<MeasurementPoint> {
         self.points.clone()
     }
+
+    pub fn retain<F>(&mut self, f: F)
+    where
+        F: FnMut(&MeasurementPoint) -> bool,
+    {
+        self.points.retain(f);
+    }
 }
 
 impl Default for MeasurementBuffer {
