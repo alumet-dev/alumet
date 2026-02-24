@@ -179,3 +179,5 @@ Others are slower but more accurate, e.g. reading `/proc/<pid>/smaps_rollup`.
 You can set `memory_mode` to two values:
 - `quick`: expect a few milliseconds of latency per process
 - `slow_but_accurate`: expect 10x more latency (just to read memory statistics!)
+
+Note that `slow_but_accurate` may require the capability `CAP_SYS_PTRACE` to work. Especially when enabled for `plugins.procfs.processes.groups`.
