@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "agent",
     "core/*",
+    "plugins/amd-gpu",
     "plugins/aggregation",
     "plugins/cgroups/*",
     "plugins/csv",

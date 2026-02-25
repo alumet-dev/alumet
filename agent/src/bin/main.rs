@@ -43,6 +43,7 @@ fn load_plugins_metadata() -> Vec<PluginMetadata> {
     #[cfg(target_os = "linux")]
     {
         plugins.extend(static_plugins![
+            plugin_amd_gpu::AmdGpuPlugin::<plugin_amd_gpu::AmdSmiProvider>,
             plugin_socket_control::SocketControlPlugin,
             plugin_k8s::K8sPlugin,
             plugin_slurm::SlurmPlugin,
