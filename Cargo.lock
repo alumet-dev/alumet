@@ -2926,6 +2926,7 @@ dependencies = [
  "alumet",
  "anyhow",
  "log",
+ "pretty_assertions",
  "serde",
  "toml 0.9.5",
 ]
