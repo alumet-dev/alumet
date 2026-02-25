@@ -24,6 +24,7 @@ Here are the metrics collected by the plugin source:
 |`amd_gpu_voltage`|Gauge|millivolt|Electric power consumption by a AMD GPU|GPU|LocalMachine||
 |`amd_gpu_process_memory_usage`|Gauge|byte|Process memory usage|process|pid|[process_name](#process_name)|
 |`amd_gpu_process_engine_usage_encode`|Gauge|nanosecond|Process GFX engine usage|process|pid|[process_name](#process_name)|
+|`amd_gpu_process_occupancy`|Gauge|none|Number of compute units used|process|pid|[process_name](#process_name)|
 |`amd_gpu_process_engine_gfx`|Gauge|nanosecond|Process encode engine usage|process|pid|[process_name](#process_name)|
 |`amd_gpu_process_memory_usage_cpu`|Gauge|byte|Process CPU memory usage|process|pid|[process_name](#process_name)|
 |`amd_gpu_process_memory_usage_gtt`|Gauge|byte|Process GTT memory usage|process|pid|[process_name](#process_name)|
@@ -85,4 +86,4 @@ skip_failed_devices = true
 
 ## More information
 
-Due to the not truly thread safely behavior of the current `amdsmi` library, all GPUs are collected and polled by the same source.
+Due to the not truly thread safely behavior of `amdsmi` library for all software version, all GPUs are collected and polled by the same source.
