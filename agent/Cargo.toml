@@ -37,7 +37,6 @@ plugin-kwollect-output = { path = "../plugins/kwollect-output" }
 
 # Linux-only dependencies
 [target.'cfg(target_os = "linux")'.dependencies]
-plugin-amd-gpu = { path = "../plugins/amd-gpu" }
 plugin-grace-hopper = { path = "../plugins/grace-hopper" }
 plugin-nvidia-jetson = { path = "../plugins/nvidia-jetson" }
 plugin-nvidia-nvml = { path = "../plugins/nvidia-nvml" }
