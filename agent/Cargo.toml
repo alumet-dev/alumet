@@ -34,6 +34,7 @@ plugin-energy-estimation-tdp = { path = "../plugins/energy-estimation-tdp" }
 plugin-elasticsearch = { path = "../plugins/elasticsearch" }
 plugin-kwollect-input = { path = "../plugins/kwollect-input" }
 plugin-kwollect-output = { path = "../plugins/kwollect-output" }
+plugin-filter = { path = "../plugins/filter" }
 
 # Linux-only dependencies
 [target.'cfg(target_os = "linux")'.dependencies]

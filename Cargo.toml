@@ -10,6 +10,7 @@ members = [
     "plugins/elasticsearch",
     "plugins/energy-attribution",
     "plugins/energy-estimation-tdp",
+    "plugins/filter",
     "plugins/grace-hopper",
     "plugins/influxdb",
     "plugins/kwollect-input",
