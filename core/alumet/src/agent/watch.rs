@@ -3,7 +3,11 @@ use anyhow::Context;
 use std::{fs, io, path::PathBuf, ptr, time::Duration};
 use thiserror::Error;
 
-use crate::pipeline::{MeasurementPipeline, control::request, matching::SourceNamePattern};
+use crate::{
+    pipeline::{MeasurementPipeline, control::request, matching::SourceNamePattern},
+    plugin::event::{EndConsumerMeasurement, StartConsumerMeasurement},
+    resources::ResourceConsumer,
+};
 
 use super::{RunningAgent, builder::ShutdownError};
 
@@ -42,6 +46,9 @@ pub fn watch_process(agent: RunningAgent, pid: u32, shutdown_timeout: Duration) 
     if let Err(e) = trigger_poll_now(&agent.pipeline) {
         log::error!("Could not trigger a first time poll before the child spawn: {e}");
     }
+    log::info!("Watch process spawned with pid {pid_i32}.");
+    crate::plugin::event::start_consumer_measurement()
+        .publish(StartConsumerMeasurement(vec![ResourceConsumer::Process { pid }]));
 
     // Spawn the process and wait for it to exit.
     wait_child(pid_i32)?;
@@ -51,6 +58,10 @@ pub fn watch_process(agent: RunningAgent, pid: u32, shutdown_timeout: Duration) 
     if let Err(e) = trigger_poll_now(&agent.pipeline) {
         log::error!("Could not trigger one last time poll after the child exit: {e}");
     }
+
+    // Publish an event to perform a measurement at the end of the experiment
+    log::info!("Publishing EndConsumerMeasurement event");
+    crate::plugin::event::end_consumer_measurement().publish(EndConsumerMeasurement);
 
     // Stop the pipeline
     agent.pipeline.control_handle().shutdown();
