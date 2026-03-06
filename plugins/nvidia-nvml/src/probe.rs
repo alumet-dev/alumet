@@ -10,12 +10,11 @@ use alumet::{
 };
 
 use crate::{
-    features::AvailableVersion,
     metrics::{FullMetrics, MinimalMetrics},
-    nvml_ext::DeviceExt,
+    nvml::device::ManagedDevice,
+    nvml::features::AvailableVersion,
+    nvml::nvml_ext::DeviceExt,
 };
-
-use super::device::ManagedDevice;
 
 pub enum SourceProvider {
     Full(FullMetrics),

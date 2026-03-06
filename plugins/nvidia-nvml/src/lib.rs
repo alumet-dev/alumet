@@ -15,10 +15,8 @@ use crate::{
     probe::SourceProvider,
 };
 
-mod device;
-mod features;
 mod metrics;
-mod nvml_ext;
+mod nvml;
 mod probe;
 
 pub struct NvmlPlugin {
@@ -45,7 +43,7 @@ impl AlumetPlugin for NvmlPlugin {
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
-        let nvml = device::NvmlDevices::detect(self.config.skip_failed_devices)?;
+        let nvml = nvml::device::NvmlDevices::detect(self.config.skip_failed_devices)?;
         let stats = nvml.detection_stats();
         if stats.found_devices == 0 {
             return Err(anyhow!(

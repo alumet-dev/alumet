@@ -1,7 +1,7 @@
 use nvml_wrapper::{Device, enum_wrappers::device::TemperatureSensor, error::NvmlError};
 use std::fmt::Display;
 
-use crate::nvml_ext::DeviceExt;
+use super::nvml_ext::DeviceExt;
 
 /// Indicates which version of a NVML function is available on a given device.
 #[derive(Debug, PartialEq, Eq)]
