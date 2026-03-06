@@ -5,16 +5,13 @@ use alumet::{
     resources::{Resource, ResourceConsumer},
 };
 use anyhow::Result;
-use std::{borrow::Cow, collections::HashMap, ffi::CStr};
+use std::{borrow::Cow, collections::HashMap};
 
 use super::{device::ManagedDevice, metrics::Metrics};
-use crate::amd::utils::{MEMORY_TYPE, METRIC_TEMP, SENSOR_TYPE};
+use crate::amd::utils::{MEMORY_TYPE, SENSOR_TYPE};
 use amd_smi_wrapper::{
     ProcessorHandle,
-    bindings::{
-        amdsmi_voltage_metric_t_AMDSMI_VOLT_CURRENT, amdsmi_voltage_type_t,
-        amdsmi_voltage_type_t_AMDSMI_VOLT_TYPE_VDDGFX,
-    },
+    utils::{AmdTemperatureMetric, AmdVoltageMetric, AmdVoltageType},
 };
 
 /// Measurement source that queries AMD GPU devices.
@@ -89,17 +86,14 @@ impl<H: ProcessorHandle> AmdGpuSource<H> {
     ) -> anyhow::Result<()> {
         let features = &device.features;
 
-        if features.gpu_process_info
+        if features.gpu_process
             && let Ok(process_list) = device.handle.device_process_list()
         {
             const KEY: &str = "process_name";
 
             for process in process_list {
                 let consumer = ResourceConsumer::Process { pid: process.pid };
-
-                // Process path name
-                let ascii = unsafe { CStr::from_ptr(process.name.as_ptr()) };
-                let name = ascii.to_str().unwrap_or("");
+                let name = &process.name;
 
                 let mut push = |metric, value| {
                     if value != 0 {
@@ -110,6 +104,7 @@ impl<H: ProcessorHandle> AmdGpuSource<H> {
                     }
                 };
 
+                push(self.metrics.process_occupancy, process.cu_occupancy as u64);
                 push(self.metrics.process_memory_usage, process.mem);
                 push(self.metrics.process_engine_usage_gfx, process.engine_usage.gfx);
                 push(self.metrics.process_engine_usage_encode, process.engine_usage.enc);
@@ -168,19 +163,19 @@ impl<H: ProcessorHandle> Source for AmdGpuSource<H> {
             }
 
             // Voltage
-            if features.gpu_voltage {
-                const SENSOR: amdsmi_voltage_type_t = amdsmi_voltage_type_t_AMDSMI_VOLT_TYPE_VDDGFX;
-                const METRIC: amdsmi_voltage_type_t = amdsmi_voltage_metric_t_AMDSMI_VOLT_CURRENT;
-
-                if let Ok(value) = device.handle.device_voltage(SENSOR, METRIC) {
-                    measurements.push(MeasurementPoint::new(
-                        timestamp,
-                        self.metrics.gpu_voltage,
-                        resource.clone(),
-                        consumer.clone(),
-                        value as u64,
-                    ));
-                }
+            if features.gpu_voltage
+                && let Ok(value) = device.handle.device_voltage(
+                    AmdVoltageType::AMDSMI_VOLT_TYPE_VDDGFX,
+                    AmdVoltageMetric::AMDSMI_VOLT_CURRENT,
+                )
+            {
+                measurements.push(MeasurementPoint::new(
+                    timestamp,
+                    self.metrics.gpu_voltage,
+                    resource.clone(),
+                    consumer.clone(),
+                    value as u64,
+                ));
             }
 
             // GPU memories used metric pushed
@@ -214,7 +209,9 @@ impl<H: ProcessorHandle> Source for AmdGpuSource<H> {
                     .find(|(s, _)| *s == *sensor)
                     .map(|(_, v)| *v)
                     .unwrap_or(false)
-                    && let Ok(value) = device.handle.device_temperature(*sensor, METRIC_TEMP)
+                    && let Ok(value) = device
+                        .handle
+                        .device_temperature(*sensor, AmdTemperatureMetric::AMDSMI_TEMP_CURRENT)
                 {
                     measurements.push(
                         MeasurementPoint::new(

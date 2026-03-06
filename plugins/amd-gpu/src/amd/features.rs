@@ -1,12 +1,9 @@
 use amd_smi_wrapper::{
-    ProcessorHandle,
-    bindings::{amdsmi_memory_type_t, amdsmi_status_t, amdsmi_temperature_metric_t},
+    AmdError, ProcessorHandle,
+    utils::{AmdMemoryType, AmdStatus, AmdTemperatureMetric, AmdTemperatureType, AmdVoltageMetric, AmdVoltageType},
 };
 
-use crate::amd::utils::{
-    MEMORY_TYPE, METRIC_TEMP, NO_PERM, NOT_SUPPORTED, NOT_YET_IMPLEMENTED, SENSOR_TYPE, UNEXPECTED_DATA,
-    VOLTAGE_METRIC, VOLTAGE_SENSOR_TYPE,
-};
+use crate::amd::utils::{MEMORY_TYPE, SENSOR_TYPE};
 use std::fmt::{self, Display, Formatter};
 
 /// Indicates which features are available on a given ADM GPU device.
@@ -17,66 +14,67 @@ pub struct OptionalFeatures {
     /// GPU energy consumption feature validity.
     pub gpu_energy_consumption: bool,
     /// GPU memory usage (VRAM, GTT) feature validity.
-    pub gpu_memories_usage: Vec<(amdsmi_memory_type_t, bool)>,
+    pub gpu_memories_usage: Vec<(AmdMemoryType, bool)>,
     /// GPU electric power consumption feature validity.
     pub gpu_power_consumption: bool,
     /// GPU power management feature validity.
     pub gpu_power_state_management: bool,
     /// GPU temperature feature validity.
-    pub gpu_temperatures: Vec<(amdsmi_temperature_metric_t, bool)>,
+    pub gpu_temperatures: Vec<(AmdTemperatureType, bool)>,
     /// GPU power management feature validity.
-    pub gpu_process_info: bool,
+    pub gpu_process: bool,
     // GPU socket voltage feature validity.
     pub gpu_voltage: bool,
 }
 
-/// Checks if a feature is supported by the available GPU by inspecting the return type of an AMDSMI function.
-pub fn is_supported<T>(res: Result<T, amdsmi_status_t>) -> Result<bool, amdsmi_status_t> {
+/// Checks if a feature is supported by the available GPU by inspecting the return type of an AMD-SMI function.
+pub fn is_supported<T>(res: Result<T, AmdError>) -> Result<bool, AmdStatus> {
     match res {
         Ok(_) => Ok(true),
-        Err(NO_PERM | NOT_SUPPORTED | NOT_YET_IMPLEMENTED | UNEXPECTED_DATA) => Ok(false),
-        Err(e) => Err(e),
+        Err(AmdError(status)) => match status {
+            AmdStatus::AMDSMI_STATUS_NO_PERM
+            | AmdStatus::AMDSMI_STATUS_NOT_SUPPORTED
+            | AmdStatus::AMDSMI_STATUS_NOT_YET_IMPLEMENTED
+            | AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA => Ok(false),
+            other => Err(other),
+        },
     }
 }
 
 impl OptionalFeatures {
     /// Detect the features available on the given device.
-    pub fn detect_on(processor_handle: &impl ProcessorHandle) -> Result<Self, amdsmi_status_t> {
+    pub fn detect_on(processor_handle: &impl ProcessorHandle) -> Result<Self, AmdStatus> {
         let mut gpu_temperatures = Vec::new();
         let mut gpu_memories_usage = Vec::new();
 
         for &(mem_type, _) in &MEMORY_TYPE {
-            let supported = is_supported(processor_handle.device_memory_usage(mem_type).map_err(|e| e.0))?;
+            let supported = is_supported(processor_handle.device_memory_usage(mem_type))?;
             gpu_memories_usage.push((mem_type, supported));
         }
 
         for &(sensor, _) in &SENSOR_TYPE {
-            let supported = is_supported(
-                processor_handle
-                    .device_temperature(sensor, METRIC_TEMP)
-                    .map_err(|e| e.0),
-            )?;
+            let supported =
+                is_supported(processor_handle.device_temperature(sensor, AmdTemperatureMetric::AMDSMI_TEMP_CURRENT))?;
             gpu_temperatures.push((sensor, supported));
         }
 
         Ok(Self {
-            gpu_activity_usage: is_supported(processor_handle.device_activity().map_err(|e| e.0))?,
-            gpu_energy_consumption: is_supported(processor_handle.device_energy_consumption().map_err(|e| e.0))?,
-            gpu_power_consumption: is_supported(processor_handle.device_power_consumption().map_err(|e| e.0))?,
-            gpu_power_state_management: is_supported(processor_handle.device_power_managment().map_err(|e| e.0))?,
-            gpu_process_info: is_supported(processor_handle.device_process_list().map_err(|e| e.0))?,
-            gpu_voltage: is_supported(
-                processor_handle
-                    .device_voltage(VOLTAGE_SENSOR_TYPE, VOLTAGE_METRIC)
-                    .map_err(|e| e.0),
-            )?,
+            gpu_activity_usage: is_supported(processor_handle.device_activity())?,
+            gpu_energy_consumption: is_supported(processor_handle.device_energy_consumption())?,
+            gpu_power_consumption: is_supported(processor_handle.device_power_consumption())?,
+            gpu_power_state_management: is_supported(processor_handle.device_power_managment())?,
+            gpu_process: is_supported(processor_handle.device_process_list())?,
+            gpu_voltage: is_supported(processor_handle.device_voltage(
+                AmdVoltageType::AMDSMI_VOLT_TYPE_VDDGFX,
+                AmdVoltageMetric::AMDSMI_VOLT_CURRENT,
+            ))?,
             gpu_memories_usage,
             gpu_temperatures,
         })
     }
 
     /// Test and return the availability of feature on a given
-    pub fn with_detected_features<H: ProcessorHandle>(device: &H) -> Result<(&H, Self), amdsmi_status_t> {
+    pub fn with_detected_features<H: ProcessorHandle>(device: &H) -> Result<(&H, Self), AmdStatus> {
         Self::detect_on(device).map(|features| (device, features))
     }
 
@@ -85,7 +83,7 @@ impl OptionalFeatures {
             || self.gpu_activity_usage
             || self.gpu_power_consumption
             || self.gpu_power_state_management
-            || self.gpu_process_info
+            || self.gpu_process
             || self.gpu_voltage
             || self.gpu_memories_usage.iter().any(|&(_memory, supported)| supported)
             || self.gpu_temperatures.iter().any(|&(_sensor, supported)| supported)
@@ -108,7 +106,7 @@ impl Display for OptionalFeatures {
         if self.gpu_power_state_management {
             available.push("gpu_power_state_management".to_string());
         }
-        if self.gpu_process_info {
+        if self.gpu_process {
             available.push("gpu_process_info".to_string());
         }
         if self.gpu_voltage {
@@ -132,20 +130,11 @@ impl Display for OptionalFeatures {
 
 #[cfg(test)]
 mod test {
-    use amd_smi_wrapper::{
-        AmdError, MockProcessorHandle,
-        bindings::{
-            amdsmi_memory_type_t_AMDSMI_MEM_TYPE_VRAM, amdsmi_temperature_metric_t_AMDSMI_TEMP_CURRENT,
-            amdsmi_temperature_type_t_AMDSMI_TEMPERATURE_TYPE_EDGE,
-        },
-    };
+    use amd_smi_wrapper::{AmdError, MockProcessorHandle};
 
     use super::*;
-    use crate::{
-        amd::utils::UNKNOWN_ERROR,
-        tests::mocks::{
-            MOCK_ACTIVITY, MOCK_ENERGY, MOCK_MEMORY, MOCK_POWER, MOCK_PROCESS, MOCK_TEMPERATURE, MOCK_VOLTAGE,
-        },
+    use crate::tests::mocks::{
+        MOCK_ACTIVITY, MOCK_ENERGY, MOCK_MEMORY, MOCK_POWER, MOCK_TEMPERATURE, MOCK_VOLTAGE, mock_process,
     };
 
     use std::ptr::eq;
@@ -168,7 +157,7 @@ mod test {
             gpu_energy_consumption: false,
             gpu_power_consumption: false,
             gpu_power_state_management: false,
-            gpu_process_info: false,
+            gpu_process: false,
             gpu_voltage: false,
             gpu_memories_usage,
             gpu_temperatures,
@@ -184,29 +173,33 @@ mod test {
         features.gpu_energy_consumption = true;
         features.gpu_power_consumption = true;
         features.gpu_power_state_management = true;
-        features.gpu_process_info = true;
+        features.gpu_process = true;
         features.gpu_voltage = true;
 
         features
             .gpu_memories_usage
-            .push((amdsmi_memory_type_t_AMDSMI_MEM_TYPE_VRAM, true));
+            .push((AmdMemoryType::AMDSMI_MEM_TYPE_VRAM, true));
         features
             .gpu_temperatures
-            .push((amdsmi_temperature_type_t_AMDSMI_TEMPERATURE_TYPE_EDGE, true));
+            .push((AmdTemperatureType::AMDSMI_TEMPERATURE_TYPE_EDGE, true));
 
         assert_eq!(
             format!("{features}"),
-            "gpu_activity_usage, gpu_energy_consumption, gpu_power_consumption, gpu_power_state_management, gpu_process_info, gpu_voltage, gpu_memory_usages::0, gpu_temperatures::0"
+            "gpu_activity_usage, gpu_energy_consumption, gpu_power_consumption, gpu_power_state_management, gpu_process_info, gpu_voltage, gpu_memory_usages::amdsmi_memory_type_t(0), gpu_temperatures::amdsmi_temperature_type_t(0)"
         );
     }
 
     // Test `is_supported` function with identified amdsmi status errors to disable a feature
     #[test]
     fn test_is_supported_errors() {
-        let errors = [NO_PERM, NOT_SUPPORTED, NOT_YET_IMPLEMENTED, UNEXPECTED_DATA];
+        let errors = [
+            AmdStatus::AMDSMI_STATUS_NO_PERM,
+            AmdStatus::AMDSMI_STATUS_NOT_SUPPORTED,
+            AmdStatus::AMDSMI_STATUS_NOT_YET_IMPLEMENTED,
+            AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA,
+        ];
         for &err in &errors {
-            let ret: Result<i32, amdsmi_status_t> = Err(err);
-            let res = is_supported(ret).unwrap();
+            let res = is_supported::<u32>(Err(AmdError(err))).unwrap();
             assert!(!res);
         }
     }
@@ -214,11 +207,9 @@ mod test {
     // Test `is_supported` function with other amdsmi status errors
     #[test]
     fn test_is_supported_other_error() {
-        let err = UNKNOWN_ERROR;
-        let ret: Result<i32, amdsmi_status_t> = Err(err);
-        let res = is_supported(ret);
+        let res = is_supported::<u32>(Err(AmdError(AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR)));
         assert!(res.is_err());
-        assert_eq!(res.unwrap_err(), err);
+        assert_eq!(res.unwrap_err(), AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR);
     }
 
     // Test `has_any` function with no feature available
@@ -229,7 +220,7 @@ mod test {
             gpu_energy_consumption: false,
             gpu_power_consumption: false,
             gpu_power_state_management: false,
-            gpu_process_info: false,
+            gpu_process: false,
             gpu_voltage: false,
             gpu_memories_usage: Vec::new(),
             gpu_temperatures: Vec::new(),
@@ -245,10 +236,10 @@ mod test {
             gpu_energy_consumption: is_supported(Ok(())).unwrap(),
             gpu_power_consumption: is_supported(Ok(())).unwrap(),
             gpu_power_state_management: is_supported(Ok(())).unwrap(),
-            gpu_process_info: is_supported(Ok(())).unwrap(),
+            gpu_process: is_supported(Ok(())).unwrap(),
             gpu_voltage: is_supported(Ok(())).unwrap(),
-            gpu_memories_usage: vec![(amdsmi_memory_type_t_AMDSMI_MEM_TYPE_VRAM, true)],
-            gpu_temperatures: vec![(amdsmi_temperature_metric_t_AMDSMI_TEMP_CURRENT, true)],
+            gpu_memories_usage: vec![(AmdMemoryType::AMDSMI_MEM_TYPE_VRAM, true)],
+            gpu_temperatures: vec![(AmdTemperatureType::AMDSMI_TEMPERATURE_TYPE_EDGE, true)],
         };
         assert!(features.has_any());
     }
@@ -265,7 +256,7 @@ mod test {
         mock.expect_device_power_consumption().returning(|| Ok(MOCK_POWER));
 
         mock.expect_device_power_managment().returning(|| Ok(true));
-        mock.expect_device_process_list().returning(|| Ok(vec![MOCK_PROCESS]));
+        mock.expect_device_process_list().returning(|| Ok(vec![mock_process()]));
         mock.expect_device_voltage().returning(|_, _| Ok(MOCK_VOLTAGE));
 
         mock.expect_device_memory_usage().returning(|mem_type| {
@@ -273,18 +264,18 @@ mod test {
                 .iter()
                 .find(|(t, _)| *t == mem_type)
                 .map(|(_, v)| Ok(*v))
-                .unwrap_or(Err(AmdError(UNEXPECTED_DATA)))
+                .unwrap_or(Err(AmdError(AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA)))
         });
 
         mock.expect_device_temperature().returning(|sensor, metric| {
-            if metric != METRIC_TEMP {
-                return Err(AmdError(UNEXPECTED_DATA));
+            if metric != AmdTemperatureMetric::AMDSMI_TEMP_CURRENT {
+                return Err(AmdError(AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA));
             }
             MOCK_TEMPERATURE
                 .iter()
                 .find(|(s, _)| *s == sensor)
                 .map(|(_, v)| Ok(*v))
-                .unwrap_or(Err(AmdError(UNEXPECTED_DATA)))
+                .unwrap_or(Err(AmdError(AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA)))
         });
 
         let features = OptionalFeatures::detect_on(&mock).unwrap();
@@ -300,16 +291,16 @@ mod test {
         mock.expect_device_activity().returning(|| Ok(MOCK_ACTIVITY));
 
         mock.expect_device_energy_consumption()
-            .returning(|| Err(AmdError(NO_PERM)));
+            .returning(|| Err(AmdError(AmdStatus::AMDSMI_STATUS_NO_PERM)));
         mock.expect_device_power_consumption().returning(|| Ok(MOCK_POWER));
         mock.expect_device_power_managment().returning(|| Ok(true));
-        mock.expect_device_process_list().returning(|| Ok(vec![MOCK_PROCESS]));
+        mock.expect_device_process_list().returning(|| Ok(vec![mock_process()]));
         mock.expect_device_voltage()
-            .returning(|_, _| Err(AmdError(UNEXPECTED_DATA)));
+            .returning(|_, _| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA)));
         mock.expect_device_memory_usage()
-            .returning(|_| Err(AmdError(UNEXPECTED_DATA)));
+            .returning(|_| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA)));
         mock.expect_device_temperature()
-            .returning(|_, _| Err(AmdError(UNEXPECTED_DATA)));
+            .returning(|_, _| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA)));
 
         let (res, features) = OptionalFeatures::with_detected_features(&mock).unwrap();
 

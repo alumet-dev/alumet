@@ -7,7 +7,7 @@ use alumet::{
     },
 };
 use amd::{device::AmdGpuDevices, metrics::Metrics, probe::AmdGpuSource};
-use amd_smi_wrapper::{AmdInterface, AmdSmi};
+use amd_smi_wrapper::{AmdInterface, AmdSmi, utils::InitFlags};
 use anyhow::{Context, anyhow};
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
@@ -61,7 +61,7 @@ impl AmdInterfaceProvider for AmdSmiProvider {
     type A = Arc<AmdSmi>;
 
     fn get() -> anyhow::Result<Arc<AmdSmi>> {
-        Ok(AmdSmi::init()?)
+        Ok(AmdSmi::init(InitFlags::AMD_GPUS)?)
     }
 }
 
@@ -154,6 +154,8 @@ impl AmdGpuPlugin<MockProvider> {
 
 #[cfg(test)]
 mod test {
+    use std::error::Error;
+
     use super::*;
 
     // Test `default_config` function
@@ -168,7 +170,7 @@ mod test {
 
     // Test `init` function with amd-smi init call
     #[test]
-    fn test_init_executes_amdsmi_get() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_init_amdsmi_get() -> Result<(), Box<dyn Error>> {
         let config_table: ConfigTable = serialize_config(Config::default())?;
         let plugin = AmdGpuPlugin::<MockProvider>::init(config_table)?;
 
