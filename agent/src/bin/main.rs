@@ -309,6 +309,12 @@ fn apply_pipeline_settings(args: &cli::Cli, config: &GeneralConfig, pipeline: &m
         // the "exec" command requires event-based source trigger
         pipeline.trigger_constraints_mut().allow_manual_trigger = true;
     }
+    if let Some(n) = args.common.normal_worker_threads {
+        pipeline.normal_threads(n);
+    }
+    if let Some(n) = args.common.priority_worker_threads {
+        pipeline.high_priority_threads(n);
+    }
 }
 
 /// Parses the config overrides provided on the command line, and merges them into a single table.
