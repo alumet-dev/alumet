@@ -31,12 +31,12 @@ pub struct OptionalFeatures {
 pub fn is_supported<T>(res: Result<T, AmdError>) -> Result<bool, AmdStatus> {
     match res {
         Ok(_) => Ok(true),
-        Err(AmdError(status)) => match status {
+        Err(AmdError { status, .. }) => match status {
             AmdStatus::AMDSMI_STATUS_NO_PERM
             | AmdStatus::AMDSMI_STATUS_NOT_SUPPORTED
             | AmdStatus::AMDSMI_STATUS_NOT_YET_IMPLEMENTED
             | AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA => Ok(false),
-            other => Err(other),
+            err => Err(err),
         },
     }
 }
@@ -199,7 +199,11 @@ mod test {
             AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA,
         ];
         for &err in &errors {
-            let res = is_supported::<u32>(Err(AmdError(err))).unwrap();
+            let res = is_supported::<u32>(Err(AmdError {
+                status: err,
+                message: None,
+            }))
+            .unwrap();
             assert!(!res);
         }
     }
@@ -207,7 +211,10 @@ mod test {
     // Test `is_supported` function with other amdsmi status errors
     #[test]
     fn test_is_supported_other_error() {
-        let res = is_supported::<u32>(Err(AmdError(AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR)));
+        let res = is_supported::<u32>(Err(AmdError {
+            status: AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR,
+            message: None,
+        }));
         assert!(res.is_err());
         assert_eq!(res.unwrap_err(), AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR);
     }
@@ -264,18 +271,27 @@ mod test {
                 .iter()
                 .find(|(t, _)| *t == mem_type)
                 .map(|(_, v)| Ok(*v))
-                .unwrap_or(Err(AmdError(AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA)))
+                .unwrap_or(Err(AmdError {
+                    status: AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA,
+                    message: None,
+                }))
         });
 
         mock.expect_device_temperature().returning(|sensor, metric| {
             if metric != AmdTemperatureMetric::AMDSMI_TEMP_CURRENT {
-                return Err(AmdError(AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA));
+                return Err(AmdError {
+                    status: AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA,
+                    message: None,
+                });
             }
             MOCK_TEMPERATURE
                 .iter()
                 .find(|(s, _)| *s == sensor)
                 .map(|(_, v)| Ok(*v))
-                .unwrap_or(Err(AmdError(AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA)))
+                .unwrap_or(Err(AmdError {
+                    status: AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA,
+                    message: None,
+                }))
         });
 
         let features = OptionalFeatures::detect_on(&mock).unwrap();
@@ -290,17 +306,33 @@ mod test {
 
         mock.expect_device_activity().returning(|| Ok(MOCK_ACTIVITY));
 
-        mock.expect_device_energy_consumption()
-            .returning(|| Err(AmdError(AmdStatus::AMDSMI_STATUS_NO_PERM)));
+        mock.expect_device_energy_consumption().returning(|| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_NO_PERM,
+                message: None,
+            })
+        });
         mock.expect_device_power_consumption().returning(|| Ok(MOCK_POWER));
         mock.expect_device_power_managment().returning(|| Ok(true));
         mock.expect_device_process_list().returning(|| Ok(vec![mock_process()]));
-        mock.expect_device_voltage()
-            .returning(|_, _| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA)));
-        mock.expect_device_memory_usage()
-            .returning(|_| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA)));
-        mock.expect_device_temperature()
-            .returning(|_, _| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA)));
+        mock.expect_device_voltage().returning(|_, _| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA,
+                message: None,
+            })
+        });
+        mock.expect_device_memory_usage().returning(|_| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA,
+                message: None,
+            })
+        });
+        mock.expect_device_temperature().returning(|_, _| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA,
+                message: None,
+            })
+        });
 
         let (res, features) = OptionalFeatures::with_detected_features(&mock).unwrap();
 
