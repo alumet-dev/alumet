@@ -3,15 +3,18 @@ use crate::{
     amd::utils::{
         METRIC_LABEL_ACTIVITY, METRIC_LABEL_ENERGY, METRIC_LABEL_MEMORY, METRIC_LABEL_POWER, METRIC_LABEL_PROCESS_CPU,
         METRIC_LABEL_PROCESS_ENCODE, METRIC_LABEL_PROCESS_GFX, METRIC_LABEL_PROCESS_GTT, METRIC_LABEL_PROCESS_MEMORY,
-        METRIC_LABEL_PROCESS_VRAM, METRIC_LABEL_TEMPERATURE, METRIC_LABEL_VOLTAGE, METRIC_TEMP, PLUGIN_NAME,
-        UNEXPECTED_DATA, UNKNOWN_ERROR,
+        METRIC_LABEL_PROCESS_OCCUPANCY, METRIC_LABEL_PROCESS_VRAM, METRIC_LABEL_TEMPERATURE, METRIC_LABEL_VOLTAGE,
+        PLUGIN_NAME,
     },
     tests::mocks::{
-        MOCK_ACTIVITY, MOCK_ENERGY, MOCK_MEMORY, MOCK_POWER, MOCK_PROCESS, MOCK_SOURCE_NAME, MOCK_TEMPERATURE,
-        MOCK_UUID, MOCK_VOLTAGE,
+        MOCK_ACTIVITY, MOCK_ENERGY, MOCK_MEMORY, MOCK_POWER, MOCK_SOURCE_NAME, MOCK_TEMPERATURE, MOCK_UUID,
+        MOCK_VOLTAGE, mock_process,
     },
 };
-use amd_smi_wrapper::{AmdError, MockAmdInterface, MockProcessorHandle, MockSocketHandle};
+use amd_smi_wrapper::{
+    AmdError, MockAmdInterface, MockProcessorHandle, MockSocketHandle,
+    utils::{AmdStatus, AmdTemperatureMetric},
+};
 use std::{thread::sleep, time::Duration};
 
 use alumet::{
@@ -60,7 +63,7 @@ fn test_start_success() {
 
             mock_processor
                 .expect_device_process_list()
-                .returning(|| Ok(vec![MOCK_PROCESS]));
+                .returning(|| Ok(vec![mock_process()]));
 
             mock_processor
                 .expect_device_voltage()
@@ -71,19 +74,19 @@ fn test_start_success() {
                     .iter()
                     .find(|(t, _)| *t == mem_type)
                     .map(|(_, v)| Ok(*v))
-                    .unwrap_or(Err(AmdError(UNEXPECTED_DATA)))
+                    .unwrap_or(Err(AmdError(AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA)))
             });
 
             mock_processor.expect_device_temperature().returning(|sensor, metric| {
-                if metric != METRIC_TEMP {
-                    return Err(AmdError(UNEXPECTED_DATA));
+                if metric != AmdTemperatureMetric::AMDSMI_TEMP_CURRENT {
+                    return Err(AmdError(AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA));
                 }
 
                 MOCK_TEMPERATURE
                     .iter()
                     .find(|(s, _)| *s == sensor)
                     .map(|(_, v)| Ok(*v))
-                    .unwrap_or(Err(AmdError(UNEXPECTED_DATA)))
+                    .unwrap_or(Err(AmdError(AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA)))
             });
 
             Ok(vec![mock_processor])
@@ -251,9 +254,11 @@ fn test_start_success() {
 
             // GPU processes informations
             {
+                let mock_process = mock_process();
                 let expected_names = ["p1"];
                 let process_metrics = [
                     METRIC_LABEL_PROCESS_MEMORY,
+                    METRIC_LABEL_PROCESS_OCCUPANCY,
                     METRIC_LABEL_PROCESS_ENCODE,
                     METRIC_LABEL_PROCESS_GFX,
                     METRIC_LABEL_PROCESS_GTT,
@@ -279,21 +284,24 @@ fn test_start_success() {
                         );
 
                         let expected_value = match (process_name.as_str(), metric_id) {
-                            ("p1", METRIC_LABEL_PROCESS_MEMORY) => WrappedMeasurementValue::U64(MOCK_PROCESS.mem),
+                            ("p1", METRIC_LABEL_PROCESS_MEMORY) => WrappedMeasurementValue::U64(mock_process.mem),
+                            ("p1", METRIC_LABEL_PROCESS_OCCUPANCY) => {
+                                WrappedMeasurementValue::U64(mock_process.cu_occupancy.into())
+                            }
                             ("p1", METRIC_LABEL_PROCESS_ENCODE) => {
-                                WrappedMeasurementValue::U64(MOCK_PROCESS.engine_usage.enc)
+                                WrappedMeasurementValue::U64(mock_process.engine_usage.enc)
                             }
                             ("p1", METRIC_LABEL_PROCESS_GFX) => {
-                                WrappedMeasurementValue::U64(MOCK_PROCESS.engine_usage.gfx)
+                                WrappedMeasurementValue::U64(mock_process.engine_usage.gfx)
                             }
                             ("p1", METRIC_LABEL_PROCESS_GTT) => {
-                                WrappedMeasurementValue::U64(MOCK_PROCESS.memory_usage.gtt_mem)
+                                WrappedMeasurementValue::U64(mock_process.memory_usage.gtt_mem)
                             }
                             ("p1", METRIC_LABEL_PROCESS_CPU) => {
-                                WrappedMeasurementValue::U64(MOCK_PROCESS.memory_usage.cpu_mem)
+                                WrappedMeasurementValue::U64(mock_process.memory_usage.cpu_mem)
                             }
                             ("p1", METRIC_LABEL_PROCESS_VRAM) => {
-                                WrappedMeasurementValue::U64(MOCK_PROCESS.memory_usage.vram_mem)
+                                WrappedMeasurementValue::U64(mock_process.memory_usage.vram_mem)
                             }
                             e => panic!("Unexpected type and metrics: {e:?}"),
                         };
@@ -352,28 +360,28 @@ fn test_start_success_without_stats() {
 
             mock_processor
                 .expect_device_activity()
-                .returning(|| Err(AmdError(UNKNOWN_ERROR)));
+                .returning(|| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR)));
             mock_processor
                 .expect_device_energy_consumption()
-                .returning(|| Err(AmdError(UNKNOWN_ERROR)));
+                .returning(|| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR)));
             mock_processor
                 .expect_device_power_consumption()
-                .returning(|| Err(AmdError(UNKNOWN_ERROR)));
+                .returning(|| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR)));
             mock_processor
                 .expect_device_power_managment()
-                .returning(|| Err(AmdError(UNKNOWN_ERROR)));
+                .returning(|| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR)));
             mock_processor
                 .expect_device_process_list()
-                .returning(|| Err(AmdError(UNKNOWN_ERROR)));
+                .returning(|| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR)));
             mock_processor
                 .expect_device_voltage()
-                .returning(|_, _| Err(AmdError(UNKNOWN_ERROR)));
+                .returning(|_, _| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR)));
             mock_processor
                 .expect_device_memory_usage()
-                .returning(|_| Err(AmdError(UNKNOWN_ERROR)));
+                .returning(|_| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR)));
             mock_processor
                 .expect_device_temperature()
-                .returning(|_, _| Err(AmdError(UNKNOWN_ERROR)));
+                .returning(|_, _| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR)));
 
             Ok(vec![mock_processor])
         });
