@@ -23,7 +23,7 @@ impl DeviceExt for Device<'_> {
     ) -> Result<Vec<ProcessUtilizationSample>, NvmlError> {
         match Device::process_utilization_stats(self, last_seen_timestamp) {
             // NotFound can happen if there is no sample between now and the timestamp, in particular when the machine has just started.
-            Err(NvmlError::NotFound) => Ok(vec![]),
+            Err(NvmlError::NotFound) => Ok(Vec::new()),
             res => res,
         }
     }

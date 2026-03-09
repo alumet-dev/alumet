@@ -3042,12 +3042,13 @@ dependencies = [
 
 [[package]]
 name = "plugin-nvidia-nvml"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "alumet",
  "anyhow",
  "humantime-serde",
  "log",
+ "mockall",
  "nvml-wrapper",
  "nvml-wrapper-sys",
  "pretty_assertions",

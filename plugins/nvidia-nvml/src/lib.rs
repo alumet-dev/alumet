@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 use alumet::{
-    pipeline::{Source, elements::source::trigger::TriggerSpec},
+    pipeline::elements::source::trigger::TriggerSpec,
     plugin::{
         ConfigTable,
         rust::{AlumetPlugin, deserialize_config, serialize_config},
@@ -12,6 +12,10 @@ use alumet::{
 
 use crate::{
     metrics::{FullMetrics, MinimalMetrics},
+    nvml::{
+        NvmlDevice, NvmlProvider,
+        detect::{DeviceFailureStrategy, Devices},
+    },
     probe::SourceProvider,
 };
 
@@ -19,19 +23,25 @@ mod metrics;
 mod nvml;
 mod probe;
 
-pub struct NvmlPlugin {
+pub use nvml::objects::NvmlLoader;
+
+pub struct NvmlPlugin<P: NvmlProvider + 'static> {
     config: Config,
+    nvml: P::Lib,
 }
 
-impl AlumetPlugin for NvmlPlugin {
+impl<P: NvmlProvider + 'static> AlumetPlugin for NvmlPlugin<P> {
+    #[cfg(not(tarpaulin_include))]
     fn name() -> &'static str {
         "nvml"
     }
 
+    #[cfg(not(tarpaulin_include))]
     fn version() -> &'static str {
         env!("CARGO_PKG_VERSION")
     }
 
+    #[cfg(not(tarpaulin_include))]
     fn default_config() -> anyhow::Result<Option<ConfigTable>> {
         let config = serialize_config(Config::default())?;
         Ok(Some(config))
@@ -39,12 +49,17 @@ impl AlumetPlugin for NvmlPlugin {
 
     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
         let config = deserialize_config(config)?;
-        Ok(Box::new(NvmlPlugin { config }))
+        let nvml = P::get().context("failed to init the nvml library")?;
+        Ok(Box::new(NvmlPlugin { config, nvml }))
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
-        let nvml = nvml::device::NvmlDevices::detect(self.config.skip_failed_devices)?;
-        let stats = nvml.detection_stats();
+        let failure_strategy = match self.config.skip_failed_devices {
+            true => DeviceFailureStrategy::Skip,
+            false => DeviceFailureStrategy::Fail,
+        };
+        let detected = Devices::detect(&self.nvml, failure_strategy)?;
+        let stats = detected.detection_stats();
         if stats.found_devices == 0 {
             return Err(anyhow!(
                 "No NVML-compatible GPU found. If your device is a Jetson edge device, please disable the `nvml` feature of the plugin."
@@ -57,45 +72,39 @@ impl AlumetPlugin for NvmlPlugin {
             ));
         }
 
-        for device in &nvml.devices {
-            if let Some(device) = device {
-                let device_name = device
-                    .as_wrapper()
-                    .name()
-                    .with_context(|| format!("failed to get the name of NVML device {}", device.bus_id))?;
-                log::info!(
-                    "Found NVML device {} \"{}\" with features: {}",
-                    device.bus_id,
-                    device_name,
-                    device.features
-                );
-            }
+        for device in detected.iter() {
+            let device_bus_id = device.inner.bus_id();
+            let device_name = device.inner.name();
+            log::info!(
+                "Found NVML device {} \"{}\" with features: {}",
+                device_bus_id,
+                device_name,
+                device.features
+            );
         }
         let source_provider = match self.config.mode {
             Mode::Full => SourceProvider::Full(FullMetrics::new(alumet)?),
             Mode::Minimal => SourceProvider::Minimal(MinimalMetrics::new(alumet)?),
         };
 
-        for maybe_device in nvml.devices {
-            if let Some(device) = maybe_device {
-                let source_name = format!("device_{}", device.bus_id);
-                let trigger = TriggerSpec::builder(self.config.poll_interval)
-                    .flush_interval(self.config.flush_interval)
-                    .build()?;
+        for device in detected.into_iter() {
+            let source_name = format!("device_{}", device.inner.bus_id());
+            let trigger = TriggerSpec::builder(self.config.poll_interval)
+                .flush_interval(self.config.flush_interval)
+                .build()?;
 
-                match &source_provider {
-                    SourceProvider::Full(metrics) => {
-                        // In full mode, the measurement operation can take a long time (> 10ms).
-                        // To avoid slowing down the rest of the pipeline, we tell Alumet that the source is blocking, so that it is isolated.
-                        let source = probe::FullSource::new(device, metrics.clone())?;
-                        alumet.add_blocking_source(&source_name, Box::new(source), trigger)?;
-                    }
-                    SourceProvider::Minimal(metrics) => {
-                        let source = probe::MinimalSource::new(device, metrics.clone())?;
-                        alumet.add_source(&source_name, Box::new(source), trigger)?;
-                    }
-                };
-            }
+            match &source_provider {
+                SourceProvider::Full(metrics) => {
+                    // In full mode, the measurement operation can take a long time (> 10ms).
+                    // To avoid slowing down the rest of the pipeline, we tell Alumet that the source is blocking, so that it is isolated.
+                    let source = probe::FullSource::new(device, metrics.clone())?;
+                    alumet.add_blocking_source(&source_name, Box::new(source), trigger)?;
+                }
+                SourceProvider::Minimal(metrics) => {
+                    let source = probe::MinimalSource::new(device, metrics.clone())?;
+                    alumet.add_source(&source_name, Box::new(source), trigger)?;
+                }
+            };
         }
         Ok(())
     }
@@ -150,5 +159,250 @@ impl Default for Config {
             skip_failed_devices: true,
             mode: Mode::Full,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use alumet::{
+        agent::plugin::{PluginInfo, PluginSet},
+        measurement::MeasurementPoint,
+        pipeline::naming::SourceName,
+        plugin::PluginMetadata,
+        test::{RuntimeExpectations, StartupExpectations},
+        units::{PrefixedUnit, Unit},
+    };
+    use nvml_wrapper::{
+        enums::device::UsedGpuMemory,
+        struct_wrappers::device::{ProcessInfo, ProcessUtilizationSample, Utilization},
+        structs::device::UtilizationInfo,
+    };
+
+    use crate::nvml::{MockNvmlDevice, MockNvmlLib};
+
+    use super::*;
+
+    struct MockProvider;
+
+    impl NvmlProvider for MockProvider {
+        type Lib = MockNvmlLib;
+
+        fn get() -> anyhow::Result<Self::Lib> {
+            panic!("the plugin should be initialized with a custom metadata")
+        }
+    }
+
+    impl NvmlPlugin<MockProvider> {
+        pub fn test_metadata(nvml: MockNvmlLib) -> PluginMetadata {
+            PluginMetadata {
+                name: String::from("nvml"),
+                version: env!("CARGO_PKG_VERSION").to_owned(),
+                init: Box::new(move |config| {
+                    let config = deserialize_config(config)?;
+                    Ok(Box::new(Self { config, nvml }))
+                }),
+                default_config: Box::new(Self::default_config),
+            }
+        }
+    }
+
+    const MOCK_NAME: &str = "Mock GPU";
+    const MOCK_BUS_ID: &str = "00001999:77:00.0";
+
+    fn mock_no_gpu(mock: &mut MockNvmlLib) {
+        mock.expect_device_count().returning(|| Ok(0)).times(1);
+        mock.expect_device_by_index().never();
+    }
+
+    fn mock_one_gpu(mock: &mut MockNvmlLib) {
+        mock.expect_device_count().returning(|| Ok(1));
+        mock.expect_device_by_index().returning(|i| {
+            assert_eq!(i, 0, "invalid index");
+            let mut device = MockNvmlDevice::new();
+            device.expect_name().return_const(MOCK_NAME.to_owned());
+            device.expect_bus_id().return_const(MOCK_BUS_ID.to_owned());
+            device.expect_total_energy_consumption().returning(|| Ok(0));
+            device.expect_power_usage().returning(|| Ok(145));
+            device.expect_temperature().returning(|_| Ok(65));
+            device
+                .expect_utilization_rates()
+                .returning(|| Ok(Utilization { gpu: 50, memory: 60 }));
+            device.expect_decoder_utilization().returning(|| {
+                Ok(UtilizationInfo {
+                    utilization: 50,
+                    sampling_period: 1_000, // 1 ms
+                })
+            });
+            device.expect_encoder_utilization().returning(|| {
+                Ok(UtilizationInfo {
+                    utilization: 1,
+                    sampling_period: 10_000, // 10 ms
+                })
+            });
+            device.expect_process_utilization_stats().returning(|_| {
+                Ok(vec![ProcessUtilizationSample {
+                    pid: 1234,
+                    timestamp: 123_456_700,
+                    sm_util: 50,
+                    mem_util: 60,
+                    enc_util: 1,
+                    dec_util: 50,
+                }])
+            });
+            device.expect_running_compute_processes_count().returning(|| Ok(0));
+            device.expect_running_compute_processes().returning(|| Ok(Vec::new()));
+            device.expect_running_graphics_processes_count().returning(|| Ok(1));
+            device.expect_running_graphics_processes().returning(|| {
+                Ok(vec![ProcessInfo {
+                    pid: 1234,
+                    used_gpu_memory: UsedGpuMemory::Used(64_000),
+                    gpu_instance_id: None,
+                    compute_instance_id: None,
+                }])
+            });
+            Ok(device)
+        });
+    }
+
+    #[test]
+    fn fail_plugin_no_gpu() {
+        let mut nvml = MockNvmlLib::new();
+        mock_no_gpu(&mut nvml);
+
+        let config = serialize_config(super::Config::default()).unwrap();
+        let mut plugins = PluginSet::new();
+        plugins.add_plugin(PluginInfo {
+            metadata: NvmlPlugin::test_metadata(nvml),
+            enabled: true,
+            config: Some(config.0),
+        });
+        let agent = alumet::agent::Builder::new(plugins);
+        let running = agent.build_and_start();
+        assert!(running.is_err(), "should fail because there is no gpu");
+    }
+
+    #[test]
+    fn run_plugin_minimal() {
+        let mut nvml = MockNvmlLib::new();
+        mock_one_gpu(&mut nvml);
+
+        let config = serialize_config(super::Config {
+            mode: Mode::Minimal,
+            ..Default::default()
+        })
+        .unwrap();
+
+        let mut plugins = PluginSet::new();
+        plugins.add_plugin(PluginInfo {
+            metadata: NvmlPlugin::test_metadata(nvml),
+            enabled: true,
+            config: Some(config.0),
+        });
+        let agent = alumet::agent::Builder::new(plugins);
+
+        let startup_checks = StartupExpectations::new()
+            .expect_metric::<f64>("nvml_energy_consumption", PrefixedUnit::milli(Unit::Joule))
+            .expect_metric::<u64>("nvml_instant_power", PrefixedUnit::milli(Unit::Watt));
+
+        let source_name = SourceName::from_str("nvml", &format!("device_{MOCK_BUS_ID}"));
+        let runtime_checks = RuntimeExpectations::new().test_source(
+            source_name,
+            || {
+                // todo reconfigure the mock and trigger the source again, to check that the counterdiffs work
+            },
+            |out| {
+                // first trigger, the source only produces the instant power
+                let points = out.measurements().iter().collect::<Vec<_>>();
+                assert_eq!(points.len(), 1, "wrong number of points, got {points:?}");
+                assert_eq!(points[0].value.as_u64(), 145);
+            },
+        );
+
+        let running = agent
+            .with_expectations(startup_checks)
+            .with_expectations(runtime_checks)
+            .build_and_start()
+            .expect("should start fine");
+        running
+            .wait_for_shutdown(Duration::from_secs(1))
+            .expect("error(s) detected");
+    }
+
+    #[test]
+    fn run_plugin_full() {
+        let mut nvml = MockNvmlLib::new();
+        mock_one_gpu(&mut nvml);
+
+        let config = serialize_config(super::Config {
+            mode: Mode::Full,
+            ..Default::default()
+        })
+        .unwrap();
+
+        let mut plugins = PluginSet::new();
+        plugins.add_plugin(PluginInfo {
+            metadata: NvmlPlugin::test_metadata(nvml),
+            enabled: true,
+            config: Some(config.0),
+        });
+        let agent = alumet::agent::Builder::new(plugins);
+
+        let startup_checks = StartupExpectations::new()
+            .expect_metric::<f64>("nvml_energy_consumption", PrefixedUnit::milli(Unit::Joule))
+            .expect_metric::<u64>("nvml_instant_power", PrefixedUnit::milli(Unit::Watt))
+            .expect_metric::<u64>("nvml_temperature_gpu", Unit::DegreeCelsius)
+            .expect_metric::<u64>("nvml_gpu_utilization", Unit::Percent)
+            .expect_metric::<u64>("nvml_decoder_sampling_period", PrefixedUnit::micro(Unit::Second))
+            .expect_metric::<u64>("nvml_encoder_sampling_period", PrefixedUnit::micro(Unit::Second))
+            .expect_metric::<u64>("nvml_n_compute_processes", Unit::Unity)
+            .expect_metric::<u64>("nvml_n_graphic_processes", Unit::Unity)
+            .expect_metric::<u64>("nvml_memory_utilization", Unit::Percent)
+            .expect_metric::<u64>("nvml_decoder_utilization", Unit::Percent)
+            .expect_metric::<u64>("nvml_encoder_utilization", Unit::Percent)
+            .expect_metric::<u64>("nvml_sm_utilization", Unit::Percent);
+
+        let source_name = SourceName::from_str("nvml", &format!("device_{MOCK_BUS_ID}"));
+        let runtime_checks = RuntimeExpectations::new().test_source(
+            source_name,
+            || {
+                // todo reconfigure the mock and trigger the source again, to check that the counterdiffs work
+            },
+            |out| {
+                // first trigger
+                // collect the points in a map by metric name
+                let points = out
+                    .measurements()
+                    .into_iter()
+                    .map(|p| {
+                        let metric_name = out.metrics().by_id(&p.metric).expect("missing metric").name.clone();
+                        (metric_name, p)
+                    })
+                    .collect::<HashMap<String, &MeasurementPoint>>();
+
+                assert_eq!(points.len(), 10, "wrong number of points, got {points:?}");
+
+                assert_eq!(points["nvml_encoder_utilization"].value.as_u64(), 1);
+                assert_eq!(points["nvml_decoder_utilization"].value.as_u64(), 50);
+                assert_eq!(points["nvml_gpu_utilization"].value.as_u64(), 50);
+                assert_eq!(points["nvml_memory_utilization"].value.as_u64(), 60);
+                assert_eq!(points["nvml_n_compute_processes"].value.as_u64(), 0);
+                assert_eq!(points["nvml_n_graphic_processes"].value.as_u64(), 1);
+                assert_eq!(points["nvml_temperature_gpu"].value.as_u64(), 65);
+                assert_eq!(points["nvml_instant_power"].value.as_u64(), 145);
+                assert_eq!(points["nvml_encoder_sampling_period"].value.as_u64(), 10_000);
+                assert_eq!(points["nvml_decoder_sampling_period"].value.as_u64(), 1_000);
+            },
+        );
+
+        let running = agent
+            .with_expectations(startup_checks)
+            .with_expectations(runtime_checks)
+            .build_and_start()
+            .expect("should start fine");
+        running
+            .wait_for_shutdown(Duration::from_secs(1))
+            .expect("error(s) detected");
     }
 }
