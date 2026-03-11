@@ -10,13 +10,13 @@ anyhow.workspace = true
 log.workspace = true
 humantime-serde.workspace = true
 serde = { workspace = true, features = ["derive"] }
-amd-smi-wrapper = { git = "https://github.com/alumet-dev/amd-smi-wrapper.git", version = "0.2.0" }
+amd-smi-wrapper = { git = "https://github.com/alumet-dev/amd-smi-wrapper.git", tag = "v0.2.0", version = "0.2.0" }
 
 [dev-dependencies]
 alumet = { workspace = true, features = ["test"] }
 toml.workspace = true
 env_logger.workspace = true
-amd-smi-wrapper = { git = "https://github.com/alumet-dev/amd-smi-wrapper.git", version = "0.2.0", features = ["mock"] }
+amd-smi-wrapper = { git = "https://github.com/alumet-dev/amd-smi-wrapper.git", tag = "v0.2.0", version = "0.2.0", features = ["mock"] }
 
 [lints]
 workspace = true
