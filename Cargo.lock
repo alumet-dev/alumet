@@ -83,7 +83,6 @@ dependencies = [
  "libc",
  "log",
  "plugin-aggregation",
- "plugin-amd-gpu",
  "plugin-csv",
  "plugin-elasticsearch",
  "plugin-energy-attribution",
@@ -2927,7 +2926,6 @@ dependencies = [
  "alumet",
  "anyhow",
  "log",
- "pretty_assertions",
  "serde",
  "toml 0.9.5",
 ]

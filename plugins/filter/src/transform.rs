@@ -23,15 +23,13 @@ impl FilterTransform {
             (Some(ids), None) => FilterMode::Include(ids),
             (None, Some(ids)) => FilterMode::Exclude(ids),
             (None, None) => {
-                return Err(anyhow::anyhow!(
-                    "filter transform cannot have both include and exclude empty"
-                ));
-            } // shouldn't happen as it's validated at plugin init stage
+                // shouldn't happen as it's validated at plugin init stage
+                unreachable!("filter transform cannot have both include and exclude empty");
+            }
             (Some(_), Some(_)) => {
-                return Err(anyhow::anyhow!(
-                    "filter transform cannot have both include and exclude set"
-                ));
-            } // shouldn't happen as it's validated at plugin init stage
+                // shouldn't happen as it's validated at plugin init stage
+                unreachable!("filter transform cannot have both include and exclude set");
+            }
         };
 
         Ok(Self { mode })
