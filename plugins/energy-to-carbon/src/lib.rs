@@ -25,17 +25,22 @@ pub struct EnergyToCarbonPlugin{
     config: Config,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(default)]
 struct Config {
     /// Time between each activation of the counter source.
+    emission_intensity_override: u64,
     #[serde(with = "humantime_serde")]
     poll_interval: Duration,
+    replace_metrics: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
+            emission_intensity_override: 475,
             poll_interval: Duration::from_secs(1),
+            replace_metrics: true,
         }
     }
 }
@@ -82,6 +87,7 @@ impl AlumetPlugin for EnergyToCarbonPlugin {
         let source_energy = ExampleSource {
             metric_energy: energy,
             metric_not_energy: not_energy,
+            config: self.config.clone(),
         };
 
         // How the source is triggered
@@ -104,6 +110,7 @@ impl AlumetPlugin for EnergyToCarbonPlugin {
         // Create the transform
         let transform = EnergyToCarbonTransform {
             carbon_emission: carbon_emission.untyped_id(),
+            config: self.config.clone(),
         };
 
         // Add the transform to the measurement pipeline
@@ -121,6 +128,7 @@ impl AlumetPlugin for EnergyToCarbonPlugin {
 struct ExampleSource {
     metric_energy: TypedMetricId<u64>,
     metric_not_energy: TypedMetricId<u64>,
+    config: Config,
 }
 // For testing only
 impl Source for ExampleSource {
@@ -152,6 +160,7 @@ impl Source for ExampleSource {
 
 struct EnergyToCarbonTransform {
     carbon_emission: RawMetricId,
+    config: Config,
 }
 
 // MeasurementBuffer::MeasurementPoint::{RawMetricId, Timestamp, WrappedMeasurementValue, Resource, ResourceConsumer, SmallVec<[(Cow<'static, str>, AttributeValue); 4]>}
@@ -161,7 +170,6 @@ struct EnergyToCarbonTransform {
 
 impl Transform for EnergyToCarbonTransform {
     fn apply(&mut self, measurements: &mut MeasurementBuffer, _ctx: &TransformContext) -> Result<(), TransformError> {
-        const EMISSION_INTENSITY: u64 = 200;
 
         let mut carbon_points = Vec::new();
 
@@ -179,19 +187,23 @@ impl Transform for EnergyToCarbonTransform {
                     self.carbon_emission,
                     m.resource.clone(),
                     m.consumer.clone(),
-                    WrappedMeasurementValue::U64(energy * EMISSION_INTENSITY),
+                    WrappedMeasurementValue::U64(energy * self.config.emission_intensity_override),
                 ));
             } 
         }
         
         // Remove original joules points, replace with carbon points
-        let kept: MeasurementBuffer = measurements
+        if self.config.replace_metrics {
+            let kept: MeasurementBuffer = measurements
             .iter()
-            .filter(|m| m.metric != self.carbon_emission)
+            .filter(|m| {
+                let metric = _ctx.metrics.by_id(&m.metric).unwrap();
+                metric.unit.base_unit != Unit::Joule
+            })
             .cloned()
             .collect();
         *measurements = kept;
-
+        }
 
         for point in carbon_points {
             measurements.push(point);
