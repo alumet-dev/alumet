@@ -1,3 +1,5 @@
+//! Detect which features are available on the GPUs.
+
 use nvml_wrapper::{enum_wrappers::device::TemperatureSensor, error::NvmlError};
 use std::fmt::Display;
 

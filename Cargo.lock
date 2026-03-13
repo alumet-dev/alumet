@@ -3046,6 +3046,7 @@ version = "0.6.0"
 dependencies = [
  "alumet",
  "anyhow",
+ "enum-map",
  "humantime-serde",
  "log",
  "mockall",

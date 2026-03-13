@@ -1,4 +1,4 @@
-//! Detection of all GPU devices.
+//! Detect which GPU devices are available.
 
 use anyhow::Context;
 
