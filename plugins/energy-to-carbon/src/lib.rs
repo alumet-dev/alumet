@@ -14,13 +14,31 @@ use alumet::{
     },
     plugin::{
         AlumetPluginStart, ConfigTable,
-        rust::AlumetPlugin,
+        rust::{AlumetPlugin, serialize_config, deserialize_config},
     },
     resources::{Resource, ResourceConsumer},
     units::Unit,
 };
+use serde::{Serialize, Deserialize};
 
-pub struct EnergyToCarbonPlugin;
+pub struct EnergyToCarbonPlugin{
+    config: Config,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Config {
+    /// Time between each activation of the counter source.
+    #[serde(with = "humantime_serde")]
+    poll_interval: Duration,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            poll_interval: Duration::from_secs(1),
+        }
+    }
+}
 
 impl AlumetPlugin for EnergyToCarbonPlugin {
     fn name() -> &'static str {
@@ -33,13 +51,14 @@ impl AlumetPlugin for EnergyToCarbonPlugin {
     }
 
     fn default_config() -> anyhow::Result<Option<ConfigTable>> {
-        log::info!("Default here!!!");
-        Ok(None) // no config for the moment
+        let config = serialize_config(Config::default())?;
+        Ok(Some(config))
     }
 
-    fn init(_config: ConfigTable) -> anyhow::Result<Box<Self>> {
+    fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
         log::info!("Init here!!!");
-        Ok(Box::new(EnergyToCarbonPlugin))
+        let config = deserialize_config(config)?;
+        Ok(Box::new(EnergyToCarbonPlugin { config }))
     }
 
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
@@ -66,10 +85,10 @@ impl AlumetPlugin for EnergyToCarbonPlugin {
         };
 
         // How the source is triggered
-        let trigger_s = trigger::builder::time_interval(Duration::from_secs(1)).build()?;
+        let trigger_s = trigger::builder::time_interval(self.config.poll_interval).build()?;
 
         // Add the source to the measurement pipeline
-        alumet.add_source("counter", Box::new(source_energy), trigger_s);
+        let _ = alumet.add_source("counter", Box::new(source_energy), trigger_s);
 
         // === Transform ===
 
@@ -88,7 +107,7 @@ impl AlumetPlugin for EnergyToCarbonPlugin {
         };
 
         // Add the transform to the measurement pipeline
-        alumet.add_transform("transform", Box::new(transform));
+        let _ = alumet.add_transform("transform", Box::new(transform));
 
         Ok(())
     }
