@@ -1,11 +1,14 @@
 use std::time::Duration;
 use alumet::{
-    measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
-    metrics::TypedMetricId,
+    units::PrefixedUnit,
+    measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp, WrappedMeasurementValue, MeasurementBuffer},
+    metrics::{TypedMetricId, RawMetricId, def::MetricId},
     pipeline::{
+        Transform,
         Source,
         elements::{
-            error::PollError,
+            error::{PollError,TransformError},
+            transform::TransformContext,
             source::trigger,
         },
     },
@@ -42,19 +45,19 @@ impl AlumetPlugin for EnergyToCarbonPlugin {
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         log::info!("Start here!!");
 
-        // create a metric for the source
+        // Test metric
         let energy = alumet.create_metric::<u64> (
             "exemple_energy",
             Unit::Joule,
             "42j sent every seconds (for testing only)",
         )?;
 
+        // Test metric
         let not_energy = alumet.create_metric::<u64> (
             "exemple_not_energy",
             Unit::Second,
             "2s sent every seconds (for testing only)",
         )?;
-
 
         // create the sources
         let source_energy = ExampleSource {
@@ -67,6 +70,25 @@ impl AlumetPlugin for EnergyToCarbonPlugin {
 
         // Add the source to the measurement pipeline
         alumet.add_source("counter", Box::new(source_energy), trigger_s);
+
+        // === Transform ===
+
+        let carbon_emission = alumet.create_metric::<u64>(
+            "carbon_emission",
+            Unit::Custom {
+                unique_name: "g_CO2".to_string(),
+                display_name: "gCO₂".to_string(),
+            },
+            "Carbon emission in grams of CO2 equivalent, computed from energy consumption and emission intensity.",
+        )?;
+
+        // Create the transform
+        let transform = EnergyToCarbonTransform {
+            carbon_emission: carbon_emission.untyped_id(),
+        };
+
+        // Add the transform to the measurement pipeline
+        alumet.add_transform("transform", Box::new(transform));
 
         Ok(())
     }
@@ -104,5 +126,59 @@ impl Source for ExampleSource {
         acc.push(point_energy);
         acc.push(point_not_energy);
         Ok(())
+    }
+}
+
+// === Transform bellow ===
+
+struct EnergyToCarbonTransform {
+    carbon_emission: RawMetricId,
+}
+
+// MeasurementBuffer::MeasurementPoint::{RawMetricId, Timestamp, WrappedMeasurementValue, Resource, ResourceConsumer, SmallVec<[(Cow<'static, str>, AttributeValue); 4]>}
+// measurements       m                 {metric,      timestamp, value,                   resource, consumer,         attributes}
+//
+// RawMetricId
+
+impl Transform for EnergyToCarbonTransform {
+    fn apply(&mut self, measurements: &mut MeasurementBuffer, _ctx: &TransformContext) -> Result<(), TransformError> {
+        const EMISSION_INTENSITY: u64 = 200;
+
+        let mut carbon_points = Vec::new();
+
+        for m in measurements.iter() {
+            let metric = _ctx.metrics.by_id(&m.metric).unwrap();
+            // If the metric in joules => transform it => add it to `carbon_points`
+            if metric.unit == PrefixedUnit::from(Unit::Joule) {
+                let energy = match m.value {
+                    WrappedMeasurementValue::U64(v) => v,
+                    WrappedMeasurementValue::F64(v) => v as u64,
+                };
+
+                carbon_points.push(MeasurementPoint::new_untyped(
+                    m.timestamp,
+                    self.carbon_emission,
+                    m.resource.clone(),
+                    m.consumer.clone(),
+                    WrappedMeasurementValue::U64(energy * EMISSION_INTENSITY),
+                ));
+            } 
+        }
+        
+        // Remove original joules points, replace with carbon points
+        let kept: MeasurementBuffer = measurements
+            .iter()
+            .filter(|m| m.metric != self.carbon_emission)
+            .cloned()
+            .collect();
+        *measurements = kept;
+
+
+        for point in carbon_points {
+            measurements.push(point);
+        }
+
+        Ok(())
+    
     }
 }
