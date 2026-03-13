@@ -58,4 +58,4 @@ unused_enumerate_index = "deny"
 useless_format = "deny"
 
 [workspace.lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin)'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin, tarpaulin_include)'] }

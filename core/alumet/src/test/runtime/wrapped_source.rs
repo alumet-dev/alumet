@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::anyhow;
-use tokio::sync::mpsc;
+use tokio::{runtime::RuntimeFlavor, sync::mpsc};
 
 use crate::{
     measurement::{MeasurementAccumulator, Timestamp},
@@ -42,6 +42,8 @@ impl Source for WrappedManagedSource {
 
 impl WrappedManagedSource {
     fn test_poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
+        use futures::FutureExt;
+
         // prepare input
         log::trace!("receiving next check...");
         let check = self.in_rx.try_recv().unwrap().0;
@@ -59,16 +61,20 @@ impl WrappedManagedSource {
         let metrics_r = metrics_lock
             .as_ref()
             .expect("MetricReader should be set before the pipeline starts");
-        tokio::task::block_in_place(move || {
-            let mut check_ctx = SourceCheckOutputContext {
-                measurements: measurements.as_inner(),
-                metrics: &metrics_r.blocking_read(),
-            };
 
-            // check output
-            log::trace!("applying check");
-            (check.check_output)(&mut check_ctx);
-        });
+        // We previously used `tokio::task::block_in_place` to execute this blocking check.
+        // However, it doesn't work in single-threaded runtimes, which are used for blocking sources.
+        let lock = metrics_r
+            .read()
+            .now_or_never()
+            .expect("the registry should not be under contention during serial tests");
+        let mut check_ctx = SourceCheckOutputContext {
+            measurements: measurements.as_inner(),
+            metrics: &lock,
+        };
+        // check output
+        log::trace!("applying check");
+        (check.check_output)(&mut check_ctx);
 
         self.out_tx.try_send(SourceDone).unwrap();
         log::trace!("wrapped source done");

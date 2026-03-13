@@ -1,10 +1,11 @@
 target/
-app-*/flamegraph.svg
-app-*/*.coz
-app-*/perf.data
-app-*/perf.data.old
-app-*/*output.csv
+agent/flamegraph.svg
+agent/*.coz
+agent/perf.data
+agent/perf.data.old
+agent/*output.csv
 .DS_Store
 .vscode
 tmp/
 .cargo
+tarpaulin-report.html

@@ -1,11 +1,13 @@
 use std::{
     cell::RefCell,
+    collections::HashMap,
     ops::Deref,
     rc::Rc,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
+use indexmap::IndexMap;
 use rustc_hash::FxHashMap;
 use tokio::sync::RwLockReadGuard;
 use wrapped_output::{OutputDone, SetOutputOutputCheck, WrappedOutput};
@@ -14,7 +16,7 @@ use wrapped_transform::{SetTransformOutputCheck, TransformDone, WrappedTransform
 
 use crate::{
     agent::builder::TestExpectations,
-    measurement::{MeasurementBuffer, MeasurementType},
+    measurement::{MeasurementBuffer, MeasurementPoint, MeasurementType},
     metrics::{
         Metric, RawMetricId,
         duplicate::{DuplicateCriteria, DuplicateReaction},
@@ -39,6 +41,7 @@ use crate::{
         matching::{OutputNamePattern, SourceNamePattern, TransformNamePattern},
         naming::{OutputName, PluginName, SourceName, TransformName},
     },
+    resources::{Resource, ResourceConsumer},
     units::PrefixedUnit,
 };
 
@@ -707,6 +710,21 @@ impl<'a> SourceCheckOutputContext<'a> {
 
     pub fn metrics(&'a self) -> &'a MetricRegistry {
         self.metrics
+    }
+
+    pub fn points_by_metric_and_consumer(&'a self) -> IndexMap<(&'a str, ResourceConsumer), &'a MeasurementPoint> {
+        self.measurements()
+            .into_iter()
+            .map(|p| {
+                let metric = self
+                    .metrics()
+                    .by_id(&p.metric)
+                    .unwrap_or_else(|| panic!("unknown metric with id {} in {p:?}", &p.metric.0));
+                let metric_name = metric.name.as_str();
+                let consumer = p.consumer.clone();
+                ((metric_name, consumer), p)
+            })
+            .collect()
     }
 }
 

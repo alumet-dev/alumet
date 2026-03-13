@@ -1,6 +1,6 @@
 use anyhow::{Context, anyhow};
 use nvml_wrapper::{enum_wrappers::device::TemperatureSensor, error::NvmlError};
-use std::time::SystemTime;
+use std::{borrow::Cow, time::SystemTime};
 
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
@@ -10,12 +10,12 @@ use alumet::{
 };
 
 use crate::{
-    features::AvailableVersion,
     metrics::{FullMetrics, MinimalMetrics},
-    nvml_ext::DeviceExt,
+    nvml::{
+        NvmlDevice,
+        features::{AvailableVersion, DetectedDevice},
+    },
 };
-
-use super::device::ManagedDevice;
 
 pub enum SourceProvider {
     Full(FullMetrics),
@@ -23,11 +23,11 @@ pub enum SourceProvider {
 }
 
 /// Measurement source that queries NVML devices.
-pub struct FullSource {
+pub struct FullSource<D: NvmlDevice> {
     /// Internal state to compute the difference between two increments of the counter.
     energy_counter: CounterDiff,
     /// Handle to the GPU, with features information.
-    device: ManagedDevice,
+    device: DetectedDevice<D>,
     /// Alumet metrics IDs.
     metrics: FullMetrics,
     /// Alumet resource ID.
@@ -38,8 +38,8 @@ pub struct FullSource {
 }
 
 /// A minimal measurement source, that only queries basic NVML info in order to be faster.
-pub struct MinimalSource {
-    device: ManagedDevice,
+pub struct MinimalSource<D: NvmlDevice> {
+    device: DetectedDevice<D>,
     metrics: MinimalMetrics,
     resource: Resource,
 
@@ -49,12 +49,12 @@ pub struct MinimalSource {
 
 // SAFETY: The pointer `nvmlDevice_t` returned by NVML can be sent between threads.
 // NVML is thread-safe according to its documentation.
-unsafe impl Send for FullSource {}
-unsafe impl Send for MinimalSource {}
+unsafe impl<D: NvmlDevice> Send for FullSource<D> {}
+unsafe impl<D: NvmlDevice> Send for MinimalSource<D> {}
 
-impl FullSource {
-    pub fn new(device: ManagedDevice, metrics: FullMetrics) -> Result<Self, NvmlError> {
-        let bus_id = std::borrow::Cow::Owned(device.bus_id.clone());
+impl<D: NvmlDevice> FullSource<D> {
+    pub fn new(device: DetectedDevice<D>, metrics: FullMetrics) -> Result<Self, NvmlError> {
+        let bus_id = Cow::Owned(device.inner.bus_id().to_owned());
         Ok(FullSource {
             energy_counter: CounterDiff::with_max_value(u64::MAX),
             device,
@@ -65,10 +65,10 @@ impl FullSource {
     }
 }
 
-impl Source for FullSource {
+impl<D: NvmlDevice> Source for FullSource<D> {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         let features = &self.device.features;
-        let device = self.device.as_wrapper();
+        let device = &self.device.inner;
 
         // no consumer, we just monitor the device here
         let consumer = ResourceConsumer::LocalMachine;
@@ -216,7 +216,7 @@ impl Source for FullSource {
                     .as_secs();
 
                 let processes_samples = device
-                    .fixed_process_utilization_stats(unix_ts)
+                    .process_utilization_stats(unix_ts)
                     .context("process_utilization_stats failed")?;
 
                 for process_sample in processes_samples {
@@ -274,12 +274,13 @@ struct PowerMeasure {
     power: u32,
 }
 
-impl MinimalSource {
-    pub fn new(device: ManagedDevice, metrics: MinimalMetrics) -> anyhow::Result<Self> {
-        let bus_id = std::borrow::Cow::Owned(device.bus_id.clone());
+impl<D: NvmlDevice> MinimalSource<D> {
+    pub fn new(device: DetectedDevice<D>, metrics: MinimalMetrics) -> anyhow::Result<Self> {
+        let bus_id = Cow::Owned(device.inner.bus_id().to_owned());
         if !device.features.instant_power {
             return Err(anyhow!(
-                "minimal mode cannot be used on GPU [{bus_id}]: nvmlDeviceGetPowerUsage is not supported"
+                "minimal mode cannot be used on GPU {}: nvmlDeviceGetPowerUsage is not supported",
+                device.inner
             ));
         }
         Ok(Self {
@@ -291,9 +292,9 @@ impl MinimalSource {
     }
 }
 
-impl Source for MinimalSource {
+impl<D: NvmlDevice> Source for MinimalSource<D> {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
-        let device = self.device.as_wrapper();
+        let device = &self.device.inner;
 
         // no consumer, we just monitor the device here
         let consumer = ResourceConsumer::LocalMachine;

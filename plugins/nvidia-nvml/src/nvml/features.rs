@@ -1,7 +1,16 @@
-use nvml_wrapper::{Device, enum_wrappers::device::TemperatureSensor, error::NvmlError};
+//! Detect which features are available on the GPUs.
+
+use nvml_wrapper::{enum_wrappers::device::TemperatureSensor, error::NvmlError};
 use std::fmt::Display;
 
-use crate::nvml_ext::DeviceExt;
+use super::{NvmlDevice, NvmlResult};
+
+pub struct DetectedDevice<D: NvmlDevice> {
+    /// Status of the optional features: which feature is available on this device?
+    pub features: OptionalFeatures,
+
+    pub inner: D,
+}
 
 /// Indicates which version of a NVML function is available on a given device.
 #[derive(Debug, PartialEq, Eq)]
@@ -12,7 +21,7 @@ pub enum AvailableVersion {
 }
 
 /// Indicates which features are available on a given NVML device.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct OptionalFeatures {
     /// Total electric energy consumed by GPU.
     pub total_energy_consumption: bool,
@@ -36,7 +45,7 @@ pub struct OptionalFeatures {
 
 impl OptionalFeatures {
     /// Detect the features available on the given device.
-    pub fn detect_on(device: &Device) -> Result<Self, NvmlError> {
+    pub fn detect_on(device: &impl NvmlDevice) -> NvmlResult<Self> {
         Ok(Self {
             total_energy_consumption: is_supported(device.total_energy_consumption())?,
             instant_power: is_supported(device.power_usage())?,
@@ -44,14 +53,10 @@ impl OptionalFeatures {
             major_utilization: is_supported(device.utilization_rates())?,
             decoder_utilization: is_supported(device.decoder_utilization())?,
             encoder_utilization: is_supported(device.encoder_utilization())?,
-            process_utilization_stats: is_supported(device.fixed_process_utilization_stats(0))?,
+            process_utilization_stats: is_supported(device.process_utilization_stats(0))?,
             running_compute_processes: check_running_compute_processes(device)?,
             running_graphics_processes: check_running_graphics_processes(device)?,
         })
-    }
-
-    pub fn with_detected_features<'a>(device: Device<'a>) -> Result<(Device<'a>, Self), NvmlError> {
-        Self::detect_on(&device).map(|features| (device, features))
     }
 
     pub fn has_any(&self) -> bool {
@@ -105,23 +110,33 @@ impl Display for OptionalFeatures {
 }
 
 /// Checks which version of `running_compute_processes` is available (if any) on this NVML device.
-fn check_running_compute_processes(device: &Device) -> Result<AvailableVersion, NvmlError> {
-    match device.running_compute_processes() {
-        Ok(_) => Ok(AvailableVersion::Latest),
-        Err(NvmlError::FailedToLoadSymbol(_)) => match device.running_compute_processes_v2() {
-            Ok(_) => Ok(AvailableVersion::V2),
-            Err(e) => Err(e),
-        },
-        Err(e) => Err(e),
-    }
+fn check_running_compute_processes(device: &impl NvmlDevice) -> Result<AvailableVersion, NvmlError> {
+    detect_biversion(
+        device,
+        |d| d.running_compute_processes(),
+        |d| d.running_compute_processes_v2(),
+    )
 }
 
 /// Checks which version of `running_graphic_processes` is available (if any) on this NVML device.
-fn check_running_graphics_processes(device: &Device) -> Result<AvailableVersion, NvmlError> {
-    match device.running_graphics_processes() {
+fn check_running_graphics_processes(device: &impl NvmlDevice) -> Result<AvailableVersion, NvmlError> {
+    detect_biversion(
+        device,
+        |d| d.running_graphics_processes(),
+        |d| d.running_graphics_processes_v2(),
+    )
+}
+
+fn detect_biversion<D: NvmlDevice, R1, R2>(
+    device: &D,
+    v3_latest: impl FnOnce(&D) -> NvmlResult<R1>,
+    v2: impl FnOnce(&D) -> NvmlResult<R2>,
+) -> NvmlResult<AvailableVersion> {
+    match v3_latest(device) {
         Ok(_) => Ok(AvailableVersion::Latest),
-        Err(NvmlError::FailedToLoadSymbol(_)) => match device.running_graphics_processes_v2() {
+        Err(NvmlError::FailedToLoadSymbol(_) | NvmlError::NotSupported) => match v2(device) {
             Ok(_) => Ok(AvailableVersion::V2),
+            Err(NvmlError::FailedToLoadSymbol(_) | NvmlError::NotSupported) => Ok(AvailableVersion::None),
             Err(e) => Err(e),
         },
         Err(e) => Err(e),
@@ -132,7 +147,7 @@ fn check_running_graphics_processes(device: &Device) -> Result<AvailableVersion,
 ///
 /// # Example
 /// ```ignore
-/// let device: &nvml_wrapper::Device = todo!();
+/// let device: &nvml_wrapper::ManagedDevice = todo!();
 /// let power_available = features::is_supported(device.power_usage()).expect("test");
 /// ```
 fn is_supported<T>(res: Result<T, NvmlError>) -> Result<bool, NvmlError> {
@@ -145,13 +160,14 @@ fn is_supported<T>(res: Result<T, NvmlError>) -> Result<bool, NvmlError> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use nvml_wrapper::{Nvml, error::NvmlError};
+    use crate::nvml::MockNvmlDevice;
 
-    // Test `fmt` function with all correctly implemented data in features
-    #[ignore = "NO GPU"]
+    use super::{AvailableVersion, OptionalFeatures};
+    use nvml_wrapper::error::NvmlError;
+    use pretty_assertions::assert_eq;
+
     #[test]
-    fn test_fmt_with_all_valid_data() {
+    fn features_fmt_all() {
         let features = OptionalFeatures {
             total_energy_consumption: true,
             instant_power: true,
@@ -169,62 +185,28 @@ mod tests {
         );
     }
 
-    // Test `fmt` function with some implemented data in features
-    #[ignore = "NO GPU"]
     #[test]
-    fn test_fmt_with_data() {
+    fn features_fmt_some() {
         let features = OptionalFeatures {
-            total_energy_consumption: false,
+            total_energy_consumption: true,
             instant_power: false,
-            major_utilization: false,
+            major_utilization: true,
             decoder_utilization: true,
             encoder_utilization: true,
             process_utilization_stats: false,
-            temperature_gpu: true,
-            running_compute_processes: AvailableVersion::None,
+            temperature_gpu: false,
+            running_compute_processes: AvailableVersion::V2,
             running_graphics_processes: AvailableVersion::None,
         };
         assert_eq!(
             format!("{}", features),
-            "decoder_utilization, encoder_utilization, temperature_gpu"
+            "total_energy_consumption, major_utilization, decoder_utilization, encoder_utilization, running_compute_processes(v2)"
         );
     }
 
-    // Test `fmt` function with with v2 running processes implemented data in feature
-    #[ignore = "NO GPU"]
+    /// Test `has_any` function with no available features
     #[test]
-    fn test_fmt_with_v2_running_processes() {
-        let features = OptionalFeatures {
-            total_energy_consumption: false,
-            instant_power: false,
-            major_utilization: false,
-            decoder_utilization: false,
-            encoder_utilization: false,
-            process_utilization_stats: false,
-            temperature_gpu: false,
-            running_compute_processes: AvailableVersion::V2,
-            running_graphics_processes: AvailableVersion::V2,
-        };
-        assert_eq!(
-            format!("{}", features),
-            "running_compute_processes(v2), running_graphics_processes(v2)"
-        );
-    }
-
-    // Test `has_any` function to check existence of a real device
-    #[ignore = "NO GPU"]
-    #[test]
-    fn test_has_any() {
-        let nvml = Nvml::init().expect("Initialize NVML lib");
-        let device = nvml.device_by_index(0).expect("Device recognizing");
-        let features = OptionalFeatures::detect_on(&device).expect("Detect features");
-        assert!(features.has_any());
-    }
-
-    // Test `has_any` function with no implemented data in features
-    #[ignore = "NO GPU"]
-    #[test]
-    fn test_has_any_no_data() {
+    fn has_any_no_features() {
         let features = OptionalFeatures {
             total_energy_consumption: false,
             instant_power: false,
@@ -239,61 +221,96 @@ mod tests {
         assert!(!features.has_any());
     }
 
-    // Test `is_supported` function in successfully and failure cases
-    #[ignore = "NO GPU"]
     #[test]
-    fn test_is_supported() {
-        let result: Result<(), NvmlError> = Ok(());
-        assert!(matches!(is_supported(result), Ok(true)));
+    pub fn detect_some() {
+        let mut device = MockNvmlDevice::new();
+        device.expect_total_energy_consumption().returning(|| Ok(0));
+        device.expect_power_usage().returning(|| Ok(145));
+        device.expect_temperature().returning(|_| Err(NvmlError::NotSupported));
+        device
+            .expect_utilization_rates()
+            .returning(|| Err(NvmlError::NotSupported));
+        device
+            .expect_decoder_utilization()
+            .returning(|| Err(NvmlError::NotSupported));
+        device
+            .expect_encoder_utilization()
+            .returning(|| Err(NvmlError::NotSupported));
+        device
+            .expect_process_utilization_stats()
+            .returning(|_| Err(NvmlError::NotSupported));
 
-        let result: Result<(), NvmlError> = Err(NvmlError::NotSupported);
-        assert!(matches!(is_supported(result), Ok(false)));
+        // compute processes: no v3, but v2
+        device.expect_running_compute_processes().returning(|| {
+            Err(NvmlError::FailedToLoadSymbol(String::from(
+                "nvmlDeviceGetComputeRunningProcesses_v3",
+            )))
+        });
+        device.expect_running_compute_processes_v2().returning(|| {
+            Ok(Vec::new()) // no processes
+        });
 
-        let error = NvmlError::Unknown;
-        let result: Result<(), NvmlError> = Err(error);
-        let avail = is_supported(result);
+        // graphics processes: not supported
+        device
+            .expect_running_graphics_processes()
+            .returning(|| {
+                Err(NvmlError::FailedToLoadSymbol(String::from(
+                    "nvmlDeviceGetGraphicsRunningProcesses_v3",
+                )))
+            })
+            .times(1);
+        device
+            .expect_running_graphics_processes_v2()
+            .returning(|| {
+                Err(NvmlError::FailedToLoadSymbol(String::from(
+                    "nvmlDeviceGetGraphicsRunningProcesses_v2",
+                )))
+            })
+            .times(1);
 
-        match avail {
-            Err(e) => assert!(matches!(e, NvmlError::Unknown)),
-            _ => panic!("Expected error {:?}", avail),
-        }
-    }
-
-    // Test `check_running_compute_processes` function in successfully case
-    #[ignore = "NO GPU"]
-    #[test]
-    fn test_check_running_compute_processes() {
-        let nvml = Nvml::init().expect("Initialize NVML lib");
-        let device = nvml.device_by_index(0).expect("Device recognizing");
-        let result = check_running_compute_processes(&device);
-
-        match result {
-            Ok(version) => {
-                assert_eq!(version, AvailableVersion::Latest);
+        let features = OptionalFeatures::detect_on(&device).expect("detection failed");
+        assert_eq!(
+            features,
+            OptionalFeatures {
+                total_energy_consumption: true,
+                instant_power: true,
+                temperature_gpu: false,
+                major_utilization: false,
+                decoder_utilization: false,
+                encoder_utilization: false,
+                process_utilization_stats: false,
+                running_compute_processes: AvailableVersion::V2,
+                running_graphics_processes: AvailableVersion::None
             }
-            Err(NvmlError::FailedToLoadSymbol(_)) => {
-                assert!(true);
-            }
-            Err(e) => panic!("Unexpected error: {:?}", e),
-        }
-    }
+        );
 
-    // Test `check_running_graphics_processes` function in successfully case
-    #[ignore = "NO GPU"]
-    #[test]
-    fn test_check_running_graphics_processes() {
-        let nvml = Nvml::init().expect("Initialize NVML lib");
-        let device = nvml.device_by_index(0).expect("Device recognizing");
-        let result = check_running_graphics_processes(&device);
+        // v3 is now available
+        device
+            .expect_running_graphics_processes()
+            .returning(|| Ok(Vec::new()))
+            .times(1);
+        device.expect_running_graphics_processes_v2().never();
+        let features = OptionalFeatures::detect_on(&device).expect("detection failed");
+        assert_eq!(
+            features,
+            OptionalFeatures {
+                total_energy_consumption: true,
+                instant_power: true,
+                temperature_gpu: false,
+                major_utilization: false,
+                decoder_utilization: false,
+                encoder_utilization: false,
+                process_utilization_stats: false,
+                running_compute_processes: AvailableVersion::V2,
+                running_graphics_processes: AvailableVersion::Latest
+            }
+        );
 
-        match result {
-            Ok(version) => {
-                assert_eq!(version, AvailableVersion::Latest);
-            }
-            Err(NvmlError::FailedToLoadSymbol(_)) => {
-                assert!(true);
-            }
-            Err(e) => panic!("Unexpected error: {:?}", e),
-        }
+        // failure
+        device
+            .expect_running_graphics_processes()
+            .returning(|| Err(NvmlError::GpuLost))
+            .times(1);
+        OptionalFeatures::detect_on(&device).expect_err("should fail");
     }
 }
