@@ -29,7 +29,7 @@ pub struct EnergyToCarbonPlugin{
 #[serde(default)]
 struct Config {
     /// Time between each activation of the counter source.
-    emission_intensity_override: u64,
+    emission_intensity_override: f64,
     #[serde(with = "humantime_serde")]
     poll_interval: Duration,
     replace_metrics: bool,
@@ -38,7 +38,7 @@ struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            emission_intensity_override: 475,
+            emission_intensity_override: 475.0,
             poll_interval: Duration::from_secs(1),
             replace_metrics: true,
         }
@@ -70,7 +70,7 @@ impl AlumetPlugin for EnergyToCarbonPlugin {
         log::info!("Start here!!");
 
         // Test metric
-        let energy = alumet.create_metric::<u64> (
+        let energy = alumet.create_metric::<f64> (
             "exemple_energy",
             Unit::Joule,
             "42j sent every seconds (for testing only)",
@@ -98,7 +98,7 @@ impl AlumetPlugin for EnergyToCarbonPlugin {
 
         // === Transform ===
 
-        let carbon_emission = alumet.create_metric::<u64>(
+        let carbon_emission = alumet.create_metric::<f64>(
             "carbon_emission",
             Unit::Custom {
                 unique_name: "g_CO2".to_string(),
@@ -126,7 +126,7 @@ impl AlumetPlugin for EnergyToCarbonPlugin {
 }
 
 struct ExampleSource {
-    metric_energy: TypedMetricId<u64>,
+    metric_energy: TypedMetricId<f64>,
     metric_not_energy: TypedMetricId<u64>,
     config: Config,
 }
@@ -140,7 +140,7 @@ impl Source for ExampleSource {
             self.metric_energy,
             Resource::LocalMachine,
             ResourceConsumer::LocalMachine,
-            42,  // Measured value
+            42.0,  // Measured value
         );
 
         let point_not_energy = MeasurementPoint::new(
@@ -163,11 +163,6 @@ struct EnergyToCarbonTransform {
     config: Config,
 }
 
-// MeasurementBuffer::MeasurementPoint::{RawMetricId, Timestamp, WrappedMeasurementValue, Resource, ResourceConsumer, SmallVec<[(Cow<'static, str>, AttributeValue); 4]>}
-// measurements       m                 {metric,      timestamp, value,                   resource, consumer,         attributes}
-//
-// RawMetricId
-
 impl Transform for EnergyToCarbonTransform {
     fn apply(&mut self, measurements: &mut MeasurementBuffer, _ctx: &TransformContext) -> Result<(), TransformError> {
 
@@ -178,8 +173,8 @@ impl Transform for EnergyToCarbonTransform {
             // If the metric in joules => transform it => add it to `carbon_points`
             if metric.unit == PrefixedUnit::from(Unit::Joule) {
                 let energy = match m.value {
-                    WrappedMeasurementValue::U64(v) => v,
-                    WrappedMeasurementValue::F64(v) => v as u64,
+                    WrappedMeasurementValue::F64(v) => v,
+                    WrappedMeasurementValue::U64(v) => v as f64,
                 };
 
                 carbon_points.push(MeasurementPoint::new_untyped(
@@ -187,7 +182,7 @@ impl Transform for EnergyToCarbonTransform {
                     self.carbon_emission,
                     m.resource.clone(),
                     m.consumer.clone(),
-                    WrappedMeasurementValue::U64(energy * self.config.emission_intensity_override),
+                    WrappedMeasurementValue::F64(energy * self.config.emission_intensity_override),
                 ));
             } 
         }

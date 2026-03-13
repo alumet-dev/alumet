@@ -52,15 +52,14 @@ emission_intensity Cascade
 └── 3. World average fallback                    (default, least accurate)
 ```
 
-These methods have a parameter in the `config.toml` file. If not filled, they will default to None and be skipped. Here is an example:
+### Configuration
 
 ``` toml
 [plugins.energy-to-carbon]
-emission_intensity_override = 150
-country_code = "FRA"
-# the World average fallback default to 475 gCO₂/kWh
+# Override the emission intensity value (in gCO₂/kWh).
+emission_intensity_override = 100
+# Time between each activation of the energy source (e.g. "1s", "500ms", "2m")
+poll_interval = "2s"
+# If true, replace joules metrics with carbon emission metrics. If false, keep both.
+replace_metrics = true
 ```
-
-### Configuration
-
-...
