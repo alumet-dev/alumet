@@ -1,6 +1,6 @@
 use std::{time::Duration, fs};
 use alumet::{
-    units::PrefixedUnit,
+    units::{Unit, PrefixedUnit},
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp, WrappedMeasurementValue, MeasurementBuffer},
     metrics::{TypedMetricId, RawMetricId, def::MetricId},
     pipeline::{
@@ -17,7 +17,6 @@ use alumet::{
         rust::{AlumetPlugin, serialize_config, deserialize_config},
     },
     resources::{Resource, ResourceConsumer},
-    units::Unit,
 };
 use serde::{Serialize, Deserialize};
 use serde_json::{Result, Value};
@@ -36,7 +35,6 @@ struct Config {
     // Other parameters
     #[serde(with = "humantime_serde")]
     poll_interval: Duration,
-    replace_metrics: bool,
 }
 
 impl Default for Config {
@@ -45,7 +43,6 @@ impl Default for Config {
             emission_intensity_override: None,
             country: None,
             poll_interval: Duration::from_secs(1),
-            replace_metrics: true,
         }
     }
 }
@@ -96,7 +93,13 @@ impl AlumetPlugin for EnergyToCarbonPlugin {
         let energy = alumet.create_metric::<f64> (
             "exemple_energy",
             Unit::Joule,
-            "42j sent every seconds (for testing only)",
+            "42.123j sent every seconds (for testing only)",
+        )?;
+
+        let energy_prefixed = alumet.create_metric::<f64> (
+            "exemple_energy_prefixed",
+            PrefixedUnit::milli(Unit::Joule),
+            "31415mj sent every seconds (for testing only)",
         )?;
 
         // Test metric
@@ -109,6 +112,7 @@ impl AlumetPlugin for EnergyToCarbonPlugin {
         // create the sources
         let source_energy = ExampleSource {
             metric_energy: energy,
+            metric_energy_prefixed: energy_prefixed,
             metric_not_energy: not_energy,
             config: self.config.clone(),
         };
@@ -149,8 +153,10 @@ impl AlumetPlugin for EnergyToCarbonPlugin {
     }
 }
 
+
 struct ExampleSource {
     metric_energy: TypedMetricId<f64>,
+     metric_energy_prefixed: TypedMetricId<f64>,
     metric_not_energy: TypedMetricId<u64>,
     config: Config,
 }
@@ -167,6 +173,14 @@ impl Source for ExampleSource {
             42.123,  // Measured value
         );
 
+        let point_energy_prefixed = MeasurementPoint::new(
+            timestamp,
+            self.metric_energy_prefixed,
+            Resource::LocalMachine,
+            ResourceConsumer::LocalMachine,
+            31415.0,  // Measured value
+        );
+
         let point_not_energy = MeasurementPoint::new(
             timestamp,
             self.metric_not_energy,
@@ -175,6 +189,7 @@ impl Source for ExampleSource {
             2,  // Measured value
         );
         acc.push(point_energy);
+        acc.push(point_energy_prefixed);
         acc.push(point_not_energy);
         Ok(())
     }
@@ -195,8 +210,21 @@ impl Transform for EnergyToCarbonTransform {
 
         for m in measurements.iter() {
             let metric = _ctx.metrics.by_id(&m.metric).unwrap();
-            // If the metric in joules => transform it => add it to `carbon_points`
-            if metric.unit == PrefixedUnit::from(Unit::Joule) {
+            // If the metric is in <prefix>joules => convert to joules => transform to gCo2 => add it to `carbon_points`
+
+           let mut factor: f64 = 0.0; // 0.0 means "not a joule unit"
+            match &metric.unit {
+                u if *u == PrefixedUnit::nano(Unit::Joule)   => factor = 1e-9,
+                u if *u == PrefixedUnit::micro(Unit::Joule)  => factor = 1e-6,
+                u if *u == PrefixedUnit::milli(Unit::Joule)  => factor = 1e-3,
+                u if *u == PrefixedUnit::from(Unit::Joule)   => factor = 1.0,
+                u if *u == PrefixedUnit::kilo(Unit::Joule)   => factor = 1e3,
+                u if *u == PrefixedUnit::mega(Unit::Joule)   => factor = 1e6,
+                u if *u == PrefixedUnit::giga(Unit::Joule)   => factor = 1e9,
+                _ => {}
+            }
+
+            if factor != 0.0 {
                 let energy = match m.value {
                     WrappedMeasurementValue::F64(v) => v,
                     WrappedMeasurementValue::U64(v) => v as f64,
@@ -207,24 +235,11 @@ impl Transform for EnergyToCarbonTransform {
                     self.carbon_emission,
                     m.resource.clone(),
                     m.consumer.clone(),
-                    WrappedMeasurementValue::F64(energy * self.emission_intensity),
+                    WrappedMeasurementValue::F64(energy * factor * self.emission_intensity),
                 ));
             } 
         }
         
-        // Remove original joules points, replace with carbon points
-        if self.config.replace_metrics {
-            let kept: MeasurementBuffer = measurements
-            .iter()
-            .filter(|m| {
-                let metric = _ctx.metrics.by_id(&m.metric).unwrap();
-                metric.unit.base_unit != Unit::Joule
-            })
-            .cloned()
-            .collect();
-        *measurements = kept;
-        }
-
         for point in carbon_points {
             measurements.push(point);
         }

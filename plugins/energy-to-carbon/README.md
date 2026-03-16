@@ -62,6 +62,4 @@ emission_intensity_override = 100.0
 country = "FRA"
 # Time between each activation of the energy source (e.g. "1s", "500ms", "2m")
 poll_interval = "2s"
-# If true, replace joules metrics with carbon emission metrics. If false, keep both.
-replace_metrics = false
 ```
