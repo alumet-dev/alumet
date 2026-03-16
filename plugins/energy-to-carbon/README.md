@@ -54,12 +54,40 @@ emission_intensity Cascade
 
 ### Configuration
 
+#### Country Mode
+
 ``` toml
 [plugins.energy-to-carbon]
-# Override the emission intensity value (in gCO₂/kWh).
-emission_intensity_override = 100.0
-# Country 3-letter ISO Code
-country = "FRA"
 # Time between each activation of the energy source (e.g. "1s", "500ms", "2m")
 poll_interval = "2s"
+# "country", "override" or "world_avg"
+mode = "country"
+
+[plugin.energy-to-carbon.country]
+# Country 3-letter ISO Code
+country = "FRA"
+```
+
+#### Override Mode
+
+``` toml
+[plugins.energy-to-carbon]
+# Time between each activation of the energy source (e.g. "1s", "500ms", "2m")
+poll_interval = "2s"
+# "country", "override" or "world_avg"
+mode = "override"
+
+[plugin.energy-to-carbon.override]
+# Override the emission intensity value (in gCO₂/kWh).
+intensity = 100
+```
+
+#### World Average Mode
+
+``` toml
+[plugins.energy-to-carbon]
+# Time between each activation of the energy source (e.g. "1s", "500ms", "2m")
+poll_interval = "2s"
+# "country", "override" or "world_avg"
+mode = "world_avg"  # Will set emission_intensity to 475 gCO₂/kWh
 ```

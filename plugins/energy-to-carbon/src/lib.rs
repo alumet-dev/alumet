@@ -19,31 +19,79 @@ use alumet::{
     resources::{Resource, ResourceConsumer},
 };
 use serde::{Serialize, Deserialize};
-use serde_json::{Result, Value};
+use serde_json::Value;
 
 
 pub struct EnergyToCarbonPlugin{
     config: Config,
 }
 
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct OverrideConfig {
+    /// Override the emission intensity value (in gCO₂/kWh).
+    intensity: Option<f64>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct CountryConfig {
+    /// Country 3-letter ISO code.
+    code: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 struct Config {
     /// Cascading parameters used to set emission intensity
-    emission_intensity_override: Option<f64>,
-    country: Option<String>,
+    mode: Option<String>,
     // Other parameters
     #[serde(with = "humantime_serde")]
     poll_interval: Duration,
+    #[serde(rename = "override")]
+    override_config: OverrideConfig,
+    country: CountryConfig,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            emission_intensity_override: None,
-            country: None,
+            mode: None,
+            override_config: OverrideConfig::default(),
+            country: CountryConfig::default(),
             poll_interval: Duration::from_secs(1),
         }
+    }
+}
+
+trait EmissionIntensityProvider: Send {
+    fn get_intensity(&self) -> anyhow::Result<f64>;
+}
+
+struct OverrideIntensity(f64);
+impl EmissionIntensityProvider for OverrideIntensity {
+    fn get_intensity(&self) -> anyhow::Result<f64> {
+        Ok(self.0)
+    }
+}
+
+struct CountryIntensity(String);
+impl EmissionIntensityProvider for CountryIntensity {
+    fn get_intensity(&self) -> anyhow::Result<f64> {
+        // Json file => String => Value
+        let energy_mix: String = fs::read_to_string("./plugins/energy-to-carbon/resssources/energy_mix._per_country.json")
+                .map_err(|e| anyhow::anyhow!("Failed to read energy mix file: {}", e))?;
+        let deserialized_json: Value = serde_json::from_str(energy_mix.as_str())?;
+        // Return the carbon_intensity 
+        deserialized_json[&self.0.as_str()]["carbon_intensity"]
+            .as_f64()
+            .ok_or_else(|| anyhow::anyhow!("Country '{}' not found in energy mix file", self.0))
+    }
+}
+
+
+struct WorldAvgIntensity;
+impl EmissionIntensityProvider for WorldAvgIntensity {
+    fn get_intensity(&self) -> anyhow::Result<f64> {
+        Ok(475.0)
     }
 }
 
@@ -70,24 +118,15 @@ impl AlumetPlugin for EnergyToCarbonPlugin {
 
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         log::info!("Start here!!");
-        // emission_intensity cascading 
-        let emission_intensity: f64 = {
-            if self.config.emission_intensity_override != None {
-                self.config.emission_intensity_override.unwrap()
-            } else if self.config.country != None {  // Use the energy_mix_per_country.json file
-                // Json file => String => Value
-                let energy_mix: String = fs::read_to_string("./plugins/energy-to-carbon/resssources/energy_mix._per_country.json")
-                    .map_err(|e| anyhow::anyhow!("Failed to read energy mix file: {}", e))?;
-                let deserialized_json: Value = serde_json::from_str(energy_mix.as_str())?;
-                // Return the carbon_intensity 
-                deserialized_json[&self.config.country.clone().unwrap()]["carbon_intensity"].as_f64().unwrap()
+        // emission_intensity mode
 
-            } else { 
-                475.0  // World avg emission intensity 
-            }
+        let provider: Box<dyn EmissionIntensityProvider> = match self.config.mode.as_deref() {
+            Some("override")   => Box::new(OverrideIntensity(self.config.override_config.intensity.unwrap())),
+            Some("country")    => Box::new(CountryIntensity(self.config.country.code.clone().unwrap())),
+            Some("world_avg")  => Box::new(WorldAvgIntensity),
+            Some(invalid)      => return Err(anyhow::anyhow!("{} is not a valid mode. Choose override, country or world_avg", invalid)),
+            None               => return Err(anyhow::anyhow!("You need to choose a mode: override, country or world_avg")),
         };
-
-        log::info!("emission intensity: {:?}", emission_intensity);
 
         // Test metric
         let energy = alumet.create_metric::<f64> (
@@ -114,7 +153,6 @@ impl AlumetPlugin for EnergyToCarbonPlugin {
             metric_energy: energy,
             metric_energy_prefixed: energy_prefixed,
             metric_not_energy: not_energy,
-            config: self.config.clone(),
         };
 
         // How the source is triggered
@@ -137,8 +175,7 @@ impl AlumetPlugin for EnergyToCarbonPlugin {
         // Create the transform
         let transform = EnergyToCarbonTransform {
             carbon_emission: carbon_emission.untyped_id(),
-            emission_intensity: emission_intensity,
-            config: self.config.clone(),
+            emission_intensity_provider: provider,
         };
 
         // Add the transform to the measurement pipeline
@@ -158,7 +195,6 @@ struct ExampleSource {
     metric_energy: TypedMetricId<f64>,
      metric_energy_prefixed: TypedMetricId<f64>,
     metric_not_energy: TypedMetricId<u64>,
-    config: Config,
 }
 // For testing only
 impl Source for ExampleSource {
@@ -199,8 +235,7 @@ impl Source for ExampleSource {
 
 struct EnergyToCarbonTransform {
     carbon_emission: RawMetricId,
-    emission_intensity: f64,
-    config: Config,
+    emission_intensity_provider: Box<dyn EmissionIntensityProvider>,
 }
 
 impl Transform for EnergyToCarbonTransform {
@@ -235,7 +270,8 @@ impl Transform for EnergyToCarbonTransform {
                     self.carbon_emission,
                     m.resource.clone(),
                     m.consumer.clone(),
-                    WrappedMeasurementValue::F64(energy * factor * self.emission_intensity),
+                    // ! need to call get_intensity() at every apply, even if the value is fixed
+                    WrappedMeasurementValue::F64(energy * factor * self.emission_intensity_provider.get_intensity().unwrap()),
                 ));
             } 
         }
