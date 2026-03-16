@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{time::Duration, fs};
 use alumet::{
     units::PrefixedUnit,
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp, WrappedMeasurementValue, MeasurementBuffer},
@@ -20,6 +20,8 @@ use alumet::{
     units::Unit,
 };
 use serde::{Serialize, Deserialize};
+use serde_json::{Result, Value};
+
 
 pub struct EnergyToCarbonPlugin{
     config: Config,
@@ -28,8 +30,10 @@ pub struct EnergyToCarbonPlugin{
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 struct Config {
-    /// Time between each activation of the counter source.
-    emission_intensity_override: f64,
+    /// Cascading parameters used to set emission intensity
+    emission_intensity_override: Option<f64>,
+    country: Option<String>,
+    // Other parameters
     #[serde(with = "humantime_serde")]
     poll_interval: Duration,
     replace_metrics: bool,
@@ -38,7 +42,8 @@ struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            emission_intensity_override: 475.0,
+            emission_intensity_override: None,
+            country: None,
             poll_interval: Duration::from_secs(1),
             replace_metrics: true,
         }
@@ -68,6 +73,24 @@ impl AlumetPlugin for EnergyToCarbonPlugin {
 
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         log::info!("Start here!!");
+        // emission_intensity cascading 
+        let emission_intensity: f64 = {
+            if self.config.emission_intensity_override != None {
+                self.config.emission_intensity_override.unwrap()
+            } else if self.config.country != None {  // Use the energy_mix_per_country.json file
+                // Json file => String => Value
+                let energy_mix: String = fs::read_to_string("./plugins/energy-to-carbon/resssources/energy_mix._per_country.json")
+                    .map_err(|e| anyhow::anyhow!("Failed to read energy mix file: {}", e))?;
+                let deserialized_json: Value = serde_json::from_str(energy_mix.as_str())?;
+                // Return the carbon_intensity 
+                deserialized_json[&self.config.country.clone().unwrap()]["carbon_intensity"].as_f64().unwrap()
+
+            } else { 
+                475.0  // World avg emission intensity 
+            }
+        };
+
+        log::info!("emission intensity: {:?}", emission_intensity);
 
         // Test metric
         let energy = alumet.create_metric::<f64> (
@@ -110,6 +133,7 @@ impl AlumetPlugin for EnergyToCarbonPlugin {
         // Create the transform
         let transform = EnergyToCarbonTransform {
             carbon_emission: carbon_emission.untyped_id(),
+            emission_intensity: emission_intensity,
             config: self.config.clone(),
         };
 
@@ -132,7 +156,7 @@ struct ExampleSource {
 }
 // For testing only
 impl Source for ExampleSource {
-    fn poll(&mut self, acc: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
+    fn poll(&mut self, acc: &mut MeasurementAccumulator, timestamp: Timestamp) -> std::result::Result<(), PollError> {
         log::info!("Poll !!");
 
         let point_energy = MeasurementPoint::new(
@@ -140,7 +164,7 @@ impl Source for ExampleSource {
             self.metric_energy,
             Resource::LocalMachine,
             ResourceConsumer::LocalMachine,
-            42.0,  // Measured value
+            42.123,  // Measured value
         );
 
         let point_not_energy = MeasurementPoint::new(
@@ -160,11 +184,12 @@ impl Source for ExampleSource {
 
 struct EnergyToCarbonTransform {
     carbon_emission: RawMetricId,
+    emission_intensity: f64,
     config: Config,
 }
 
 impl Transform for EnergyToCarbonTransform {
-    fn apply(&mut self, measurements: &mut MeasurementBuffer, _ctx: &TransformContext) -> Result<(), TransformError> {
+    fn apply(&mut self, measurements: &mut MeasurementBuffer, _ctx: &TransformContext) -> std::result::Result<(), TransformError> {
 
         let mut carbon_points = Vec::new();
 
@@ -182,7 +207,7 @@ impl Transform for EnergyToCarbonTransform {
                     self.carbon_emission,
                     m.resource.clone(),
                     m.consumer.clone(),
-                    WrappedMeasurementValue::F64(energy * self.config.emission_intensity_override),
+                    WrappedMeasurementValue::F64(energy * self.emission_intensity),
                 ));
             } 
         }
