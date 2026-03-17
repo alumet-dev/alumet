@@ -7,14 +7,19 @@ repository.workspace = true
 [dependencies]
 alumet.workspace = true
 anyhow.workspace = true
+env_logger.workspace = true
 fs = "0.0.5"
 humantime-serde.workspace = true
 log.workspace = true
+pretty_assertions.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json = "1.0.149"
+time = "0.3.47"
 
 [dev-dependencies]
 alumet = { workspace = true, features = ["test"] }
 toml.workspace = true
 tempfile.workspace = true
 lazy_static = "1.5.0"
+time = { version = "0.3.41", features = ["parsing"] }
+env_logger = "0.11.8"
