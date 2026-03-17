@@ -70,7 +70,11 @@ impl<H: ProcessorHandle> AmdGpuDevices<H> {
                             failure_count += 1;
                             log::warn!("Skipping GPU device because of error: {e:?}");
                         } else {
-                            return Err(AmdError(e).into());
+                            return Err(AmdError {
+                                status: e,
+                                message: None,
+                            }
+                            .into());
                         }
                     }
                 }
@@ -172,18 +176,27 @@ mod test {
                 .iter()
                 .find(|(t, _)| *t == mem_type)
                 .map(|(_, v)| Ok(*v))
-                .unwrap_or(Err(AmdError(AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA)))
+                .unwrap_or(Err(AmdError {
+                    status: AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA,
+                    message: None,
+                }))
         });
 
         mock_processor.expect_device_temperature().returning(|sensor, metric| {
             if metric != AmdTemperatureMetric::AMDSMI_TEMP_CURRENT {
-                return Err(AmdError(AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA));
+                return Err(AmdError {
+                    status: AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA,
+                    message: None,
+                });
             }
             MOCK_TEMPERATURE
                 .iter()
                 .find(|(s, _)| *s == sensor)
                 .map(|(_, v)| Ok(*v))
-                .unwrap_or(Err(AmdError(AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA)))
+                .unwrap_or(Err(AmdError {
+                    status: AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA,
+                    message: None,
+                }))
         });
 
         mock_socket
@@ -209,30 +222,54 @@ mod test {
             .expect_device_uuid()
             .returning(|| Ok(MOCK_UUID.to_owned()));
 
-        mock_processor
-            .expect_device_activity()
-            .returning(|| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA)));
-        mock_processor
-            .expect_device_energy_consumption()
-            .returning(|| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA)));
-        mock_processor
-            .expect_device_power_consumption()
-            .returning(|| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA)));
-        mock_processor
-            .expect_device_power_managment()
-            .returning(|| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA)));
-        mock_processor
-            .expect_device_process_list()
-            .returning(|| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA)));
-        mock_processor
-            .expect_device_voltage()
-            .returning(|_, _| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA)));
-        mock_processor
-            .expect_device_memory_usage()
-            .returning(|_| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA)));
-        mock_processor
-            .expect_device_temperature()
-            .returning(|_, _| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA)));
+        mock_processor.expect_device_activity().returning(|| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA,
+                message: None,
+            })
+        });
+        mock_processor.expect_device_energy_consumption().returning(|| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA,
+                message: None,
+            })
+        });
+        mock_processor.expect_device_power_consumption().returning(|| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA,
+                message: None,
+            })
+        });
+        mock_processor.expect_device_power_managment().returning(|| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA,
+                message: None,
+            })
+        });
+        mock_processor.expect_device_process_list().returning(|| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA,
+                message: None,
+            })
+        });
+        mock_processor.expect_device_voltage().returning(|_, _| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA,
+                message: None,
+            })
+        });
+        mock_processor.expect_device_memory_usage().returning(|_| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA,
+                message: None,
+            })
+        });
+        mock_processor.expect_device_temperature().returning(|_, _| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA,
+                message: None,
+            })
+        });
 
         mock_socket
             .expect_processor_handles()
@@ -259,30 +296,54 @@ mod test {
             .expect_device_uuid()
             .returning(|| Ok(MOCK_UUID.to_owned()));
 
-        mock_processor
-            .expect_device_activity()
-            .returning(|| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR)));
-        mock_processor
-            .expect_device_energy_consumption()
-            .returning(|| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR)));
-        mock_processor
-            .expect_device_power_consumption()
-            .returning(|| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR)));
-        mock_processor
-            .expect_device_power_managment()
-            .returning(|| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR)));
-        mock_processor
-            .expect_device_process_list()
-            .returning(|| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR)));
-        mock_processor
-            .expect_device_voltage()
-            .returning(|_, _| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR)));
-        mock_processor
-            .expect_device_memory_usage()
-            .returning(|_| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR)));
-        mock_processor
-            .expect_device_temperature()
-            .returning(|_, _| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR)));
+        mock_processor.expect_device_activity().returning(|| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR,
+                message: None,
+            })
+        });
+        mock_processor.expect_device_energy_consumption().returning(|| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR,
+                message: None,
+            })
+        });
+        mock_processor.expect_device_power_consumption().returning(|| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR,
+                message: None,
+            })
+        });
+        mock_processor.expect_device_power_managment().returning(|| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR,
+                message: None,
+            })
+        });
+        mock_processor.expect_device_process_list().returning(|| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR,
+                message: None,
+            })
+        });
+        mock_processor.expect_device_voltage().returning(|_, _| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR,
+                message: None,
+            })
+        });
+        mock_processor.expect_device_memory_usage().returning(|_| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR,
+                message: None,
+            })
+        });
+        mock_processor.expect_device_temperature().returning(|_, _| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR,
+                message: None,
+            })
+        });
 
         mock_socket
             .expect_processor_handles()
@@ -319,30 +380,54 @@ mod test {
             .expect_device_uuid()
             .returning(|| Ok(MOCK_UUID.to_owned()));
 
-        mock_processor
-            .expect_device_activity()
-            .returning(|| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR)));
-        mock_processor
-            .expect_device_energy_consumption()
-            .returning(|| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR)));
-        mock_processor
-            .expect_device_power_consumption()
-            .returning(|| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR)));
-        mock_processor
-            .expect_device_power_managment()
-            .returning(|| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR)));
-        mock_processor
-            .expect_device_process_list()
-            .returning(|| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR)));
-        mock_processor
-            .expect_device_voltage()
-            .returning(|_, _| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR)));
-        mock_processor
-            .expect_device_memory_usage()
-            .returning(|_| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR)));
-        mock_processor
-            .expect_device_temperature()
-            .returning(|_, _| Err(AmdError(AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR)));
+        mock_processor.expect_device_activity().returning(|| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR,
+                message: None,
+            })
+        });
+        mock_processor.expect_device_energy_consumption().returning(|| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR,
+                message: None,
+            })
+        });
+        mock_processor.expect_device_power_consumption().returning(|| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR,
+                message: None,
+            })
+        });
+        mock_processor.expect_device_power_managment().returning(|| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR,
+                message: None,
+            })
+        });
+        mock_processor.expect_device_process_list().returning(|| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR,
+                message: None,
+            })
+        });
+        mock_processor.expect_device_voltage().returning(|_, _| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR,
+                message: None,
+            })
+        });
+        mock_processor.expect_device_memory_usage().returning(|_| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR,
+                message: None,
+            })
+        });
+        mock_processor.expect_device_temperature().returning(|_, _| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR,
+                message: None,
+            })
+        });
 
         mock_socket
             .expect_processor_handles()
