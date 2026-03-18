@@ -36,40 +36,38 @@ const CONFIG_COUNTRY: &str = r#"
         intensity = 100
 "#;
 
-// const CONFIG_OVERRIDE: &str = r#"
-//         [plugins.energy-to-carbon]
-//         # Time between each activation of the energy source (e.g. "1s", "500ms", "2m")
-//         poll_interval = "2s"
-//         # "country", "override" or "world_avg"
-//         mode = "override"
+const CONFIG_OVERRIDE: &str = r#"
+        # Time between each activation of the energy source (e.g. "1s", "500ms", "2m")
+        poll_interval = "2s"
+        # "country", "override" or "world_avg"
+        mode = "override"
 
-//         [plugins.energy-to-carbon.country]
-//         # Country 3-letter ISO Code
-//         code = "FRA"
+        [country]
+        # Country 3-letter ISO Code
+        code = "FRA"
 
-//         [plugins.energy-to-carbon.override]
-//         # Override the emission intensity value (in gCO₂/kWh).
-//         intensity = 100
-//     "#;
+        [override]
+        # Override the emission intensity value (in gCO₂/kWh).
+        intensity = 100
+    "#;
 
-// const CONFIG_WORLD_AVG: &str = r#"
-//         [plugins.energy-to-carbon]
-//         # Time between each activation of the energy source (e.g. "1s", "500ms", "2m")
-//         poll_interval = "2s"
-//         # "country", "override" or "world_avg"
-//         mode = "world_avg"
+const CONFIG_WORLD_AVG: &str = r#"
+        # Time between each activation of the energy source (e.g. "1s", "500ms", "2m")
+        poll_interval = "2s"
+        # "country", "override" or "world_avg"
+        mode = "world_avg"
 
-//         [plugins.energy-to-carbon.country]
-//         # Country 3-letter ISO Code
-//         code = "FRA"
+        [country]
+        # Country 3-letter ISO Code
+        code = "FRA"
 
-//         [plugins.energy-to-carbon.override]
-//         # Override the emission intensity value (in gCO₂/kWh).
-//         intensity = 100
-//     "#;
+        [override]
+        # Override the emission intensity value (in gCO₂/kWh).
+        intensity = 100
+    "#;
 
-#[test]
-fn test_energy_to_carbon() {
+
+fn run_energy_to_carbon_test(config_str: &str, intensity: f64) {
     init_logger();
     let attribution_transform = TransformName::from_str("energy-to-carbon", "transform");
 
@@ -117,8 +115,7 @@ fn test_energy_to_carbon() {
             ResourceConsumer::LocalMachine,
             WrappedMeasurementValue::F64(value),
         )
-        .with_attr("domain", "package_total")
-        .with_attr("kind", "total")
+        // attributes ?
     }
 
 
@@ -130,7 +127,7 @@ fn test_energy_to_carbon() {
         .create_metric::<u64>("rapl_consumed_energy_prefixed", PrefixedUnit::milli(Unit::Joule))
         .create_metric::<f64>("cpu_usage_percent", Unit::Unity)
         
-        // #### Basic RAPL energy transform ####
+        // #### Test 1:  Basic RAPL energy transform ####
         .test_transform(
             attribution_transform.clone(),
             |input| {
@@ -146,13 +143,13 @@ fn test_energy_to_carbon() {
                 }
                 buf
             }, 
-            |output| {
+            move |output| {
                 /*
                 Data received so far:
                 - | time | energy   | usage(1) | usage(2) | carbon_emission 
                 - |   00 |          |          |          |
-                - |   01 | 0.0 J    |    50%   |          |  0   * 56.039 = 0.0
-                - |   02 | 100.0 J  |          |          |  100 * 56.039 = 5 603.9
+                - |   01 | 0.0 J    |    50%   |          |  0.0   * intensity
+                - |   02 | 100.0 J  |          |          |  100.0 * intensity
                  */
                 let metrics = TestMetrics::find_in(output.metrics());
                 let (input_measurements, new_measurements): (Vec<_>, Vec<_>) =
@@ -163,22 +160,23 @@ fn test_energy_to_carbon() {
                     assert_eq!(
                     input_measurements,
                     vec![
-                        new_point_usage(&metrics, "2025-05-02 00:00:01.00Z", 1, 50.0), 
+                        new_point_energy(&metrics, "2025-05-02 00:00:01.00Z", 0.0),
                         new_point_energy(&metrics, "2025-05-02 00:00:02.00Z", 100.0),
+                        new_point_usage(&metrics, "2025-05-02 00:00:01.00Z", 1, 50.0), 
                     ],
-                    "input measurements should not be modified by energy-to-carbon"
+                    "Test 1.1: input measurements should not be modified by energy-to-carbon"
                 );
                 
                 assert_eq!(
                     new_measurements,
                     vec![
                         new_point_carbon(&metrics, "2025-05-02 00:00:01.00Z", 0.0),
-                        new_point_carbon(&metrics, "2025-05-02 00:00:02.00Z", 5603.9),
+                        new_point_carbon(&metrics, "2025-05-02 00:00:02.00Z", 100.0 * intensity),
                     ],
-                    "incorrect transform result"
+                    "Test 1: incorrect transform result"
                 );
             },
-        // #### Adding multiples points at different timestamps ####
+        // #### Test 2: Adding multiples points at different timestamps ####
         ).test_transform(
             attribution_transform.clone(),
             |input| {
@@ -199,16 +197,16 @@ fn test_energy_to_carbon() {
                 }
                 buf
             },
-            |output| {
+            move |output| {
                 /*
                 Data received so far:
                 - | time | energy   | usage(1) | usage(2) |      carbon_emission 
-                - |   00 | 50.0 J    |          |          |  50     * 56.039 = 2 801.95
-                - |   01 | 0.0 J     |    50%   |          |  0      * 56.039 = 0.0
-                - |   02 | 100.0 J   |          |          |  100    * 56.039 = 5 603.9
-                - |   03 | 200.12 J  |    80%   |          |  200.12 * 56.039 = 11 214.52468
+                - |   00 | 50.0 J    |          |          |  50.0   * intensity
+                - |   01 | 0.0 J     |    50%   |          |  0.0    * intensity
+                - |   02 | 100.0 J   |          |          |  100.0  * intensity
+                - |   03 | 200.12 J  |    80%   |          |  200.12 * intensity
                 - |   04 |           |          |          |
-                - |   05 | 0.0 J     |    20%   |          |  0      * 56.039 = 0.0
+                - |   05 | 0.0 J     |    20%   |          |  0.0    * intensity
                  */
                 let metrics = TestMetrics::find_in(output.metrics());
                 let (input_measurements, new_measurements): (Vec<_>, Vec<_>) =
@@ -219,16 +217,16 @@ fn test_energy_to_carbon() {
                 assert_eq!(
                     new_measurements,
                     vec![
-                        new_point_carbon(&metrics, "2025-05-02 00:00:00.00Z", 2801.95),
+                        new_point_carbon(&metrics, "2025-05-02 00:00:00.00Z", 50.0 * intensity),
                         new_point_carbon(&metrics, "2025-05-02 00:00:01.00Z", 0.0),
-                        new_point_carbon(&metrics, "2025-05-02 00:00:02.00Z", 5603.9),
-                        new_point_carbon(&metrics, "2025-05-02 00:00:03.00Z", 11214.52468),
+                        new_point_carbon(&metrics, "2025-05-02 00:00:02.00Z", 100.0 * intensity),
+                        new_point_carbon(&metrics, "2025-05-02 00:00:03.00Z", 200.12 * intensity),
                         new_point_carbon(&metrics, "2025-05-02 00:00:05.00Z", 0.0),
                     ],
-                    "incorrect transform result"
+                    "Test 2: incorrect transform result"
                 );
             },
-        // #### Adding prefixed Units ####
+        // #### Test 3: Adding prefixed Units ####
         ).test_transform(
             attribution_transform.clone(),
             |input| {
@@ -248,32 +246,34 @@ fn test_energy_to_carbon() {
                 }
                 buf
             },
-            |output| {
+            move |output| {
                 /*
                 Data received so far:
                 - | time | energy      | usage(1) | usage(2) |      carbon_emission 
                 - |   00 |             |    50%   |          | 
-                - |   01 | 0.0         |          |          |  0               * 56.039 = 0.0
-                - |   02 | 2 000.5 mJ  |          |          |  (2 000.5/1 000) * 56.039 = 112.1060195
-                - |   03 | 132.456 J   |    80%   |          |  132.456         * 56.039 = 7 422.701784
+                - |   01 | 0.0         |          |          |  0                 * intensity
+                - |   02 | 2 000.5 mJ  |          |          |  (2 000.5/1 000.0) * intensity
+                - |   03 | 132.456 J   |    80%   |          |  132.456           * intensity
                 - |   04 |             |          |          |
-                - |   05 | 0.0         |    20%   |          |  0               * 56.039 = 0.0
+                - |   05 | 0.0         |    20%   |          |  0                 * intensity
                  */
                 let metrics = TestMetrics::find_in(output.metrics());
                 let (input_measurements, new_measurements): (Vec<_>, Vec<_>) =
                     output.measurements().into_iter().cloned().partition(|p| {
-                        p.metric == metrics.cpu_usage_percent || p.metric == metrics.rapl_consumed_energy
+                        p.metric == metrics.cpu_usage_percent || 
+                        p.metric == metrics.rapl_consumed_energy || 
+                        p.metric == metrics.rapl_consumed_energy_prefixed
                     });
 
                 assert_eq!(
                     new_measurements,
                     vec![
                         new_point_carbon(&metrics, "2025-05-02 00:00:01.00Z", 0.0),
-                        new_point_carbon(&metrics, "2025-05-02 00:00:02.00Z", 112.1060195),
-                        new_point_carbon(&metrics, "2025-05-02 00:00:03.00Z", 7422.701784),
+                        new_point_carbon(&metrics, "2025-05-02 00:00:02.00Z", (2000.5 / 1000.0) * intensity),
+                        new_point_carbon(&metrics, "2025-05-02 00:00:03.00Z", 132.456 * intensity),
                         new_point_carbon(&metrics, "2025-05-02 00:00:05.00Z", 0.0),
                     ],
-                    "incorrect transform result"
+                    "Test 3: incorrect transform result"
                 );
             },
         );
@@ -283,7 +283,7 @@ fn test_energy_to_carbon() {
     plugins.add_plugin(PluginInfo {
         metadata: PluginMetadata::from_static::<EnergyToCarbonPlugin>(),
         enabled: true,
-        config: Some(toml::from_str(CONFIG_COUNTRY).unwrap()),
+        config: Some(toml::from_str(config_str).unwrap()),
     });
 
     let agent = agent::Builder::new(plugins) 
@@ -325,4 +325,19 @@ impl TestMetrics {
             carbon_emission,
         }
     }
+}
+
+#[test]
+fn test_country_mode() {
+    run_energy_to_carbon_test(CONFIG_COUNTRY, 56.039);
+}
+
+#[test]
+fn test_override_mode() {
+    run_energy_to_carbon_test(CONFIG_OVERRIDE, 100.0);
+}
+
+#[test]
+fn test_world_avg_mode() {
+    run_energy_to_carbon_test(CONFIG_WORLD_AVG, 475.0);
 }
