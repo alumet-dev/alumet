@@ -115,7 +115,7 @@ fn run_energy_to_carbon_test(config_str: &str, intensity: f64) {
             ResourceConsumer::LocalMachine,
             WrappedMeasurementValue::F64(value),
         )
-        // attributes ?
+        // what about attributes ?
     }
 
 
@@ -278,7 +278,7 @@ fn run_energy_to_carbon_test(config_str: &str, intensity: f64) {
             },
         );
 
-        // start an Alumet agent
+    // start an Alumet agent
     let mut plugins = PluginSet::new();
     plugins.add_plugin(PluginInfo {
         metadata: PluginMetadata::from_static::<EnergyToCarbonPlugin>(),

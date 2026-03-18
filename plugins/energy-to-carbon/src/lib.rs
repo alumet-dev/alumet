@@ -1,29 +1,18 @@
 mod intensity;
 mod transform;
 
-// Clean imports ⬇️
-use std::{time::Duration, fs};
+use std::time::Duration;
 use alumet::{
-    units::{Unit, PrefixedUnit},
-    measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp, WrappedMeasurementValue, MeasurementBuffer},
-    metrics::{TypedMetricId, RawMetricId, def::MetricId},
-    pipeline::{
-        Transform,
-        Source,
-        elements::{
-            error::{PollError,TransformError},
-            transform::TransformContext,
-            source::trigger,
-        },
-    },
+    metrics::{RawMetricId, def::MetricId},
+    pipeline::elements::error::TransformError,
     plugin::{
         AlumetPluginStart, ConfigTable,
         rust::{AlumetPlugin, serialize_config, deserialize_config},
     },
-    resources::{Resource, ResourceConsumer},
+    units::Unit,
 };
 use serde::{Serialize, Deserialize};
-use serde_json::Value;
+use intensity::EmissionIntensityProvider;
 
 
 pub struct EnergyToCarbonPlugin{
@@ -45,7 +34,7 @@ struct CountryConfig {
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 struct Config {
-    /// Cascading parameters used to set emission intensity
+    // "country", "override" or "world_avg"
     mode: Option<String>,
     // Other parameters
     #[serde(with = "humantime_serde")]
@@ -69,12 +58,12 @@ impl Default for Config {
 
 impl AlumetPlugin for EnergyToCarbonPlugin {
     fn name() -> &'static str {
-        "energy-to-carbon" // the name of your plugin, in lowercase, without the "plugin-" prefix
+        "energy-to-carbon"
     }
 
     fn version() -> &'static str {
         log::info!("Version here!!!");
-        env!("CARGO_PKG_VERSION") // gets the version from the Cargo.toml of the plugin crate
+        env!("CARGO_PKG_VERSION")
     }
 
     fn default_config() -> anyhow::Result<Option<ConfigTable>> {
@@ -90,12 +79,11 @@ impl AlumetPlugin for EnergyToCarbonPlugin {
 
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         log::info!("Start here!!");
-        // emission_intensity mode
 
         let provider: Box<dyn EmissionIntensityProvider> = match self.config.mode.as_deref() {
-            Some("override")   => Box::new(OverrideIntensity(self.config.override_config.intensity.unwrap())),
-            Some("country")    => Box::new(CountryIntensity(self.config.country.code.clone().unwrap())),
-            Some("world_avg")  => Box::new(WorldAvgIntensity),
+            Some("override")   => Box::new(intensity::OverrideIntensity(self.config.override_config.intensity.unwrap())),
+            Some("country")    => Box::new(intensity::CountryIntensity(self.config.country.code.clone().unwrap())),
+            Some("world_avg")  => Box::new(intensity::WorldAvgIntensity),
             Some(invalid)      => return Err(anyhow::anyhow!("{} is not a valid mode. Choose override, country or world_avg", invalid)),
             None               => return Err(anyhow::anyhow!("You need to choose a mode: override, country or world_avg")),
         };
@@ -110,7 +98,7 @@ impl AlumetPlugin for EnergyToCarbonPlugin {
         )?;
 
         // Create the transform
-        let transform = EnergyToCarbonTransform {
+        let transform = transform::EnergyToCarbonTransform {
             carbon_emission: carbon_emission.untyped_id(),
             emission_intensity_provider: provider,
         };

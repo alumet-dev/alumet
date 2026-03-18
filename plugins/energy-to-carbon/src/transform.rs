@@ -7,17 +7,16 @@ use alumet::{
     },
     units::{Unit, PrefixedUnit},
 };
-use crate::intensity::EmissionIntensityProvider;
+pub use crate::intensity::EmissionIntensityProvider;
 
 
-struct EnergyToCarbonTransform {
-    carbon_emission: RawMetricId,
-    emission_intensity_provider: Box<dyn EmissionIntensityProvider>,
+pub(crate) struct EnergyToCarbonTransform {
+    pub(crate) carbon_emission: RawMetricId,
+    pub(crate) emission_intensity_provider: Box<dyn EmissionIntensityProvider>,
 }
 
 impl Transform for EnergyToCarbonTransform {
     fn apply(&mut self, measurements: &mut MeasurementBuffer, _ctx: &TransformContext) -> std::result::Result<(), TransformError> {
-        // self.emission_intensity_provider.get_intensity().unwrap()
         let mut carbon_points = Vec::new();
 
         for m in measurements.iter() {
@@ -47,7 +46,6 @@ impl Transform for EnergyToCarbonTransform {
                     self.carbon_emission,
                     m.resource.clone(),
                     m.consumer.clone(),
-                    // ! need to call get_intensity() at every apply, even if the value is fixed
                     WrappedMeasurementValue::F64(energy * factor * self.emission_intensity_provider.get_intensity().unwrap()),
                 ));
             } 
