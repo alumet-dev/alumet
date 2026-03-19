@@ -264,6 +264,7 @@ fn source_flush() {
 
     // flush the source now
     let rt = current_thread_runtime();
+    println!("flushing now");
     let request = request::source(SourceName::from_str("test", "test")).flush_now();
     rt.block_on(handle.send_wait(request, Duration::from_millis(500)))
         .unwrap();
@@ -271,9 +272,22 @@ fn source_flush() {
     std::thread::sleep(Duration::from_millis(100));
 
     // check that the source has been flushed
-    assert_ne!(counters.n_transform_in.load(COUNTER_ORD), 0);
+    println!("checking flush");
+    let n_written_after_flush = counters.n_written.load(COUNTER_ORD);
+    let n_flushed_after_flush = counters.n_transform_in.load(COUNTER_ORD);
+    assert_ne!(n_flushed_after_flush, 0);
+
+    // check that the manual flush happens only once
+    println!("waiting more");
+    std::thread::sleep(Duration::from_millis(500));
+    println!("checking not flushed");
+    let n_written_later = counters.n_written.load(COUNTER_ORD);
+    let n_flushed_later = counters.n_transform_in.load(COUNTER_ORD);
+    assert!(n_written_later > n_written_after_flush);
+    assert_eq!(n_flushed_later, n_flushed_after_flush);
 
     // shutdown
+    println!("shutdown");
     handle.shutdown();
     agent.wait_for_shutdown(Duration::from_millis(500)).unwrap();
 }
