@@ -96,7 +96,7 @@ pub(crate) async fn run_managed(
         let initial_state = config.atomic_state.load(Ordering::Relaxed);
         log::trace!("{source_name} initial state: {initial_state}");
         match initial_state.into() {
-            TaskState::Run => {
+            TaskState::Run | TaskState::RunFlush => {
                 run = true; // start the main loop
             }
             TaskState::Pause => {
@@ -182,6 +182,16 @@ pub(crate) async fn run_managed(
             match new_state.into() {
                 TaskState::Run => {
                     update = false; // go back to polling
+                }
+                TaskState::RunFlush => {
+                    update = false;
+
+                    if buffer.is_empty() {
+                        log::debug!("nothing to flush in {source_name}");
+                    } else {
+                        log::debug!("flushing {source_name}");
+                        buffer = flush(buffer, &tx, &source_name).await;
+                    }
                 }
                 TaskState::Pause => {
                     log::trace!("{source_name} has been paused; resetting its internal state");
