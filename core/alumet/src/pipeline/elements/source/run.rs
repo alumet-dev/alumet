@@ -192,6 +192,15 @@ pub(crate) async fn run_managed(
                         log::debug!("flushing {source_name}");
                         buffer = flush(buffer, &tx, &source_name).await;
                     }
+
+                    // Switch back to normal run (otherwise we would always flush from now on).
+                    // Use `compare_exchange` because the state may have been updated in the meantime, in which case we don't want to override it.
+                    let _ = config.atomic_state.compare_exchange(
+                        new_state,
+                        TaskState::Run.into(),
+                        Ordering::Relaxed,
+                        Ordering::Relaxed,
+                    );
                 }
                 TaskState::Pause => {
                     log::trace!("{source_name} has been paused; resetting its internal state");
