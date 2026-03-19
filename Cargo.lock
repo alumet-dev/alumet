@@ -134,8 +134,8 @@ dependencies = [
 
 [[package]]
 name = "amd-smi-wrapper"
-version = "0.2.0"
-source = "git+https://github.com/alumet-dev/amd-smi-wrapper.git?tag=v0.2.0#5d00575961689c16e86692a77494357b8b20a034"
+version = "0.3.0"
+source = "git+https://github.com/alumet-dev/amd-smi-wrapper.git?tag=v0.3.0#7f9991a4b354ef959a64be2a48a9afbdb3e19937"
 dependencies = [
  "bindgen",
  "bitflags 2.9.4",
