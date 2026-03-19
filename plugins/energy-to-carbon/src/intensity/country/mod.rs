@@ -1,7 +1,6 @@
-use std::fs;
-use serde_json::Value;
 use crate::intensity::EmissionIntensityProvider;
-
+use serde_json::Value;
+use std::fs;
 
 pub struct CountryIntensity(pub String);
 impl EmissionIntensityProvider for CountryIntensity {
@@ -12,10 +11,10 @@ impl EmissionIntensityProvider for CountryIntensity {
             "/src/intensity/country/energy_mix._per_country.json"
         );
         // Json file => String => Value
-        let energy_mix: String = fs::read_to_string(path)
-                .map_err(|e| anyhow::anyhow!("Failed to read energy mix file: {}", e))?;
+        let energy_mix: String =
+            fs::read_to_string(path).map_err(|e| anyhow::anyhow!("Failed to read energy mix file: {}", e))?;
         let deserialized_json: Value = serde_json::from_str(energy_mix.as_str())?;
-        // Return the carbon_intensity 
+        // Return the carbon_intensity
         deserialized_json[&self.0.as_str()]["carbon_intensity"]
             .as_f64()
             .ok_or_else(|| anyhow::anyhow!("Country '{}' not found in energy mix file", self.0))

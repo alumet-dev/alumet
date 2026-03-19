@@ -1,5 +1,5 @@
 mod country;
-mod user_override; 
+mod user_override;
 mod world_avg;
 
 pub use country::CountryIntensity;

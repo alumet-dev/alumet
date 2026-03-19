@@ -1,21 +1,20 @@
 mod intensity;
 mod transform;
 
-use std::time::Duration;
 use alumet::{
     metrics::{RawMetricId, def::MetricId},
     pipeline::elements::error::TransformError,
     plugin::{
         AlumetPluginStart, ConfigTable,
-        rust::{AlumetPlugin, serialize_config, deserialize_config},
+        rust::{AlumetPlugin, deserialize_config, serialize_config},
     },
     units::Unit,
 };
-use serde::{Serialize, Deserialize};
 use intensity::EmissionIntensityProvider;
+use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
-
-pub struct EnergyToCarbonPlugin{
+pub struct EnergyToCarbonPlugin {
     config: Config,
 }
 
@@ -40,8 +39,8 @@ struct Config {
     #[serde(with = "humantime_serde")]
     poll_interval: Duration,
     #[serde(rename = "override")]
-    override_config: OverrideConfig,  //optionnel
-    country: CountryConfig,  //optionnel
+    override_config: OverrideConfig, //optionnel
+    country: CountryConfig, //optionnel
 }
 
 impl Default for Config {
@@ -54,7 +53,6 @@ impl Default for Config {
         }
     }
 }
-
 
 impl AlumetPlugin for EnergyToCarbonPlugin {
     fn name() -> &'static str {
@@ -81,11 +79,22 @@ impl AlumetPlugin for EnergyToCarbonPlugin {
         log::info!("Start here!!");
 
         let provider: Box<dyn EmissionIntensityProvider> = match self.config.mode.as_deref() {
-            Some("override")   => Box::new(intensity::OverrideIntensity(self.config.override_config.intensity.unwrap())),
-            Some("country")    => Box::new(intensity::CountryIntensity(self.config.country.code.clone().unwrap())),
-            Some("world_avg")  => Box::new(intensity::WorldAvgIntensity),
-            Some(invalid)      => return Err(anyhow::anyhow!("{} is not a valid mode. Choose override, country or world_avg", invalid)),
-            None               => return Err(anyhow::anyhow!("You need to choose a mode: override, country or world_avg")),
+            Some("override") => Box::new(intensity::OverrideIntensity(
+                self.config.override_config.intensity.unwrap(),
+            )),
+            Some("country") => Box::new(intensity::CountryIntensity(self.config.country.code.clone().unwrap())),
+            Some("world_avg") => Box::new(intensity::WorldAvgIntensity),
+            Some(invalid) => {
+                return Err(anyhow::anyhow!(
+                    "{} is not a valid mode. Choose override, country or world_avg",
+                    invalid
+                ));
+            }
+            None => {
+                return Err(anyhow::anyhow!(
+                    "You need to choose a mode: override, country or world_avg"
+                ));
+            }
         };
 
         let carbon_emission = alumet.create_metric::<f64>(
