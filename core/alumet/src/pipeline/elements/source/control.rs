@@ -72,6 +72,7 @@ pub enum ConfigureCommand {
     Pause,
     Resume,
     Stop,
+    Flush,
     SetTrigger(TriggerSpec),
 }
 
@@ -86,6 +87,7 @@ pub(super) enum Reconfiguration {
 #[repr(u8)]
 pub enum TaskState {
     Run,
+    RunFlush, // TODO this should be separated from the states but it's easier to implement this way for the moment
     Pause,
     #[num_enum(default)]
     Stop,
@@ -411,6 +413,7 @@ impl TaskManager {
             ConfigureCommand::Pause => Reconfiguration::SetState(TaskState::Pause),
             ConfigureCommand::Resume => Reconfiguration::SetState(TaskState::Run),
             ConfigureCommand::Stop => Reconfiguration::SetState(TaskState::Stop),
+            ConfigureCommand::Flush => Reconfiguration::SetState(TaskState::RunFlush),
             ConfigureCommand::SetTrigger(mut spec) => {
                 spec.constrain(&self.trigger_constraints);
                 Reconfiguration::SetTrigger(spec)
