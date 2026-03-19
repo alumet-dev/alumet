@@ -7,6 +7,7 @@ use alumet::measurement::{
 };
 use alumet::metrics::TypedMetricId;
 use alumet::pipeline::elements::output::{OutputContext, WriteError};
+use alumet::pipeline::elements::source::trigger::TriggerSpec;
 use alumet::pipeline::elements::source::{PollError, trigger};
 use alumet::pipeline::elements::transform::{TransformContext, TransformError};
 use alumet::pipeline::{Output, Source, Transform};
@@ -19,6 +20,7 @@ pub struct TestPlugin {
     base_value_a: u64,
     pub state: Arc<AtomicState>,
     pub counters: MeasurementCounters,
+    source_trigger: TriggerSpec,
 }
 struct TestSource {
     metric_a: TypedMetricId<u64>,
@@ -76,6 +78,7 @@ impl TestPlugin {
         base_value_a: u64,
         state: Arc<AtomicState>,
         counters: MeasurementCounters,
+        source_trigger: TriggerSpec,
     ) -> Box<TestPlugin> {
         state.set(State::Initialized);
         Box::new(TestPlugin {
@@ -83,6 +86,7 @@ impl TestPlugin {
             base_value_a,
             state,
             counters,
+            source_trigger,
         })
     }
 }
@@ -113,9 +117,7 @@ impl Plugin for TestPlugin {
             b_counter: 0,
             n_polled: self.counters.n_polled.clone(),
         });
-        let trigger = trigger::builder::time_interval(Duration::from_millis(250))
-            .build()
-            .unwrap();
+        let trigger = self.source_trigger.clone();
         alumet.add_source("test", source, trigger)?;
         alumet.add_transform(
             "test",

@@ -9,12 +9,14 @@ use alumet::{
             request::{self, ElementListFilter},
         },
         elements::source::trigger::TriggerSpec,
-        naming::{ElementKind, ElementName, PluginName},
+        naming::{ElementKind, ElementName, PluginName, SourceName},
     },
-    plugin::rust::AlumetPlugin,
+    plugin::{PluginMetadata, rust::AlumetPlugin},
     static_plugins,
 };
 use anyhow::anyhow;
+
+mod common;
 
 const TIMEOUT: Duration = Duration::from_secs(1);
 
@@ -84,7 +86,7 @@ fn create_source_error_in_builder() {
 
 #[test]
 fn list_filter() {
-    env_logger::init_from_env(env_logger::Env::default());
+    let _ = env_logger::try_init_from_env(env_logger::Env::default());
     let plugins = PluginSet::from(static_plugins![TestPlugin]);
 
     let agent = agent::Builder::new(plugins).build_and_start().unwrap();
@@ -217,6 +219,63 @@ fn list_filter() {
             ElementName::from_str(ElementKind::Output, "plugin", "dummy_out"),
         ])
     );
+}
+
+#[test]
+fn source_flush() {
+    let _ = env_logger::try_init_from_env(env_logger::Env::default());
+    use common::test_plugin::*;
+    use std::sync::{Arc, atomic::Ordering};
+
+    let state = Arc::new(AtomicState::new(State::PreInit));
+    let counters = MeasurementCounters::default();
+    let state_meta = state.clone();
+    let counters_meta = counters.clone();
+
+    // poll often but never flush automatically
+    let trigger = TriggerSpec::builder(Duration::from_millis(100))
+        .flush_interval(Duration::from_secs(120))
+        .build()
+        .unwrap();
+
+    // create a plugin, which will create a source with the above trigger
+    let plugins = PluginSet::from(vec![PluginMetadata {
+        name: "test".to_owned(),
+        version: "0.0.1".to_owned(),
+        init: Box::new(move |_| Ok(TestPlugin::init("test", 1, state_meta, counters_meta, trigger))),
+        default_config: Box::new(|| Ok(None)),
+    }]);
+
+    // start the agent
+    let agent = agent::Builder::new(plugins).build_and_start().unwrap();
+
+    // get a control handle
+    let handle = agent.pipeline.control_handle();
+
+    // wait a bit
+    std::thread::sleep(Duration::from_millis(500));
+
+    // check that we have been polled but not flushed
+    const COUNTER_ORD: Ordering = Ordering::Relaxed;
+    assert_ne!(counters.n_polled.load(COUNTER_ORD), 0);
+    assert_eq!(counters.n_transform_in.load(COUNTER_ORD), 0);
+    assert_eq!(counters.n_transform_out.load(COUNTER_ORD), 0);
+    assert_eq!(counters.n_written.load(COUNTER_ORD), 0);
+
+    // flush the source now
+    let rt = current_thread_runtime();
+    let request = request::source(SourceName::from_str("test", "test")).flush_now();
+    rt.block_on(handle.send_wait(request, Duration::from_millis(500)))
+        .unwrap();
+
+    std::thread::sleep(Duration::from_millis(100));
+
+    // check that the source has been flushed
+    assert_ne!(counters.n_transform_in.load(COUNTER_ORD), 0);
+
+    // shutdown
+    handle.shutdown();
+    agent.wait_for_shutdown(Duration::from_millis(500)).unwrap();
 }
 
 fn current_thread_runtime() -> tokio::runtime::Runtime {
