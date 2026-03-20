@@ -8,5 +8,6 @@ agent/*output.csv
 .vscode
 tmp/
 .cargo
+tarpaulin-report.html
 *.csv
 alumet-config.toml
