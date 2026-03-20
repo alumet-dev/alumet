@@ -2,8 +2,7 @@ mod intensity;
 mod transform;
 
 use alumet::{
-    metrics::{RawMetricId, def::MetricId},
-    pipeline::elements::error::TransformError,
+    metrics::def::MetricId,
     plugin::{
         AlumetPluginStart, ConfigTable,
         rust::{AlumetPlugin, deserialize_config, serialize_config},
@@ -18,29 +17,38 @@ pub struct EnergyToCarbonPlugin {
     config: Config,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "snake_case")]
+enum Mode {
+    IntensityOverride,
+    Country,
+    WorldAvg,
+}
+
 #[derive(Serialize, Deserialize, Clone, Default)]
 struct OverrideConfig {
     /// Override the emission intensity value (in gCO₂/kWh).
-    intensity: Option<f64>,
+    intensity: f64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 struct CountryConfig {
     /// Country 3-letter ISO code.
-    code: Option<String>,
+    code: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 struct Config {
-    // "country", "override" or "world_avg"
-    mode: Option<String>,
+    // "country", "intensity_override" or "world_avg"
+    mode: Option<Mode>,
     // Other parameters
     #[serde(with = "humantime_serde")]
     poll_interval: Duration,
-    #[serde(rename = "override")]
-    override_config: OverrideConfig, //optionnel
-    country: CountryConfig, //optionnel
+    #[serde(rename = "intensity_override")]
+    override_config: OverrideConfig,
+    #[serde(rename = "country")]
+    country_config: CountryConfig,
 }
 
 impl Default for Config {
@@ -48,7 +56,7 @@ impl Default for Config {
         Self {
             mode: None,
             override_config: OverrideConfig::default(),
-            country: CountryConfig::default(),
+            country_config: CountryConfig::default(),
             poll_interval: Duration::from_secs(1),
         }
     }
@@ -60,7 +68,6 @@ impl AlumetPlugin for EnergyToCarbonPlugin {
     }
 
     fn version() -> &'static str {
-        log::info!("Version here!!!");
         env!("CARGO_PKG_VERSION")
     }
 
@@ -70,31 +77,26 @@ impl AlumetPlugin for EnergyToCarbonPlugin {
     }
 
     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
-        log::info!("Init here!!!");
         let config = deserialize_config(config)?;
         Ok(Box::new(EnergyToCarbonPlugin { config }))
     }
 
     fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
-        log::info!("Start here!!");
-
-        let provider: Box<dyn EmissionIntensityProvider> = match self.config.mode.as_deref() {
-            Some("override") => Box::new(intensity::OverrideIntensity(
-                self.config.override_config.intensity.unwrap(),
-            )),
-            Some("country") => Box::new(intensity::CountryIntensity::new(
-                self.config.country.code.clone().unwrap(),
-            )?),
-            Some("world_avg") => Box::new(intensity::WorldAvgIntensity),
-            Some(invalid) => {
-                return Err(anyhow::anyhow!(
-                    "{} is not a valid mode. Choose override, country or world_avg",
-                    invalid
-                ));
+        let provider: Box<dyn EmissionIntensityProvider> = match self.config.mode {
+            Some(Mode::IntensityOverride) => {
+                Box::new(intensity::OverrideIntensity(self.config.override_config.intensity))
             }
+            Some(Mode::Country) => {
+                let code = &self.config.country_config.code;
+                if code.is_empty() {
+                    return Err(anyhow::anyhow!("country.code is required when mode is 'country'"));
+                }
+                Box::new(intensity::CountryIntensity::new(code.clone())?)
+            }
+            Some(Mode::WorldAvg) => Box::new(intensity::WorldAvgIntensity),
             None => {
                 return Err(anyhow::anyhow!(
-                    "You need to choose a mode: override, country or world_avg"
+                    "You must specify a mode: 'intensity_override', 'country', or 'world_avg'"
                 ));
             }
         };
@@ -121,7 +123,6 @@ impl AlumetPlugin for EnergyToCarbonPlugin {
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
-        log::info!("Bye!!");
         Ok(())
     }
 }

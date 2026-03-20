@@ -24,29 +24,21 @@ const TIMEOUT: Duration = Duration::from_secs(2);
 const CONFIG_COUNTRY: &str = r#"
         # Time between each activation of the energy source (e.g. "1s", "500ms", "2m")
         poll_interval = "2s"
-        # "country", "override" or "world_avg"
+        # "country", "intensity_override" or "world_avg"
         mode = "country"
 
         [country]
         # Country 3-letter ISO Code
         code = "FRA"
-
-        [override]
-        # Override the emission intensity value (in gCO₂/kWh).
-        intensity = 100
 "#;
 
 const CONFIG_OVERRIDE: &str = r#"
         # Time between each activation of the energy source (e.g. "1s", "500ms", "2m")
         poll_interval = "2s"
-        # "country", "override" or "world_avg"
-        mode = "override"
+        # "country", "intensity_override" or "world_avg"
+        mode = "intensity_override"
 
-        [country]
-        # Country 3-letter ISO Code
-        code = "FRA"
-
-        [override]
+        [intensity_override]
         # Override the emission intensity value (in gCO₂/kWh).
         intensity = 100
     "#;
@@ -54,16 +46,8 @@ const CONFIG_OVERRIDE: &str = r#"
 const CONFIG_WORLD_AVG: &str = r#"
         # Time between each activation of the energy source (e.g. "1s", "500ms", "2m")
         poll_interval = "2s"
-        # "country", "override" or "world_avg"
+        # "country", "intensity_override" or "world_avg"
         mode = "world_avg"
-
-        [country]
-        # Country 3-letter ISO Code
-        code = "FRA"
-
-        [override]
-        # Override the emission intensity value (in gCO₂/kWh).
-        intensity = 100
     "#;
 
 fn run_energy_to_carbon_test(config_str: &str, intensity: f64) {

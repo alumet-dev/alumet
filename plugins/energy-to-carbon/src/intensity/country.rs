@@ -3,7 +3,6 @@ use serde_json::Value;
 use std::fs;
 
 pub struct CountryIntensity {
-    pub country: String,
     intensity: f64,
 }
 
@@ -16,7 +15,7 @@ impl CountryIntensity {
         let intensity = deserialized_json[country.as_str()]["carbon_intensity"]
             .as_f64()
             .ok_or_else(|| anyhow::anyhow!("Country '{}' not found in energy mix file", country))?;
-        Ok(Self { country, intensity })
+        Ok(Self { intensity })
     }
 }
 

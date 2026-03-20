@@ -6,7 +6,7 @@ use alumet::{
         Transform,
         elements::{error::TransformError, transform::TransformContext},
     },
-    units::{PrefixedUnit, Unit, UnitPrefix},
+    units::{Unit, UnitPrefix},
 };
 
 pub(crate) struct EnergyToCarbonTransform {
