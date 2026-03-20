@@ -6,7 +6,7 @@ use alumet::{
         Transform,
         elements::{error::TransformError, transform::TransformContext},
     },
-    units::{PrefixedUnit, Unit},
+    units::{PrefixedUnit, Unit, UnitPrefix},
 };
 
 pub(crate) struct EnergyToCarbonTransform {
@@ -27,16 +27,16 @@ impl Transform for EnergyToCarbonTransform {
             // If the metric is in <prefix>joules => convert to joules => transform to gCo2 => add it to `carbon_points`
 
             let mut factor: f64 = 0.0; // 0.0 means "not a joule unit"
-           factor = match metric.unit {
-              PrefixedUnit::Nano(Unit::Joule) => 1e-9,
-              PrefixedUnit::Micro(Unit::Joule) => 1e-6,
-              PrefixedUnit::Milli(Unit::Joule) => 1e-3,
-              PrefixedUnit::Unit(Unit::Joule) => 1.0,
-              PrefixedUnit::Kilo(Unit::Joule) => 1e3,
-              PrefixedUnit::Mega(Unit::Joule) => 1e6,
-              PrefixedUnit::Giga(Unit::Joule) => 1e9,
-              _ => factor,
-          };
+           factor = match (&metric.unit.prefix, &metric.unit.base_unit) {
+                (UnitPrefix::Nano,  Unit::Joule) => 1e-9,
+                (UnitPrefix::Micro, Unit::Joule) => 1e-6,
+                (UnitPrefix::Milli, Unit::Joule) => 1e-3,
+                (UnitPrefix::Plain,  Unit::Joule) => 1.0,
+                (UnitPrefix::Kilo,  Unit::Joule) => 1e3,
+                (UnitPrefix::Mega,  Unit::Joule) => 1e6,
+                (UnitPrefix::Giga,  Unit::Joule) => 1e9,
+                _ => factor,
+            };
 
             if factor != 0.0 {
                 let energy = match m.value {
