@@ -27,16 +27,16 @@ impl Transform for EnergyToCarbonTransform {
             // If the metric is in <prefix>joules => convert to joules => transform to gCo2 => add it to `carbon_points`
 
             let mut factor: f64 = 0.0; // 0.0 means "not a joule unit"
-            match &metric.unit {
-                u if *u == PrefixedUnit::nano(Unit::Joule) => factor = 1e-9,
-                u if *u == PrefixedUnit::micro(Unit::Joule) => factor = 1e-6,
-                u if *u == PrefixedUnit::milli(Unit::Joule) => factor = 1e-3,
-                u if *u == PrefixedUnit::from(Unit::Joule) => factor = 1.0,
-                u if *u == PrefixedUnit::kilo(Unit::Joule) => factor = 1e3,
-                u if *u == PrefixedUnit::mega(Unit::Joule) => factor = 1e6,
-                u if *u == PrefixedUnit::giga(Unit::Joule) => factor = 1e9,
-                _ => {}
-            }
+           factor = match metric.unit {
+              PrefixedUnit::Nano(Unit::Joule) => 1e-9,
+              PrefixedUnit::Micro(Unit::Joule) => 1e-6,
+              PrefixedUnit::Milli(Unit::Joule) => 1e-3,
+              PrefixedUnit::Unit(Unit::Joule) => 1.0,
+              PrefixedUnit::Kilo(Unit::Joule) => 1e3,
+              PrefixedUnit::Mega(Unit::Joule) => 1e6,
+              PrefixedUnit::Giga(Unit::Joule) => 1e9,
+              _ => factor,
+          };
 
             if factor != 0.0 {
                 let energy = match m.value {
