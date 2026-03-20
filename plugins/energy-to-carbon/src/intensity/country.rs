@@ -9,12 +9,9 @@ pub struct CountryIntensity {
 
 impl CountryIntensity {
     pub fn new(country: String) -> anyhow::Result<Self> {
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/assets/energy_mix_per_country.json"
-        );
-        let energy_mix: String = fs::read_to_string(path)
-            .map_err(|e| anyhow::anyhow!("Failed to read energy mix file: {}", e))?;
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/energy_mix_per_country.json");
+        let energy_mix: String =
+            fs::read_to_string(path).map_err(|e| anyhow::anyhow!("Failed to read energy mix file: {}", e))?;
         let deserialized_json: Value = serde_json::from_str(energy_mix.as_str())?;
         let intensity = deserialized_json[country.as_str()]["carbon_intensity"]
             .as_f64()

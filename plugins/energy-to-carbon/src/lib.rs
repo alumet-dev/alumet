@@ -82,7 +82,9 @@ impl AlumetPlugin for EnergyToCarbonPlugin {
             Some("override") => Box::new(intensity::OverrideIntensity(
                 self.config.override_config.intensity.unwrap(),
             )),
-            Some("country") => Box::new(intensity::CountryIntensity::new(self.config.country.code.clone().unwrap())?),
+            Some("country") => Box::new(intensity::CountryIntensity::new(
+                self.config.country.code.clone().unwrap(),
+            )?),
             Some("world_avg") => Box::new(intensity::WorldAvgIntensity),
             Some(invalid) => {
                 return Err(anyhow::anyhow!(
