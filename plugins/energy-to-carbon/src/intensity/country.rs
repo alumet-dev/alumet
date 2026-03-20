@@ -11,7 +11,7 @@ impl CountryIntensity {
     pub fn new(country: String) -> anyhow::Result<Self> {
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/src/intensity/country/energy_mix_per_country.json"
+            "/assets/energy_mix_per_country.json"
         );
         let energy_mix: String = fs::read_to_string(path)
             .map_err(|e| anyhow::anyhow!("Failed to read energy mix file: {}", e))?;
