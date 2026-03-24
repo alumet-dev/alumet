@@ -4,15 +4,15 @@ use alumet::{
     plugin::util::CounterDiff,
     resources::{Resource, ResourceConsumer},
 };
+use amd_smi_wrapper::{
+    handles::ProcessorHandle,
+    metrics::{AmdTemperatureMetric, AmdVoltageMetric, AmdVoltageType},
+};
 use anyhow::Result;
 use std::{borrow::Cow, collections::HashMap};
 
 use super::{device::ManagedDevice, metrics::Metrics};
 use crate::amd::utils::{MEMORY_TYPE, SENSOR_TYPE};
-use amd_smi_wrapper::{
-    ProcessorHandle,
-    utils::{AmdTemperatureMetric, AmdVoltageMetric, AmdVoltageType},
-};
 
 /// Measurement source that queries AMD GPU devices.
 pub struct AmdGpuSource<H: ProcessorHandle> {
@@ -83,6 +83,7 @@ impl<H: ProcessorHandle> AmdGpuSource<H> {
         measurements: &mut MeasurementAccumulator,
         timestamp: Timestamp,
         resource: &Resource,
+        gpu_cu_occupancy: u32,
     ) -> anyhow::Result<()> {
         let features = &device.features;
 
@@ -104,7 +105,13 @@ impl<H: ProcessorHandle> AmdGpuSource<H> {
                     }
                 };
 
-                push(self.metrics.process_occupancy, process.cu_occupancy as u64);
+                if gpu_cu_occupancy > 0 {
+                    push(
+                        self.metrics.process_cu_occupancy,
+                        ((process.cu_occupancy / gpu_cu_occupancy) * 100) as u64,
+                    );
+                }
+
                 push(self.metrics.process_memory_usage, process.mem);
                 push(self.metrics.process_engine_usage_gfx, process.engine_usage.gfx);
                 push(self.metrics.process_engine_usage_encode, process.engine_usage.enc);
@@ -132,6 +139,14 @@ impl<H: ProcessorHandle> Source for AmdGpuSource<H> {
 
             // GPU engine data usage metric pushed
             self.handle_gpu_activity(device, measurements, timestamp, &consumer, &resource)?;
+
+            // Global GPU chip information
+            if features.gpu_asic_info
+                && let Ok(value) = device.handle.device_asic_info()
+            {
+                // Push GPU compute-graphic process informations if processes existing
+                self.handle_gpu_processes(device, measurements, timestamp, &resource, value.num_of_compute_units)?;
+            }
 
             // GPU energy consumption metric pushed
             if features.gpu_energy_consumption
@@ -225,9 +240,6 @@ impl<H: ProcessorHandle> Source for AmdGpuSource<H> {
                     );
                 }
             }
-
-            // Push GPU compute-graphic process informations if processes existing
-            self.handle_gpu_processes(device, measurements, timestamp, &resource)?;
         }
 
         Ok(())

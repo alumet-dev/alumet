@@ -96,7 +96,7 @@ pub(crate) async fn run_managed(
         let initial_state = config.atomic_state.load(Ordering::Relaxed);
         log::trace!("{source_name} initial state: {initial_state}");
         match initial_state.into() {
-            TaskState::Run | TaskState::RunFlush => {
+            TaskState::Run => {
                 run = true; // start the main loop
             }
             TaskState::Pause => {
@@ -182,25 +182,6 @@ pub(crate) async fn run_managed(
             match new_state.into() {
                 TaskState::Run => {
                     update = false; // go back to polling
-                }
-                TaskState::RunFlush => {
-                    update = false;
-
-                    if buffer.is_empty() {
-                        log::debug!("nothing to flush in {source_name}");
-                    } else {
-                        log::debug!("flushing {source_name}");
-                        buffer = flush(buffer, &tx, &source_name).await;
-                    }
-
-                    // Switch back to normal run (otherwise we would always flush from now on).
-                    // Use `compare_exchange` because the state may have been updated in the meantime, in which case we don't want to override it.
-                    let _ = config.atomic_state.compare_exchange(
-                        new_state,
-                        TaskState::Run.into(),
-                        Ordering::Relaxed,
-                        Ordering::Relaxed,
-                    );
                 }
                 TaskState::Pause => {
                     log::trace!("{source_name} has been paused; resetting its internal state");

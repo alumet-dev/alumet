@@ -9,7 +9,6 @@ use alumet::{
         config::{AutoDefaultConfigProvider, DefaultConfigProvider},
         plugin::PluginSet,
     },
-    pipeline::elements::source::trigger,
     plugin::{
         AlumetPluginStart, ConfigTable, PluginMetadata,
         rust::{AlumetPlugin, serialize_config},
@@ -78,24 +77,19 @@ fn test_plugin_lifecycle() {
     let counters2 = MeasurementCounters::default();
     const COUNTER_ORD: Ordering = Ordering::Relaxed;
 
-    let source_trigger = trigger::builder::time_interval(Duration::from_millis(250))
-        .build()
-        .unwrap();
-    let source_trigger2 = source_trigger.clone();
-
     let (state1_meta, state2_meta) = (state1.clone(), state2.clone());
     let (c1_meta, c2_meta) = (counters1.clone(), counters2.clone());
     let plugins = vec![
         PluginMetadata {
             name: "plugin1".to_owned(),
             version: "0.0.1".to_owned(),
-            init: Box::new(move |_| Ok(TestPlugin::init("plugin1", 98, state1_meta, c1_meta, source_trigger))),
+            init: Box::new(move |_| Ok(TestPlugin::init("plugin1", 98, state1_meta, c1_meta))),
             default_config: Box::new(|| Ok(None)),
         },
         PluginMetadata {
             name: "plugin2".to_owned(),
             version: "0.0.1".to_owned(),
-            init: Box::new(move |_| Ok(TestPlugin::init("plugin2", 1000, state2_meta, c2_meta, source_trigger2))),
+            init: Box::new(move |_| Ok(TestPlugin::init("plugin2", 1000, state2_meta, c2_meta))),
             default_config: Box::new(|| Ok(None)),
         },
     ];

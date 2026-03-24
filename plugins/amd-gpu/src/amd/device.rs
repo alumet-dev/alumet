@@ -1,6 +1,9 @@
+use amd_smi_wrapper::{
+    AmdInterface,
+    error::AmdError,
+    handles::{ProcessorHandle, SocketHandle},
+};
 use std::collections::HashMap;
-
-use amd_smi_wrapper::{AmdError, AmdInterface, ProcessorHandle, SocketHandle};
 
 use super::features::OptionalFeatures;
 
@@ -104,11 +107,14 @@ impl<H: ProcessorHandle> AmdGpuDevices<H> {
 mod test {
     use super::*;
     use crate::tests::mocks::{
-        MOCK_ACTIVITY, MOCK_ENERGY, MOCK_MEMORY, MOCK_POWER, MOCK_TEMPERATURE, MOCK_UUID, MOCK_VOLTAGE, mock_process,
+        MOCK_ACTIVITY, MOCK_ENERGY, MOCK_MEMORY, MOCK_POWER, MOCK_TEMPERATURE, MOCK_UUID, MOCK_VOLTAGE, mock_asic_info,
+        mock_process,
     };
     use amd_smi_wrapper::{
-        AmdError, MockAmdInterface, MockProcessorHandle, MockSocketHandle,
-        utils::{AmdStatus, AmdTemperatureMetric},
+        MockAmdInterface,
+        error::AmdStatus,
+        handles::{MockProcessorHandle, MockSocketHandle},
+        metrics::AmdTemperatureMetric,
     };
     use log::LevelFilter::Warn;
     use std::{
@@ -154,6 +160,10 @@ mod test {
             .returning(|| Ok(MOCK_UUID.to_owned()));
 
         mock_processor.expect_device_activity().returning(|| Ok(MOCK_ACTIVITY));
+
+        mock_processor
+            .expect_device_asic_info()
+            .returning(|| Ok(mock_asic_info()));
 
         mock_processor
             .expect_device_energy_consumption()
@@ -228,6 +238,12 @@ mod test {
                 message: None,
             })
         });
+        mock_processor.expect_device_asic_info().returning(|| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA,
+                message: None,
+            })
+        });
         mock_processor.expect_device_energy_consumption().returning(|| {
             Err(AmdError {
                 status: AmdStatus::AMDSMI_STATUS_UNEXPECTED_DATA,
@@ -297,6 +313,12 @@ mod test {
             .returning(|| Ok(MOCK_UUID.to_owned()));
 
         mock_processor.expect_device_activity().returning(|| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR,
+                message: None,
+            })
+        });
+        mock_processor.expect_device_asic_info().returning(|| {
             Err(AmdError {
                 status: AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR,
                 message: None,
@@ -381,6 +403,12 @@ mod test {
             .returning(|| Ok(MOCK_UUID.to_owned()));
 
         mock_processor.expect_device_activity().returning(|| {
+            Err(AmdError {
+                status: AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR,
+                message: None,
+            })
+        });
+        mock_processor.expect_device_asic_info().returning(|| {
             Err(AmdError {
                 status: AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR,
                 message: None,

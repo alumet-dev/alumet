@@ -1,20 +1,17 @@
 use crate::{
     AmdGpuPlugin, Config,
     amd::utils::{
-        METRIC_LABEL_ACTIVITY, METRIC_LABEL_ENERGY, METRIC_LABEL_MEMORY, METRIC_LABEL_POWER, METRIC_LABEL_PROCESS_CPU,
-        METRIC_LABEL_PROCESS_ENCODE, METRIC_LABEL_PROCESS_GFX, METRIC_LABEL_PROCESS_GTT, METRIC_LABEL_PROCESS_MEMORY,
-        METRIC_LABEL_PROCESS_OCCUPANCY, METRIC_LABEL_PROCESS_VRAM, METRIC_LABEL_TEMPERATURE, METRIC_LABEL_VOLTAGE,
-        PLUGIN_NAME,
+        METRIC_LABEL_ACTIVITY, METRIC_LABEL_ENERGY, METRIC_LABEL_MEMORY, METRIC_LABEL_POWER,
+        METRIC_LABEL_PROCESS_COMPUTE_UNIT_OCCUPANCY, METRIC_LABEL_PROCESS_CPU, METRIC_LABEL_PROCESS_ENCODE,
+        METRIC_LABEL_PROCESS_GFX, METRIC_LABEL_PROCESS_GTT, METRIC_LABEL_PROCESS_MEMORY, METRIC_LABEL_PROCESS_VRAM,
+        METRIC_LABEL_TEMPERATURE, METRIC_LABEL_VOLTAGE, PLUGIN_NAME,
     },
     tests::mocks::{
         MOCK_ACTIVITY, MOCK_ENERGY, MOCK_MEMORY, MOCK_POWER, MOCK_SOURCE_NAME, MOCK_TEMPERATURE, MOCK_UUID,
-        MOCK_VOLTAGE, mock_process,
+        MOCK_VOLTAGE, mock_asic_info, mock_process,
     },
 };
-use amd_smi_wrapper::{
-    AmdError, MockAmdInterface, MockProcessorHandle, MockSocketHandle,
-    utils::{AmdStatus, AmdTemperatureMetric},
-};
+
 use std::{thread::sleep, time::Duration};
 
 use alumet::{
@@ -27,6 +24,12 @@ use alumet::{
     resources::Resource,
     test::{RuntimeExpectations, StartupExpectations},
     units::{PrefixedUnit, Unit},
+};
+use amd_smi_wrapper::{
+    MockAmdInterface,
+    error::{AmdError, AmdStatus},
+    handles::{MockProcessorHandle, MockSocketHandle},
+    metrics::AmdTemperatureMetric,
 };
 
 // Mock fake toml table for configuration
@@ -50,6 +53,10 @@ fn test_start_success() {
                 .returning(|| Ok(MOCK_UUID.to_owned()));
 
             mock_processor.expect_device_activity().returning(|| Ok(MOCK_ACTIVITY));
+
+            mock_processor
+                .expect_device_asic_info()
+                .returning(|| Ok(mock_asic_info()));
 
             mock_processor
                 .expect_device_energy_consumption()
@@ -103,8 +110,6 @@ fn test_start_success() {
 
         Ok(vec![mock_socket])
     });
-
-    mock_init.expect_stop().returning(|| Ok(()));
 
     let config = Config { ..Default::default() };
     let mut plugins = PluginSet::new();
@@ -267,7 +272,7 @@ fn test_start_success() {
                 let expected_names = ["p1"];
                 let process_metrics = [
                     METRIC_LABEL_PROCESS_MEMORY,
-                    METRIC_LABEL_PROCESS_OCCUPANCY,
+                    METRIC_LABEL_PROCESS_COMPUTE_UNIT_OCCUPANCY,
                     METRIC_LABEL_PROCESS_ENCODE,
                     METRIC_LABEL_PROCESS_GFX,
                     METRIC_LABEL_PROCESS_GTT,
@@ -294,7 +299,7 @@ fn test_start_success() {
 
                         let expected_value = match (process_name.as_str(), metric_id) {
                             ("p1", METRIC_LABEL_PROCESS_MEMORY) => WrappedMeasurementValue::U64(mock_process.mem),
-                            ("p1", METRIC_LABEL_PROCESS_OCCUPANCY) => {
+                            ("p1", METRIC_LABEL_PROCESS_COMPUTE_UNIT_OCCUPANCY) => {
                                 WrappedMeasurementValue::U64(mock_process.cu_occupancy.into())
                             }
                             ("p1", METRIC_LABEL_PROCESS_ENCODE) => {
@@ -338,7 +343,6 @@ fn test_start_success() {
 fn test_start_error() {
     let mut mock_init = MockAmdInterface::new();
     mock_init.expect_socket_handles().returning(|| Ok(vec![]));
-    mock_init.expect_stop().returning(|| Ok(()));
 
     let mut plugins = PluginSet::new();
     let config = Config { ..Default::default() };
@@ -368,6 +372,12 @@ fn test_start_success_without_stats() {
                 .returning(|| Ok(MOCK_UUID.to_owned()));
 
             mock_processor.expect_device_activity().returning(|| {
+                Err(AmdError {
+                    status: AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR,
+                    message: None,
+                })
+            });
+            mock_processor.expect_device_asic_info().returning(|| {
                 Err(AmdError {
                     status: AmdStatus::AMDSMI_STATUS_UNKNOWN_ERROR,
                     message: None,
@@ -421,8 +431,6 @@ fn test_start_success_without_stats() {
 
         Ok(vec![mock_socket])
     });
-
-    mock_init.expect_stop().returning(|| Ok(()));
 
     let config = Config { ..Default::default() };
     let mut plugins = PluginSet::new();
