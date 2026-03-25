@@ -7,10 +7,10 @@ use alumet::{
     },
 };
 use amd::{device::AmdGpuDevices, metrics::Metrics, probe::AmdGpuSource};
-use amd_smi_wrapper::{AmdInterface, AmdSmi, utils::InitFlags};
+use amd_smi_wrapper::{AmdInitFlags, AmdInterface, AmdSmi};
 use anyhow::{Context, anyhow};
 use serde::{Deserialize, Serialize};
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 #[cfg(test)]
 use alumet::plugin::PluginMetadata;
@@ -58,10 +58,10 @@ pub trait AmdInterfaceProvider {
 pub struct AmdSmiProvider;
 
 impl AmdInterfaceProvider for AmdSmiProvider {
-    type A = Arc<AmdSmi>;
+    type A = AmdSmi;
 
-    fn get() -> anyhow::Result<Arc<AmdSmi>> {
-        Ok(AmdSmi::init(InitFlags::AMD_GPUS)?)
+    fn get() -> anyhow::Result<AmdSmi> {
+        Ok(AmdSmi::init(AmdInitFlags::AMDSMI_INIT_AMD_GPUS)?.into())
     }
 }
 

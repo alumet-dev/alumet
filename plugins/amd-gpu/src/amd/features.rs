@@ -1,6 +1,7 @@
 use amd_smi_wrapper::{
-    AmdError, ProcessorHandle,
-    utils::{AmdMemoryType, AmdStatus, AmdTemperatureMetric, AmdTemperatureType, AmdVoltageMetric, AmdVoltageType},
+    error::{AmdError, AmdStatus},
+    handles::ProcessorHandle,
+    metrics::{AmdMemoryType, AmdTemperatureMetric, AmdTemperatureType, AmdVoltageMetric, AmdVoltageType},
 };
 
 use crate::amd::utils::{MEMORY_TYPE, SENSOR_TYPE};
@@ -11,6 +12,8 @@ use std::fmt::{self, Display, Formatter};
 pub struct OptionalFeatures {
     /// GPU activity usage feature validity.
     pub gpu_activity_usage: bool,
+    /// GPU globals information.
+    pub gpu_asic_info: bool,
     /// GPU energy consumption feature validity.
     pub gpu_energy_consumption: bool,
     /// GPU memory usage (VRAM, GTT) feature validity.
@@ -60,6 +63,7 @@ impl OptionalFeatures {
 
         Ok(Self {
             gpu_activity_usage: is_supported(processor_handle.device_activity())?,
+            gpu_asic_info: is_supported(processor_handle.device_asic_info())?,
             gpu_energy_consumption: is_supported(processor_handle.device_energy_consumption())?,
             gpu_power_consumption: is_supported(processor_handle.device_power_consumption())?,
             gpu_power_state_management: is_supported(processor_handle.device_power_managment())?,
@@ -81,6 +85,7 @@ impl OptionalFeatures {
     pub fn has_any(&self) -> bool {
         self.gpu_energy_consumption
             || self.gpu_activity_usage
+            || self.gpu_asic_info
             || self.gpu_power_consumption
             || self.gpu_power_state_management
             || self.gpu_process
@@ -96,6 +101,9 @@ impl Display for OptionalFeatures {
 
         if self.gpu_activity_usage {
             available.push("gpu_activity_usage".to_string());
+        }
+        if self.gpu_activity_usage {
+            available.push("gpu_asic_info".to_string());
         }
         if self.gpu_energy_consumption {
             available.push("gpu_energy_consumption".to_string());
@@ -130,11 +138,12 @@ impl Display for OptionalFeatures {
 
 #[cfg(test)]
 mod test {
-    use amd_smi_wrapper::{AmdError, MockProcessorHandle};
+    use amd_smi_wrapper::handles::MockProcessorHandle;
 
     use super::*;
     use crate::tests::mocks::{
-        MOCK_ACTIVITY, MOCK_ENERGY, MOCK_MEMORY, MOCK_POWER, MOCK_TEMPERATURE, MOCK_VOLTAGE, mock_process,
+        MOCK_ACTIVITY, MOCK_ENERGY, MOCK_MEMORY, MOCK_POWER, MOCK_TEMPERATURE, MOCK_VOLTAGE, mock_asic_info,
+        mock_process,
     };
 
     use std::ptr::eq;
@@ -154,6 +163,7 @@ mod test {
 
         OptionalFeatures {
             gpu_activity_usage: false,
+            gpu_asic_info: false,
             gpu_energy_consumption: false,
             gpu_power_consumption: false,
             gpu_power_state_management: false,
@@ -170,6 +180,7 @@ mod test {
         let mut features = mock_optional_features();
 
         features.gpu_activity_usage = true;
+        features.gpu_asic_info = true;
         features.gpu_energy_consumption = true;
         features.gpu_power_consumption = true;
         features.gpu_power_state_management = true;
@@ -185,7 +196,7 @@ mod test {
 
         assert_eq!(
             format!("{features}"),
-            "gpu_activity_usage, gpu_energy_consumption, gpu_power_consumption, gpu_power_state_management, gpu_process_info, gpu_voltage, gpu_memory_usages::amdsmi_memory_type_t(0), gpu_temperatures::amdsmi_temperature_type_t(0)"
+            "gpu_activity_usage, gpu_asic_info, gpu_energy_consumption, gpu_power_consumption, gpu_power_state_management, gpu_process_info, gpu_voltage, gpu_memory_usages::amdsmi_memory_type_t(0), gpu_temperatures::amdsmi_temperature_type_t(0)"
         );
     }
 
@@ -224,6 +235,7 @@ mod test {
     fn test_has_any_all_false() {
         let features = OptionalFeatures {
             gpu_activity_usage: false,
+            gpu_asic_info: false,
             gpu_energy_consumption: false,
             gpu_power_consumption: false,
             gpu_power_state_management: false,
@@ -240,6 +252,7 @@ mod test {
     fn test_has_any_all_supported() {
         let features = OptionalFeatures {
             gpu_activity_usage: is_supported(Ok(())).unwrap(),
+            gpu_asic_info: is_supported(Ok(())).unwrap(),
             gpu_energy_consumption: is_supported(Ok(())).unwrap(),
             gpu_power_consumption: is_supported(Ok(())).unwrap(),
             gpu_power_state_management: is_supported(Ok(())).unwrap(),
@@ -257,6 +270,8 @@ mod test {
         let mut mock = MockProcessorHandle::new();
 
         mock.expect_device_activity().returning(|| Ok(MOCK_ACTIVITY));
+
+        mock.expect_device_asic_info().returning(|| Ok(mock_asic_info()));
 
         mock.expect_device_energy_consumption().returning(|| Ok(MOCK_ENERGY));
 
@@ -305,6 +320,8 @@ mod test {
         let mut mock = MockProcessorHandle::new();
 
         mock.expect_device_activity().returning(|| Ok(MOCK_ACTIVITY));
+
+        mock.expect_device_asic_info().returning(|| Ok(mock_asic_info()));
 
         mock.expect_device_energy_consumption().returning(|| {
             Err(AmdError {

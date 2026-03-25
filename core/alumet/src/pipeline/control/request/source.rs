@@ -70,15 +70,6 @@ impl SourceRequestBuilder {
             }),
         }
     }
-
-    pub fn flush_now(self) -> SourceRequest {
-        SourceRequest {
-            msg: ControlMessage::Configure(ConfigureMessage {
-                matcher: self.matcher,
-                command: ConfigureCommand::Flush,
-            }),
-        }
-    }
 }
 
 impl SourceRequest {
