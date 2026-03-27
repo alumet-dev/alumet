@@ -38,6 +38,7 @@ fn load_plugins_metadata() -> Vec<PluginMetadata> {
         plugin_kwollect_input::KwollectPluginInput,
         plugin_kwollect_output::KwollectPlugin,
         plugin_filter::FilterPlugin,
+        plugin_energy_to_carbon::EnergyToCarbonPlugin,
     ];
 
     // plugins that only work on Linux

@@ -15,6 +15,7 @@ cguest
 CNRS
 cpuacct
 Damerau
+d'Ivoire
 desugars
 DTLB
 Eviden
