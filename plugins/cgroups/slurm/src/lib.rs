@@ -173,7 +173,7 @@ pub struct StartingState {
     shared_hierarchy: OptionalSharedHierarchy,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "lowercase")]
 pub enum JobMonitoringLevel {
     Job,
