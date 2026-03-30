@@ -22,9 +22,9 @@ Here are the metrics collected by the plugin source:
 |`amd_gpu_power_consumption`|Gauge|watt|Estimated average electricity consumption|GPU|LocalMachine||
 |`amd_gpu_temperature`|Gauge|celsius|Values ​​from AMD GPUs equipped with different sensors to precisely locate temperature by zone|GPU|LocalMachine|[thermal_zone](#thermal_zone)|
 |`amd_gpu_voltage`|Gauge|millivolt|Electric power consumption by a AMD GPU|GPU|LocalMachine||
+|`amd_gpu_process_compute_unit_occupancy`|Gauge|percentage|Compute units used|process|pid|[process_name](#process_name)|
 |`amd_gpu_process_memory_usage`|Gauge|byte|Process memory usage|process|pid|[process_name](#process_name)|
 |`amd_gpu_process_engine_usage_encode`|Gauge|nanosecond|Process GFX engine usage|process|pid|[process_name](#process_name)|
-|`amd_gpu_process_occupancy`|Gauge|none|Number of compute units used|process|pid|[process_name](#process_name)|
 |`amd_gpu_process_engine_gfx`|Gauge|nanosecond|Process encode engine usage|process|pid|[process_name](#process_name)|
 |`amd_gpu_process_memory_usage_cpu`|Gauge|byte|Process CPU memory usage|process|pid|[process_name](#process_name)|
 |`amd_gpu_process_memory_usage_gtt`|Gauge|byte|Process GTT memory usage|process|pid|[process_name](#process_name)|
