@@ -10,6 +10,7 @@ members = [
     "plugins/elasticsearch",
     "plugins/energy-attribution",
     "plugins/energy-estimation-tdp",
+    "plugins/energy-to-carbon",
     "plugins/filter",
     "plugins/grace-hopper",
     "plugins/influxdb",
@@ -26,6 +27,7 @@ members = [
     "plugins/rapl",
     "plugins/relay",
     "plugins/socket-control",
+
     "separate-tests/test-dynamic-plugins",
 ]
 
