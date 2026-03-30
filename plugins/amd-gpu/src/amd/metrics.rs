@@ -5,9 +5,10 @@ use alumet::{
 };
 
 use crate::amd::utils::{
-    METRIC_LABEL_ACTIVITY, METRIC_LABEL_ENERGY, METRIC_LABEL_MEMORY, METRIC_LABEL_POWER, METRIC_LABEL_PROCESS_CPU,
-    METRIC_LABEL_PROCESS_ENCODE, METRIC_LABEL_PROCESS_GFX, METRIC_LABEL_PROCESS_GTT, METRIC_LABEL_PROCESS_MEMORY,
-    METRIC_LABEL_PROCESS_OCCUPANCY, METRIC_LABEL_PROCESS_VRAM, METRIC_LABEL_TEMPERATURE, METRIC_LABEL_VOLTAGE,
+    METRIC_LABEL_ACTIVITY, METRIC_LABEL_ENERGY, METRIC_LABEL_MEMORY, METRIC_LABEL_POWER,
+    METRIC_LABEL_PROCESS_COMPUTE_UNIT_OCCUPANCY, METRIC_LABEL_PROCESS_CPU, METRIC_LABEL_PROCESS_ENCODE,
+    METRIC_LABEL_PROCESS_GFX, METRIC_LABEL_PROCESS_GTT, METRIC_LABEL_PROCESS_MEMORY, METRIC_LABEL_PROCESS_VRAM,
+    METRIC_LABEL_TEMPERATURE, METRIC_LABEL_VOLTAGE,
 };
 
 /// Contains the ids of the measured metrics.
@@ -25,10 +26,10 @@ pub struct Metrics {
     pub gpu_temperatures: TypedMetricId<u64>,
     /// Metric type based on GPU socket voltage data.
     pub gpu_voltage: TypedMetricId<u64>,
+    /// Metric type based on GPU process CU occupancy data.
+    pub process_cu_occupancy: TypedMetricId<u64>,
     /// Metric type based on GPU process memory usage data.
     pub process_memory_usage: TypedMetricId<u64>,
-    /// Metric type based on GPU process CU occupancy data.
-    pub process_occupancy: TypedMetricId<u64>,
     /// Metric type based on GPU GFX engine usage data.
     pub process_engine_usage_gfx: TypedMetricId<u64>,
     /// Metric type based on GPU encode engine usage data.
@@ -74,15 +75,15 @@ impl Metrics {
                 PrefixedUnit::milli(Unit::Volt),
                 "Get GPU voltage in millivolt",
             )?,
+            process_cu_occupancy: alumet.create_metric::<u64>(
+                METRIC_LABEL_PROCESS_COMPUTE_UNIT_OCCUPANCY,
+                Unit::Percent,
+                "Get compute units used by a process in percentage",
+            )?,
             process_memory_usage: alumet.create_metric::<u64>(
                 METRIC_LABEL_PROCESS_MEMORY,
                 Unit::Byte,
                 "Get process memory usage in byte",
-            )?,
-            process_occupancy: alumet.create_metric::<u64>(
-                METRIC_LABEL_PROCESS_OCCUPANCY,
-                Unit::Unity,
-                "Get number of compute units used by a process",
             )?,
             process_engine_usage_encode: alumet.create_metric::<u64>(
                 METRIC_LABEL_PROCESS_ENCODE,
