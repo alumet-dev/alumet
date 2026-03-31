@@ -628,33 +628,39 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(test)]
+    fn sort_zone_recursively(zone: &mut PowerZone) {
+        zone.children.sort_by_key(|z| z.path.clone());
+        for child in &mut zone.children {
+            sort_zone_recursively(child);
+        }
+    }
+
     #[test]
     fn test_all_power_zones_from_path() -> anyhow::Result<()> {
         let tmp = create_valid_powercap_mock()?;
         let base_path = tmp.path();
         let base_str = base_path.to_str().expect("cannot convert base_path to str");
 
-        let actual_zones = all_power_zones_from_path(base_path)?.flat;
+        let mut actual_zones = all_power_zones_from_path(base_path)?.flat;
 
         let expected_zones = vec![
             PowerZone {
                 name: "package-0".to_string(),
                 domain: RaplDomainType::Package,
-                path: PathBuf::from(format!("{}/intel-rapl:0", base_str)),
+                path: PathBuf::from(format!("{base_str}/intel-rapl:0")),
                 socket_id: Some(0),
                 children: vec![
                     PowerZone {
                         name: "core".to_string(),
                         domain: RaplDomainType::PP0,
-                        path: PathBuf::from(format!("{}/intel-rapl:0/intel-rapl:0:0", base_str)),
+                        path: PathBuf::from(format!("{base_str}/intel-rapl:0/intel-rapl:0:0")),
                         socket_id: Some(0),
                         children: Vec::new(),
                     },
                     PowerZone {
                         name: "uncore".to_string(),
                         domain: RaplDomainType::PP1,
-                        path: PathBuf::from(format!("{}/intel-rapl:0/intel-rapl:0:1", base_str)),
+                        path: PathBuf::from(format!("{base_str}/intel-rapl:0/intel-rapl:0:1")),
                         socket_id: Some(0),
                         children: Vec::new(),
                     },
@@ -663,32 +669,41 @@ mod tests {
             PowerZone {
                 name: "core".to_string(),
                 domain: RaplDomainType::PP0,
-                path: PathBuf::from(format!("{}/intel-rapl:0/intel-rapl:0:0", base_str)),
+                path: PathBuf::from(format!("{base_str}/intel-rapl:0/intel-rapl:0:0")),
                 socket_id: Some(0),
                 children: Vec::new(),
             },
             PowerZone {
                 name: "uncore".to_string(),
                 domain: RaplDomainType::PP1,
-                path: PathBuf::from(format!("{}/intel-rapl:0/intel-rapl:0:1", base_str)),
+                path: PathBuf::from(format!("{base_str}/intel-rapl:0/intel-rapl:0:1")),
                 socket_id: Some(0),
                 children: Vec::new(),
             },
             PowerZone {
                 name: "psys".to_string(),
                 domain: RaplDomainType::Platform,
-                path: PathBuf::from(format!("{}/intel-rapl:1", base_str)),
+                path: PathBuf::from(format!("{base_str}/intel-rapl:1")),
                 socket_id: None,
                 children: Vec::new(),
             },
             PowerZone {
                 name: "dram".to_string(),
                 domain: RaplDomainType::Dram,
-                path: PathBuf::from(format!("{}/intel-rapl:2", base_str)),
+                path: PathBuf::from(format!("{base_str}/intel-rapl:2")),
                 socket_id: None,
                 children: Vec::new(),
             },
         ];
+
+        let mut expected_zones = expected_zones;
+
+        for z in &mut actual_zones {
+            sort_zone_recursively(z);
+        }
+        for z in &mut expected_zones {
+            sort_zone_recursively(z);
+        }
 
         assert_eq!(actual_zones, expected_zones);
 
