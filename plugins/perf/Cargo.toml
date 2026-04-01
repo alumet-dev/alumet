@@ -17,3 +17,6 @@ serde = { workspace = true, features = ["derive"] }
 
 [lints]
 workspace = true
+
+[package.metadata.cargo-machete]
+ignored = ["perf-event2"]

@@ -11,7 +11,6 @@ humantime-serde.workspace = true
 log.workspace = true
 rustc-hash.workspace = true
 serde = { workspace = true, features = ["derive"] }
-serde_json = "1.0"
 # keep evalexpr 11.x because it is MIT, evalexpr >= 12 is AGPL
 evalexpr = "11.3"
 

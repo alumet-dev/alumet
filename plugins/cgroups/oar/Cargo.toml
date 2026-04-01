@@ -13,7 +13,6 @@ log.workspace = true
 regex = { version = "1.11.1", default-features = false, features = ["std", "perf"] }
 rustc-hash.workspace = true
 serde = { workspace = true, features = ["derive"] }
-thiserror.workspace = true
 tokio = { workspace = true, features = ["rt"] }
 util-cgroups = { version = "0.1.0", path = "../util-cgroups" }
 util-cgroups-plugins = { version = "0.1.0", path = "../util-cgroups-plugins" }

@@ -62,3 +62,6 @@ useless_format = "deny"
 
 [workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin, tarpaulin_include)'] }
+
+[workspace.metadata.cargo-machete]
+ignored = ["humantime-serde"]

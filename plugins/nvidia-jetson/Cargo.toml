@@ -12,7 +12,6 @@ log.workspace = true
 regex = "1.11.1"
 rustc-hash.workspace = true
 serde = { workspace = true, features = ["derive"] }
-thiserror.workspace = true
 walkdir = "2.5.0"
 
 [lints]
