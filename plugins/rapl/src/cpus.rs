@@ -115,10 +115,32 @@ mod tests {
 
     #[test]
     fn test_parse_cpu_vendor_from_lscpu() -> anyhow::Result<()> {
-        let lscpu_result = "Vendor ID:                GenuineIntel";
-        let cpu_vendor = parse_cpu_vendor_from_lscpu(lscpu_result)?;
-        assert_eq!(cpu_vendor, CpuVendor::Intel);
+        let lscpu_intel = "Vendor ID:                GenuineIntel";
+        let lscpu_amd = "Vendor ID:                AuthenticAMD";
+        assert_eq!(parse_cpu_vendor_from_lscpu(lscpu_intel)?, CpuVendor::Intel);
+        assert_eq!(parse_cpu_vendor_from_lscpu(lscpu_amd)?, CpuVendor::Amd);
         Ok(())
+    }
+
+    #[test]
+    fn test_parse_cpu_vendor_from_lscpu_with_unsupported_vendor() {
+        let lscpu = "Vendor ID:                UnknownVendor";
+        let result = parse_cpu_vendor_from_lscpu(lscpu).unwrap_err();
+        assert!(result.to_string().contains("Unsupported CPU vendor"));
+    }
+
+    #[test]
+    fn test_parse_cpu_vendor_from_lscpu_with_missing_vendor() {
+        let lscpu = "No vendor ID";
+        let result = parse_cpu_vendor_from_lscpu(lscpu).unwrap_err();
+        assert!(result.to_string().contains("vendor id not found in lscpu output"));
+    }
+
+    #[test]
+    fn test_parse_cpulist_with_invalid_item() {
+        let cpulist = "1-2-3";
+        let result = parse_cpu_list(cpulist).unwrap_err();
+        assert!(result.to_string().contains("invalid cpu_list"));
     }
 
     #[test]

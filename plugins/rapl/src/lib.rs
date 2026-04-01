@@ -220,23 +220,39 @@ impl Default for Config {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-    use std::time::Duration;
-
     use crate::tests_mock::{Entry, EntryType, create_mock_layout, create_valid_powercap_mock};
     use crate::{Config, RaplPlugin};
+
     use alumet::{
         agent::{
-            self,
+            self, Builder,
             plugin::{PluginInfo, PluginSet},
         },
         measurement::{AttributeValue, WrappedMeasurementValue},
         pipeline::naming::SourceName,
-        plugin::PluginMetadata,
+        plugin::{
+            PluginMetadata,
+            rust::{AlumetPlugin, deserialize_config},
+        },
         test::{RuntimeExpectations, StartupExpectations},
         units::Unit,
     };
+    use std::{path::Path, time::Duration};
     use tempfile::tempdir;
+
+    #[test]
+    fn test_default_config() {
+        let table = RaplPlugin::default_config().expect("default_config() should not fail");
+        let config: Config = deserialize_config(table.expect("default_config() should return Some")).unwrap();
+
+        assert_eq!(config.poll_interval, Duration::from_secs(1));
+        assert_eq!(config.flush_interval, Duration::from_secs(5));
+        assert_eq!(config.no_perf_events, false);
+    }
+
+    fn config_to_toml_table(config: &Config) -> toml::Table {
+        toml::Value::try_from(config).unwrap().as_table().unwrap().clone()
+    }
 
     /// This test ensure the plugin startup correctly, with the expected source based on Powercap Mocks created during the test.
     /// It also verifies the registered metrics and their units.
@@ -412,7 +428,52 @@ mod tests {
         Ok(())
     }
 
-    fn config_to_toml_table(config: &Config) -> toml::Table {
-        toml::Value::try_from(config).unwrap().as_table().unwrap().clone()
+    #[test]
+    fn test_error_with_powercap() -> anyhow::Result<()> {
+        let mut plugins = PluginSet::new();
+
+        let tmp = tempdir()?;
+        let base_path = tmp.path().to_owned();
+        let perf_event_test_path = "/i/do/not/exists".into();
+
+        // Missing max_energy_range_uj file
+        let entries = [
+            Entry {
+                path: "intel-rapl:0",
+                entry_type: EntryType::Dir,
+            },
+            Entry {
+                path: "intel-rapl:0/name",
+                entry_type: EntryType::File("package-0"),
+            },
+            Entry {
+                path: "intel-rapl:0/energy_uj",
+                entry_type: EntryType::File("10"),
+            },
+        ];
+
+        create_mock_layout(&base_path, &entries)?;
+
+        let config = Config {
+            poll_interval: Duration::from_secs(1),
+            flush_interval: Duration::from_secs(1),
+            no_perf_events: true,
+            perf_event_test_path,
+            powercap_test_path: base_path,
+        };
+
+        plugins.add_plugin(PluginInfo {
+            metadata: PluginMetadata::from_static::<RaplPlugin>(),
+            enabled: true,
+            config: Some(config_to_toml_table(&config)),
+        });
+
+        let agent = Builder::new(plugins).build_and_start();
+        assert!(
+            agent.is_err(),
+            "Expected PowercapProbe::new to fail and propagate error"
+        );
+
+        Ok(())
     }
 }
