@@ -1,13 +1,14 @@
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
-    pipeline::elements::error::PollError,
+    pipeline::{Source, elements::error::PollError},
     plugin::util::{CounterDiff, CounterDiffUpdate},
     resources::{Resource, ResourceConsumer},
 };
 use anyhow::{Context, Result};
 use perf_event_open_sys as sys;
 use std::{
+    env,
     fs::{self, File},
     io::{self, Read},
     os::fd::FromRawFd,
@@ -204,9 +205,19 @@ impl PowerEvent {
     }
 
     /// creates a new OpenedPowerEvent from Self by opening the file using file descriptor provided by perf_event
-    fn open(&self, pmu_type: u32, cpu: u32, socket: u32) -> anyhow::Result<OpenedPowerEvent> {
-        let raw_fd = self.perf_event_open(pmu_type, cpu)?;
+    fn open_power_event<F>(
+        &self,
+        pmu_type: u32,
+        cpu: u32,
+        socket: u32,
+        perf_open: F,
+    ) -> anyhow::Result<OpenedPowerEvent>
+    where
+        F: Fn(&PowerEvent, u32, u32) -> io::Result<i32>,
+    {
+        let raw_fd = perf_open(self, pmu_type, cpu)?;
         let fd = unsafe { File::from_raw_fd(raw_fd) };
+
         Ok(OpenedPowerEvent {
             fd,
             scale: self.scale as f64,
@@ -214,6 +225,10 @@ impl PowerEvent {
             resource: self.domain.to_resource(socket),
             counter: CounterDiff::with_max_value(PERF_MAX_ENERGY),
         })
+    }
+
+    fn open(&self, pmu_type: u32, cpu: u32, socket: u32) -> anyhow::Result<OpenedPowerEvent> {
+        self.open_power_event(pmu_type, cpu, socket, PowerEvent::perf_event_open)
     }
 }
 
@@ -292,8 +307,8 @@ impl PerfEventProbe {
     }
 
     fn handle_insufficient_privileges(e: &anyhow::Error) {
-        fn resolve_application_path() -> std::io::Result<PathBuf> {
-            std::env::current_exe()?.canonicalize()
+        fn resolve_application_path() -> io::Result<PathBuf> {
+            env::current_exe()?.canonicalize()
         }
         let app_path = resolve_application_path()
             .ok()
@@ -316,7 +331,7 @@ impl PerfEventProbe {
     }
 }
 
-impl alumet::pipeline::Source for PerfEventProbe {
+impl Source for PerfEventProbe {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         let mut totals = DomainTotals::new();
         for evt in &mut self.events {
@@ -382,17 +397,25 @@ mod tests {
     use crate::tests_mock::*;
 
     use alumet::pipeline::Source;
-    use nix::unistd::write;
-    use std::{mem::zeroed, os::fd::OwnedFd};
+    use nix::unistd::{pipe, write};
+    use std::{
+        mem::zeroed,
+        os::{
+            fd::{IntoRawFd, OwnedFd},
+            unix::io::FromRawFd,
+        },
+    };
     use tempfile::tempdir;
 
     const SCALE: f32 = 2.3283064365386962890625e-10;
 
-    fn fake_opened_power_event() -> (OpenedPowerEvent, OwnedFd) {
-        use nix::unistd::pipe;
-        use std::os::{fd::IntoRawFd, unix::io::FromRawFd};
-
+    fn fake_fd() -> (i32, OwnedFd) {
         let (read_fd, write_fd) = pipe().unwrap();
+        (read_fd.into_raw_fd(), write_fd)
+    }
+
+    fn fake_opened_power_event() -> (OpenedPowerEvent, OwnedFd) {
+        let (read_fd, write_fd) = fake_fd();
 
         let file = unsafe { File::from_raw_fd(read_fd.into_raw_fd()) };
         (
@@ -545,7 +568,7 @@ mod tests {
 
     #[test]
     fn test_perf_event_open() {
-        let pe = PowerEvent {
+        let expected_power_events = PowerEvent {
             name: "pkg".into(),
             domain: RaplDomainType::Package,
             code: 1,
@@ -553,7 +576,7 @@ mod tests {
             scale: SCALE,
         };
 
-        let result = pe.perf_event_open(32, 0);
+        let result = expected_power_events.perf_event_open(32, 0);
         match result {
             // OS permissions are enough to pen perf_event
             Ok(fd) => {
@@ -564,6 +587,28 @@ mod tests {
                 println!("{e}");
             }
         }
+    }
+
+    #[test]
+    fn test_open_power_event() {
+        let expected_power_events = PowerEvent {
+            name: "pkg".into(),
+            domain: RaplDomainType::Package,
+            code: 1,
+            unit: "Joules".into(),
+            scale: SCALE,
+        };
+
+        let (fd, _write_fd) = fake_fd();
+        let actual_power_events = move |_e: &PowerEvent, _pmu, _cpu| Ok(fd);
+
+        let result = expected_power_events.open_power_event(1, 0, 0, actual_power_events);
+        assert!(result.is_ok());
+
+        let opened_power_event = result.unwrap();
+        assert_eq!(opened_power_event.scale, SCALE.into());
+        assert_eq!(opened_power_event.domain, expected_power_events.domain);
+        assert_eq!(opened_power_event.resource, expected_power_events.domain.to_resource(0));
     }
 
     #[test]

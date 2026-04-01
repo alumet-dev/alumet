@@ -1,19 +1,19 @@
-use std::time::Duration;
-
 use alumet::{
-    pipeline::elements::source::{Source, trigger},
+    metrics::TypedMetricId,
+    pipeline::elements::source::{Source, trigger::builder},
     plugin::{
-        ConfigTable,
+        AlumetPluginStart, ConfigTable,
         rust::{AlumetPlugin, deserialize_config, serialize_config},
     },
     units::Unit,
 };
 use anyhow::{Context, anyhow};
 use serde::{Deserialize, Serialize};
+use std::{path::Path, time::Duration};
 
 use crate::{
     consistency::{SafeSubset, get_available_domains},
-    perf_event::{PerfEventProbe, PowerEvent},
+    perf_event::{PERF_SYSFS_DIR, PerfEventProbe, PowerEvent},
     powercap::{PowerZone, PowercapProbe},
 };
 
@@ -23,7 +23,7 @@ use std::path::PathBuf;
 mod consistency;
 mod cpus;
 mod domains;
-pub mod perf_event;
+mod perf_event;
 mod powercap;
 mod total;
 
@@ -54,6 +54,16 @@ impl RaplPlugin {
     fn get_all_power_zones(&self) -> anyhow::Result<Vec<PowerZone>> {
         Ok(powercap::all_power_zones_from_path(&self.config.powercap_test_path)?.flat)
     }
+
+    #[cfg(not(test))]
+    fn perf_sysfs_dir(&self) -> &Path {
+        Path::new(PERF_SYSFS_DIR)
+    }
+
+    #[cfg(test)]
+    fn perf_sysfs_dir(&self) -> &Path {
+        Path::new("/i/do/not/exists")
+    }
 }
 
 impl AlumetPlugin for RaplPlugin {
@@ -75,25 +85,23 @@ impl AlumetPlugin for RaplPlugin {
         Ok(Box::new(RaplPlugin { config }))
     }
 
-    fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
+    fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         let mut use_perf = !self.config.no_perf_events;
         let mut use_powercap = true;
         let mut check_consistency = true;
 
-        if let Ok(false) = std::path::Path::new(perf_event::PERF_SYSFS_DIR).try_exists() {
+        if let Ok(false) = self.perf_sysfs_dir().try_exists() {
             // PERF_SYSFS_DIR does not exist
             check_consistency = false;
             if use_perf {
                 log::error!(
-                    "{} does not exist, the Intel RAPL PMU module may not be enabled. Is your Linux kernel too old?",
-                    perf_event::PERF_SYSFS_DIR
+                    "{PERF_SYSFS_DIR} does not exist, the Intel RAPL PMU module may not be enabled. Is your Linux kernel too old?"
                 );
                 log::warn!("Because of the previous error, I will disable perf_events and fall back to powercap.");
                 use_perf = false;
             } else {
                 log::warn!(
-                    "{} does not exist, the Intel RAPL PMU module may not be enabled. Is your Linux kernel too old?",
-                    perf_event::PERF_SYSFS_DIR
+                    "{PERF_SYSFS_DIR} does not exist, the Intel RAPL PMU module may not be enabled. Is your Linux kernel too old?"
                 );
                 log::warn!("I will not use perf_events to check the consistency of the RAPL interfaces.");
             }
@@ -153,7 +161,7 @@ impl AlumetPlugin for RaplPlugin {
         };
 
         // Configure the source and add it to Alumet
-        let trigger = trigger::builder::time_interval(self.config.poll_interval)
+        let trigger = builder::time_interval(self.config.poll_interval)
             .flush_interval(self.config.flush_interval)
             .update_interval(self.config.flush_interval)
             .build()
@@ -168,7 +176,7 @@ impl AlumetPlugin for RaplPlugin {
 }
 
 fn setup_perf_events_probe_or_fallback(
-    metric: alumet::metrics::TypedMetricId<f64>,
+    metric: TypedMetricId<f64>,
     available_domains: &SafeSubset,
 ) -> anyhow::Result<Box<dyn Source>> {
     match PerfEventProbe::new(metric, &available_domains.perf_events) {
@@ -237,7 +245,11 @@ mod tests {
         test::{RuntimeExpectations, StartupExpectations},
         units::Unit,
     };
-    use std::{path::Path, time::Duration};
+    use std::thread;
+    use std::{
+        path::{Path, PathBuf},
+        time::Duration,
+    };
     use tempfile::tempdir;
 
     #[test]
@@ -285,7 +297,7 @@ mod tests {
             .build_and_start()
             .unwrap();
 
-        std::thread::sleep(Duration::from_millis(200)); // don't shutdown right away, else we get in trouble
+        thread::sleep(Duration::from_millis(200)); // don't shutdown right away, else we get in trouble
         agent.pipeline.control_handle().shutdown();
         agent.wait_for_shutdown(Duration::from_secs(10)).unwrap();
 
@@ -434,7 +446,6 @@ mod tests {
 
         let tmp = tempdir()?;
         let base_path = tmp.path().to_owned();
-        let perf_event_test_path = "/i/do/not/exists".into();
 
         // Missing max_energy_range_uj file
         let entries = [
@@ -458,7 +469,7 @@ mod tests {
             poll_interval: Duration::from_secs(1),
             flush_interval: Duration::from_secs(1),
             no_perf_events: true,
-            perf_event_test_path,
+            perf_event_test_path: "/i/do/not/exists".into(),
             powercap_test_path: base_path,
         };
 
@@ -469,10 +480,71 @@ mod tests {
         });
 
         let agent = Builder::new(plugins).build_and_start();
-        assert!(
-            agent.is_err(),
-            "Expected PowercapProbe::new to fail and propagate error"
-        );
+        assert!(agent.is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_with_powercap_only() -> anyhow::Result<()> {
+        let mut plugins = PluginSet::new();
+
+        let tmp = create_valid_powercap_mock()?;
+        let base_path = tmp.path().to_owned();
+
+        let source_config = Config {
+            poll_interval: Duration::from_secs(1),
+            flush_interval: Duration::from_secs(1),
+            no_perf_events: false, // Enable perf_events at starting to switch in powercap
+            perf_event_test_path: Path::new("").to_path_buf(),
+            powercap_test_path: base_path,
+        };
+
+        plugins.add_plugin(PluginInfo {
+            metadata: PluginMetadata::from_static::<RaplPlugin>(),
+            enabled: true,
+            config: Some(config_to_toml_table(&source_config)),
+        });
+
+        let startup_expectations = StartupExpectations::new()
+            .expect_metric::<f64>("rapl_consumed_energy", Unit::Joule)
+            .expect_source("rapl", "in");
+
+        let agent = Builder::new(plugins)
+            .with_expectations(startup_expectations)
+            .build_and_start()
+            .unwrap();
+
+        agent.pipeline.control_handle().shutdown();
+        agent.wait_for_shutdown(Duration::from_secs(10)).unwrap();
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_powercap_with_no_available_interface() -> anyhow::Result<()> {
+        let mut plugins = PluginSet::new();
+
+        // Empty powercap path
+        let tmp_dir = tempfile::tempdir()?;
+        let base_path = tmp_dir.path().to_path_buf();
+
+        let config = Config {
+            poll_interval: Duration::from_secs(1),
+            flush_interval: Duration::from_secs(1),
+            no_perf_events: true, // Disable perf_events
+            perf_event_test_path: PathBuf::from("/i/do/not/exists"),
+            powercap_test_path: base_path, // Powercap empty folder
+        };
+
+        plugins.add_plugin(PluginInfo {
+            metadata: PluginMetadata::from_static::<RaplPlugin>(),
+            enabled: true,
+            config: Some(config_to_toml_table(&config)),
+        });
+
+        let agent = Builder::new(plugins).build_and_start();
+        assert!(agent.is_err());
 
         Ok(())
     }
