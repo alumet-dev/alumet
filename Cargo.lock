@@ -41,7 +41,7 @@ dependencies = [
 
 [[package]]
 name = "alumet"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "anyhow",
  "console-subscriber",
@@ -70,7 +70,7 @@ dependencies = [
 
 [[package]]
 name = "alumet-agent"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "alumet",
  "anyhow",
