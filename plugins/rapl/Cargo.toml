@@ -17,7 +17,6 @@ log.workspace = true
 perf-event-open-sys2 = "5.0.6"
 regex = "1.10.6"
 serde = { workspace = true, features = ["derive"] }
-once_cell = "1.21.3"
 enum-map = "2.7.3"
 
 [dev-dependencies]
@@ -28,3 +27,6 @@ nix = "0.30.1"
 
 [lints]
 workspace = true
+
+[package.metadata.cargo-machete]
+ignored = ["perf-event-open-sys2"]

@@ -32,7 +32,6 @@ futures = "0.3.30"
 ordered-float = "4.6.0"
 num_enum = "0.7.3"
 nc = "0.9"
-pin-project-lite = "0.2.16"
 indexmap = "2.13.0"
 
 # Dependencies for Linux builds only.

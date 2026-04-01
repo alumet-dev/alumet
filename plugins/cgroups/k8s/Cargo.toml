@@ -9,7 +9,6 @@ alumet.workspace = true
 anyhow.workspace = true
 humantime-serde.workspace = true
 log.workspace = true
-regex = { version = "1.11.1", default-features = false, features = ["std", "perf"] }
 rustc-hash.workspace = true
 serde = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
