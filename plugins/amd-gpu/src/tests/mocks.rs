@@ -1,6 +1,6 @@
-use amd_smi_wrapper::utils::{
-    AmdEnergyConsumption, AmdEngineUsage, AmdMemoryType, AmdPowerConsumption, AmdProcess, AmdProcessEngineUsage,
-    AmdProcessMemoryUsage, AmdTemperatureType,
+use amd_smi_wrapper::metrics::{
+    AmdAsicInfo, AmdEnergyConsumption, AmdEngineUsage, AmdMemoryType, AmdPowerConsumption, AmdProcess,
+    AmdProcessEngineUsage, AmdProcessMemoryUsage, AmdTemperatureType,
 };
 
 pub const MOCK_SOURCE_NAME: &str = "amd_gpu_devices";
@@ -46,6 +46,22 @@ pub const MOCK_MEMORY: &[(AmdMemoryType, u64)] = &[
     (AmdMemoryType::AMDSMI_MEM_TYPE_VRAM, 131072),
     (AmdMemoryType::AMDSMI_MEM_TYPE_GTT, 262144),
 ];
+
+pub fn mock_asic_info() -> AmdAsicInfo {
+    AmdAsicInfo {
+        market_name: "AMD Instinct MI210".to_owned(),
+        vendor_id: 4098,
+        vendor_name: "Advanced Micro Devices, Inc. [AMD/ATI]".to_owned(),
+        subvendor_id: 4098,
+        device_id: 29711,
+        rev_id: 2,
+        asic_serial: "80eae05c945bb3b2".to_owned(),
+        oam_id: 1,
+        num_of_compute_units: 104,
+        target_graphics_version: 2314,
+        subsystem_id: 3124,
+    }
+}
 
 pub fn mock_process() -> AmdProcess {
     AmdProcess {
