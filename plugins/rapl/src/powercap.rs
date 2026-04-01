@@ -14,7 +14,7 @@ use super::domains::RaplDomainType;
 use alumet::plugin::util::{CounterDiff, CounterDiffUpdate};
 use alumet::resources::Resource;
 use alumet::{
-    measurement::{AttributeValue, MeasurementAccumulator, MeasurementPoint, Timestamp},
+    measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
     resources::ResourceConsumer,
 };
 use alumet::{metrics::TypedMetricId, pipeline::elements::error::PollError};
@@ -370,7 +370,8 @@ mod tests {
     use super::*;
     use crate::tests_mock::*;
 
-    use std::path::PathBuf;
+    use alumet::pipeline::Source;
+    use std::{mem::zeroed, path::PathBuf};
     use tempfile::tempdir;
 
     #[test]
@@ -628,33 +629,39 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(test)]
+    fn sort_zone_recursively(zone: &mut PowerZone) {
+        zone.children.sort_by_key(|z| z.path.clone());
+        for child in &mut zone.children {
+            sort_zone_recursively(child);
+        }
+    }
+
     #[test]
     fn test_all_power_zones_from_path() -> anyhow::Result<()> {
         let tmp = create_valid_powercap_mock()?;
         let base_path = tmp.path();
         let base_str = base_path.to_str().expect("cannot convert base_path to str");
 
-        let actual_zones = all_power_zones_from_path(base_path)?.flat;
+        let mut actual_zones = all_power_zones_from_path(base_path)?.flat;
 
         let expected_zones = vec![
             PowerZone {
                 name: "package-0".to_string(),
                 domain: RaplDomainType::Package,
-                path: PathBuf::from(format!("{}/intel-rapl:0", base_str)),
+                path: PathBuf::from(format!("{base_str}/intel-rapl:0")),
                 socket_id: Some(0),
                 children: vec![
                     PowerZone {
                         name: "core".to_string(),
                         domain: RaplDomainType::PP0,
-                        path: PathBuf::from(format!("{}/intel-rapl:0/intel-rapl:0:0", base_str)),
+                        path: PathBuf::from(format!("{base_str}/intel-rapl:0/intel-rapl:0:0")),
                         socket_id: Some(0),
                         children: Vec::new(),
                     },
                     PowerZone {
                         name: "uncore".to_string(),
                         domain: RaplDomainType::PP1,
-                        path: PathBuf::from(format!("{}/intel-rapl:0/intel-rapl:0:1", base_str)),
+                        path: PathBuf::from(format!("{base_str}/intel-rapl:0/intel-rapl:0:1")),
                         socket_id: Some(0),
                         children: Vec::new(),
                     },
@@ -663,32 +670,41 @@ mod tests {
             PowerZone {
                 name: "core".to_string(),
                 domain: RaplDomainType::PP0,
-                path: PathBuf::from(format!("{}/intel-rapl:0/intel-rapl:0:0", base_str)),
+                path: PathBuf::from(format!("{base_str}/intel-rapl:0/intel-rapl:0:0")),
                 socket_id: Some(0),
                 children: Vec::new(),
             },
             PowerZone {
                 name: "uncore".to_string(),
                 domain: RaplDomainType::PP1,
-                path: PathBuf::from(format!("{}/intel-rapl:0/intel-rapl:0:1", base_str)),
+                path: PathBuf::from(format!("{base_str}/intel-rapl:0/intel-rapl:0:1")),
                 socket_id: Some(0),
                 children: Vec::new(),
             },
             PowerZone {
                 name: "psys".to_string(),
                 domain: RaplDomainType::Platform,
-                path: PathBuf::from(format!("{}/intel-rapl:1", base_str)),
+                path: PathBuf::from(format!("{base_str}/intel-rapl:1")),
                 socket_id: None,
                 children: Vec::new(),
             },
             PowerZone {
                 name: "dram".to_string(),
                 domain: RaplDomainType::Dram,
-                path: PathBuf::from(format!("{}/intel-rapl:2", base_str)),
+                path: PathBuf::from(format!("{base_str}/intel-rapl:2")),
                 socket_id: None,
                 children: Vec::new(),
             },
         ];
+
+        let mut expected_zones = expected_zones;
+
+        for z in &mut actual_zones {
+            sort_zone_recursively(z);
+        }
+        for z in &mut expected_zones {
+            sort_zone_recursively(z);
+        }
 
         assert_eq!(actual_zones, expected_zones);
 
@@ -811,6 +827,120 @@ mod tests {
             result.is_err(),
             "expected an error while opening the power zone because of wrong layout content"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_error_with_unknown_domain_name() -> anyhow::Result<()> {
+        let tmp = tempdir()?;
+        let base_path = tmp.path();
+
+        use EntryType::*;
+
+        let entries = [
+            Entry {
+                path: "intel-rapl:0",
+                entry_type: Dir,
+            },
+            Entry {
+                path: "intel-rapl:0/name",
+                entry_type: File("wrongcontent"),
+            },
+            Entry {
+                path: "intel-rapl:0/max_energy_range_uj",
+                entry_type: File("100"),
+            },
+            Entry {
+                path: "intel-rapl:0/energy_uj",
+                entry_type: File("10"),
+            },
+        ];
+
+        create_mock_layout(base_path, &entries)?;
+
+        let result = all_power_zones_from_path(base_path);
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Unknown RAPL powercap zone"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_display_with_newline_before_children() {
+        let zone = PowerZone {
+            name: "package-0".to_string(),
+            domain: RaplDomainType::Package,
+            path: PathBuf::from("/sys"),
+            socket_id: Some(0),
+            children: vec![PowerZone {
+                name: "intel-rapl".to_string(),
+                domain: RaplDomainType::PP0,
+                path: PathBuf::from("/sys/devices/virtual/powercap/intel-rapl"),
+                socket_id: Some(0),
+                children: Vec::new(),
+            }],
+        };
+
+        let formatted = format!("{zone}");
+
+        assert!(
+            formatted.contains("\n  - intel-rapl"),
+            "formatted output was:\n{formatted}"
+        );
+    }
+
+    #[test]
+    fn test_reset_counters() -> anyhow::Result<()> {
+        let tmp = tempdir()?;
+        let base_path = tmp.path();
+
+        use EntryType::*;
+
+        let entries = [
+            Entry {
+                path: "intel-rapl:0",
+                entry_type: Dir,
+            },
+            Entry {
+                path: "intel-rapl:0/name",
+                entry_type: File("package-0"),
+            },
+            Entry {
+                path: "intel-rapl:0/max_energy_range_uj",
+                entry_type: File("100"),
+            },
+            Entry {
+                path: "intel-rapl:0/energy_uj",
+                entry_type: File("10"),
+            },
+        ];
+        create_mock_layout(base_path, &entries)?;
+
+        let zones = all_power_zones_from_path(base_path)?.flat;
+
+        let metric = unsafe { zeroed() };
+        let mut probe = PowercapProbe::new(metric, &zones)?;
+        let mut buf = Vec::with_capacity(16);
+
+        let entries = [Entry {
+            path: "intel-rapl:0/energy_uj",
+            entry_type: File("20"),
+        }];
+        create_mock_layout(base_path, &entries)?;
+
+        probe.reset()?;
+
+        let entries = [Entry {
+            path: "intel-rapl:0/energy_uj",
+            entry_type: File("30"),
+        }];
+        create_mock_layout(base_path, &entries)?;
+
+        // Counters should behave like first read after reset
+        let zone = &mut probe.zones[0];
+        assert_eq!(zone.read_counter_diff(&mut buf)?, None);
+
         Ok(())
     }
 }
