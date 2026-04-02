@@ -234,7 +234,7 @@ End of functions from https://github.com/client9/shlib
 ------------------------------------------------------------------------
 EOF
 
-uname_os() {
+check_os() {
     os=$(uname -s | tr '[:upper:]' '[:lower:]')
     case $os in
         linux) os="linux";;
@@ -364,7 +364,9 @@ REPO="alumet"
 PREFIX="$OWNER/$REPO"
 
 AGENT="alumet-agent"
-OS=$(uname_os)
+
+check_os
+
 DISTRIB=$(get_distrib)
 ARCH=$(uname_arch)
 
