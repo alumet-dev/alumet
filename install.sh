@@ -16,15 +16,16 @@ EOF
   exit 2
 }
 parse_args() {
-  while getopts "b:dh?x" arg; do
+  while getopts "b:dh?xt" arg; do
     case "$arg" in
       d) log_set_priority 10 ;;
       h | \?) usage "$0" ;;
       x) set -x ;;
+      t) shift $((OPTIND - 1))
+      TAG=$1;;
     esac
   done
-  shift $((OPTIND - 1))
-  TAG=$1
+  
 }
 execute() {
   tmpdir=$(mktemp -d)
@@ -242,7 +243,6 @@ check_os() {
             log_err "OS not compatible (found $os), Alumet only exists for Linux"
             return 1;;
     esac
-    echo "$os"
 }
 uname_arch() {
     arch=$(uname -m)
