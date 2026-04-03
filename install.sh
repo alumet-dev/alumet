@@ -6,52 +6,70 @@ usage() {
   cat <<EOF
 $this: download alumet-agent from ${OWNER}/${REPO}
 
-Usage: $this [-d] [-t <tag>]
+Usage: $this [-d] [-l] [-r <release>]
   -d turns on debug logging
-  -t <tag> is a tag from
+  -l installs alumet-agent locally (to usr/local/bin)
+  -r <release> is a release from
    https://github.com/${OWNER}/${REPO}/releases
-   If tag is missing, then the latest will be used.
+   If release is missing, then the latest will be used.
 
 EOF
   exit 2
 }
 parse_args() {
-  while getopts "dh?xt:" arg; do
+  while getopts "dh?xlr:" arg; do
     case "$arg" in
       d) log_set_priority 10 ;;
       h | \?) usage "$0" ;;
       x) set -x ;;
-      t) TAG=$OPTARG;;
+      r) RELEASE=$OPTARG;;
+      l) LOCAL="local";;
     esac
   done
-  
+}
+install_local() {
+  tmpdir=$1
+
+  dpkg -x "${tmpdir}/${PACKAGE_ID}" "${tmpdir}/unpacked"
+
+  if [ ! -d "${HOME}/.local/bin" ]; then
+    mkdir "${HOME}/.local/bin"
+  fi
+
+  mv "${tmpdir}/unpacked/usr/lib/alumet-agent"  "${HOME}/.local/bin/alumet-agent-local"
 }
 execute() {
   tmpdir=$(mktemp -d)
   http_download "${tmpdir}/${PACKAGE_ID}" "${PACKAGE_URL}"
   verify_hash "${tmpdir}/${PACKAGE_ID}"
+
+  if test "$LOCAL"; then
+    install_local "${tmpdir}"
+  else
   case $DISTRIB in
     ubuntu*|debian*) sudo apt-get install -yq --allow-downgrades "${tmpdir}/${PACKAGE_ID}" > "/dev/null";;
     *)  yum install -yq "${tmpdir}/${PACKAGE_ID}" > "/dev/null";;
   esac
+  fi
+
   log_info "Installed Alumet successfully"
   rm -rf "${tmpdir}"
 }
 tag_to_version() {
-  if [ -z "${TAG}" ]; then
-    log_info "Checking GitHub for latest tag"
+  if [ -z "${RELEASE}" ]; then
+    log_info "Checking GitHub for latest release"
   else
-    log_info "Checking GitHub for tag '${TAG}'"
+    log_info "Checking GitHub for release '${RELEASE}'"
   fi
 
-  REALTAG=$(github_release "$OWNER/$REPO" "${TAG}") && true
-  if test -z "$REALTAG"; then
-    log_crit "Unable to find '${TAG}' - use 'latest' or see https://github.com/${OWNER}/${REPO}/releases for details"
+  REALRELEASE=$(github_release "$OWNER/$REPO" "${RELEASE}") && true
+  if test -z "$REALRELEASE"; then
+    log_crit "Unable to find '${RELEASE}' - use 'latest' or see https://github.com/${OWNER}/${REPO}/releases for details"
     exit 1
   fi
   # if version starts with 'v', remove it
-  TAG="$REALTAG"
-  VERSION=${TAG#v}
+  RELEASE="$REALRELEASE"
+  VERSION=${RELEASE#v}
 }
 verify_hash() {
   package_hashed=$(hash_sha256 "$1")
@@ -298,7 +316,7 @@ find_pkg_checksum() {
   return 1
 }
 find_pkg_checksum_curl() {
-  res=$(curl -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/${TAG}" \
+  res=$(curl -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/${RELEASE}" \
 | awk -F'"' -v name="$AGENT" -v os="${DISTRIB}" -v arch="$ARCH" '
 BEGIN {
   version_pattern = "[0-9.-]+"
@@ -327,7 +345,7 @@ BEGIN {
 }
 
 find_pkg_checksum_wget() {
-  wget --quiet "https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/${TAG}" \
+  wget --quiet "https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/${RELEASE}" \
 | awk -F'"' -v name="$AGENT" -v os="${DISTRIB}" -v arch="$ARCH" '
 BEGIN {
  
@@ -374,6 +392,9 @@ parse_args "$@"
 tag_to_version
 
 log_info "Alumet version found: ${VERSION} for architecture ${DISTRIB}/${ARCH}"
+if test "$LOCAL"; then
+  log_info "Installing locally to ~/.local/bin"
+fi
 
 find_pkg_checksum
 
