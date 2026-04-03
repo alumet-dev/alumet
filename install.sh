@@ -6,9 +6,9 @@ usage() {
   cat <<EOF
 $this: download alumet-agent from ${OWNER}/${REPO}
 
-Usage: $this [-d] [<tag>]
+Usage: $this [-d] [-t <tag>]
   -d turns on debug logging
-   <tag> is a tag from
+  -t <tag> is a tag from
    https://github.com/${OWNER}/${REPO}/releases
    If tag is missing, then the latest will be used.
 
@@ -16,13 +16,12 @@ EOF
   exit 2
 }
 parse_args() {
-  while getopts "b:dh?xt" arg; do
+  while getopts "dh?xt:" arg; do
     case "$arg" in
       d) log_set_priority 10 ;;
       h | \?) usage "$0" ;;
       x) set -x ;;
-      t) shift $((OPTIND - 1))
-      TAG=$1;;
+      t) TAG=$OPTARG;;
     esac
   done
   
@@ -179,14 +178,12 @@ http_download_wget() {
   local_file=$1
   source_url=$2
   header=$3
-  local wget_output
-  local code
   if [ -z "$header" ]; then
     wget_output=$(wget --server-response --quiet -O "$local_file" "$source_url" 2>&1)
   else
     wget_output=$(wget --server-response --quiet --header "$header" -O "$local_file" "$source_url" 2>&1)
   fi
-  local wget_exit=$?
+  wget_exit=$?
   if [ $wget_exit -ne 0 ]; then
     log_err "http_download_wget failed: wget exited with status $wget_exit"
     return 1
@@ -301,7 +298,7 @@ find_pkg_checksum() {
   return 1
 }
 find_pkg_checksum_curl() {
-  res=$(curl -s https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/${TAG} \
+  res=$(curl -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/${TAG}" \
 | awk -F'"' -v name="$AGENT" -v os="${DISTRIB}" -v arch="$ARCH" '
 BEGIN {
   version_pattern = "[0-9.-]+"
@@ -330,7 +327,7 @@ BEGIN {
 }
 
 find_pkg_checksum_wget() {
-  wget --quiet https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/${TAG} \
+  wget --quiet "https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/${TAG}" \
 | awk -F'"' -v name="$AGENT" -v os="${DISTRIB}" -v arch="$ARCH" '
 BEGIN {
  
