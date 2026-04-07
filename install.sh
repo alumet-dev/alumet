@@ -6,23 +6,26 @@ usage() {
   cat <<EOF
 $this: download alumet-agent from ${OWNER}/${REPO}
 
-Usage: $this [-d] [-l] [-r <release>]
+Usage: $this [-d] [-l] [-r <release>] [-v <distrib version>]
   -d turns on debug logging
-  -l installs alumet-agent locally (to usr/local/bin)
+  -l installs alumet-agent locally (to ~/.local/bin).
   -r <release> is a release from
    https://github.com/${OWNER}/${REPO}/releases
    If release is missing, then the latest will be used.
+  -v <distrib version> is the version of the distribution you want to install the agent for.
+   This can be useful if Alumet is only available for an older version of your distribution.
 
 EOF
   exit 2
 }
 parse_args() {
-  while getopts "dh?xlr:" arg; do
+  while getopts "dh?xlr:v:" arg; do
     case "$arg" in
       d) log_set_priority 10 ;;
       h | \?) usage "$0" ;;
       x) set -x ;;
       r) RELEASE=$OPTARG;;
+      v) REQUESTED_VERSION=$OPTARG;;
       l) LOCAL="local";;
     esac
   done
@@ -33,7 +36,7 @@ install_local() {
   mkdir "${tmpdir}/unpacked"
 
  case $DISTRIB in
-    ubuntu*|debian*) dpkg -x "${tmpdir}/${PACKAGE_ID}" "${tmpdir}/unpacked";;
+    ubuntu|debian) dpkg -x "${tmpdir}/${PACKAGE_ID}" "${tmpdir}/unpacked";;
     *)  rpm2cpio "${tmpdir}/${PACKAGE_ID}" | (cd "${tmpdir}/unpacked"; cpio -idm);;
   esac
 
@@ -56,7 +59,7 @@ execute() {
     install_local "${tmpdir}"
   else
     case $DISTRIB in
-      ubuntu*|debian*) sudo apt-get install -yq --allow-downgrades "${tmpdir}/${PACKAGE_ID}" > "/dev/null";;
+      ubuntu|debian) sudo apt-get install -yq --allow-downgrades "${tmpdir}/${PACKAGE_ID}" > "/dev/null";;
       *)  yum install -yq "${tmpdir}/${PACKAGE_ID}" > "/dev/null";;
     esac
   fi
@@ -271,7 +274,7 @@ check_os() {
 uname_arch() {
     arch=$(uname -m)
     case $DISTRIB in
-      ubuntu*|debian*)  
+      ubuntu|debian)  
         case $arch in
           x86_64) arch="amd64" ;;
           aarch64) arch="arm64" ;;
@@ -290,20 +293,33 @@ uname_arch() {
     esac
     echo "${arch}"
 }
-get_distrib() {
+uname_distrib() {
     distrib=$(env -i bash -c '. /etc/os-release; echo $ID' | tr '[:upper:]' '[:lower:]')
-    version=$(env -i bash -c '. /etc/os-release; echo $VERSION_ID' | tr '[:upper:]' '[:lower:]')
     case $distrib in 
-        rhel) distrib="ubi${version}";;
-        fedora) distrib="fc${version}";;
-        ubuntu) distrib="${distrib}_${version}";;
-        debian) distrib="${distrib}_${version}";;
+        rhel) distrib="ubi";;
+        fedora) distrib="fc";;
+        ubuntu|debian) distrib="${distrib}";;
         *)
             log_err "Your distribution doesn't have a prebuilt package. Download the alumet-agent and compile it yourself at:
                 https://github.com/${OWNER}/${REPO}"
             return 1;;
     esac
     echo "${distrib}"
+}
+uname_version() {
+  if test "${REQUESTED_VERSION}"; then
+    version="${REQUESTED_VERSION}"
+  else
+    version=$(env -i bash -c '. /etc/os-release; echo $VERSION_ID' | tr '[:upper:]' '[:lower:]')
+  fi
+  echo "${version}"
+}
+get_distrib_version() {
+  case $DISTRIB in
+    ubi|fc) distrib_version="${DISTRIB}${VERSION}";;
+    ubuntu|debian) distrib_version="${DISTRIB}_${VERSION}";;
+  esac
+  echo "${distrib_version}"
 }
 build_name(){
   case $DISTRIB in
@@ -326,7 +342,7 @@ find_pkg_checksum() {
 }
 find_pkg_checksum_curl() {
   res=$(curl -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/${RELEASE}" \
-| awk -F'"' -v name="$AGENT" -v os="${DISTRIB}" -v arch="$ARCH" '
+| awk -F'"' -v name="$AGENT" -v os="${DISTRIB_VERSION}" -v arch="$ARCH" '
     BEGIN {
       version_pattern = "[0-9.-]+"
       pattern_dot = name "\\-" version_pattern "\\." os "\\." arch "\\.rpm$"
@@ -361,7 +377,7 @@ find_pkg_checksum_curl() {
 
 find_pkg_checksum_wget() {
   wget --quiet "https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/${RELEASE}" \
-| awk -F'"' -v name="$AGENT" -v os="${DISTRIB}" -v arch="$ARCH" '
+| awk -F'"' -v name="$AGENT" -v os="${DISTRIB_VERSION}" -v arch="$ARCH" '
     BEGIN {
     
       version_pattern = "[0-9.-]+"
@@ -389,8 +405,9 @@ find_pkg_checksum_wget() {
   log_debug "File found: $PACKAGE_URL"
 
   if [ -z "$PACKAGE_URL" ]; then
-    log_err "No package found matching your distribution version.
-      Go to https://github.com/${OWNER}/${REPO}/releases to see if a matching package exists."
+    log_err "No package found matching your distribution version (version ${VERSION} of distrib ${DISTRIB}).
+      Go to https://github.com/${OWNER}/${REPO}/releases to see if a matching package exists.
+      You may also use the -v flag to download a package available on a previous version of your distribution."
     return 1
   fi
 }
@@ -401,18 +418,22 @@ PREFIX="$OWNER/$REPO"
 
 AGENT="alumet-agent"
 
+parse_args "$@"
+
 check_os
 
-DISTRIB=$(get_distrib)
+DISTRIB=$(uname_distrib)
+VERSION=$(uname_version)
 ARCH=$(uname_arch)
+DISTRIB_VERSION=$(get_distrib_version)
+
 
 PACKAGE_ID=$(build_name)
 
-parse_args "$@"
 
 tag_to_version
 
-log_info "Alumet version found: ${VERSION} for architecture ${DISTRIB}/${ARCH}"
+log_info "Alumet version found: ${VERSION} for architecture ${DISTRIB_VERSION}/${ARCH}"
 if test "$LOCAL"; then
   log_info "Installing locally to ~/.local/bin"
 fi
