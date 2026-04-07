@@ -327,60 +327,72 @@ find_pkg_checksum() {
 find_pkg_checksum_curl() {
   res=$(curl -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/${RELEASE}" \
 | awk -F'"' -v name="$AGENT" -v os="${DISTRIB}" -v arch="$ARCH" '
-BEGIN {
-  version_pattern = "[0-9.-]+"
-  pattern_dot = name "\\-" version_pattern "\\." os "\\." arch "\\.rpm$"
-  pattern_underscore = name "_" version_pattern "_" arch "_" os"\\.deb$"
-}
- 
-# Field detection
-/"name"/ { asset_name = $4 }
-/"browser_download_url"/ { url = $4 }
-/"digest"/ { digest = $4 }
- 
-# When all three fields are fullfilled
-(asset_name && url && digest) {
-    # Check for pattern
-    if (asset_name ~ pattern_dot || asset_name ~ pattern_underscore) {
-      print url, digest
-  }
-  asset_name=""; url=""; digest="";
-}')
+    BEGIN {
+      version_pattern = "[0-9.-]+"
+      pattern_dot = name "\\-" version_pattern "\\." os "\\." arch "\\.rpm$"
+      pattern_underscore = name "_" version_pattern "_" arch "_" os"\\.deb$"
+    }
+    
+    # Field detection
+    /"name"/ { asset_name = $4 }
+    /"browser_download_url"/ { url = $4 }
+    /"digest"/ { digest = $4 }
+    
+    # When all three fields are fullfilled
+    (asset_name && url && digest) {
+        # Check for pattern
+        if (asset_name ~ pattern_dot || asset_name ~ pattern_underscore) {
+          print url, digest
+      }
+      asset_name=""; url=""; digest="";
+    }')
   PACKAGE_URL=$(echo "$res" | cut -d ' ' -f 1) 
   CHECKSUM=$(echo "$res" | cut -d ' ' -f 2  | awk '{gsub(/^.{7}/,"");}1' )
 
   log_debug "Checksum found: $CHECKSUM"
   log_debug "File found: $PACKAGE_URL"
+  
+  if [ -z "$PACKAGE_URL" ]; then
+    log_err "No package found.
+      Go to https://github.com/${OWNER}/${REPO}/releases to see if a package matching your distrib version exists."
+    return 1
+  fi
 }
 
 find_pkg_checksum_wget() {
   wget --quiet "https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/${RELEASE}" \
 | awk -F'"' -v name="$AGENT" -v os="${DISTRIB}" -v arch="$ARCH" '
-BEGIN {
- 
-  version_pattern = "[0-9.-]+"
-  pattern_dot = name "\\-" version_pattern "\\." os "\\." arch "\\.rpm$"
-  pattern_underscore = name "_" version_pattern "_" arch "_" os"\\.deb$"
-}
- 
-# Field detection
-/"name"/ { asset_name = $4 }
-/"browser_download_url"/ { url = $4 }
-/"digest"/ { digest = $4 }
- 
-# When all three fields are fullfilled
-(asset_name && url && digest) {
-    # Check for pattern
-    if (asset_name ~ pattern_dot || asset_name ~ pattern_underscore) {
-      print url, digest
-  }
-  asset_name=""; url=""; digest="";
-}'
+    BEGIN {
+    
+      version_pattern = "[0-9.-]+"
+      pattern_dot = name "\\-" version_pattern "\\." os "\\." arch "\\.rpm$"
+      pattern_underscore = name "_" version_pattern "_" arch "_" os"\\.deb$"
+    }
+    
+    # Field detection
+    /"name"/ { asset_name = $4 }
+    /"browser_download_url"/ { url = $4 }
+    /"digest"/ { digest = $4 }
+    
+    # When all three fields are fullfilled
+    (asset_name && url && digest) {
+        # Check for pattern
+        if (asset_name ~ pattern_dot || asset_name ~ pattern_underscore) {
+          print url, digest
+      }
+      asset_name=""; url=""; digest="";
+    }'
   PACKAGE_URL=$(echo "$res" | cut -d ' ' -f 1) 
   CHECKSUM=$(echo "$res" | cut -d ' ' -f 2  | awk '{gsub(/^.{7}/,"");}1' )
 
   log_debug "Checksum found: $CHECKSUM"
   log_debug "File found: $PACKAGE_URL"
+
+  if [ -z "$PACKAGE_URL" ]; then
+    log_err "No package found matching your distribution version.
+      Go to https://github.com/${OWNER}/${REPO}/releases to see if a matching package exists."
+    return 1
+  fi
 }
 
 OWNER="alumet-dev"
