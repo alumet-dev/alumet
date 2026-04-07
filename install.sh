@@ -30,7 +30,16 @@ parse_args() {
 install_local() {
   tmpdir=$1
 
-  dpkg -x "${tmpdir}/${PACKAGE_ID}" "${tmpdir}/unpacked"
+  mkdir "${tmpdir}/unpacked"
+
+ case $DISTRIB in
+    ubuntu*|debian*) dpkg -x "${tmpdir}/${PACKAGE_ID}" "${tmpdir}/unpacked";;
+    *)  rpm2cpio "${tmpdir}/${PACKAGE_ID}" | (cd "${tmpdir}/unpacked"; cpio -idm);;
+  esac
+
+  if [ ! -d "${HOME}/.local" ]; then
+    mkdir "${HOME}/.local"
+  fi
 
   if [ ! -d "${HOME}/.local/bin" ]; then
     mkdir "${HOME}/.local/bin"
@@ -46,10 +55,10 @@ execute() {
   if test "$LOCAL"; then
     install_local "${tmpdir}"
   else
-  case $DISTRIB in
-    ubuntu*|debian*) sudo apt-get install -yq --allow-downgrades "${tmpdir}/${PACKAGE_ID}" > "/dev/null";;
-    *)  yum install -yq "${tmpdir}/${PACKAGE_ID}" > "/dev/null";;
-  esac
+    case $DISTRIB in
+      ubuntu*|debian*) sudo apt-get install -yq --allow-downgrades "${tmpdir}/${PACKAGE_ID}" > "/dev/null";;
+      *)  yum install -yq "${tmpdir}/${PACKAGE_ID}" > "/dev/null";;
+    esac
   fi
 
   log_info "Installed Alumet successfully"
