@@ -6,26 +6,26 @@ usage() {
   cat <<EOF
 $this: download alumet-agent from ${OWNER}/${REPO}
 
-Usage: $this [-d] [-l] [-r <release>] [-v <distrib version>]
-  -d turns on debug logging
+Usage: $this [-v] [-l] [-r <release>] [-d <distrib version>]
+  -v turns on verbose logging
   -l installs alumet-agent locally (to ~/.local/bin).
   -r <release> is a release from
    https://github.com/${OWNER}/${REPO}/releases
    If release is missing, then the latest will be used.
-  -v <distrib version> is the version of the distribution you want to install the agent for.
+  -d <distrib version> is the version of the distribution you want to install the agent for.
    This can be useful if Alumet is only available for an older version of your distribution.
 
 EOF
   exit 2
 }
 parse_args() {
-  while getopts "dh?xlr:v:" arg; do
+  while getopts "vh?xlr:d:" arg; do
     case "$arg" in
-      d) log_set_priority 10 ;;
+      v) log_set_priority 10 ;;
       h | \?) usage "$0" ;;
       x) set -x ;;
       r) RELEASE=$OPTARG;;
-      v) REQUESTED_VERSION=$OPTARG;;
+      d) REQUESTED_DISTRIB_VERSION=$OPTARG;;
       l) LOCAL="local";;
     esac
   done
@@ -298,7 +298,7 @@ uname_distrib() {
     case $distrib in 
         rhel) distrib="ubi";;
         fedora) distrib="fc";;
-        ubuntu|debian) distrib="${distrib}";;
+        ubuntu|debian);;
         *)
             log_err "Your distribution doesn't have a prebuilt package. Download the alumet-agent and compile it yourself at:
                 https://github.com/${OWNER}/${REPO}"
@@ -307,8 +307,8 @@ uname_distrib() {
     echo "${distrib}"
 }
 uname_version() {
-  if test "${REQUESTED_VERSION}"; then
-    version="${REQUESTED_VERSION}"
+  if test "${REQUESTED_DISTRIB_VERSION}"; then
+    version="${REQUESTED_DISTRIB_VERSION}"
   else
     version=$(env -i bash -c '. /etc/os-release; echo $VERSION_ID' | tr '[:upper:]' '[:lower:]')
   fi
