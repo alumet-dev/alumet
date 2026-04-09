@@ -407,7 +407,7 @@ find_pkg_checksum_wget() {
   if [ -z "$PACKAGE_URL" ]; then
     log_err "No package found matching your distribution version (version ${VERSION} of distrib ${DISTRIB}).
       Go to https://github.com/${OWNER}/${REPO}/releases to see if a matching package exists.
-      You may also use the -v flag to download a package available on a previous version of your distribution."
+      You may also use the -d flag to download a package available on a previous version of your distribution."
     return 1
   fi
 }
