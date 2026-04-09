@@ -331,75 +331,38 @@ build_name(){
 
 find_pkg_checksum() {
   if is_command curl; then
-    find_pkg_checksum_curl
-    return
+    json=$(curl -fsSL "https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/${RELEASE}")
   elif is_command wget; then
-    find_pkg_checksum_wget
-    return
-  fi
-  log_crit "find_pkg_checksum unable to find wget or curl"
-  return 1
-}
-find_pkg_checksum_curl() {
-  res=$(curl -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/${RELEASE}" \
-| awk -F'"' -v name="$AGENT" -v os="${DISTRIB_VERSION}" -v arch="$ARCH" '
-    BEGIN {
-      version_pattern = "[0-9.-]+"
-      pattern_dot = name "\\-" version_pattern "\\." os "\\." arch "\\.rpm$"
-      pattern_underscore = name "_" version_pattern "_" arch "_" os"\\.deb$"
-    }
-    
-    # Field detection
-    /"name"/ { asset_name = $4 }
-    /"browser_download_url"/ { url = $4 }
-    /"digest"/ { digest = $4 }
-    
-    # When all three fields are fullfilled
-    (asset_name && url && digest) {
-        # Check for pattern
-        if (asset_name ~ pattern_dot || asset_name ~ pattern_underscore) {
-          print url, digest
-      }
-      asset_name=""; url=""; digest="";
-    }')
-  PACKAGE_URL=$(echo "$res" | cut -d ' ' -f 1) 
-  CHECKSUM=$(echo "$res" | cut -d ' ' -f 2  | awk '{gsub(/^.{7}/,"");}1' )
-
-  log_debug "Checksum found: $CHECKSUM"
-  log_debug "File found: $PACKAGE_URL"
-  
-  if [ -z "$PACKAGE_URL" ]; then
-    log_err "No package found.
-      Go to https://github.com/${OWNER}/${REPO}/releases to see if a package matching your distrib version exists."
+    json=$(wget -qO- "https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/${RELEASE}")
+  else
+    log_crit "find_pkg_checksum: neither curl nor wget found"
     return 1
   fi
-}
 
-find_pkg_checksum_wget() {
-  wget --quiet "https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/${RELEASE}" \
-| awk -F'"' -v name="$AGENT" -v os="${DISTRIB_VERSION}" -v arch="$ARCH" '
+  parse_pkg_checksum "$json"
+}
+parse_pkg_checksum() {
+  res=$(echo "$1" | awk -F'"' -v name="$AGENT" -v os="${DISTRIB_VERSION}" -v arch="$ARCH" '
     BEGIN {
-    
       version_pattern = "[0-9.-]+"
       pattern_dot = name "\\-" version_pattern "\\." os "\\." arch "\\.rpm$"
-      pattern_underscore = name "_" version_pattern "_" arch "_" os"\\.deb$"
+      pattern_underscore = name "_" version_pattern "_" arch "_" os "\\.deb$"
     }
-    
-    # Field detection
+
     /"name"/ { asset_name = $4 }
     /"browser_download_url"/ { url = $4 }
     /"digest"/ { digest = $4 }
-    
-    # When all three fields are fullfilled
+
     (asset_name && url && digest) {
-        # Check for pattern
-        if (asset_name ~ pattern_dot || asset_name ~ pattern_underscore) {
-          print url, digest
+      if (asset_name ~ pattern_dot || asset_name ~ pattern_underscore) {
+        print url, digest
       }
       asset_name=""; url=""; digest="";
-    }'
-  PACKAGE_URL=$(echo "$res" | cut -d ' ' -f 1) 
-  CHECKSUM=$(echo "$res" | cut -d ' ' -f 2  | awk '{gsub(/^.{7}/,"");}1' )
+    }
+  ')
+
+  PACKAGE_URL=$(echo "$res" | awk '{print $1}')
+  CHECKSUM=$(echo "$res" | awk '{gsub(/^.{7}/,"",$2); print $2}')
 
   log_debug "Checksum found: $CHECKSUM"
   log_debug "File found: $PACKAGE_URL"
