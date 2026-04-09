@@ -59,8 +59,8 @@ execute() {
     install_local "${tmpdir}"
   else
     case $DISTRIB in
-      ubuntu|debian) sudo apt-get install -yq --allow-downgrades "${tmpdir}/${PACKAGE_ID}" > "/dev/null";;
-      *)  yum install -yq "${tmpdir}/${PACKAGE_ID}" > "/dev/null";;
+      ubuntu|debian) sudo apt-get install -q --allow-downgrades "${tmpdir}/${PACKAGE_ID}";;
+      *)  yum install -q "${tmpdir}/${PACKAGE_ID}";;
     esac
   fi
 
