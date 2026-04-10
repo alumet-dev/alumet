@@ -19,6 +19,7 @@
         "Cargo.lock",
         "**/**.yaml",
         ".circleci/",
+        "install.sh",
         ".cspell.json"
     ],
     "import": [
@@ -33,7 +34,7 @@
             "includeRegExpList": [
                 "comments",
                 "rust_error_messages",
-                "rust_string_format",
+                "rust_string_format"
             ],
             "ignoreRegExpList": [
                 "rustdoc_code_block",
