@@ -368,7 +368,7 @@ parse_pkg_checksum() {
   log_debug "File found: $PACKAGE_URL"
 
   if [ -z "$PACKAGE_URL" ]; then
-    log_err "No package found matching your distribution version (version ${VERSION} of distrib ${DISTRIB}).
+    log_err "No package found matching your distribution version (version ${DISTRIB_VERSION} of distrib ${DISTRIB}).
       Go to https://github.com/${OWNER}/${REPO}/releases to see if a matching package exists.
       You may also use the -d flag to download a package available on a previous version of your distribution."
     return 1
