@@ -394,7 +394,7 @@ fn pmu_type_from_path(path: &Path) -> Result<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests_mock::*;
+    use crate::tests::mocks::{Entry, EntryType, create_mock_layout};
 
     use alumet::pipeline::Source;
     use nix::unistd::{pipe, write};
