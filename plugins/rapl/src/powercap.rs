@@ -368,7 +368,7 @@ impl alumet::pipeline::Source for PowercapProbe {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests_mock::*;
+    use crate::tests::mocks::{Entry, EntryType, create_mock_layout, create_valid_powercap_mock};
 
     use alumet::pipeline::Source;
     use std::{mem::zeroed, path::PathBuf};
