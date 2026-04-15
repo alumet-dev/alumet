@@ -102,7 +102,7 @@ pub(crate) async fn run_managed(
             TaskState::Pause => {
                 let pause_timeout = tokio::time::Duration::from_secs(60); // todo: make it configurable
                 if let Err(_) = tokio::time::timeout(pause_timeout, config_change.notified()).await {
-                    log::info!(
+                    log::debug!(
                         "Source {source_name} has been started in Pause state and not be resumed in {:?} - Stopping it",
                         pause_timeout
                     );
