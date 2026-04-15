@@ -1,12 +1,13 @@
 use std::{
-    process::Command,
+    fs, io,
+    process::{self, Command},
     str::FromStr,
     sync::{Arc, RwLock},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::Context;
-use base64::{DecodeError, Engine};
+use base64::{DecodeError, Engine, engine::general_purpose};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -66,7 +67,7 @@ impl From<TokenRetrievalConfig> for TokenRetrieval {
                 Self::File(DEFAULT_SECRET_TOKEN_PATH.to_string())
             }
             TokenRetrievalConfig::Simple(SimpleRetrievalMethod::Auto) => {
-                if let Ok(true) = std::fs::exists(DEFAULT_SECRET_TOKEN_PATH) {
+                if let Ok(true) = fs::exists(DEFAULT_SECRET_TOKEN_PATH) {
                     Self::from(TokenRetrievalConfig::Simple(SimpleRetrievalMethod::File))
                 } else {
                     Self::from(TokenRetrievalConfig::Simple(SimpleRetrievalMethod::Kubectl))
@@ -112,7 +113,7 @@ impl TokenRetrieval {
                 Ok(token_content)
             }
             TokenRetrieval::File(path) => {
-                std::fs::read_to_string(path).with_context(|| format!("failed to read token from file {path:?}"))
+                fs::read_to_string(path).with_context(|| format!("failed to read token from file {path:?}"))
             }
         }
     }
@@ -121,7 +122,7 @@ impl TokenRetrieval {
 #[derive(Debug, Error)]
 enum KubectlError {
     #[error("failed to run kubectl command")]
-    ExecError(#[from] std::io::Error),
+    ExecError(#[from] io::Error),
     #[error("kubectl exited with status {code}\n{stderr}")]
     BadStatus { code: i32, stderr: String },
     #[error("kubectl terminated by signal\n{stderr}")]
@@ -130,10 +131,7 @@ enum KubectlError {
     InvalidOutput,
 }
 
-fn run_kubectl(args: &[&str]) -> Result<String, KubectlError> {
-    log::debug!("running: kubectl {}", args.join(" "));
-    let output = Command::new("kubectl").args(args).output()?;
-
+fn output_kubectl(output: process::Output) -> Result<String, KubectlError> {
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
         return match output.status.code() {
@@ -144,6 +142,11 @@ fn run_kubectl(args: &[&str]) -> Result<String, KubectlError> {
 
     let content = String::from_utf8(output.stdout).map_err(|_| KubectlError::InvalidOutput)?;
     Ok(content.trim().to_string())
+}
+
+fn run_kubectl(args: &[&str]) -> Result<String, KubectlError> {
+    let output = Command::new("kubectl").args(args).output()?;
+    output_kubectl(output)
 }
 
 /// Kubernetes token and way to retrieve it.
@@ -231,7 +234,7 @@ impl FromStr for TokenData {
         }
 
         // Decode the payload
-        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        let payload = general_purpose::URL_SAFE_NO_PAD
             .decode(payload)
             .map_err(InvalidPayloadError::from)?;
 
@@ -309,9 +312,21 @@ impl Token {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        os::unix::process::ExitStatusExt,
+        process::{ExitStatus, Output},
+    };
     use tempfile::tempdir;
     use time::Duration;
     use tokio::time;
+
+    fn mock_output(status: ExitStatus, stdout: &[u8], stderr: &[u8]) -> Output {
+        Output {
+            status,
+            stdout: stdout.to_vec(),
+            stderr: stderr.to_vec(),
+        }
+    }
 
     /// Test `get_value` function to get token with valid value
     #[test]
@@ -552,5 +567,48 @@ mod tests {
             "{r:?}"
         );
         Ok(())
+    }
+
+    #[test]
+    fn test_output_kubectl_with_valid_value() {
+        let out = mock_output(ExitStatus::from_raw(0), b"  valid_token \n", b"");
+        let result = output_kubectl(out).unwrap();
+        assert_eq!(result, "valid_token");
+    }
+
+    #[test]
+    fn test_output_kubectl_with_invalid_utf8() {
+        let out = mock_output(ExitStatus::from_raw(0), &[0xff, 0xfe], b"");
+        let result = output_kubectl(out).unwrap_err();
+        assert!(matches!(result, KubectlError::InvalidOutput));
+    }
+
+    #[test]
+    fn test_output_kubectl_with_status() {
+        // Simulate status code 1
+        let status = ExitStatus::from_raw(256);
+        let out = mock_output(status, b"", b"error_status");
+
+        match output_kubectl(out).unwrap_err() {
+            KubectlError::BadStatus { code, stderr } => {
+                assert_eq!(code, 1);
+                assert_eq!(stderr, "error_status");
+            }
+            e => panic!("unexpected error: {e:?}"),
+        }
+    }
+
+    #[test]
+    fn test_output_kubectl_with_signal() {
+        // Simulate killed process by SIGKILL
+        let status = ExitStatus::from_raw(9);
+        let out = mock_output(status, b"", b"error_signal");
+
+        match output_kubectl(out).unwrap_err() {
+            KubectlError::Signal { stderr } => {
+                assert_eq!(stderr, "error_signal");
+            }
+            e => panic!("unexpected error: {e:?}"),
+        }
     }
 }
