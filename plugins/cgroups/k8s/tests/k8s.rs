@@ -1,5 +1,3 @@
-use std::{io::Write, path::Path, time::Duration};
-
 use alumet::{
     agent::{
         self,
@@ -12,7 +10,13 @@ use alumet::{
     plugin::PluginMetadata,
 };
 use anyhow::Context;
+use log::info;
+use mockito::{Mock, Server};
 use plugin_k8s::K8sPlugin;
+use serde_json::json;
+use std::{env::var_os, fs, io::Write, path::Path, thread, time::Duration};
+use tempfile::{NamedTempFile, tempdir_in};
+use tokio::runtime;
 use util_cgroups::hierarchy::find_user_app_slice;
 
 const SYSFS_CGROUP: &str = "/sys/fs/cgroup";
@@ -24,7 +28,7 @@ const TOKEN_CONTENT: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMj
 
 #[test]
 fn test_k8s_cgroupv2() -> anyhow::Result<()> {
-    if std::env::var_os("SKIP_CGROUPFS_TESTS").is_some() {
+    if var_os("SKIP_CGROUPFS_TESTS").is_some() {
         println!("skipped because SKIP_CGROUPFS_TESTS is set");
         return Ok(());
     }
@@ -35,12 +39,12 @@ fn test_k8s_cgroupv2() -> anyhow::Result<()> {
     let app_slice = find_user_app_slice(Path::new(SYSFS_CGROUP))?;
 
     // find where to put the fake k8s token
-    let mut token_file = tempfile::NamedTempFile::new()?;
+    let mut token_file = NamedTempFile::new()?;
     write!(&mut token_file, "{TOKEN_CONTENT}")?;
     let token_file_path = token_file.path().to_str().unwrap();
 
     // prepare fake k8s api
-    let mut mock_server = mockito::Server::new();
+    let mut mock_server = Server::new();
     let mock_server_url = mock_server.url();
     let api_mock = mock_k8s_api_with_one_pod(&mut mock_server, 1);
 
@@ -56,6 +60,7 @@ fn test_k8s_cgroupv2() -> anyhow::Result<()> {
                     k8s_api_url = "{mock_server_url}"
                     k8s_node = "{POD_NODE}"
                     token_retrieval.file = "{token_file_path}"
+                    annotate_foreign_measurements = true
                 "#
             ))
             .unwrap(),
@@ -64,24 +69,24 @@ fn test_k8s_cgroupv2() -> anyhow::Result<()> {
 
     // start the measurement pipeline, without the pod's cgroup
     let agent = agent::Builder::new(plugins).build_and_start()?;
-    std::thread::sleep(TOLERANCE);
+    thread::sleep(TOLERANCE);
 
     // create the cgroups
     let cgroup_dir_parent =
-        tempfile::tempdir_in(&app_slice).with_context(|| format!("failed to create cgroup in {app_slice:?}"))?;
+        tempdir_in(&app_slice).with_context(|| format!("failed to create cgroup in {app_slice:?}"))?;
     let cgroup_dir_pod = cgroup_dir_parent.path().join(format!(
         "kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-pod{POD_UID}.slice"
     ));
-    std::fs::create_dir_all(&cgroup_dir_pod)?;
+    fs::create_dir_all(&cgroup_dir_pod)?;
 
     let source_name = &format!("kubepods-besteffort-pod{POD_UID}");
-    log::info!("cgroup created at {:?}", cgroup_dir_pod);
-    log::info!("source name: {source_name}");
+    info!("cgroup created at {cgroup_dir_pod:?}");
+    info!("source name: {source_name}");
 
     // expect the source to be created quickly after that
-    std::thread::sleep(TOLERANCE);
+    thread::sleep(TOLERANCE);
     let handle = agent.pipeline.control_handle();
-    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let rt = runtime::Builder::new_current_thread().enable_all().build()?;
     let elements = rt.block_on(
         handle.send_wait(
             request::list_elements(
@@ -105,19 +110,19 @@ fn test_k8s_cgroupv2() -> anyhow::Result<()> {
     api_mock.assert();
 
     // stop the pipeline and wait for it to terminate
-    std::thread::sleep(Duration::from_secs(10));
+    thread::sleep(Duration::from_secs(10));
     handle.shutdown();
     agent.wait_for_shutdown(TIMEOUT).context("error in shutdown")?;
     Ok(())
 }
 
-fn mock_k8s_api_with_one_pod(server: &mut mockito::Server, expected_hits: usize) -> mockito::Mock {
+fn mock_k8s_api_with_one_pod(server: &mut Server, expected_hits: usize) -> Mock {
     server
         .mock("GET", "/api/v1/pods?fieldSelector=spec.nodeName%3Dtest-node")
         .with_status(200)
         .with_header("Content-Type", "application/json")
         .with_body(
-            serde_json::json!({
+            json!({
                 "items": [
                     {
                         "metadata": {
