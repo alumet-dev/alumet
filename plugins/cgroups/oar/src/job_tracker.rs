@@ -1,11 +1,10 @@
-use std::sync::{Arc, Mutex};
-
 use anyhow::Context;
 use rustc_hash::FxHashSet;
+use std::sync::{Arc, Mutex};
 
 use crate::{
+    OarVersion,
     attr::{JOB_REGEX_OAR2, JOB_REGEX_OAR3, find_jobid_in_attrs},
-    config::OarVersion,
 };
 use util_cgroups_plugins::{cgroup_events::CgroupRemovalCallback, regex::RegexAttributesExtrator};
 
@@ -96,11 +95,86 @@ impl CgroupRemovalCallback for JobCleaner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use util_cgroups::{Cgroup, CgroupHierarchy, CgroupVersion};
+
+    const MOCK_ROOT_HIERARCHY: &str = "/tmp/cgroup";
+    const MOCK_CONTROLLER: [&str; 2] = ["cpu", "memory"];
+    const MOCK_ID: [u64; 3] = [10, 20, 30];
 
     #[test]
     fn assert_send_sync() {
         fn f<T: Send + Sync>() {}
         // this compiles only if JobTracker is Send and Sync
         f::<JobTracker>();
+    }
+
+    #[test]
+    fn test_job_single_handle() {
+        let mut tracker = JobTracker::new();
+        tracker.add(10);
+        tracker.remove(10);
+    }
+
+    #[test]
+    fn test_job_multiple_handle() {
+        let mut tracker = JobTracker::new();
+        tracker.add_multiple(MOCK_ID.into_iter());
+        // Remove nothing
+        tracker.remove_multiple(vec![].into_iter());
+        assert_eq!(tracker.known_jobs_sorted(), MOCK_ID);
+        // Remove everything
+        tracker.remove_multiple(MOCK_ID.into_iter());
+        assert!(tracker.known_jobs_sorted().is_empty());
+    }
+
+    #[test]
+    fn test_on_cgroups_removed_with_matching_oar2_job() {
+        let hierarchy =
+            CgroupHierarchy::manually_unchecked(MOCK_ROOT_HIERARCHY, CgroupVersion::V1, vec![MOCK_CONTROLLER[0]]);
+
+        let mut tracker = JobTracker::new();
+        tracker.add_multiple(vec![MOCK_ID[0], MOCK_ID[1]].into_iter());
+
+        let mut cleaner = JobCleaner::with_version(&tracker, OarVersion::Oar2).unwrap();
+
+        let cgroups = vec![
+            Cgroup::from_cgroup_path(&hierarchy, format!("/oar/user_{}", MOCK_ID[0])), // Tracked job
+            Cgroup::from_cgroup_path(&hierarchy, format!("/oar/user_{}", MOCK_ID[2])), // Not tracked job
+            Cgroup::from_cgroup_path(&hierarchy, "/invalid/job".to_owned()),           // Invalid job
+        ];
+
+        cleaner.on_cgroups_removed(cgroups).unwrap();
+        assert_eq!(tracker.known_jobs_sorted(), vec![MOCK_ID[1]]);
+    }
+
+    #[test]
+    fn test_on_cgroups_removed_with_matching_oar3_job() {
+        let hierarchy =
+            CgroupHierarchy::manually_unchecked(MOCK_ROOT_HIERARCHY, CgroupVersion::V2, vec![MOCK_CONTROLLER[1]]);
+
+        let mut tracker = JobTracker::new();
+        tracker.add_multiple(vec![MOCK_ID[0], MOCK_ID[1]].into_iter());
+
+        let mut cleaner = JobCleaner::with_version(&tracker, OarVersion::Oar3).unwrap();
+
+        let cgroups = vec![
+            Cgroup::from_cgroup_path(&hierarchy, format!("/oar.slice/system/oar-u1-j{}", MOCK_ID[0])), // Tracked job
+            Cgroup::from_cgroup_path(&hierarchy, format!("/oar.slice/system/oar-u1-j{}", MOCK_ID[2])), // Not tracked job
+            Cgroup::from_cgroup_path(&hierarchy, "/invalid/job".to_owned()),                           // Invalid job
+        ];
+
+        cleaner.on_cgroups_removed(cgroups).unwrap();
+        assert_eq!(tracker.known_jobs_sorted(), vec![MOCK_ID[1]]);
+    }
+
+    #[test]
+    fn test_on_cgroups_removed_with_empty_input() {
+        let mut tracker = JobTracker::new();
+        tracker.add(MOCK_ID[0]);
+
+        let mut cleaner = JobCleaner::with_version(&tracker, OarVersion::Oar2).unwrap();
+        cleaner.on_cgroups_removed(vec![]).unwrap();
+
+        assert_eq!(tracker.known_jobs_sorted(), vec![MOCK_ID[0]]);
     }
 }

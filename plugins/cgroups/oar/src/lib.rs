@@ -3,6 +3,8 @@ use alumet::plugin::{
     rust::{AlumetPlugin, deserialize_config, serialize_config},
 };
 use anyhow::Context;
+use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 use crate::{
     attr::OarJobTagger,
@@ -26,7 +28,7 @@ mod transform;
 ///
 /// Supports OAR2 and OAR3, on cgroup v1 or cgroup v2.
 pub struct OarPlugin {
-    config: Option<config::Config>,
+    config: Option<Config>,
     /// Intermediary state for startup.
     starting_state: Option<StartingState>,
     /// The reactor that is running in the background. Dropping it will stop it.
@@ -34,7 +36,7 @@ pub struct OarPlugin {
 }
 
 impl OarPlugin {
-    pub fn new(config: config::Config) -> Self {
+    pub fn new(config: Config) -> Self {
         Self {
             config: Some(config),
             reactor: None,
@@ -53,12 +55,12 @@ impl AlumetPlugin for OarPlugin {
     }
 
     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
-        let config: config::Config = deserialize_config(config)?;
+        let config: Config = deserialize_config(config)?;
         Ok(Box::new(Self::new(config)))
     }
 
     fn default_config() -> anyhow::Result<Option<ConfigTable>> {
-        let config = serialize_config(config::Config::default())?;
+        let config = serialize_config(Config::default())?;
         Ok(Some(config))
     }
 
@@ -119,11 +121,64 @@ impl AlumetPlugin for OarPlugin {
     }
 }
 
-mod config;
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Config {
+    pub(crate) oar_version: OarVersion,
+    #[serde(with = "humantime_serde")]
+    pub(crate) poll_interval: Duration,
+    pub(crate) jobs_only: bool,
+    /// If `true`, adds attributes like `job_id` to the measurements produced by other plugins.
+    /// The default value is `false`.
+    ///
+    /// The measurements must have the `cgroup` resource consumer, and **cgroup v2** must be used on the node.
+    #[serde(default)]
+    pub annotate_foreign_measurements: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            oar_version: OarVersion::Oar3,
+            poll_interval: Duration::from_secs(1),
+            jobs_only: true,
+            annotate_foreign_measurements: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OarVersion {
+    Oar2,
+    Oar3,
+}
 
 struct StartingState {
     metrics: Metrics,
     reactor_config: ReactorConfig,
     source_setup: source::JobSourceSetup,
     job_cleaner: JobCleaner,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_config() {
+        let config_table = OarPlugin::default_config()
+            .expect("default_config() should not fail")
+            .expect("default_config() should return Some");
+
+        let config: Config = deserialize_config(config_table).expect("should deserialize config");
+        let default = Config::default();
+
+        assert_eq!(config.oar_version, default.oar_version);
+        assert_eq!(config.poll_interval, default.poll_interval);
+        assert_eq!(config.jobs_only, default.jobs_only);
+        assert_eq!(
+            config.annotate_foreign_measurements,
+            default.annotate_foreign_measurements
+        );
+    }
 }
