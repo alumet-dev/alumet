@@ -132,7 +132,7 @@ mod tests {
 
     #[test]
     fn regex_extractor_uint() -> anyhow::Result<()> {
-        let mut extractor = RegexAttributesExtrator::new("oar-u(?<user__u64>[0-9]+)-j(?<job__uint>[0-9]+)")?;
+        let extractor = RegexAttributesExtrator::new("oar-u(?<user__u64>[0-9]+)-j(?<job__uint>[0-9]+)")?;
         assert_eq!(
             extractor.groups,
             vec![
@@ -189,7 +189,7 @@ mod tests {
     #[test]
     fn regex_extractor_mixed() -> anyhow::Result<()> {
         // use ^ and $ so that we match the whole string
-        let mut extractor = RegexAttributesExtrator::new("^.*/name=(?<name__str>[a-zA-Z0-9]+)/(?<leaf>[a-zA-Z]+)$")?;
+        let extractor = RegexAttributesExtrator::new("^.*/name=(?<name__str>[a-zA-Z0-9]+)/(?<leaf>[a-zA-Z]+)$")?;
         assert_eq!(
             extractor.groups,
             vec![
@@ -227,6 +227,40 @@ mod tests {
         attrs.clear();
         extractor.extract_into("/name=toto/greenie/other", &mut attrs)?;
         assert_eq!(attrs, vec![]);
+        Ok(())
+    }
+
+    #[test]
+    fn regex_extractor_invalid_group() {
+        match RegexAttributesExtrator::new("(?<invalid__group>[0-9]+)") {
+            Err(e) => {
+                let msg = format!("{e}");
+                assert!(msg.contains("invalid group spec"));
+                assert!(msg.contains("invalid__group"));
+            }
+            Ok(_) => panic!("expected error"),
+        }
+    }
+
+    #[test]
+    fn regex_extractor_extract() -> anyhow::Result<()> {
+        let extractor = RegexAttributesExtrator::new("^/oar/(?<user>[a-zA-Z]+)_(?<job__u64>[0-9]+)$")?;
+        let attrs = extractor.extract("/oar/raffingu_9000")?;
+        assert_eq!(
+            attrs,
+            vec![
+                (String::from("user"), AttributeValue::String(String::from("raffingu"))),
+                (String::from("job"), AttributeValue::U64(9000)),
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn regex_extractor_extract_no_match() -> anyhow::Result<()> {
+        let extractor = RegexAttributesExtrator::new("^/oar/(?<user>[a-zA-Z]+)_(?<job__u64>[0-9]+)$")?;
+        let attrs = extractor.extract("/invalid")?;
+        assert!(attrs.is_empty());
         Ok(())
     }
 }
