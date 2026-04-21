@@ -24,3 +24,28 @@ impl Default for CpuDeltaCounters {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alumet::plugin::util::CounterDiffUpdate;
+
+    #[test]
+    fn test_cpu_delta_counters() {
+        let mut cpu_delta_counters = CpuDeltaCounters::default();
+
+        assert_eq!(cpu_delta_counters.usage.update(30), CounterDiffUpdate::FirstTime);
+        assert_eq!(cpu_delta_counters.user.update(20), CounterDiffUpdate::FirstTime);
+        assert_eq!(cpu_delta_counters.system.update(10), CounterDiffUpdate::FirstTime);
+
+        assert_eq!(cpu_delta_counters.usage.update(60), CounterDiffUpdate::Difference(30));
+        assert_eq!(cpu_delta_counters.user.update(50), CounterDiffUpdate::Difference(30));
+        assert_eq!(cpu_delta_counters.system.update(40), CounterDiffUpdate::Difference(30));
+
+        cpu_delta_counters.reset();
+
+        assert_eq!(cpu_delta_counters.usage.update(90), CounterDiffUpdate::FirstTime);
+        assert_eq!(cpu_delta_counters.user.update(80), CounterDiffUpdate::FirstTime);
+        assert_eq!(cpu_delta_counters.system.update(70), CounterDiffUpdate::FirstTime);
+    }
+}
