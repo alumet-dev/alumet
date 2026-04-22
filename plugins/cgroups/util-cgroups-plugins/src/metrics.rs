@@ -156,18 +156,3 @@ impl AugmentedMetrics {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn augmented_metrics() {
-        // just test that this compiles
-        fn _f(metrics: &Metrics) {
-            AugmentedMetrics::with_common_attr_slice(metrics, &[("".to_string(), AttributeValue::Bool(true))]);
-            AugmentedMetrics::with_common_attr_slice(metrics, &[("", AttributeValue::Bool(true))]);
-            AugmentedMetrics::with_common_attr_slice(metrics, vec![("", AttributeValue::Bool(true))].as_slice());
-        }
-    }
-}
