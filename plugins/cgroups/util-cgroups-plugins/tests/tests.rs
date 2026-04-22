@@ -1,8 +1,3 @@
-use std::{
-    path::{Path, PathBuf},
-    time::{Duration, UNIX_EPOCH},
-};
-
 use alumet::{
     agent::{
         self,
@@ -27,9 +22,12 @@ use alumet::{
 };
 use anyhow::Context;
 use expecting::expect_err;
+use std::{
+    path::{Path, PathBuf},
+    time::{Duration, UNIX_EPOCH},
+};
 use util_cgroups::{CgroupHierarchy, CgroupVersion, hierarchy::find_user_app_slice};
 
-use serde::{Deserialize, Serialize};
 use util_cgroups_plugins::{
     cgroup_events::CgroupFsMountCallback,
     job_annotation_transform::{
@@ -452,3 +450,5 @@ fn prepare_mock_measurements(ctx: &mut TransformCheckInputContext, path: PathBuf
 
     Ok(m)
 }
+
+mod tests_metrics;
