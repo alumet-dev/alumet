@@ -48,3 +48,85 @@ pub fn find_jobid_in_attrs(attrs: &Vec<(String, AttributeValue)>) -> Option<u64>
         _ => unreachable!("job_id should be a u64, is the regex correct?"),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use util_cgroups::{Cgroup, CgroupHierarchy, CgroupVersion};
+
+    const MOCK_ROOT_HIERARCHY: &str = "/tmp/cgroup";
+    const MOCK_CONTROLLER: [&str; 2] = ["cpu", "memory"];
+    const MOCK_ID: [u64; 2] = [10, 20];
+
+    #[test]
+    fn test_attributes_for_cgroup_with_oar2() {
+        let hierarchy =
+            CgroupHierarchy::manually_unchecked(MOCK_ROOT_HIERARCHY, CgroupVersion::V1, vec![MOCK_CONTROLLER[0]]);
+
+        let cgroups = vec![
+            Cgroup::from_cgroup_path(&hierarchy, format!("/oar/user_{}", MOCK_ID[0])), // Tracked job
+            Cgroup::from_cgroup_path(&hierarchy, format!("/oar/user_{}", MOCK_ID[1])), // Not tracked job
+            Cgroup::from_cgroup_path(&hierarchy, "/invalid/job".to_owned()),           // Invalid job
+        ];
+
+        let mut tagger = OarJobTagger::new().unwrap();
+        let attrs = tagger.attributes_for_cgroup(&cgroups[0]);
+
+        assert!(attrs.iter().any(|(k, _)| k == "job_id"));
+        assert!(attrs.iter().any(|(k, _)| k == "user"));
+    }
+
+    #[test]
+    fn test_attributes_for_cgroup_with_oar3() {
+        let hierarchy =
+            CgroupHierarchy::manually_unchecked(MOCK_ROOT_HIERARCHY, CgroupVersion::V2, vec![MOCK_CONTROLLER[1]]);
+
+        let cgroups = vec![
+            Cgroup::from_cgroup_path(&hierarchy, format!("/oar.slice/system/oar-u1-j{}", MOCK_ID[0])), // Tracked job
+            Cgroup::from_cgroup_path(&hierarchy, format!("/oar.slice/system/oar-u1-j{}", MOCK_ID[1])), // Not tracked job
+            Cgroup::from_cgroup_path(&hierarchy, "/invalid/job".to_owned()),                           // Invalid job
+        ];
+
+        let mut tagger = OarJobTagger::new().unwrap();
+        let attrs = tagger.attributes_for_cgroup(&cgroups[0]);
+
+        assert!(attrs.iter().any(|(k, _)| k == "job_id"));
+        assert!(attrs.iter().any(|(k, _)| k == "user_id"));
+    }
+
+    #[test]
+    fn test_find_userid_in_attrs_ok() {
+        let attrs = vec![
+            ("user_id".into(), AttributeValue::U64(54)),
+            ("job_id".into(), AttributeValue::U64(123456)),
+        ];
+
+        let uid = find_userid_in_attrs(&attrs);
+        assert_eq!(uid, Some(54));
+    }
+
+    #[test]
+    #[should_panic(expected = "user_id should be a u64, is the regex correct?")]
+    fn test_find_userid_in_attrs_with_invalid_type() {
+        let attrs = vec![("user_id".into(), AttributeValue::String("invalid".into()))];
+        let _ = find_userid_in_attrs(&attrs);
+    }
+
+    #[test]
+    fn test_find_jobid_in_attrs_ok() {
+        let attrs = vec![
+            ("user_id".into(), AttributeValue::U64(54)),
+            ("job_id".into(), AttributeValue::U64(123456)),
+        ];
+
+        let jid = find_jobid_in_attrs(&attrs);
+        assert_eq!(jid, Some(123456));
+    }
+
+    #[test]
+    #[should_panic(expected = "job_id should be a u64, is the regex correct?")]
+    fn test_find_jobid_in_attrs_with_invalid_type() {
+        let attrs = vec![("job_id".into(), AttributeValue::String("invalid".into()))];
+        let _ = find_jobid_in_attrs(&attrs);
+    }
+}
