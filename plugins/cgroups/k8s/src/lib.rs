@@ -2,7 +2,10 @@ use std::time::Duration;
 
 use alumet::{
     pipeline::elements::source::trigger::TriggerSpec,
-    plugin::rust::{AlumetPlugin, deserialize_config, serialize_config},
+    plugin::{
+        AlumetPluginStart, AlumetPostStart, ConfigTable,
+        rust::{AlumetPlugin, deserialize_config, serialize_config},
+    },
 };
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
@@ -39,7 +42,7 @@ impl AlumetPlugin for K8sPlugin {
         env!("CARGO_PKG_VERSION")
     }
 
-    fn init(config: alumet::plugin::ConfigTable) -> anyhow::Result<Box<Self>> {
+    fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
         let config = deserialize_config(config)?;
         Ok(Box::new(Self {
             config,
@@ -48,11 +51,11 @@ impl AlumetPlugin for K8sPlugin {
         }))
     }
 
-    fn default_config() -> anyhow::Result<Option<alumet::plugin::ConfigTable>> {
+    fn default_config() -> anyhow::Result<Option<ConfigTable>> {
         Ok(Some(serialize_config(Config::default())?))
     }
 
-    fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
+    fn start(&mut self, alumet: &mut AlumetPluginStart) -> anyhow::Result<()> {
         let metrics = Metrics::create(alumet)?;
         let reactor_config = ReactorConfig::default();
         let mut shared_hierarchy = OptionalSharedHierarchy::default();
@@ -90,7 +93,7 @@ impl AlumetPlugin for K8sPlugin {
         Ok(())
     }
 
-    fn post_pipeline_start(&mut self, alumet: &mut alumet::plugin::AlumetPostStart) -> anyhow::Result<()> {
+    fn post_pipeline_start(&mut self, alumet: &mut AlumetPostStart) -> anyhow::Result<()> {
         // continue from the state that has been prepared in `start`
         let s = self.starting_state.take().unwrap();
 
@@ -147,13 +150,11 @@ pub struct Config {
     pub annotate_foreign_measurements: bool,
 }
 
-#[cfg_attr(tarpaulin, ignore)]
 fn default_k8s_api_url() -> String {
     String::from("http://127.0.0.1:8080")
 }
 
 impl Default for Config {
-    #[cfg_attr(tarpaulin, ignore)]
     fn default() -> Self {
         Self {
             k8s_node: None,
@@ -174,5 +175,28 @@ impl Config {
                 .into_string()
                 .expect("hostname should be valid utf-8"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_config() {
+        let config_table = K8sPlugin::default_config()
+            .expect("default_config() should not fail")
+            .expect("default_config() should return Some");
+
+        let config: Config = deserialize_config(config_table).expect("should deserialize config");
+        let default = Config::default();
+
+        assert_eq!(config.k8s_api_url, default.k8s_api_url);
+        assert_eq!(config.poll_interval, default.poll_interval);
+        assert_eq!(
+            config.annotate_foreign_measurements,
+            default.annotate_foreign_measurements
+        );
+        assert_eq!(config.k8s_node, default.k8s_node);
     }
 }
