@@ -1,18 +1,19 @@
 use alumet::{
-    measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
+    measurement::{MeasurementAccumulator, MeasurementPoint, MeasurementType, Timestamp},
+    metrics::TypedMetricId,
     pipeline::{Source, elements::error::PollError},
     plugin::util::CounterDiff,
     resources::{Resource, ResourceConsumer},
+};
+use amd_smi_wrapper::{
+    handles::ProcessorHandle,
+    metrics::{AmdTemperatureMetric, AmdVoltageMetric, AmdVoltageType},
 };
 use anyhow::Result;
 use std::{borrow::Cow, collections::HashMap};
 
 use super::{device::ManagedDevice, metrics::Metrics};
 use crate::amd::utils::{MEMORY_TYPE, SENSOR_TYPE};
-use amd_smi_wrapper::{
-    ProcessorHandle,
-    utils::{AmdTemperatureMetric, AmdVoltageMetric, AmdVoltageType},
-};
 
 /// Measurement source that queries AMD GPU devices.
 pub struct AmdGpuSource<H: ProcessorHandle> {
@@ -22,6 +23,46 @@ pub struct AmdGpuSource<H: ProcessorHandle> {
     devices: Vec<ManagedDevice<H>>,
     /// Alumet metrics IDs.
     metrics: Metrics,
+}
+
+/// Check if an [`f64`] or [`u64`] metric value is not null, to push it or not in Alumet pipeline.
+/// The collect of certain metrics is triggered under specific conditions (activity engine, running processes...).
+/// So, if the value of these metrics is null, it's best to ignore them to economize pipeline resources.
+trait MeasurementValue {
+    fn check_push(&self) -> bool;
+}
+
+impl MeasurementValue for u64 {
+    fn check_push(&self) -> bool {
+        *self != 0
+    }
+}
+
+impl MeasurementValue for f64 {
+    fn check_push(&self) -> bool {
+        *self != 0.0 && !self.is_nan()
+    }
+}
+
+/// Push metric method conditioned by [`MeasurementValue::check_push`] to send only not null values in pipeline.
+fn push<T, F>(
+    measurements: &mut MeasurementAccumulator,
+    timestamp: Timestamp,
+    metric: TypedMetricId<T>,
+    resource: &Resource,
+    consumer: &ResourceConsumer,
+    value: T,
+    attributes: F,
+) where
+    T: MeasurementValue + MeasurementType<T = T>,
+    F: FnOnce() -> (&'static str, String),
+{
+    if value.check_push() {
+        let (key, label) = attributes();
+        measurements.push(
+            MeasurementPoint::new(timestamp, metric, resource.clone(), consumer.clone(), value).with_attr(key, label),
+        );
+    }
 }
 
 impl<H: ProcessorHandle> AmdGpuSource<H> {
@@ -46,7 +87,7 @@ impl<H: ProcessorHandle> AmdGpuSource<H> {
         timestamp: Timestamp,
         consumer: &ResourceConsumer,
         resource: &Resource,
-    ) -> anyhow::Result<()> {
+    ) {
         let features = &device.features;
 
         if features.gpu_activity_usage
@@ -54,26 +95,36 @@ impl<H: ProcessorHandle> AmdGpuSource<H> {
         {
             const KEY: &str = "activity_type";
 
-            let mut push = |v, label| {
-                if v != 0 {
-                    measurements.push(
-                        MeasurementPoint::new(
-                            timestamp,
-                            self.metrics.gpu_activity_usage,
-                            resource.clone(),
-                            consumer.clone(),
-                            v as f64,
-                        )
-                        .with_attr(KEY, label),
-                    );
-                }
-            };
+            push(
+                measurements,
+                timestamp,
+                self.metrics.gpu_activity_usage,
+                resource,
+                consumer,
+                value.gfx_activity as f64,
+                || (KEY, "graphic_core".to_string()),
+            );
 
-            push(value.gfx_activity, "graphic_core");
-            push(value.mm_activity, "memory_management");
-            push(value.umc_activity, "unified_memory_controller");
+            push(
+                measurements,
+                timestamp,
+                self.metrics.gpu_activity_usage,
+                resource,
+                consumer,
+                value.mm_activity as f64,
+                || (KEY, "memory_management".to_string()),
+            );
+
+            push(
+                measurements,
+                timestamp,
+                self.metrics.gpu_activity_usage,
+                resource,
+                consumer,
+                value.umc_activity as f64,
+                || (KEY, "unified_memory_controller".to_string()),
+            );
         }
-        Ok(())
     }
 
     /// Retrieves and push all data concerning the running process resources consumption of a given AMD GPU device.
@@ -83,7 +134,8 @@ impl<H: ProcessorHandle> AmdGpuSource<H> {
         measurements: &mut MeasurementAccumulator,
         timestamp: Timestamp,
         resource: &Resource,
-    ) -> anyhow::Result<()> {
+        compute_units_number: u32,
+    ) {
         let features = &device.features;
 
         if features.gpu_process
@@ -95,26 +147,79 @@ impl<H: ProcessorHandle> AmdGpuSource<H> {
                 let consumer = ResourceConsumer::Process { pid: process.pid };
                 let name = &process.name;
 
-                let mut push = |metric, value| {
-                    if value != 0 {
-                        measurements.push(
-                            MeasurementPoint::new(timestamp, metric, resource.clone(), consumer.clone(), value)
-                                .with_attr(KEY, name.to_string()),
-                        );
-                    }
-                };
+                if compute_units_number > 0 {
+                    push(
+                        measurements,
+                        timestamp,
+                        self.metrics.process_cu_occupancy,
+                        resource,
+                        &consumer,
+                        (process.cu_occupancy as f64 / compute_units_number as f64) * 100.0,
+                        || (KEY, name.to_string()),
+                    );
+                }
 
-                push(self.metrics.process_occupancy, process.cu_occupancy as u64);
-                push(self.metrics.process_memory_usage, process.mem);
-                push(self.metrics.process_engine_usage_gfx, process.engine_usage.gfx);
-                push(self.metrics.process_engine_usage_encode, process.engine_usage.enc);
-                push(self.metrics.process_memory_usage_gtt, process.memory_usage.gtt_mem);
-                push(self.metrics.process_memory_usage_cpu, process.memory_usage.cpu_mem);
-                push(self.metrics.process_memory_usage_vram, process.memory_usage.vram_mem);
+                push(
+                    measurements,
+                    timestamp,
+                    self.metrics.process_memory_usage,
+                    resource,
+                    &consumer,
+                    process.mem,
+                    || (KEY, name.to_string()),
+                );
+
+                push(
+                    measurements,
+                    timestamp,
+                    self.metrics.process_engine_usage_gfx,
+                    resource,
+                    &consumer,
+                    process.engine_usage.gfx,
+                    || (KEY, name.to_string()),
+                );
+
+                push(
+                    measurements,
+                    timestamp,
+                    self.metrics.process_engine_usage_encode,
+                    resource,
+                    &consumer,
+                    process.engine_usage.enc,
+                    || (KEY, name.to_string()),
+                );
+
+                push(
+                    measurements,
+                    timestamp,
+                    self.metrics.process_memory_usage_gtt,
+                    resource,
+                    &consumer,
+                    process.memory_usage.gtt_mem,
+                    || (KEY, name.to_string()),
+                );
+
+                push(
+                    measurements,
+                    timestamp,
+                    self.metrics.process_memory_usage_cpu,
+                    resource,
+                    &consumer,
+                    process.memory_usage.cpu_mem,
+                    || (KEY, name.to_string()),
+                );
+
+                push(
+                    measurements,
+                    timestamp,
+                    self.metrics.process_memory_usage_vram,
+                    resource,
+                    &consumer,
+                    process.memory_usage.vram_mem,
+                    || (KEY, name.to_string()),
+                );
             }
         }
-
-        Ok(())
     }
 }
 
@@ -131,7 +236,15 @@ impl<H: ProcessorHandle> Source for AmdGpuSource<H> {
             let features = &device.features;
 
             // GPU engine data usage metric pushed
-            self.handle_gpu_activity(device, measurements, timestamp, &consumer, &resource)?;
+            self.handle_gpu_activity(device, measurements, timestamp, &consumer, &resource);
+
+            // Global GPU chip information
+            if features.gpu_asic_info
+                && let Ok(value) = device.handle.device_asic_info()
+            {
+                // Push GPU compute-graphic process informations if processes existing
+                self.handle_gpu_processes(device, measurements, timestamp, &resource, value.num_of_compute_units);
+            }
 
             // GPU energy consumption metric pushed
             if features.gpu_energy_consumption
@@ -225,11 +338,27 @@ impl<H: ProcessorHandle> Source for AmdGpuSource<H> {
                     );
                 }
             }
-
-            // Push GPU compute-graphic process informations if processes existing
-            self.handle_gpu_processes(device, measurements, timestamp, &resource)?;
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MeasurementValue;
+
+    #[test]
+    fn test_check_push_interger() {
+        assert_eq!(0.check_push(), false);
+        assert_eq!(2.check_push(), true);
+    }
+
+    #[test]
+    fn test_check_push_float() {
+        assert_eq!(0.0.check_push(), false);
+        assert_eq!(2.5.check_push(), true);
+        assert_eq!((-4.5).check_push(), true);
+        assert_eq!(f64::NAN.check_push(), false);
     }
 }
