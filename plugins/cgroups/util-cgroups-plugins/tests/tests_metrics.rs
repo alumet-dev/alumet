@@ -10,13 +10,11 @@ use alumet::{
 };
 use util_cgroups_plugins::metrics::AugmentedMetrics;
 
-const PLUGIN_NAME: &str = "test-util-cgroups-plugin-metrics";
-
 struct MockPlugin;
 
 impl AlumetPlugin for MockPlugin {
     fn name() -> &'static str {
-        PLUGIN_NAME
+        "test-util-cgroups-plugin-metrics"
     }
     fn version() -> &'static str {
         "0.1.0"
