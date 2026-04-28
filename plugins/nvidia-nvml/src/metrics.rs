@@ -67,11 +67,7 @@ impl FullMetrics {
                 Unit::Percent,
                 "GPU rate utilization",
             )?,
-            memory_allocation: alumet.create_metric(
-                "nvml_gpu_memory_allocation",
-                Unit::Byte,
-                "VRAM allocation",
-            )?,
+            memory_allocation: alumet.create_metric("nvml_gpu_memory_allocation", Unit::Byte, "VRAM allocation")?,
             decoder_sampling_period_us: alumet.create_metric(
                 "nvml_decoder_sampling_period",
                 PrefixedUnit::micro(Unit::Second),

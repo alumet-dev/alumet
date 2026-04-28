@@ -150,7 +150,7 @@ impl<D: NvmlDevice> Source for FullSource<D> {
                     consumer.clone(),
                     device.memory_allocation()?.free,
                 )
-                .with_attr("kind", "free")
+                .with_attr("kind", "free"),
             );
             // According to NVIDIA documentation, system-reserved memory field
             // only exists from version 2 onward
