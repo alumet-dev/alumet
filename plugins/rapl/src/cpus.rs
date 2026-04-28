@@ -145,6 +145,13 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_cpu_list() {
+        let cpulist = "1-2,3-4";
+        let result = parse_cpu_list(cpulist).unwrap();
+        assert_eq!(result, vec![1, 2, 3, 4]);
+    }
+
+    #[test]
     fn test_parse_cpulist_with_invalid_item() {
         let cpulist = "1-2-3";
         let result = parse_cpu_list(cpulist).unwrap_err();

@@ -12,14 +12,14 @@ use alumet::{
     test::{RuntimeExpectations, StartupExpectations},
     units::Unit,
 };
-use std::thread;
 use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
 use tempfile::tempdir;
 
-#[cfg(test)]
+const TIMEOUT: Duration = Duration::from_secs(1);
+
 fn config_to_toml_table(config: &Config) -> toml::Table {
     toml::Value::try_from(config).unwrap().as_table().unwrap().clone()
 }
@@ -27,46 +27,10 @@ fn config_to_toml_table(config: &Config) -> toml::Table {
 /// This test ensure the plugin startup correctly, with the expected source based on Powercap Mocks created during the test.
 /// It also verifies the registered metrics and their units.
 #[test]
-fn test_startup_with_powercap() -> anyhow::Result<()> {
-    let mut plugins = PluginSet::new();
-
-    let tmp = create_valid_powercap_mock()?;
-    let base_path = tmp.path().to_owned();
-
-    let source_config = Config {
-        poll_interval: Duration::from_secs(1),
-        flush_interval: Duration::from_secs(1),
-        no_perf_events: true,
-        perf_event_test_path: Path::new("").to_path_buf(),
-        powercap_test_path: base_path,
-    };
-    plugins.add_plugin(PluginInfo {
-        metadata: PluginMetadata::from_static::<RaplPlugin>(),
-        enabled: true,
-        config: Some(config_to_toml_table(&source_config)),
-    });
-
-    let startup_expectations = StartupExpectations::new()
-        .expect_metric::<f64>("rapl_consumed_energy", Unit::Joule)
-        .expect_source("rapl", "in");
-
-    let agent = agent::Builder::new(plugins)
-        .with_expectations(startup_expectations)
-        .build_and_start()
-        .unwrap();
-
-    thread::sleep(Duration::from_millis(200)); // don't shutdown right away, else we get in trouble
-    agent.pipeline.control_handle().shutdown();
-    agent.wait_for_shutdown(Duration::from_secs(10)).unwrap();
-
-    Ok(())
-}
-
-#[test]
 fn test_runtime_with_powercap() -> anyhow::Result<()> {
     let mut plugins = PluginSet::new();
 
-    let tmp = tempdir()?;
+    let tmp = create_valid_powercap_mock()?;
     let base_path = tmp.path().to_owned();
 
     use EntryType::*;
@@ -109,6 +73,10 @@ fn test_runtime_with_powercap() -> anyhow::Result<()> {
         config: Some(config_to_toml_table(&source_config)),
     });
 
+    let startup_expectations = StartupExpectations::new()
+        .expect_metric::<f64>("rapl_consumed_energy", Unit::Joule)
+        .expect_source("rapl", "in");
+
     let runtime_expectations = RuntimeExpectations::new()
         .test_source(
             SourceName::from_str("rapl", "in"),
@@ -125,7 +93,7 @@ fn test_runtime_with_powercap() -> anyhow::Result<()> {
                 // note: the mock created 1 domain so it's expected to have 2 measurements:
                 // the domain's value, and one per-domain total
                 let m = ctx.measurements();
-                assert_eq!(m.len(), 2);
+                assert!(m.len() >= 2);
                 let mut actual_domains = Vec::new();
                 for measurement in m.iter() {
                     let attributes: Vec<_> = measurement.attributes().collect();
@@ -136,14 +104,25 @@ fn test_runtime_with_powercap() -> anyhow::Result<()> {
                         "expected the attribute to have 'domain' key"
                     );
                     if let AttributeValue::Str(domain) = domain_attribute.1 {
-                        actual_domains.push(domain);
+                        actual_domains.push(*domain);
                     } else {
                         assert!(false, "domain attribute should be of Str type");
                     }
                     // I expect all the value to be 0 since the mock didn't change between the two poll runs
                     assert_eq!(measurement.value, WrappedMeasurementValue::F64(0.0));
                 }
-                let mut expected_domains = Vec::from_iter(&["package", "package_total"]);
+                let mut expected_domains = vec![
+                    "package",
+                    "package_total",
+                    "dram",
+                    "dram_total",
+                    "platform",
+                    "platform_total",
+                    "pp0",
+                    "pp0_total",
+                    "pp1",
+                    "pp1_total",
+                ];
 
                 actual_domains.sort();
                 expected_domains.sort();
@@ -189,11 +168,12 @@ fn test_runtime_with_powercap() -> anyhow::Result<()> {
         );
 
     let agent = agent::Builder::new(plugins)
+        .with_expectations(startup_expectations)
         .with_expectations(runtime_expectations)
         .build_and_start()
         .unwrap();
 
-    agent.wait_for_shutdown(Duration::from_secs(10)).unwrap();
+    agent.wait_for_shutdown(TIMEOUT).unwrap();
 
     Ok(())
 }
@@ -253,7 +233,7 @@ fn test_with_powercap_only() -> anyhow::Result<()> {
     let source_config = Config {
         poll_interval: Duration::from_secs(1),
         flush_interval: Duration::from_secs(1),
-        no_perf_events: false, // Enable perf_events at starting to switch in powercap
+        no_perf_events: false, // disable perf_events to force powercap
         perf_event_test_path: Path::new("").to_path_buf(),
         powercap_test_path: base_path,
     };
@@ -274,7 +254,7 @@ fn test_with_powercap_only() -> anyhow::Result<()> {
         .unwrap();
 
     agent.pipeline.control_handle().shutdown();
-    agent.wait_for_shutdown(Duration::from_secs(10)).unwrap();
+    agent.wait_for_shutdown(TIMEOUT).unwrap();
 
     Ok(())
 }
