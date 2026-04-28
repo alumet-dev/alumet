@@ -35,7 +35,7 @@ mod tests {
     #[test]
     fn test_analyze_io_result_invalid() {
         let tmp = tempfile::tempdir().unwrap();
-        let path = tmp.path().join("invalid");
+        let path = tmp.path().join("i_do_not_exist");
         let result = analyze_io_result(read_to_string(&path));
         assert!(matches!(result, Err(PollError::NormalStop)));
     }

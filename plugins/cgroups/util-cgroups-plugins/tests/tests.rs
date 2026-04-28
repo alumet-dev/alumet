@@ -163,7 +163,6 @@ fn test_correct_transform() -> anyhow::Result<()> {
         println!("skipped because SKIP_CGROUPFS_TESTS is set");
         return Ok(());
     }
-    // let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).try_init();
 
     let app_slice = find_user_app_slice(Path::new(SYSFS_CGROUP))?;
 
@@ -197,7 +196,16 @@ fn test_correct_transform() -> anyhow::Result<()> {
         assert_eq!(3, measurements.len());
         for measure in measurements {
             if let ResourceConsumer::ControlGroup { .. } = measure.consumer {
-                assert!(measure.attributes_keys().any(|attr| attr == "job_id"));
+                assert!(
+                    measure
+                        .attributes()
+                        .any(|(k, v)| k == "job_id" && v == &AttributeValue::String("123456".into()))
+                );
+                assert!(
+                    measure
+                        .attributes()
+                        .any(|(k, v)| k == "user_id" && v == &AttributeValue::U64(1000))
+                );
             };
         }
     };
@@ -224,7 +232,6 @@ fn test_cgroups_files_not_created() -> anyhow::Result<()> {
         println!("skipped because SKIP_CGROUPFS_TESTS is set");
         return Ok(());
     }
-    // let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).try_init();
 
     let app_slice = find_user_app_slice(Path::new(SYSFS_CGROUP)).unwrap();
 
@@ -256,7 +263,16 @@ fn test_cgroups_files_not_created() -> anyhow::Result<()> {
         assert_eq!(3, measurements.len());
         for measure in measurements {
             if let ResourceConsumer::ControlGroup { .. } = measure.consumer {
-                assert!(measure.attributes_keys().any(|attr| attr == "job_id"));
+                assert!(
+                    measure
+                        .attributes()
+                        .any(|(k, v)| k == "job_id" && v == &AttributeValue::String("123456".into()))
+                );
+                assert!(
+                    measure
+                        .attributes()
+                        .any(|(k, v)| k == "user_id" && v == &AttributeValue::U64(1000))
+                );
             };
         }
     };
@@ -282,7 +298,6 @@ fn test_cgroup_v2_hierarchy_not_created() -> anyhow::Result<()> {
         println!("skipped because SKIP_CGROUPFS_TESTS is set");
         return Ok(());
     }
-    // let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).try_init();
     let app_slice = find_user_app_slice(Path::new(SYSFS_CGROUP)).unwrap();
 
     // Create cgroupv2 hierarchy
@@ -312,7 +327,16 @@ fn test_cgroup_v2_hierarchy_not_created() -> anyhow::Result<()> {
         let measurements = ctx.measurements();
         for measure in measurements {
             if let ResourceConsumer::ControlGroup { .. } = measure.consumer {
-                assert!(measure.attributes_keys().any(|attr| attr == "job_id"));
+                assert!(
+                    measure
+                        .attributes()
+                        .any(|(k, v)| k == "job_id" && v == &AttributeValue::String("123456".into()))
+                );
+                assert!(
+                    measure
+                        .attributes()
+                        .any(|(k, v)| k == "user_id" && v == &AttributeValue::U64(1000))
+                );
             };
         }
     };
@@ -334,11 +358,6 @@ fn test_cgroup_v2_hierarchy_not_created() -> anyhow::Result<()> {
 
 #[test]
 fn test_no_cgroupv2_at_all() -> anyhow::Result<()> {
-    if std::env::var_os("SKIP_CGROUPFS_TESTS").is_some() {
-        println!("skipped because SKIP_CGROUPFS_TESTS is set");
-        return Ok(());
-    }
-    // let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).try_init();
     let mut plugins = PluginSet::new();
 
     plugins.add_plugin(PluginInfo {
@@ -359,7 +378,16 @@ fn test_no_cgroupv2_at_all() -> anyhow::Result<()> {
         assert_eq!(3, measurements.len());
         for measure in measurements {
             if let ResourceConsumer::ControlGroup { .. } = measure.consumer {
-                assert!(measure.attributes_keys().any(|attr| attr == "job_id"));
+                assert!(
+                    measure
+                        .attributes()
+                        .any(|(k, v)| k == "job_id" && v == &AttributeValue::String("123456".into()))
+                );
+                assert!(
+                    measure
+                        .attributes()
+                        .any(|(k, v)| k == "user_id" && v == &AttributeValue::U64(1000))
+                );
             };
         }
     };
@@ -450,5 +478,3 @@ fn prepare_mock_measurements(ctx: &mut TransformCheckInputContext, path: PathBuf
 
     Ok(m)
 }
-
-mod tests_metrics;
