@@ -129,6 +129,10 @@ mod tests {
                 .returning(|| Err(NvmlError::NotSupported))
                 .times(1);
             device
+                .expect_memory_allocation()
+                .returning(|| Err(NvmlError::NotSupported))
+                .times(1);
+            device
                 .expect_decoder_utilization()
                 .returning(|| Err(NvmlError::NotSupported))
                 .times(1);

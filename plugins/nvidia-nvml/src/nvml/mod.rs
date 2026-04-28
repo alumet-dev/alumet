@@ -47,6 +47,10 @@ pub trait NvmlDevice: Display + Send {
     /// See [`nvml_wrapper::Device::utilization_rates`].
     fn utilization_rates(&self) -> NvmlResult<nvml_wrapper::struct_wrappers::device::Utilization>;
 
+    /// Current memory usage.
+    /// See [`nvml_wrapper::Device::memory_allocation`].
+    fn memory_allocation(&self) -> NvmlResult<nvml_wrapper::struct_wrappers::device::MemoryInfo>;
+
     /// Utilization and sampling size of the decoder.
     /// See [`nvml_wrapper::Device::decoder_utilization`].
     fn decoder_utilization(&self) -> NvmlResult<nvml_wrapper::structs::device::UtilizationInfo>;

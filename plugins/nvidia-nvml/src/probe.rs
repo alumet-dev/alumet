@@ -140,6 +140,54 @@ impl<D: NvmlDevice> Source for FullSource<D> {
             ));
         }
 
+        // Get the current memory allocation information for this device in Bytes
+        if features.memory_allocation {
+            measurements.push(
+                MeasurementPoint::new(
+                    timestamp,
+                    self.metrics.memory_allocation,
+                    self.resource.clone(),
+                    consumer.clone(),
+                    device.memory_allocation()?.free,
+                )
+                .with_attr("kind", "free")
+            );
+            // According to NVIDIA documentation, system-reserved memory field
+            // only exists from version 2 onward
+            if device.memory_allocation()?.version > 1 {
+                measurements.push(
+                    MeasurementPoint::new(
+                        timestamp,
+                        self.metrics.memory_allocation,
+                        self.resource.clone(),
+                        consumer.clone(),
+                        device.memory_allocation()?.reserved,
+                    )
+                    .with_attr("kind", "reserved"),
+                );
+            }
+            measurements.push(
+                MeasurementPoint::new(
+                    timestamp,
+                    self.metrics.memory_allocation,
+                    self.resource.clone(),
+                    consumer.clone(),
+                    device.memory_allocation()?.total,
+                )
+                .with_attr("kind", "total"),
+            );
+            measurements.push(
+                MeasurementPoint::new(
+                    timestamp,
+                    self.metrics.memory_allocation,
+                    self.resource.clone(),
+                    consumer.clone(),
+                    device.memory_allocation()?.used,
+                )
+                .with_attr("kind", "used"),
+            );
+        }
+
         // Get the current utilization and sampling size in μs for the decoder
         if features.decoder_utilization {
             let u = device.decoder_utilization()?;
