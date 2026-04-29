@@ -117,7 +117,7 @@ impl NvmlDevice for ManagedDevice {
 
     /// Current memory usage.
     /// See [`nvml_wrapper::Device::memory_info`].
-    fn memory_allocation(&self) -> NvmlResult<nvml_wrapper::struct_wrappers::device::MemoryInfo> {
+    fn memory_info(&self) -> NvmlResult<nvml_wrapper::struct_wrappers::device::MemoryInfo> {
         self.as_underlying_device().memory_info()
     }
 
