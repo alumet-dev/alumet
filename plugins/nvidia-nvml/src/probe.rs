@@ -69,6 +69,7 @@ impl<D: NvmlDevice> Source for FullSource<D> {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         let features = &self.device.features;
         let device = &self.device.inner;
+        let device_memory_info = device.memory_info()?;
 
         // no consumer, we just monitor the device here
         let consumer = ResourceConsumer::LocalMachine;
@@ -140,49 +141,47 @@ impl<D: NvmlDevice> Source for FullSource<D> {
             ));
         }
 
-        // Get the current memory allocation information for this device in Bytes
-        if features.memory_allocation {
+        // Get the current memory information for this device in Bytes
+        if features.memory_info {
             measurements.push(
                 MeasurementPoint::new(
                     timestamp,
-                    self.metrics.memory_allocation,
+                    self.metrics.memory_info,
                     self.resource.clone(),
                     consumer.clone(),
-                    device.memory_allocation()?.free,
+                    device_memory_info.free,
                 )
                 .with_attr("kind", "free"),
             );
             // According to NVIDIA documentation, system-reserved memory field
-            // only exists from version 2 onward
-            if device.memory_allocation()?.version > 1 {
-                measurements.push(
-                    MeasurementPoint::new(
-                        timestamp,
-                        self.metrics.memory_allocation,
-                        self.resource.clone(),
-                        consumer.clone(),
-                        device.memory_allocation()?.reserved,
-                    )
-                    .with_attr("kind", "reserved"),
-                );
-            }
+            // only exists from v510 of NVML onward
             measurements.push(
                 MeasurementPoint::new(
                     timestamp,
-                    self.metrics.memory_allocation,
+                    self.metrics.memory_info,
                     self.resource.clone(),
                     consumer.clone(),
-                    device.memory_allocation()?.total,
+                    device_memory_info.reserved,
+                )
+                .with_attr("kind", "reserved"),
+            );
+            measurements.push(
+                MeasurementPoint::new(
+                    timestamp,
+                    self.metrics.memory_info,
+                    self.resource.clone(),
+                    consumer.clone(),
+                    device_memory_info.total,
                 )
                 .with_attr("kind", "total"),
             );
             measurements.push(
                 MeasurementPoint::new(
                     timestamp,
-                    self.metrics.memory_allocation,
+                    self.metrics.memory_info,
                     self.resource.clone(),
                     consumer.clone(),
-                    device.memory_allocation()?.used,
+                    device_memory_info.used,
                 )
                 .with_attr("kind", "used"),
             );

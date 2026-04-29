@@ -713,6 +713,7 @@ impl<'a> SourceCheckOutputContext<'a> {
 
     pub fn points_by_metric_and_consumer(
         &'a self,
+        attribute_key: Option<&str>,
     ) -> IndexMap<(&'a str, ResourceConsumer, Option<AttributeValue>), &'a MeasurementPoint> {
         self.measurements()
             .into_iter()
@@ -722,19 +723,20 @@ impl<'a> SourceCheckOutputContext<'a> {
                     .by_id(&p.metric)
                     .unwrap_or_else(|| panic!("unknown metric with id {} in {p:?}", &p.metric.0));
                 let metric_name = metric.name.as_str();
+                let consumer = p.consumer.clone();
 
                 // If the metric has an attribute "kind", the value of the attribute is stored
                 // Otherwise, the Option<AttributeValue> field should be equal to None
-                let kind = p
-                    .attributes()
-                    .find(|(key, _value)| match *key {
-                        "kind" => true,
-                        _ => false,
-                    })
-                    .map(|(_key, value)| value.clone());
-
-                let consumer = p.consumer.clone();
-                ((metric_name, consumer, kind), p)
+                match attribute_key {
+                    None => ((metric_name, consumer, None), p),
+                    Some(key_wanted) => {
+                        let kind = p
+                            .attributes()
+                            .find(|(key, _value)| *key == key_wanted)
+                            .map(|(_key, value)| value.clone());
+                        ((metric_name, consumer, kind), p)
+                    }
+                }
             })
             .collect()
     }

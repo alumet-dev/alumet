@@ -281,7 +281,7 @@ mod tests {
             device
                 .expect_utilization_rates()
                 .returning(|| Ok(Utilization { gpu: 50, memory: 60 }));
-            device.expect_memory_allocation().returning(|| {
+            device.expect_memory_info().returning(|| {
                 Ok(MemoryInfo {
                     free: 20,
                     reserved: 50,
@@ -403,7 +403,7 @@ mod tests {
                     // previous power: 100
                     // new power: 150
                     // energy: ?
-                    let points = out.points_by_metric_and_consumer();
+                    let points = out.points_by_metric_and_consumer(None);
                     assert_eq!(points.len(), 2, "wrong number of points, got {points:?}");
                     assert_eq!(
                         points[&("nvml_instant_power", ResourceConsumer::LocalMachine, None)]
@@ -461,7 +461,7 @@ mod tests {
             .expect_metric::<u64>("nvml_n_compute_processes", Unit::Unity)
             .expect_metric::<u64>("nvml_n_graphic_processes", Unit::Unity)
             .expect_metric::<u64>("nvml_memory_utilization", Unit::Percent)
-            .expect_metric::<u64>("nvml_gpu_memory_allocation", Unit::Byte)
+            .expect_metric::<u64>("nvml_gpu_memory_info", Unit::Byte)
             .expect_metric::<u64>("nvml_decoder_utilization", Unit::Percent)
             .expect_metric::<u64>("nvml_encoder_utilization", Unit::Percent)
             .expect_metric::<u64>("nvml_sm_utilization", Unit::Percent);
@@ -477,7 +477,7 @@ mod tests {
                 },
                 |out| {
                     // first trigger
-                    let points = out.points_by_metric_and_consumer();
+                    let points = out.points_by_metric_and_consumer(Some("kind"));
 
                     assert_eq!(points.len(), 14, "wrong number of points, got {points:?}");
 
@@ -507,44 +507,40 @@ mod tests {
                     );
                     assert_eq!(
                         points[&(
-                            "nvml_gpu_memory_allocation",
+                            "nvml_gpu_memory_info",
                             ResourceConsumer::LocalMachine,
                             Some(AttributeValue::Str("free"))
                         )]
-                            .clone()
                             .value
                             .as_u64(),
                         20
                     );
                     assert_eq!(
                         points[&(
-                            "nvml_gpu_memory_allocation",
+                            "nvml_gpu_memory_info",
                             ResourceConsumer::LocalMachine,
                             Some(AttributeValue::Str("reserved"))
                         )]
-                            .clone()
                             .value
                             .as_u64(),
                         50
                     );
                     assert_eq!(
                         points[&(
-                            "nvml_gpu_memory_allocation",
+                            "nvml_gpu_memory_info",
                             ResourceConsumer::LocalMachine,
                             Some(AttributeValue::Str("total"))
                         )]
-                            .clone()
                             .value
                             .as_u64(),
                         70
                     );
                     assert_eq!(
                         points[&(
-                            "nvml_gpu_memory_allocation",
+                            "nvml_gpu_memory_info",
                             ResourceConsumer::LocalMachine,
                             Some(AttributeValue::Str("used"))
                         )]
-                            .clone()
                             .value
                             .as_u64(),
                         0
@@ -592,7 +588,7 @@ mod tests {
                 || {},
                 |out| {
                     // second trigger
-                    let points = out.points_by_metric_and_consumer();
+                    let points = out.points_by_metric_and_consumer(Some("kind"));
                     assert_eq!(points.len(), 19, "wrong number of points, got {points:?}");
 
                     // new power value
