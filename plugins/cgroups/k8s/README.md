@@ -39,6 +39,28 @@ The **cpu** measurements have an additional attribute `kind`, which can be one o
 - `system`: time spent in kernel mode only
 - `user`: time spent in user mode only
 
+## Annotation of the Measurements Provided by Other Plugins
+
+Other plugins, such as the [`process-to-cgroup-bridge`](../../process-to-cgroup-bridge/README.md), can produce measurements related to the cgroups of k8s pods.
+However, they cannot add job-specific information (such as the job id) to the measurements.
+
+To do that, use the annotation feature of the `k8s` plugin by enabling the following configuration option.
+
+```toml
+annotate_foreign_measurements = true
+```
+
+Be sure to enable the `k8s` plugin **after** the plugins that produce the measurements that you want to annotate.
+For instance, the `k8s` configuration section should be after the `process-to-cgroup-bridge` section.
+
+```toml
+[plugins.process-to-cgroup-bridge]
+…
+
+[plugins.k8s]
+…
+```
+
 ## Configuration
 
 Here are some examples of how to configure this plugin.
@@ -68,9 +90,13 @@ Then, you can use the following configuration:
 
 ```toml
 [plugins.k8s]
+# Node name 
 k8s_node = "minikube"
+# URL used to contact Kubernetes API
 k8s_api_url = "http://127.0.0.1:8080"
+# Way to retrieve token which grant access to Kubernetes API
 token_retrieval = "auto"
+# Interval between each measurement.
 poll_interval = "5s"
 ```
 
@@ -87,9 +113,13 @@ A typical configuration would look like the following:
 
 ```toml
 [plugins.k8s]
+# Node name 
 k8s_node = "${NODE_NAME}"
+# URL used to contact Kubernetes API
 k8s_api_url = "https://kubernetes.default.svc:443"
+# Way to retrieve token which grant access to Kubernetes API
 token_retrieval = "file"
+# Interval between each measurement.
 poll_interval = "5s"
 ```
 
