@@ -90,9 +90,13 @@ Then, you can use the following configuration:
 
 ```toml
 [plugins.k8s]
+# Node name 
 k8s_node = "minikube"
+# URL used to contact Kubernetes API
 k8s_api_url = "http://127.0.0.1:8080"
+# Way to retrieve token which grant access to Kubernetes API
 token_retrieval = "auto"
+# Interval between each measurement.
 poll_interval = "5s"
 ```
 
@@ -109,9 +113,13 @@ A typical configuration would look like the following:
 
 ```toml
 [plugins.k8s]
+# Node name 
 k8s_node = "${NODE_NAME}"
+# URL used to contact Kubernetes API
 k8s_api_url = "https://kubernetes.default.svc:443"
+# Way to retrieve token which grant access to Kubernetes API
 token_retrieval = "file"
+# Interval between each measurement.
 poll_interval = "5s"
 ```
 
