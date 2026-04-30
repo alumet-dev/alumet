@@ -31,6 +31,8 @@ pub struct OptionalFeatures {
     pub temperature_gpu: bool,
     /// GPU rate utilization.
     pub major_utilization: bool,
+    /// GPU memory info.
+    pub memory_info: bool,
     /// GPU video decoding property.
     pub decoder_utilization: bool,
     /// GPU video encoding property.
@@ -51,6 +53,7 @@ impl OptionalFeatures {
             instant_power: is_supported(device.power_usage())?,
             temperature_gpu: is_supported(device.temperature(TemperatureSensor::Gpu))?,
             major_utilization: is_supported(device.utilization_rates())?,
+            memory_info: is_supported(device.memory_info())?,
             decoder_utilization: is_supported(device.decoder_utilization())?,
             encoder_utilization: is_supported(device.encoder_utilization())?,
             process_utilization_stats: is_supported(device.process_utilization_stats(0))?,
@@ -63,6 +66,7 @@ impl OptionalFeatures {
         self.total_energy_consumption
             || self.instant_power
             || self.major_utilization
+            || self.memory_info
             || self.decoder_utilization
             || self.encoder_utilization
             || self.temperature_gpu
@@ -82,6 +86,9 @@ impl Display for OptionalFeatures {
         }
         if self.major_utilization {
             available.push("major_utilization");
+        }
+        if self.memory_info {
+            available.push("memory_info");
         }
         if self.decoder_utilization {
             available.push("decoder_utilization");
@@ -172,6 +179,7 @@ mod tests {
             total_energy_consumption: true,
             instant_power: true,
             major_utilization: true,
+            memory_info: true,
             decoder_utilization: true,
             encoder_utilization: true,
             process_utilization_stats: true,
@@ -181,7 +189,7 @@ mod tests {
         };
         assert_eq!(
             format!("{}", features),
-            "total_energy_consumption, instant_power, major_utilization, decoder_utilization, encoder_utilization, process_utilization_stats, temperature_gpu, running_compute_processes(latest), running_graphics_processes(latest)"
+            "total_energy_consumption, instant_power, major_utilization, memory_info, decoder_utilization, encoder_utilization, process_utilization_stats, temperature_gpu, running_compute_processes(latest), running_graphics_processes(latest)"
         );
     }
 
@@ -191,6 +199,7 @@ mod tests {
             total_energy_consumption: true,
             instant_power: false,
             major_utilization: true,
+            memory_info: true,
             decoder_utilization: true,
             encoder_utilization: true,
             process_utilization_stats: false,
@@ -200,7 +209,7 @@ mod tests {
         };
         assert_eq!(
             format!("{}", features),
-            "total_energy_consumption, major_utilization, decoder_utilization, encoder_utilization, running_compute_processes(v2)"
+            "total_energy_consumption, major_utilization, memory_info, decoder_utilization, encoder_utilization, running_compute_processes(v2)"
         );
     }
 
@@ -211,6 +220,7 @@ mod tests {
             total_energy_consumption: false,
             instant_power: false,
             major_utilization: false,
+            memory_info: false,
             decoder_utilization: false,
             encoder_utilization: false,
             process_utilization_stats: false,
@@ -230,6 +240,7 @@ mod tests {
         device
             .expect_utilization_rates()
             .returning(|| Err(NvmlError::NotSupported));
+        device.expect_memory_info().returning(|| Err(NvmlError::NotSupported));
         device
             .expect_decoder_utilization()
             .returning(|| Err(NvmlError::NotSupported));
@@ -276,6 +287,7 @@ mod tests {
                 instant_power: true,
                 temperature_gpu: false,
                 major_utilization: false,
+                memory_info: false,
                 decoder_utilization: false,
                 encoder_utilization: false,
                 process_utilization_stats: false,
@@ -298,6 +310,7 @@ mod tests {
                 instant_power: true,
                 temperature_gpu: false,
                 major_utilization: false,
+                memory_info: false,
                 decoder_utilization: false,
                 encoder_utilization: false,
                 process_utilization_stats: false,
