@@ -147,13 +147,11 @@ pub struct Config {
     pub annotate_foreign_measurements: bool,
 }
 
-#[cfg_attr(tarpaulin, ignore)]
 fn default_k8s_api_url() -> String {
     String::from("http://127.0.0.1:8080")
 }
 
 impl Default for Config {
-    #[cfg_attr(tarpaulin, ignore)]
     fn default() -> Self {
         Self {
             k8s_node: None,
@@ -174,5 +172,32 @@ impl Config {
                 .into_string()
                 .expect("hostname should be valid utf-8"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_config() {
+        let config_table = K8sPlugin::default_config()
+            .expect("default_config() should not fail")
+            .expect("default_config() should return Some");
+        let config: Config = deserialize_config(config_table).unwrap();
+
+        assert_eq!(config.k8s_api_url, "http://127.0.0.1:8080");
+        assert_eq!(config.poll_interval, Duration::from_secs(5));
+        assert!(!config.annotate_foreign_measurements);
+    }
+
+    #[test]
+    fn test_k8s_node_name() {
+        let config = Config {
+            k8s_node: Some("test-node".into()),
+            ..Default::default()
+        };
+
+        assert_eq!(config.k8s_node_name(), "test-node");
     }
 }

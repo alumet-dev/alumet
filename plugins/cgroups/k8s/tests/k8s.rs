@@ -1,5 +1,3 @@
-use std::{io::Write, path::Path, time::Duration};
-
 use alumet::{
     agent::{
         self,
@@ -13,6 +11,9 @@ use alumet::{
 };
 use anyhow::Context;
 use plugin_k8s::K8sPlugin;
+use serde_json::json;
+use std::{fs, io::Write, path::Path, time::Duration};
+use tempfile::{NamedTempFile, tempdir_in};
 use util_cgroups::hierarchy::find_user_app_slice;
 
 const SYSFS_CGROUP: &str = "/sys/fs/cgroup";
@@ -35,7 +36,7 @@ fn test_k8s_cgroupv2() -> anyhow::Result<()> {
     let app_slice = find_user_app_slice(Path::new(SYSFS_CGROUP))?;
 
     // find where to put the fake k8s token
-    let mut token_file = tempfile::NamedTempFile::new()?;
+    let mut token_file = NamedTempFile::new()?;
     write!(&mut token_file, "{TOKEN_CONTENT}")?;
     let token_file_path = token_file.path().to_str().unwrap();
 
@@ -56,6 +57,7 @@ fn test_k8s_cgroupv2() -> anyhow::Result<()> {
                     k8s_api_url = "{mock_server_url}"
                     k8s_node = "{POD_NODE}"
                     token_retrieval.file = "{token_file_path}"
+                    annotate_foreign_measurements = true
                 "#
             ))
             .unwrap(),
@@ -68,14 +70,14 @@ fn test_k8s_cgroupv2() -> anyhow::Result<()> {
 
     // create the cgroups
     let cgroup_dir_parent =
-        tempfile::tempdir_in(&app_slice).with_context(|| format!("failed to create cgroup in {app_slice:?}"))?;
+        tempdir_in(&app_slice).with_context(|| format!("failed to create cgroup in {app_slice:?}"))?;
     let cgroup_dir_pod = cgroup_dir_parent.path().join(format!(
         "kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-pod{POD_UID}.slice"
     ));
-    std::fs::create_dir_all(&cgroup_dir_pod)?;
+    fs::create_dir_all(&cgroup_dir_pod)?;
 
     let source_name = &format!("kubepods-besteffort-pod{POD_UID}");
-    log::info!("cgroup created at {:?}", cgroup_dir_pod);
+    log::info!("cgroup created at {cgroup_dir_pod:?}");
     log::info!("source name: {source_name}");
 
     // expect the source to be created quickly after that
@@ -117,7 +119,7 @@ fn mock_k8s_api_with_one_pod(server: &mut mockito::Server, expected_hits: usize)
         .with_status(200)
         .with_header("Content-Type", "application/json")
         .with_body(
-            serde_json::json!({
+            json!({
                 "items": [
                     {
                         "metadata": {
