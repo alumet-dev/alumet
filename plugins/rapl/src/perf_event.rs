@@ -1,13 +1,14 @@
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
     metrics::TypedMetricId,
-    pipeline::elements::error::PollError,
+    pipeline::{Source, elements::error::PollError},
     plugin::util::{CounterDiff, CounterDiffUpdate},
     resources::{Resource, ResourceConsumer},
 };
 use anyhow::{Context, Result};
 use perf_event_open_sys as sys;
 use std::{
+    env,
     fs::{self, File},
     io::{self, Read},
     os::fd::FromRawFd,
@@ -204,9 +205,19 @@ impl PowerEvent {
     }
 
     /// creates a new OpenedPowerEvent from Self by opening the file using file descriptor provided by perf_event
-    fn open(&self, pmu_type: u32, cpu: u32, socket: u32) -> anyhow::Result<OpenedPowerEvent> {
-        let raw_fd = self.perf_event_open(pmu_type, cpu)?;
+    fn open_power_event<F>(
+        &self,
+        pmu_type: u32,
+        cpu: u32,
+        socket: u32,
+        perf_open: F,
+    ) -> anyhow::Result<OpenedPowerEvent>
+    where
+        F: Fn(&PowerEvent, u32, u32) -> io::Result<i32>,
+    {
+        let raw_fd = perf_open(self, pmu_type, cpu)?;
         let fd = unsafe { File::from_raw_fd(raw_fd) };
+
         Ok(OpenedPowerEvent {
             fd,
             scale: self.scale as f64,
@@ -214,6 +225,10 @@ impl PowerEvent {
             resource: self.domain.to_resource(socket),
             counter: CounterDiff::with_max_value(PERF_MAX_ENERGY),
         })
+    }
+
+    fn open(&self, pmu_type: u32, cpu: u32, socket: u32) -> anyhow::Result<OpenedPowerEvent> {
+        self.open_power_event(pmu_type, cpu, socket, PowerEvent::perf_event_open)
     }
 }
 
@@ -292,8 +307,8 @@ impl PerfEventProbe {
     }
 
     fn handle_insufficient_privileges(e: &anyhow::Error) {
-        fn resolve_application_path() -> std::io::Result<PathBuf> {
-            std::env::current_exe()?.canonicalize()
+        fn resolve_application_path() -> io::Result<PathBuf> {
+            env::current_exe()?.canonicalize()
         }
         let app_path = resolve_application_path()
             .ok()
@@ -316,7 +331,7 @@ impl PerfEventProbe {
     }
 }
 
-impl alumet::pipeline::Source for PerfEventProbe {
+impl Source for PerfEventProbe {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         let mut totals = DomainTotals::new();
         for evt in &mut self.events {
@@ -379,13 +394,42 @@ fn pmu_type_from_path(path: &Path) -> Result<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests_mock::*;
+    use crate::tests::mocks::{Entry, EntryType, create_mock_layout};
 
-    use nix::unistd::write;
-    use std::os::fd::OwnedFd;
+    use alumet::pipeline::Source;
+    use nix::unistd::{pipe, write};
+    use std::{
+        mem::zeroed,
+        os::{
+            fd::{IntoRawFd, OwnedFd},
+            unix::io::FromRawFd,
+        },
+    };
     use tempfile::tempdir;
 
-    #[cfg(test)]
+    const SCALE: f32 = 2.3283064365386962890625e-10;
+
+    fn fake_fd() -> (i32, OwnedFd) {
+        let (read_fd, write_fd) = pipe().unwrap();
+        (read_fd.into_raw_fd(), write_fd)
+    }
+
+    fn fake_opened_power_event() -> (OpenedPowerEvent, OwnedFd) {
+        let (read_fd, write_fd) = fake_fd();
+
+        let file = unsafe { File::from_raw_fd(read_fd.into_raw_fd()) };
+        (
+            OpenedPowerEvent {
+                fd: file,
+                scale: SCALE.into(),
+                domain: RaplDomainType::Package, // dummy value
+                resource: RaplDomainType::Package.to_resource(0),
+                counter: CounterDiff::with_max_value(PERF_MAX_ENERGY),
+            },
+            write_fd,
+        )
+    }
+
     #[test]
     fn test_pmu_type() -> anyhow::Result<()> {
         let tmp = tempdir()?;
@@ -405,7 +449,6 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(test)]
     #[test]
     fn test_open_all() -> anyhow::Result<()> {
         let tmp = tempdir()?;
@@ -423,7 +466,7 @@ mod tests {
             },
             Entry {
                 path: "events/energy-cores.scale",
-                entry_type: File("2.3283064365386962890625e-10"),
+                entry_type: File(&SCALE.to_string()),
             },
             Entry {
                 path: "events/energy-cores.unit",
@@ -435,7 +478,7 @@ mod tests {
             },
             Entry {
                 path: "events/energy-pkg.scale",
-                entry_type: File("2.3283064365386962890625e-10"),
+                entry_type: File(&SCALE.to_string()),
             },
             Entry {
                 path: "events/energy-pkg.unit",
@@ -447,7 +490,7 @@ mod tests {
             },
             Entry {
                 path: "events/energy-psys.scale",
-                entry_type: File("2.3283064365386962890625e-10"),
+                entry_type: File(&SCALE.to_string()),
             },
             Entry {
                 path: "events/energy-psys.unit",
@@ -465,21 +508,21 @@ mod tests {
                 domain: RaplDomainType::Platform,
                 code: 5,
                 unit: "Joules".to_string(),
-                scale: 2.3283064365386962890625e-10,
+                scale: SCALE,
             },
             PowerEvent {
                 name: "pkg".to_string(),
                 domain: RaplDomainType::Package,
                 code: 2,
                 unit: "Joules".to_string(),
-                scale: 2.3283064365386962890625e-10,
+                scale: SCALE,
             },
             PowerEvent {
                 name: "cores".to_string(),
                 domain: RaplDomainType::PP0,
                 code: 1,
                 unit: "Joules".to_string(),
-                scale: 2.3283064365386962890625e-10,
+                scale: SCALE,
             },
         ];
 
@@ -491,27 +534,6 @@ mod tests {
         Ok(())
     }
 
-    fn fake_opened_power_event() -> (OpenedPowerEvent, OwnedFd) {
-        use nix::unistd::pipe;
-        use std::os::fd::IntoRawFd;
-        use std::os::unix::io::FromRawFd;
-
-        let (read_fd, write_fd) = pipe().unwrap();
-
-        let file = unsafe { File::from_raw_fd(read_fd.into_raw_fd()) };
-        (
-            OpenedPowerEvent {
-                fd: file,
-                scale: 2.3283064365386962890625e-10,
-                domain: RaplDomainType::Package, // dummy value
-                resource: RaplDomainType::Package.to_resource(0),
-                counter: CounterDiff::with_max_value(PERF_MAX_ENERGY),
-            },
-            write_fd,
-        )
-    }
-
-    #[cfg(test)]
     #[test]
     fn test_opened_power_event() -> anyhow::Result<()> {
         let (mut opened_power_event, write_fd) = fake_opened_power_event();
@@ -541,6 +563,138 @@ mod tests {
         let value = opened_power_event.read_counter_diff_in_joules()?;
         assert_eq!(value, Some(1.0));
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_perf_event_open() {
+        let expected_power_events = PowerEvent {
+            name: "pkg".into(),
+            domain: RaplDomainType::Package,
+            code: 1,
+            unit: "Joules".into(),
+            scale: SCALE,
+        };
+
+        let result = expected_power_events.perf_event_open(32, 0);
+        match result {
+            // OS permissions are enough to pen perf_event
+            Ok(fd) => {
+                assert!(fd >= 0);
+            }
+            // Permission denied
+            Err(e) => {
+                println!("{e}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_open_power_event() {
+        let expected_power_events = PowerEvent {
+            name: "pkg".into(),
+            domain: RaplDomainType::Package,
+            code: 1,
+            unit: "Joules".into(),
+            scale: SCALE,
+        };
+
+        let (fd, _write_fd) = fake_fd();
+        let actual_power_events = move |_e: &PowerEvent, _pmu, _cpu| Ok(fd);
+
+        let result = expected_power_events.open_power_event(1, 0, 0, actual_power_events);
+        assert!(result.is_ok());
+
+        let opened_power_event = result.unwrap();
+        assert_eq!(opened_power_event.scale, SCALE.into());
+        assert_eq!(opened_power_event.domain, expected_power_events.domain);
+        assert_eq!(opened_power_event.resource, expected_power_events.domain.to_resource(0));
+    }
+
+    #[test]
+    fn test_name_from_base_path_without_file() -> anyhow::Result<()> {
+        let tmp = tempdir()?;
+        let dir_path = tmp.path();
+
+        let result = PowerEventFactory::name_from_base_path(dir_path)?;
+        assert_eq!(result, None);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_name_from_base_path_without_prefix() -> anyhow::Result<()> {
+        let tmp = tempdir()?;
+        let path = tmp.path().join("power-cores");
+
+        File::create(&path)?;
+
+        let result = PowerEventFactory::name_from_base_path(&path)?;
+        assert_eq!(result, None);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_domain_type_from_name_with_invalid_name() {
+        let result = PowerEventFactory::domain_type_from_name("invalid");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_read_counter_diff_in_joules_none() -> anyhow::Result<()> {
+        let (mut opened_power_event, write_fd) = fake_opened_power_event();
+
+        write(&write_fd, &42u64.to_ne_bytes())?;
+
+        let result = opened_power_event.read_counter_diff_in_joules()?;
+        assert_eq!(result, None);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_read_counter_diff_corrected_overflow() -> anyhow::Result<()> {
+        let (mut read_fd, write_fd) = fake_opened_power_event();
+
+        write(&write_fd, &(PERF_MAX_ENERGY - 42u64).to_ne_bytes())?;
+        assert_eq!(read_fd.read_counter_diff()?, None);
+
+        write(&write_fd, &43u64.to_ne_bytes())?;
+
+        let result = 42 + 43 + 1;
+        assert_eq!(read_fd.read_counter_diff()?, Some(result));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_reset_counters() -> anyhow::Result<()> {
+        let (mut evt_1, fd_1) = fake_opened_power_event();
+        let (mut evt_2, fd_2) = fake_opened_power_event();
+
+        // Initialize counters from first read
+        write(&fd_1, &42u64.to_ne_bytes())?;
+        write(&fd_2, &43u64.to_ne_bytes())?;
+
+        evt_1.read_counter_diff()?;
+        evt_2.read_counter_diff()?;
+
+        let mut probe = PerfEventProbe {
+            metric: unsafe { zeroed() },
+            events: vec![evt_1, evt_2],
+        };
+
+        probe.reset()?;
+
+        // Write new values
+        write(&fd_1, &44u64.to_ne_bytes())?;
+        write(&fd_2, &45u64.to_ne_bytes())?;
+
+        let (evt_1_slice, evt_2_slice) = probe.events.split_at_mut(1);
+
+        assert_eq!(evt_1_slice[0].read_counter_diff()?, None);
+        assert_eq!(evt_2_slice[0].read_counter_diff()?, None);
         Ok(())
     }
 }
