@@ -1,6 +1,6 @@
-use amd_smi_wrapper::utils::{
-    AmdEnergyConsumption, AmdEngineUsage, AmdMemoryType, AmdPowerConsumption, AmdProcess, AmdProcessEngineUsage,
-    AmdProcessMemoryUsage, AmdTemperatureType,
+use amd_smi_wrapper::metrics::{
+    AmdAsicInfo, AmdEnergyConsumption, AmdEngineUsage, AmdMemoryType, AmdPowerConsumption, AmdProcess,
+    AmdProcessEngineUsage, AmdProcessMemoryUsage, AmdTemperatureType,
 };
 
 pub const MOCK_SOURCE_NAME: &str = "amd_gpu_devices";
@@ -16,19 +16,28 @@ pub const MOCK_ACTIVITY: AmdEngineUsage = AmdEngineUsage {
     umc_activity: 524288,
 };
 
-pub const MOCK_ENERGY: AmdEnergyConsumption = AmdEnergyConsumption {
-    energy: 123456789,
-    resolution: 15.3,
-    timestamp: MOCK_TIMESTAMP,
-};
+pub const MOCK_ENERGY_RESOLUTION: f32 = 15.3;
+
+pub const MOCK_ENERGY: [AmdEnergyConsumption; 2] = [
+    AmdEnergyConsumption {
+        energy: 123456789,
+        resolution: MOCK_ENERGY_RESOLUTION,
+        timestamp: MOCK_TIMESTAMP,
+    },
+    AmdEnergyConsumption {
+        energy: 123456789 + 100,
+        resolution: MOCK_ENERGY_RESOLUTION,
+        timestamp: MOCK_TIMESTAMP + 100,
+    },
+];
 
 pub const MOCK_POWER: AmdPowerConsumption = AmdPowerConsumption {
     socket_power: 43,
     current_socket_power: 45,
     average_socket_power: 47,
-    gfx_voltage: 65535,
-    soc_voltage: 65535,
-    mem_voltage: 65535,
+    gfx_voltage: 850,
+    soc_voltage: 840,
+    mem_voltage: 830,
     power_limit: 65535,
 };
 
@@ -46,6 +55,22 @@ pub const MOCK_MEMORY: &[(AmdMemoryType, u64)] = &[
     (AmdMemoryType::AMDSMI_MEM_TYPE_VRAM, 131072),
     (AmdMemoryType::AMDSMI_MEM_TYPE_GTT, 262144),
 ];
+
+pub fn mock_asic_info() -> AmdAsicInfo {
+    AmdAsicInfo {
+        market_name: "AMD Instinct MI210".to_owned(),
+        vendor_id: 4098,
+        vendor_name: "Advanced Micro Devices, Inc. [AMD/ATI]".to_owned(),
+        subvendor_id: 4098,
+        device_id: 29711,
+        rev_id: 2,
+        asic_serial: "80eae05c945bb3b2".to_owned(),
+        oam_id: 1,
+        num_of_compute_units: 104,
+        target_graphics_version: 2314,
+        subsystem_id: 3124,
+    }
+}
 
 pub fn mock_process() -> AmdProcess {
     AmdProcess {

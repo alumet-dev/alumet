@@ -1,4 +1,4 @@
-use amd_smi_wrapper::utils::{AmdMemoryType, AmdTemperatureType};
+use amd_smi_wrapper::metrics::{AmdMemoryType, AmdTemperatureType};
 
 pub const PLUGIN_NAME: &str = "amd-gpu";
 
@@ -8,8 +8,8 @@ pub const METRIC_LABEL_MEMORY: &str = "amd_gpu_memory_usage";
 pub const METRIC_LABEL_POWER: &str = "amd_gpu_power_consumption";
 pub const METRIC_LABEL_TEMPERATURE: &str = "amd_gpu_temperature";
 pub const METRIC_LABEL_VOLTAGE: &str = "amd_gpu_voltage";
+pub const METRIC_LABEL_PROCESS_COMPUTE_UNIT_OCCUPANCY: &str = "amd_gpu_process_compute_unit_occupancy";
 pub const METRIC_LABEL_PROCESS_MEMORY: &str = "amd_gpu_process_memory_usage";
-pub const METRIC_LABEL_PROCESS_OCCUPANCY: &str = "amd_gpu_process_occupancy";
 pub const METRIC_LABEL_PROCESS_ENCODE: &str = "amd_gpu_process_engine_usage_encode";
 pub const METRIC_LABEL_PROCESS_GFX: &str = "amd_gpu_process_engine_gfx";
 pub const METRIC_LABEL_PROCESS_GTT: &str = "amd_gpu_process_memory_usage_gtt";
