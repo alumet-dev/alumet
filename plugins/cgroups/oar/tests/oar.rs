@@ -1,5 +1,3 @@
-use std::{path::Path, process::Command, time::Duration};
-
 use alumet::{
     agent::{
         self,
@@ -14,6 +12,7 @@ use alumet::{
 use anyhow::Context;
 use plugin_oar::OarPlugin;
 use serial_test::serial;
+use std::{path::Path, time::Duration};
 use util_cgroups::hierarchy::find_user_app_slice;
 
 const SYSFS_CGROUP: &str = "/sys/fs/cgroup";
@@ -58,7 +57,7 @@ fn test_oar3() -> anyhow::Result<()> {
     std::fs::create_dir_all(&cgroup_dir_job)?;
 
     let source_name = format!("oar-job-123456");
-    log::info!("cgroup created at {:?}", cgroup_dir_job);
+    log::info!("cgroup created at {cgroup_dir_job:?}");
     log::info!("source name: {source_name}");
 
     // expect the source to be created quickly after that
@@ -141,7 +140,7 @@ fn test_oar2() -> anyhow::Result<()> {
     std::fs::create_dir_all(&cgroup_dir_job)?;
 
     let source_name = format!("oar-job-456789");
-    log::info!("cgroup created at {:?}", cgroup_dir_job);
+    log::info!("cgroup created at {cgroup_dir_job:?}");
     log::info!("source name: {source_name}");
 
     // expect the source to be created quickly after that

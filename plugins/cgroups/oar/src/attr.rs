@@ -48,3 +48,95 @@ pub fn find_jobid_in_attrs(attrs: &Vec<(String, AttributeValue)>) -> Option<u64>
         _ => unreachable!("job_id should be a u64, is the regex correct?"),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::panic::catch_unwind;
+    use util_cgroups::{Cgroup, CgroupHierarchy, CgroupVersion};
+
+    const MOCK_ROOT_HIERARCHY: &str = "/tmp/cgroup";
+    const MOCK_CONTROLLER: [&str; 2] = ["cpu", "memory"];
+    const MOCK_USER_ID: u64 = 10;
+    const MOCK_JOB_ID: u64 = 123456;
+
+    #[test]
+    fn test_attributes_for_cgroup_with_oar2() {
+        let hierarchy =
+            CgroupHierarchy::manually_unchecked(MOCK_ROOT_HIERARCHY, CgroupVersion::V1, vec![MOCK_CONTROLLER[0]]);
+        let cgroup = Cgroup::from_cgroup_path(&hierarchy, "/oar/user_10".to_owned());
+
+        let mut tagger = OarJobTagger::new().unwrap();
+        let attrs = tagger.attributes_for_cgroup(&cgroup);
+
+        let job_id = attrs.iter().find(|(k, _)| k == "job_id").and_then(|(_, v)| match v {
+            AttributeValue::U64(v) => Some(*v),
+            _ => None,
+        });
+        let user = attrs.iter().find(|(k, _)| k == "user").and_then(|(_, v)| match v {
+            AttributeValue::String(v) => Some(v.as_str()),
+            _ => None,
+        });
+
+        assert_eq!(job_id, Some(10));
+        assert_eq!(user, Some("user"));
+    }
+
+    #[test]
+    fn test_attributes_for_cgroup_with_oar3() {
+        let hierarchy =
+            CgroupHierarchy::manually_unchecked(MOCK_ROOT_HIERARCHY, CgroupVersion::V2, vec![MOCK_CONTROLLER[1]]);
+        let cgroup = Cgroup::from_cgroup_path(&hierarchy, format!("/oar.slice/system/oar-u10-j{}", MOCK_JOB_ID));
+
+        let mut tagger = OarJobTagger::new().unwrap();
+        let attrs = tagger.attributes_for_cgroup(&cgroup);
+
+        let job_id = attrs.iter().find(|(k, _)| k == "job_id").and_then(|(_, v)| match v {
+            AttributeValue::U64(v) => Some(*v),
+            _ => None,
+        });
+        let user_id = attrs.iter().find(|(k, _)| k == "user_id").and_then(|(_, v)| match v {
+            AttributeValue::U64(v) => Some(*v),
+            _ => None,
+        });
+
+        assert_eq!(job_id, Some(123456));
+        assert_eq!(user_id, Some(10));
+    }
+
+    #[test]
+    fn test_find_userid_in_attrs_ok() {
+        let attrs = vec![
+            ("user_id".into(), AttributeValue::U64(MOCK_USER_ID)),
+            ("job_id".into(), AttributeValue::U64(MOCK_JOB_ID)),
+        ];
+
+        let uid = find_userid_in_attrs(&attrs);
+        assert_eq!(uid, Some(10));
+    }
+
+    #[test]
+    fn test_find_userid_in_attrs_with_invalid_type() {
+        let attrs = vec![("user_id".into(), AttributeValue::String("invalid".into()))];
+        let result = catch_unwind(|| find_userid_in_attrs(&attrs));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_find_jobid_in_attrs_ok() {
+        let attrs = vec![
+            ("user_id".into(), AttributeValue::U64(MOCK_USER_ID)),
+            ("job_id".into(), AttributeValue::U64(MOCK_JOB_ID)),
+        ];
+
+        let jid = find_jobid_in_attrs(&attrs);
+        assert_eq!(jid, Some(123456));
+    }
+
+    #[test]
+    fn test_find_jobid_in_attrs_with_invalid_type() {
+        let attrs = vec![("job_id".into(), AttributeValue::String("invalid".into()))];
+        let result = catch_unwind(|| find_jobid_in_attrs(&attrs));
+        assert!(result.is_err());
+    }
+}
