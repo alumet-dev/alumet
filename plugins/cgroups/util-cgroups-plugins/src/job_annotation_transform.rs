@@ -141,9 +141,11 @@ impl CachedCgroupHierarchy {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
     use super::*;
+    use std::{path::Path, time::Duration};
+
+    const MOCK_ROOT_HIERARCHY: [&str; 2] = ["/tmp/cgroup/v1", "/tmp/cgroup/v2"];
+    const MOCK_CONTROLLER: [&str; 2] = ["cpu", "memory"];
 
     #[test]
     fn test_shared_value() {
@@ -158,9 +160,9 @@ mod tests {
 
         let thread_a = std::thread::spawn(move || {
             shared_a.set(CgroupHierarchy::manually_unchecked(
-                "/sys/fs/test",
+                MOCK_ROOT_HIERARCHY[1],
                 CgroupVersion::V2,
-                vec!["cpuset"],
+                vec![MOCK_CONTROLLER[0]],
             ));
         });
 
@@ -189,5 +191,47 @@ mod tests {
 
         thread_a.join().unwrap();
         thread_b.join().unwrap();
+    }
+
+    #[test]
+    fn test_on_cgroupfs_mounted_sets_v2() {
+        let shared = SharedCgroupHierarchy::default();
+        let mut optional = OptionalSharedHierarchy::default();
+        optional.enable(shared.clone());
+
+        let hierarchies = vec![
+            CgroupHierarchy::manually_unchecked(MOCK_ROOT_HIERARCHY[0], CgroupVersion::V1, vec![MOCK_CONTROLLER[1]]),
+            CgroupHierarchy::manually_unchecked(
+                MOCK_ROOT_HIERARCHY[1],
+                CgroupVersion::V2,
+                vec![MOCK_CONTROLLER[0], MOCK_CONTROLLER[1]],
+            ),
+        ];
+
+        optional.on_cgroupfs_mounted(&hierarchies).unwrap();
+
+        let result = shared.0.lock().unwrap();
+        assert!(result.is_some());
+
+        let h = result.as_ref().unwrap();
+        assert_eq!(h.version(), CgroupVersion::V2);
+        assert_eq!(h.root(), Path::new(MOCK_ROOT_HIERARCHY[1]));
+    }
+
+    #[test]
+    fn test_on_cgroupfs_mounted_no_v2() {
+        let shared = SharedCgroupHierarchy::default();
+        let mut optional = OptionalSharedHierarchy::default();
+        optional.enable(shared.clone());
+
+        let hierarchies = vec![CgroupHierarchy::manually_unchecked(
+            MOCK_ROOT_HIERARCHY[0],
+            CgroupVersion::V1,
+            vec![MOCK_CONTROLLER[0]],
+        )];
+
+        optional.on_cgroupfs_mounted(&hierarchies).unwrap();
+
+        assert!(shared.0.lock().unwrap().is_none());
     }
 }
