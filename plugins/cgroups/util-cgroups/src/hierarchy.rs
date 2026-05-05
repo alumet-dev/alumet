@@ -410,13 +410,14 @@ pub fn find_user_app_slice(v2_hierarchy_root: &Path) -> anyhow::Result<PathBuf> 
 
 #[cfg(test)]
 mod tests {
+    use nix::unistd::Uid;
     use std::{fs, os::unix::fs::PermissionsExt, path::PathBuf};
 
     use mount_watcher::mount::LinuxMount;
 
     use crate::{
         Cgroup,
-        hierarchy::{CgroupHierarchy, CgroupVersion, HierarchyError},
+        hierarchy::{CgroupHierarchy, CgroupVersion, HierarchyError, find_user_app_slice, parse_v2_controllers},
     };
 
     #[test]
@@ -529,6 +530,32 @@ mod tests {
     }
 
     #[test]
+    fn test_from_root_path_v1_not_found() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        fs::write(root.join("release_agent"), "").unwrap();
+        assert!(matches!(
+            CgroupHierarchy::from_root_path(root),
+            Err(HierarchyError::MountNotFound(_))
+        ));
+    }
+
+    #[test]
+    fn test_from_root_path_v2_success() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        fs::write(root.join("cgroup.controllers"), "cpu memory").unwrap();
+
+        let res = CgroupHierarchy::from_root_path(root);
+        assert!(res.is_ok());
+
+        let h = res.unwrap();
+        assert_eq!(h.version(), CgroupVersion::V2);
+        assert_eq!(h.available_controllers(), &["cpu", "memory"]);
+        assert!(h.v1_name().is_none());
+    }
+
+    #[test]
     fn test_manually_unchecked_v1_named() {
         let root = tempfile::tempdir().unwrap();
         let path = root.path();
@@ -561,5 +588,66 @@ mod tests {
         let cgrp_hier = CgroupHierarchy::manually_unchecked_v1_named(&root, hier_name.clone());
         let cgroup = Cgroup::from_cgroup_path(&cgrp_hier, "/".to_string());
         assert_eq!(cgroup.unique_name(), format!("{}", cgroup));
+    }
+
+    #[test]
+    fn test_parse_v2_controllers_io_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let path = root.join("cgroup.controllers");
+
+        fs::write(&path, "").unwrap();
+
+        let mut perm = fs::metadata(&path).unwrap().permissions();
+        perm.set_mode(0o000);
+        fs::set_permissions(&path, perm).unwrap();
+
+        let res = parse_v2_controllers(root);
+        assert!(matches!(res,Err(HierarchyError::File(_, ref p)) if p == &path));
+
+        // Restore permissions
+        let mut perm = fs::metadata(&path).unwrap().permissions();
+        perm.set_mode(0o644);
+        fs::set_permissions(&path, perm).unwrap();
+    }
+
+    #[test]
+    fn test_find_user_app_slice_success() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let uid = Uid::effective();
+        let path = root.join(format!("user.slice/user-{uid}.slice/user@{uid}.service/app.slice"));
+        fs::create_dir_all(&path).unwrap();
+        let res = find_user_app_slice(root);
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), path);
+    }
+
+    #[test]
+    fn test_find_user_app_slice_not_found() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        assert!(find_user_app_slice(root).is_err());
+    }
+
+    #[test]
+    fn test_find_user_app_slice_io_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let uid = Uid::effective();
+        let path = root.join(format!("user.slice/user-{uid}.slice/user@{uid}.service/app.slice"));
+
+        fs::create_dir_all(&path).unwrap();
+
+        let mut perm = fs::metadata(root).unwrap().permissions();
+        perm.set_mode(0o000);
+        fs::set_permissions(root, perm).unwrap();
+
+        assert!(find_user_app_slice(root).is_err());
+
+        // Restore permissions
+        let mut perm = fs::metadata(root).unwrap().permissions();
+        perm.set_mode(0o755);
+        fs::set_permissions(root, perm).unwrap();
     }
 }

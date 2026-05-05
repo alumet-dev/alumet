@@ -353,46 +353,6 @@ mod alternatives {
             Self(v)
         }
     }
-
-    // #[cfg(test)]
-    // mod tests {
-    //     use crate::alternatives::{BitSet128, BitSet64};
-
-    //     #[test]
-    //     fn test_b64() {
-    //         let b64 = BitSet64::new(&[]);
-    //         for i in 0..64 {
-    //             assert!(!b64.contains(i));
-    //         }
-
-    //         let b64 = BitSet64::new(&[1, 2, 5, 7]);
-    //         println!("b64: {:b}", b64.0);
-    //         assert!(b64.contains(1));
-    //         assert!(b64.contains(2));
-    //         assert!(!b64.contains(3));
-    //         assert!(!b64.contains(4));
-    //         assert!(b64.contains(5));
-    //         assert!(!b64.contains(6));
-    //         assert!(b64.contains(7));
-    //     }
-
-    //     #[test]
-    //     fn test_b128() {
-    //         let b128 = BitSet128::new(&[]);
-    //         for i in 0..128 {
-    //             assert!(!b128.contains(i));
-    //         }
-
-    //         let b128 = BitSet128::new(&[1, 2, 5, 7]);
-    //         assert!(b128.contains(1));
-    //         assert!(b128.contains(2));
-    //         assert!(!b128.contains(3));
-    //         assert!(!b128.contains(4));
-    //         assert!(b128.contains(5));
-    //         assert!(!b128.contains(6));
-    //         assert!(b128.contains(7));
-    //     }
-    // }
 }
 
 #[cfg(test)]
@@ -413,8 +373,42 @@ mod tests {
     }
 
     #[test]
+    fn test_b64() {
+        let b64 = BitSet64::new(&[]);
+        for i in 0..64 {
+            assert!(!b64.contains(i));
+        }
+
+        let b64 = BitSet64::new(&[1, 2, 5, 7]);
+        assert!(b64.contains(1));
+        assert!(b64.contains(2));
+        assert!(!b64.contains(3));
+        assert!(!b64.contains(4));
+        assert!(b64.contains(5));
+        assert!(!b64.contains(6));
+        assert!(b64.contains(7));
+    }
+
+    #[test]
+    fn test_b128() {
+        let b128 = BitSet128::new(&[]);
+        for i in 0..128 {
+            assert!(!b128.contains(i));
+        }
+
+        let b128 = BitSet128::new(&[1, 2, 5, 7]);
+        assert!(b128.contains(1));
+        assert!(b128.contains(2));
+        assert!(!b128.contains(3));
+        assert!(!b128.contains(4));
+        assert!(b128.contains(5));
+        assert!(!b128.contains(6));
+        assert!(b128.contains(7));
+    }
+
+    #[test]
     fn test_parse_space_kv_unchecked_cached_indices_hashset() {
-        let data = b"a1 111\nb2 222\nc3 333\n";
+        let data = b"key1 111\nkey2 222\nkey3 333\n";
         let indices: HashSet<usize> = IndiceCache::new(&[0, 2]);
         let mut results = Vec::new();
 
@@ -459,7 +453,7 @@ mod tests {
 
     #[test]
     fn test_parse_space_kv_utf8_cached_indices_hashset() {
-        let data = b"a1 111\nb2 222\nc3 333\n";
+        let data = b"key1 111\nkey2 222\nkey3 333\n";
         let indices: HashSet<usize> = IndiceCache::new(&[0, 2]);
         let mut results = Vec::new();
 
@@ -469,8 +463,8 @@ mod tests {
         .unwrap();
 
         assert_eq!(results.len(), 2);
-        assert_eq!(results[0], ("a1".to_string(), 111));
-        assert_eq!(results[1], ("c3".to_string(), 333));
+        assert_eq!(results[0], ("key1".to_string(), 111));
+        assert_eq!(results[1], ("key3".to_string(), 333));
     }
 
     #[test]

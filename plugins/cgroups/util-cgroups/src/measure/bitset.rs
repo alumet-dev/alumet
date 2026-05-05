@@ -80,4 +80,11 @@ mod tests {
         assert!(set.contains(12));
         assert_eq!(set, BitSet128::new(&[0, 1, 2, 12, 25, 32, 64, 111, 127]))
     }
+
+    #[test]
+    fn test_fmt() {
+        let set = format!("{:?}", BitSet128::new(&[0, 2, 3]));
+        // 1<<0 + 1<<2 + 1<<3 = 13(10) = 1101(2)
+        assert_eq!(set, "BitSet128(1101)");
+    }
 }
