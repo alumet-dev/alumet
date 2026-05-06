@@ -115,6 +115,12 @@ impl NvmlDevice for ManagedDevice {
         self.as_underlying_device().utilization_rates()
     }
 
+    /// Current memory usage.
+    /// See [`nvml_wrapper::Device::memory_info`].
+    fn memory_info(&self) -> NvmlResult<nvml_wrapper::struct_wrappers::device::MemoryInfo> {
+        self.as_underlying_device().memory_info()
+    }
+
     /// Utilization and sampling size of the decoder.
     /// See [`nvml_wrapper::Device::decoder_utilization`].
     fn decoder_utilization(&self) -> NvmlResult<nvml_wrapper::structs::device::UtilizationInfo> {

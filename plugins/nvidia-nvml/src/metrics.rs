@@ -17,6 +17,8 @@ pub struct FullMetrics {
     pub major_utilization_gpu: TypedMetricId<u64>,
     /// GPU memory utilization in percentage
     pub major_utilization_memory: TypedMetricId<u64>,
+    /// Used, free and total VRAM memory, in bytes.
+    pub memory_info: TypedMetricId<u64>,
     /// GPU video decoding property in percentage.
     pub decoder_utilization: TypedMetricId<u64>,
     /// Get the current utilization and sampling size for the decoder in μs.
@@ -64,6 +66,11 @@ impl FullMetrics {
                 "nvml_gpu_utilization",
                 Unit::Percent,
                 "GPU rate utilization",
+            )?,
+            memory_info: alumet.create_metric(
+                "nvml_gpu_memory_info",
+                Unit::Byte,
+                "VRAM information (free, used, reserved and total size)",
             )?,
             decoder_sampling_period_us: alumet.create_metric(
                 "nvml_decoder_sampling_period",
