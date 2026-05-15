@@ -19,6 +19,7 @@ members = [
     "plugins/mongodb",
     "plugins/nvidia-jetson",
     "plugins/nvidia-nvml",
+    "plugins/opentelemetry",
     "plugins/perf",
     "plugins/process-to-cgroup-bridge",
     "plugins/procfs",

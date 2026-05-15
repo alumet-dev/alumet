@@ -34,7 +34,6 @@ impl AlumetPlugin for OpenTelemetryPlugin {
             self.config.prefix.clone(),
             self.config.suffix.clone(),
             self.config.collector_host.clone(),
-            self.config.push_interval_seconds,
         )?);
         alumet.add_blocking_output("out", otel_output.clone())?;
         Ok(())
@@ -47,13 +46,12 @@ impl AlumetPlugin for OpenTelemetryPlugin {
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Config {
-    collector_host: String,
-    prefix: String,
-    suffix: String,
-    use_unit_display_name: bool,
-    add_attributes_to_labels: bool,
-    push_interval_seconds: u64,
+pub struct Config {
+    pub collector_host: String,
+    pub prefix: String,
+    pub suffix: String,
+    pub use_unit_display_name: bool,
+    pub add_attributes_to_labels: bool,
 }
 
 impl Default for Config {
@@ -64,7 +62,6 @@ impl Default for Config {
             suffix: String::from("_alumet"),
             use_unit_display_name: true,
             add_attributes_to_labels: true,
-            push_interval_seconds: 15,
         }
     }
 }
