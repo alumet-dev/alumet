@@ -18,6 +18,12 @@ Here are the metrics collected by the plugin source.
 |----|----|----|-----------|----------|-----------------|
 |`rapl_consumed_energy`|Counter Diff|joule|Energy consumed since the previous measurement|[domain](#domain)||
 
+Assuming a poll_interval and flush_interval of 1s:
+- At `t0` = 0s the plugin starts.
+- At `t1` = 1s it stores internally the value from the RAPL counter `v1` and no measurement point is created.
+- At `t2` = 2s it stores internally the value from the RAPL counter `v2` and a measurement point is created containing the delta value `d_21` = `v2-v1`. This value represent the energy consumed between `t1` and `t2`
+- At `t3` = 3s it stores internally the value from the RAPL counter `v3` and a measurement point is created containing the delta value `d_32` = `v3-v2`. This value represent the energy consumed between `t2` and `t3`
+
 ### Attributes
 
 #### Domain
