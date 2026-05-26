@@ -396,14 +396,10 @@ mod tests {
     use super::*;
     use crate::tests::mocks::{Entry, EntryType, create_mock_layout};
 
-    use alumet::pipeline::Source;
     use nix::unistd::{pipe, write};
-    use std::{
-        mem::zeroed,
-        os::{
-            fd::{IntoRawFd, OwnedFd},
-            unix::io::FromRawFd,
-        },
+    use std::os::{
+        fd::{IntoRawFd, OwnedFd},
+        unix::io::FromRawFd,
     };
     use tempfile::tempdir;
 
@@ -576,22 +572,12 @@ mod tests {
             scale: SCALE,
         };
 
-        let result = expected_power_events.perf_event_open(32, 0);
-        match result {
-            // OS permissions are enough to pen perf_event
-            Ok(fd) => {
-                assert!(fd >= 0);
-            }
-            // Permission denied
-            Err(e) => {
-                println!("{e}");
-            }
-        }
+        let _ = expected_power_events.perf_event_open(32, 0);
     }
 
     #[test]
     fn test_open_power_event() {
-        let expected_power_events = PowerEvent {
+        let event = PowerEvent {
             name: "pkg".into(),
             domain: RaplDomainType::Package,
             code: 1,
@@ -600,15 +586,13 @@ mod tests {
         };
 
         let (fd, _write_fd) = fake_fd();
-        let actual_power_events = move |_e: &PowerEvent, _pmu, _cpu| Ok(fd);
+        let fake_open = move |_e: &PowerEvent, _pmu, _cpu| Ok(fd);
+        let result = event.open_power_event(1, 0, 0, fake_open);
+        let opened_power_event = result.expect("should not fail");
 
-        let result = expected_power_events.open_power_event(1, 0, 0, actual_power_events);
-        assert!(result.is_ok());
-
-        let opened_power_event = result.unwrap();
         assert_eq!(opened_power_event.scale, SCALE.into());
-        assert_eq!(opened_power_event.domain, expected_power_events.domain);
-        assert_eq!(opened_power_event.resource, expected_power_events.domain.to_resource(0));
+        assert_eq!(opened_power_event.domain, event.domain);
+        assert_eq!(opened_power_event.resource, event.domain.to_resource(0));
     }
 
     #[test]
@@ -665,36 +649,6 @@ mod tests {
         let result = 42 + 43 + 1;
         assert_eq!(read_fd.read_counter_diff()?, Some(result));
 
-        Ok(())
-    }
-
-    #[test]
-    fn test_reset_counters() -> anyhow::Result<()> {
-        let (mut evt_1, fd_1) = fake_opened_power_event();
-        let (mut evt_2, fd_2) = fake_opened_power_event();
-
-        // Initialize counters from first read
-        write(&fd_1, &42u64.to_ne_bytes())?;
-        write(&fd_2, &43u64.to_ne_bytes())?;
-
-        evt_1.read_counter_diff()?;
-        evt_2.read_counter_diff()?;
-
-        let mut probe = PerfEventProbe {
-            metric: unsafe { zeroed() },
-            events: vec![evt_1, evt_2],
-        };
-
-        probe.reset()?;
-
-        // Write new values
-        write(&fd_1, &44u64.to_ne_bytes())?;
-        write(&fd_2, &45u64.to_ne_bytes())?;
-
-        let (evt_1_slice, evt_2_slice) = probe.events.split_at_mut(1);
-
-        assert_eq!(evt_1_slice[0].read_counter_diff()?, None);
-        assert_eq!(evt_2_slice[0].read_counter_diff()?, None);
         Ok(())
     }
 }

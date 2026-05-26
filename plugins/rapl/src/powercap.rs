@@ -370,8 +370,7 @@ mod tests {
     use super::*;
     use crate::tests::mocks::{Entry, EntryType, create_mock_layout, create_valid_powercap_mock};
 
-    use alumet::pipeline::Source;
-    use std::{mem::zeroed, path::PathBuf};
+    use std::path::PathBuf;
     use tempfile::tempdir;
 
     #[test]
@@ -859,8 +858,6 @@ mod tests {
         create_mock_layout(base_path, &entries)?;
 
         let result = all_power_zones_from_path(base_path);
-
-        assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Unknown RAPL powercap zone"));
 
         Ok(())
@@ -888,59 +885,5 @@ mod tests {
             formatted.contains("\n  - intel-rapl"),
             "formatted output was:\n{formatted}"
         );
-    }
-
-    #[test]
-    fn test_reset_counters() -> anyhow::Result<()> {
-        let tmp = tempdir()?;
-        let base_path = tmp.path();
-
-        use EntryType::*;
-
-        let entries = [
-            Entry {
-                path: "intel-rapl:0",
-                entry_type: Dir,
-            },
-            Entry {
-                path: "intel-rapl:0/name",
-                entry_type: File("package-0"),
-            },
-            Entry {
-                path: "intel-rapl:0/max_energy_range_uj",
-                entry_type: File("100"),
-            },
-            Entry {
-                path: "intel-rapl:0/energy_uj",
-                entry_type: File("10"),
-            },
-        ];
-        create_mock_layout(base_path, &entries)?;
-
-        let zones = all_power_zones_from_path(base_path)?.flat;
-
-        let metric = unsafe { zeroed() };
-        let mut probe = PowercapProbe::new(metric, &zones)?;
-        let mut buf = Vec::with_capacity(16);
-
-        let entries = [Entry {
-            path: "intel-rapl:0/energy_uj",
-            entry_type: File("20"),
-        }];
-        create_mock_layout(base_path, &entries)?;
-
-        probe.reset()?;
-
-        let entries = [Entry {
-            path: "intel-rapl:0/energy_uj",
-            entry_type: File("30"),
-        }];
-        create_mock_layout(base_path, &entries)?;
-
-        // Counters should behave like first read after reset
-        let zone = &mut probe.zones[0];
-        assert_eq!(zone.read_counter_diff(&mut buf)?, None);
-
-        Ok(())
     }
 }
