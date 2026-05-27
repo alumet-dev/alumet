@@ -35,9 +35,8 @@ impl<T: JobTagger> Transform for JobAnnotationTransform<T> {
                 // But on v1, we would need to modify the consumer's struct… => v1 NOT SUPPORTED at the moment
 
                 let Some(hierarchy) = self.cgroup_v2_hierarchy.fetch() else {
-                    return Err(TransformError::UnexpectedInput(anyhow!(
-                        "cgroup measurements found but no cgroup v2 hierarchy has been detected. Are you using cgroup v2? (v1 not supported by this plugin)"
-                    )));
+                    let msg = "cgroup measurement found but no cgroup v2 hierarchy has been detected. Are you using cgroup v2? (v1 not supported by this plugin)";
+                    return Err(TransformError::UnexpectedInput(anyhow!(msg)));
                 };
 
                 let cgroup = Cgroup::from_cgroup_path(hierarchy, cgroup_path.to_string());
@@ -50,9 +49,10 @@ impl<T: JobTagger> Transform for JobAnnotationTransform<T> {
                         }
                     }
                     Ok(false) => {
-                        log::warn!(
-                            "cgroup does not exist: {sysfs_path:?}. Are you using cgroup v2? (or did the cgroup disappear quickly?)"
+                        let msg = format!(
+                            "cgroup path does not exist: {sysfs_path:?}. Are you using cgroup v2? (or did the cgroup disappear quickly?)"
                         );
+                        log::warn!("{msg}");
                     }
                     Err(err) => {
                         log::warn!("failed to check the existence of cgroup {sysfs_path:?}: {err}")
@@ -141,9 +141,11 @@ impl CachedCgroupHierarchy {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
     use super::*;
+    use std::{path::Path, time::Duration};
+
+    const MOCK_ROOT_HIERARCHY: [&str; 2] = ["/tmp/cgroup/v1", "/tmp/cgroup/v2"];
+    const MOCK_CONTROLLER: [&str; 2] = ["cpu", "memory"];
 
     #[test]
     fn test_shared_value() {
@@ -158,9 +160,9 @@ mod tests {
 
         let thread_a = std::thread::spawn(move || {
             shared_a.set(CgroupHierarchy::manually_unchecked(
-                "/sys/fs/test",
+                MOCK_ROOT_HIERARCHY[1],
                 CgroupVersion::V2,
-                vec!["cpuset"],
+                vec![MOCK_CONTROLLER[0]],
             ));
         });
 
@@ -189,5 +191,47 @@ mod tests {
 
         thread_a.join().unwrap();
         thread_b.join().unwrap();
+    }
+
+    #[test]
+    fn test_on_cgroupfs_mounted_sets_v2() {
+        let shared = SharedCgroupHierarchy::default();
+        let mut optional = OptionalSharedHierarchy::default();
+        optional.enable(shared.clone());
+
+        let hierarchies = vec![
+            CgroupHierarchy::manually_unchecked(MOCK_ROOT_HIERARCHY[0], CgroupVersion::V1, vec![MOCK_CONTROLLER[1]]),
+            CgroupHierarchy::manually_unchecked(
+                MOCK_ROOT_HIERARCHY[1],
+                CgroupVersion::V2,
+                vec![MOCK_CONTROLLER[0], MOCK_CONTROLLER[1]],
+            ),
+        ];
+
+        optional.on_cgroupfs_mounted(&hierarchies).unwrap();
+
+        let result = shared.0.lock().unwrap();
+        assert!(result.is_some());
+
+        let h = result.as_ref().unwrap();
+        assert_eq!(h.version(), CgroupVersion::V2);
+        assert_eq!(h.root(), Path::new(MOCK_ROOT_HIERARCHY[1]));
+    }
+
+    #[test]
+    fn test_on_cgroupfs_mounted_no_v2() {
+        let shared = SharedCgroupHierarchy::default();
+        let mut optional = OptionalSharedHierarchy::default();
+        optional.enable(shared.clone());
+
+        let hierarchies = vec![CgroupHierarchy::manually_unchecked(
+            MOCK_ROOT_HIERARCHY[0],
+            CgroupVersion::V1,
+            vec![MOCK_CONTROLLER[0]],
+        )];
+
+        optional.on_cgroupfs_mounted(&hierarchies).unwrap();
+
+        assert!(shared.0.lock().unwrap().is_none());
     }
 }

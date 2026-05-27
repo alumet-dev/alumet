@@ -17,3 +17,33 @@ pub fn analyze_io_result<R>(res: io::Result<R>) -> Result<R, PollError> {
         Err(e) => Err(PollError::Fatal(e.into())),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::{read_to_string, write};
+
+    #[test]
+    fn test_analyze_io_result() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("test_file");
+        write(&path, "content").unwrap();
+        let result = analyze_io_result(read_to_string(&path));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_analyze_io_result_invalid() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("i_do_not_exist");
+        let result = analyze_io_result(read_to_string(&path));
+        assert!(matches!(result, Err(PollError::NormalStop)));
+    }
+
+    #[test]
+    fn test_analyze_io_result_error() {
+        let e = io::Error::new(ErrorKind::PermissionDenied, "error");
+        let result = analyze_io_result::<()>(Err(e));
+        assert!(matches!(result, Err(PollError::Fatal(_e))));
+    }
+}
