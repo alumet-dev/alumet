@@ -73,34 +73,42 @@ impl Drop for CgroupMountWait {
     }
 }
 
+fn handle_event(
+    mounted: &[LinuxMount],
+    coalesced: bool,
+    coalesce_v1: Option<Duration>,
+    callback: &mut dyn Callback,
+) -> WatchControl {
+    // find the cgroup filesystems, if any
+    let new_cgroupfs = extract_cgroup_hierarchies(mounted);
+
+    // coalesce cgroupv1 events, because multiple cgroupfs v1 are mounted in a short period of time, and we want them all
+    if let Some(delay) = coalesce_v1 {
+        if !coalesced && new_cgroupfs.iter().any(|c| c.version() == CgroupVersion::V1) {
+            return WatchControl::Coalesce { delay };
+        }
+    }
+
+    // call the user-provided function
+    if !new_cgroupfs.is_empty() {
+        match callback.on_cgroupfs_mounted(new_cgroupfs) {
+            Ok(ControlFlow::Continue(())) => return WatchControl::Continue,
+            Ok(ControlFlow::Break(())) => return WatchControl::Stop,
+            Err(err) => log::error!("error in callback: {err:?}"),
+        };
+    }
+
+    // no cgroups, continue
+    WatchControl::Continue
+}
+
 /// Prepare a `MountWatcher` that triggers the `callback` when new cgroupfs are mounted.
 fn prepare_watcher(
     mut callback: impl Callback + 'static,
     coalesce_v1: Option<Duration>,
 ) -> anyhow::Result<MountWatcher> {
-    let watcher = MountWatcher::new(move |event| {
-        // find the cgroup filesystems, if any
-        let new_cgroupfs = extract_cgroup_hierarchies(&event.mounted);
-
-        // coalesce cgroupv1 events, because multiple cgroupfs v1 are mounted in a short period of time, and we want them all
-        if let Some(delay) = coalesce_v1 {
-            if !event.coalesced && new_cgroupfs.iter().any(|c| c.version() == CgroupVersion::V1) {
-                return WatchControl::Coalesce { delay };
-            }
-        }
-
-        // call the user-provided function
-        if !new_cgroupfs.is_empty() {
-            match callback.on_cgroupfs_mounted(new_cgroupfs) {
-                Ok(ControlFlow::Continue(())) => return WatchControl::Continue,
-                Ok(ControlFlow::Break(())) => return WatchControl::Stop,
-                Err(err) => log::error!("error in callback: {err:?}"),
-            };
-        }
-
-        // no cgroups, continue
-        WatchControl::Continue
-    })?;
+    let watcher =
+        MountWatcher::new(move |event| handle_event(&event.mounted, event.coalesced, coalesce_v1, &mut callback))?;
     Ok(watcher)
 }
 
@@ -126,15 +134,34 @@ fn extract_cgroup_hierarchies(mounts: &[LinuxMount]) -> Vec<CgroupHierarchy> {
 
 #[cfg(test)]
 mod tests {
-    use mount_watcher::mount::LinuxMount;
+    use mount_watcher::{WatchControl, mount::LinuxMount};
     use pretty_assertions::assert_eq;
-    use std::io;
+    use std::{fs, io, ops::ControlFlow, time::Duration};
 
-    use super::super::hierarchy::CgroupVersion;
-    use super::extract_cgroup_hierarchies;
+    use crate::{CgroupMountWait, mount_wait::handle_event};
+
+    use super::{
+        super::hierarchy::{CgroupHierarchy, CgroupVersion},
+        extract_cgroup_hierarchies,
+    };
 
     fn vec_str(values: &[&str]) -> Vec<String> {
         values.into_iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn test_cgroup_mount_wait_new() {
+        let cb = |_| Ok(ControlFlow::Continue(()));
+        let res = CgroupMountWait::new(Some(Duration::from_secs(1)), cb);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_stop_and_join() {
+        let cb = |_| Ok(ControlFlow::Continue(()));
+        let wait = CgroupMountWait::new(Some(Duration::from_millis(10)), cb).unwrap();
+        let res = wait.stop_and_join();
+        assert!(res.is_ok());
     }
 
     #[test]
@@ -237,5 +264,111 @@ mod tests {
 
         let cgroups = extract_cgroup_hierarchies(&mounts);
         assert!(cgroups.is_empty());
+    }
+
+    #[test]
+    fn test_extract_cgroup_hierarchies_wrong_version() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        let mounts = vec![LinuxMount {
+            spec: String::from("cgroup2"),
+            mount_point: String::from(root.to_str().unwrap()),
+            fs_type: String::from("cgroup2"),
+            mount_options: vec![],
+            dump_fs_freq: 0,
+            fsck_fs_passno: 0,
+        }];
+
+        let res = extract_cgroup_hierarchies(&mounts);
+        assert!(res.is_empty());
+    }
+
+    #[test]
+    fn test_handle_event_coalesce_v1() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        let mounts = vec![LinuxMount {
+            spec: String::from("cgroup"),
+            mount_point: String::from(root.to_str().unwrap()),
+            fs_type: String::from("cgroup"),
+            mount_options: vec_str(&["cpu", "cpuacct"]),
+            dump_fs_freq: 0,
+            fsck_fs_passno: 0,
+        }];
+
+        let mut called = false;
+        let mut cb = |_: Vec<CgroupHierarchy>| {
+            called = true;
+            Ok(ControlFlow::Continue(()))
+        };
+
+        let res = handle_event(&mounts, false, Some(Duration::from_secs(1)), &mut cb);
+        assert!(matches!(res, WatchControl::Coalesce { .. }));
+        assert!(!called);
+    }
+
+    #[test]
+    fn test_handle_event_continue() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        fs::write(root.join("cgroup.controllers"), "").unwrap();
+
+        let mounts = vec![LinuxMount {
+            spec: String::from("cgroup2"),
+            mount_point: String::from(root.to_str().unwrap()),
+            fs_type: String::from("cgroup2"),
+            mount_options: vec![],
+            dump_fs_freq: 0,
+            fsck_fs_passno: 0,
+        }];
+
+        let mut cb = |_| Ok(ControlFlow::Continue(()));
+        let res = handle_event(&mounts, true, None, &mut cb);
+        assert!(matches!(res, WatchControl::Continue));
+    }
+
+    #[test]
+    fn test_handle_event_break() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        fs::write(root.join("cgroup.controllers"), "").unwrap();
+
+        let mounts = vec![LinuxMount {
+            spec: String::from("cgroup2"),
+            mount_point: String::from(root.to_str().unwrap()),
+            fs_type: String::from("cgroup2"),
+            mount_options: vec![],
+            dump_fs_freq: 0,
+            fsck_fs_passno: 0,
+        }];
+
+        let mut cb = |_| Ok(ControlFlow::Break(()));
+        let res = handle_event(&mounts, true, None, &mut cb);
+        assert!(matches!(res, WatchControl::Stop));
+    }
+
+    #[test]
+    fn test_handle_event_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        fs::write(root.join("cgroup.controllers"), "").unwrap();
+
+        let mounts = vec![LinuxMount {
+            spec: String::from("cgroup2"),
+            mount_point: String::from(root.to_str().unwrap()),
+            fs_type: String::from("cgroup2"),
+            mount_options: vec![],
+            dump_fs_freq: 0,
+            fsck_fs_passno: 0,
+        }];
+
+        let mut cb = |_| Err(anyhow::anyhow!("error in callback"));
+        let res = handle_event(&mounts, true, None, &mut cb);
+        assert!(matches!(res, WatchControl::Continue));
     }
 }

@@ -68,7 +68,6 @@ fn one_cgroup_created_v1() {
 
 #[test]
 fn one_cgroup_created_after_v1() {
-    env_logger::init_from_env(env_logger::Env::default());
     let root_unwraped = tempdir().unwrap();
     let root = root_unwraped.path().to_path_buf();
     let version = CgroupVersion::V1;
