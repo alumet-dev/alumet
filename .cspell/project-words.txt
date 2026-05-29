@@ -4,6 +4,7 @@ amdsmi
 ASCIINEMA
 astring
 Atos
+baremetal
 besteffort
 Burstable
 cbindgen
@@ -35,6 +36,7 @@ inotify
 ITLB
 jres
 kubepods
+jumphost
 kwollect
 libdrm
 libgflags
@@ -47,11 +49,14 @@ monitorable
 mpoint
 neowise
 niced
+nohup
+noninteractive
 nvme
 NVML
 oarstat
 oarsub
 Opensearch
+otpaas
 pagetables
 paradoxe
 PERFMON
@@ -76,6 +81,7 @@ slurm
 slurmstep
 slurmstepd
 smaps
+socat
 statm
 subconfig
 sublicensable
