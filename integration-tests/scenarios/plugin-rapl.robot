@@ -4,6 +4,7 @@ Library    OperatingSystem
 Library    SSHLibrary
 Library    String
 Resource    ${HOME_TEST}/scenarios/common/alumet_keywords.robot
+# Test Template    Check Metric    
 
 Suite Setup        Install Alumet
 Suite Teardown     UnInstall Alumet
@@ -38,7 +39,7 @@ Test connection on target node
 
 *** Test Cases ***
 run plugins socket-control csv rapl
-    [Tags]
+    [Tags]    INPUT_PLUGIN     RAPL_PLUGIN
 
     ${output}=    Execute Command Alumet Node    alumet-agent --plugins csv,rapl,socket-control > /tmp/alumet.log 2>&1 &
     Sleep    3s
@@ -68,64 +69,33 @@ check alumet running
     Should Contain     ${output}    /usr/lib/alumet-agent --plugins csv,rapl,socket-control
 
 *** Test Cases ***
-check metric rapl_consumed_energy_J resource cpu_package domain package
-    [Tags]     INPUT_PLUGIN     RAPL_PLUGIN
+Check Rapl Metrics package
+    [Template]    Check Metric    
+    [Tags]    INPUT_PLUGIN     RAPL_PLUGIN    
+    # ${metric}                ${consumer_kind}    ${domain}
+    rapl_consumed_energy_J        cpu_package        package    
 
-    # read the csv output file,  resource_kind domain package
-    ${output}=     Read resource_kind    rapl_consumed_energy_J    package
-    
-    Should Contain     ${output}    cpu_package
+Check Rapl Metrics package_total
+    [Template]    Check Metric    
+    [Tags]    INPUT_PLUGIN     RAPL_PLUGIN    
+    # ${metric}                ${consumer_kind}    ${domain}
+    rapl_consumed_energy_J    local_machine        package_total    
 
-    # read the csv output file,  metric value
-    ${output}=    Read value        rapl_consumed_energy_J    cpu_package    package
+Check Rapl Metrics dram
+    [Template]    Check Metric    
+    [Tags]    INPUT_PLUGIN     RAPL_PLUGIN    
+    # ${metric}                ${consumer_kind}    ${domain}
+    rapl_consumed_energy_J        dram                dram    
 
-    Should Be True    ${output} !=0.0
-
-*** Test Cases ***
-check metric rapl_consumed_energy_J resource cpu_package domain package_total
-    [Tags]     INPUT_PLUGIN     RAPL_PLUGIN
-
-    # read the csv output file,  resource_kind domain package
-    ${output}=     Read resource_kind    rapl_consumed_energy_J    package_total
-    
-    Should Contain     ${output}    local_machine
-
-    # read the csv output file,  metric value
-    ${output}=    Read value        rapl_consumed_energy_J    local_machine    package_total
-
-    Should Be True    ${output} !=0.0
-
-*** Test Cases ***
-check metric rapl_consumed_energy_J resource dram domain dram
-    [Tags]     INPUT_PLUGIN     RAPL_PLUGIN
-
-    # read the csv output file,  resource_kind domain dram
-    ${output}=     Read resource_kind    rapl_consumed_energy_J    dram
-    
-    Should Contain     ${output}    dram
-
-    # read the csv output file,  metric value
-    ${output}=    Read value        rapl_consumed_energy_J    dram    dram
-
-    Should Be True    ${output} !=0.0
-
-*** Test Cases ***
-check metric rapl_consumed_energy_J resource dram domain dram_total
-    [Tags]     INPUT_PLUGIN     RAPL_PLUGIN
-
-    # read the csv output file,  resource_kind domain dram
-    ${output}=     Read resource_kind    rapl_consumed_energy_J    dram_total
-    
-    Should Contain     ${output}    local_machine
-
-    # read the csv output file,  metric value
-    ${output}=    Read value        rapl_consumed_energy_J    local_machine    dram_total
-    
-    Should Be True    ${output} !=0.0
+Check Rapl Metrics dram_total
+    [Template]    Check Metric    
+    [Tags]    INPUT_PLUGIN     RAPL_PLUGIN    
+    # ${metric}                ${consumer_kind}    ${domain}
+    rapl_consumed_energy_J        local_machine    dram_total    
 
 *** Test Cases ***
 stop alumet
-    [Tags]
+    [Tags]    INPUT_PLUGIN     RAPL_PLUGIN
 
     ${output}=    Execute Command Alumet Node    echo "shutdown" | socat UNIX-CONNECT:alumet-control.sock -    
     Log    Result stdout : ${output}  
@@ -138,7 +108,7 @@ stop alumet
    
 *** Test Cases ***
 Check alumet not running
-    [Tags]
+    [Tags]    INPUT_PLUGIN     RAPL_PLUGIN
 
     ${output}=    Execute Command Alumet Node    echo "shutdown" | socat UNIX-CONNECT:alumet-control.sock -    
     Log    Result stdout : ${output}  
@@ -152,5 +122,3 @@ Check alumet not running
     ${output}=    Execute Command Alumet Node    ps -f -u ${USERNAME}
 
     Should Not Contain     ${output}    alumet-agent
-
-

@@ -223,3 +223,32 @@ Read value
     Log To Console     metric value read: ${output}
 
     [Return]    ${output}
+
+########################################################################################################
+# check Metric
+#   Connect to a target node and check metric using the 2 keywords:
+#     Read resource_kind   
+#     Read Value
+#
+#   input parameters:
+#         metric:             metric name to parse
+#         consumer_kind:      consumer kind
+#         domain:             domain name  
+#
+#   Return parameters:
+#        stdout    metric value
+#                   
+# Note that to connect to login, the following variables must be set as global:
+#       ${NODE}                     : Node where alumet is installed
+#       ${USERNAME}                 : username to open the ssh connection
+#       ${KEY}                      : ssh key to open the ssh connection       
+#
+########################################################################################################
+Check Metric
+    [Arguments]     ${metric}    ${consumer_kind}    ${domain}
+
+    ${output}=     Read resource_kind    ${metric}    ${domain}
+    Should Contain     ${output}    ${consumer_kind}
+
+    ${output}=    Read value            ${metric}    ${consumer_kind}    ${domain}
+    Should Be True    ${output} !=0.0
