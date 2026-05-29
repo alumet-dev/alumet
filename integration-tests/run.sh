@@ -2,7 +2,9 @@
 ################################################################################################
 # this script launch robot framework tests on a target node
 # Environment variables to set or modify:
-#       NODE: target node for executing robot framework test suites
+#       NODE:                   target node for executing robot framework test suites
+#       ALUMET_VERSION:         alumet version to test
+#       ALUMET_DISTRIBUTION:    alumet distribution to test
 #
 ################################################################################################
 
@@ -15,8 +17,8 @@ KEY=${HOME}/.ssh/id_rsa
 HOME_TEST=$(pwd)
 
 # version of Alumet to installed
-ALUMET_VERSION=0.9.4-1
-ALUMET_DISTRIBUTION=amd64_ubuntu_22.04
+ALUMET_VERSION=0.9.4
+ALUMET_DISTRIBUTION=1_amd64_ubuntu_22.04
 
 
 # Before executed the tests, we need to activate robot framework with the following command

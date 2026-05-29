@@ -5,14 +5,13 @@ Library    SSHLibrary
 Library    String
 Resource    ${HOME_TEST}/scenarios/common/alumet_keywords.robot
 
-Suite Setup    Log     Test are running on cluster: ${NODE}  level=INFO
+Suite Setup        Install Alumet
+Suite Teardown     UnInstall Alumet
 
 Test timeout    60 seconds
 
 *** Keywords ***
-Display current date
-    ${date}=    Get Time    result_format=%Y-%m-%d %H:%M:%S
-    Log To Console    Current date : ${date}
+
 
 *** Variables ***
 
@@ -37,22 +36,6 @@ Test connection on target node
 
     Close All Connections
 
-
-*** Test Cases ***
-install alumet
-    [Tags]
-
-    ${output}=    Install Alumet
-    # ${output}=    Execute Command Alumet Node    sudo DEBIAN_FRONTEND=noninteractive apt install -y ./alumet-agent_${ALUMET_VERSION}_${ALUMET_DISTRIBUTION}.deb
-    Log    Result stdout : ${output}
-
-    ${result}=    Execute Command Alumet Node    apt list --installed alumet-agent
-    Log    Result stdout : ${result}
-
-    Should Contain    ${result}    alumet
-    should Contain    ${result}    ${ALUMET_VERSION}
-
-
 *** Test Cases ***
 run plugins socket-control csv rapl
     [Tags]
@@ -72,7 +55,7 @@ run plugins socket-control csv rapl
     
 *** Test Cases ***
 check alumet running
-    [Tags]
+    [Tags]    INPUT_PLUGIN     RAPL_PLUGIN
 
     ${output}=    Execute Command Alumet Node    ls alumet-control.sock
     Log    Result stdout : ${output}
@@ -129,7 +112,7 @@ check metric rapl_consumed_energy_J resource dram domain dram
 *** Test Cases ***
 check metric rapl_consumed_energy_J resource dram domain dram_total
     [Tags]     INPUT_PLUGIN     RAPL_PLUGIN
-    
+
     # read the csv output file,  resource_kind domain dram
     ${output}=     Read resource_kind    rapl_consumed_energy_J    dram_total
     

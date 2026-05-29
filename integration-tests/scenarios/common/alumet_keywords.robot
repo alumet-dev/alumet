@@ -94,7 +94,7 @@ Execute Command Alumet Node
 
 ########################################################################################################
 # Install Alumet
-#   Connect to a target node and execute a command on this node
+#   Connect to a target node and install alumet
 #   input parameters:
 #       None
 #
@@ -105,11 +105,70 @@ Execute Command Alumet Node
 #       ${NODE}                     : Node where alumet is installed
 #       ${USERNAME}                 : username to open the ssh connection
 #       ${KEY}                      : ssh key to open the ssh connection       
+#       ${ALUMET_VERSION}           : alumet version
+#       ${ALUMET_DISTRIBUTION}      : alumet distribution
 #
 ########################################################################################################
 Install Alumet
 
-    ${output}=    Execute Command Alumet Node    sudo DEBIAN_FRONTEND=noninteractive apt install -y ./alumet-agent_${ALUMET_VERSION}_${ALUMET_DISTRIBUTION}.deb
+    # first download the right linux package file, exit test suite if download error
+    ${output}=    Run     wget https://github.com/alumet-dev/alumet/releases/download/v${ALUMET_VERSION}/alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb
+    ${exists}=    Run Keyword And Return Status    OperatingSystem.File Should Exist    alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb
+    Run Keyword If    ${exists}==False    Fail    'Error downloading alumet package file. Test suite is stopped'
+
+
+    Open Connection     172.16.118.53    alias=jumphost
+    Login With Public Key             ${USERNAME}     ${KEY}
+
+    Open Connection    ${NODE}
+    
+    Login With Public Key    ${USERNAME}     ${KEY}
+    ...    jumphost_index_or_alias=jumphost
+
+    # copy linux package on remote host
+    Put File    alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb    alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb
+
+    # install alumet package
+    ${output}=    Execute Command Alumet Node    sudo DEBIAN_FRONTEND=noninteractive apt install -y ./alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb
+
+    # check il installation ok
+    ${result}=    Execute Command Alumet Node    apt list --installed alumet-agent
+
+    # cancel test suite if installation failed
+    ${exists}=    Run Keyword And Return Status     Should Contain    ${result}    alumet
+    Run Keyword If    ${exists}==False    Fail    'Error installing alumet. Test suite is stopped'
+
+    ${exists}=    Run Keyword And Return Status    should Contain    ${result}    ${ALUMET_VERSION}
+    Run Keyword If    ${exists}==False    Fail    'Error installing alumet. Test suite is stopped'
+
+    Close All Connections
+
+    [Return]    ${output}
+
+########################################################################################################
+# UnInstall Alumet
+#   Connect to a target node and uninstall alumet
+#   input parameters:
+#       None
+#
+#   Return parameters:
+#        stdout    of the command executed
+#                   
+# Note that to connect to login, the following variables must be set as global:
+#       ${NODE}                     : Node where alumet is installed
+#       ${USERNAME}                 : username to open the ssh connection
+#       ${KEY}                      : ssh key to open the ssh connection       
+#       ${ALUMET_VERSION}           : alumet version
+#       ${ALUMET_DISTRIBUTION}      : alumet distribution
+#
+########################################################################################################
+UnInstall Alumet
+
+    ${output}=    Execute Command Alumet Node    sudo DEBIAN_FRONTEND=noninteractive apt purge -y alumet-agent
+
+    ${result}=    Execute Command Alumet Node    apt list --installed alumet-agent
+
+    Should Not Contain    ${result}    alumet
 
     [Return]    ${output}
 

@@ -42,7 +42,7 @@ Test connection on target node
 install alumet
     [Tags]
 
-    ${output}=    Execute Command Alumet Node    sudo DEBIAN_FRONTEND=noninteractive apt install -y ./alumet-agent_${ALUMET_VERSION}_${ALUMET_DISTRIBUTION}.deb
+    ${output}=   Install Alumet
     Log    Result stdout : ${output}
 
     ${result}=    Execute Command Alumet Node    apt list --installed alumet-agent
@@ -132,9 +132,8 @@ config regen
 uninstall alumet
     [Tags]
   
-    # ${output}=    Execute Command Alumet Node    sudo apt remove -y --purge alumet-agent/now   
-    # Log    Result stdout : ${output}
-
+    UnInstall Alumet
+    
 
 
 
