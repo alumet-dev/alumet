@@ -1,0 +1,10 @@
+Manipulate the configuration
+
+Usage: alumet-agent config <COMMAND>
+
+Commands:
+  regen  Regenerate the configuration file and stop
+  help   Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help  Print help
