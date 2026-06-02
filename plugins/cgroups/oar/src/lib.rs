@@ -6,6 +6,7 @@ use anyhow::Context;
 
 use crate::{
     attr::OarJobTagger,
+    config::Config,
     job_tracker::{JobCleaner, JobTracker},
     transform::JobInfoAttacher,
 };
@@ -18,6 +19,7 @@ use util_cgroups_plugins::{
 };
 
 mod attr;
+mod config;
 mod job_tracker;
 mod source;
 mod transform;
@@ -26,7 +28,7 @@ mod transform;
 ///
 /// Supports OAR2 and OAR3, on cgroup v1 or cgroup v2.
 pub struct OarPlugin {
-    config: Option<config::Config>,
+    config: Option<Config>,
     /// Intermediary state for startup.
     starting_state: Option<StartingState>,
     /// The reactor that is running in the background. Dropping it will stop it.
@@ -34,7 +36,7 @@ pub struct OarPlugin {
 }
 
 impl OarPlugin {
-    pub fn new(config: config::Config) -> Self {
+    pub fn new(config: Config) -> Self {
         Self {
             config: Some(config),
             reactor: None,
@@ -53,12 +55,12 @@ impl AlumetPlugin for OarPlugin {
     }
 
     fn init(config: ConfigTable) -> anyhow::Result<Box<Self>> {
-        let config: config::Config = deserialize_config(config)?;
+        let config: Config = deserialize_config(config)?;
         Ok(Box::new(Self::new(config)))
     }
 
     fn default_config() -> anyhow::Result<Option<ConfigTable>> {
-        let config = serialize_config(config::Config::default())?;
+        let config = serialize_config(Config::default())?;
         Ok(Some(config))
     }
 
@@ -118,8 +120,6 @@ impl AlumetPlugin for OarPlugin {
         Ok(())
     }
 }
-
-mod config;
 
 struct StartingState {
     metrics: Metrics,
