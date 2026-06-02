@@ -5,7 +5,8 @@ agent/perf.data
 agent/perf.data.old
 agent/*output.csv
 .DS_Store
-.vscode
+.vscode/
+.idea/
 tmp/
 .cargo
 tarpaulin-report.html
