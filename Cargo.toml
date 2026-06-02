@@ -27,6 +27,7 @@ members = [
     "plugins/rapl",
     "plugins/relay",
     "plugins/socket-control",
+    "plugins/tui",
 
     "separate-tests/test-dynamic-plugins",
 ]

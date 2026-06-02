@@ -21,6 +21,7 @@ toml.workspace = true
 
 # Plugins that are available for every target
 plugin-csv = { path = "../plugins/csv" }
+plugin-tui = { path = "../plugins/tui" }
 plugin-prometheus-exporter = { path = "../plugins/prometheus-exporter" }
 plugin-influxdb = { path = "../plugins/influxdb" }
 plugin-relay = { path = "../plugins/relay" }

@@ -1,0 +1,23 @@
+[package]
+name = "plugin-tui"
+version = "0.1.0"
+edition.workspace = true
+repository.workspace = true
+
+[dependencies]
+alumet.workspace = true
+anyhow.workspace = true
+log.workspace = true
+serde = { workspace = true, features = ["derive"] }
+time = { version = "0.3.36", features = ["formatting", "macros"] }
+ratatui = "0.29"
+regex = "1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+
+[lints]
+workspace = true
