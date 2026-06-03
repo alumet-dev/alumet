@@ -5,7 +5,9 @@ Library    SSHLibrary
 Library    String
 Resource    ${HOME_TEST}/scenarios/common/alumet_keywords.robot
 
-Suite Setup    Log     Test are running on cluster: ${NODE}  level=INFO
+Suite Setup        Install Alumet
+Suite Teardown     UnInstall Alumet
+# Suite Setup    Log     Test are running on cluster: ${NODE}  level=INFO
 
 Test timeout    60 seconds
 
@@ -37,26 +39,18 @@ Test connection on target node
 
     Close All Connections
 
-
 *** Test Cases ***
-install alumet
-    [Tags]
+run cpu_load
+    [Tags]    INPUT_PLUGIN     PERF_PLUGIN  
 
-    ${output}=    Execute Command Alumet Node    sudo DEBIAN_FRONTEND=noninteractive apt install -y ./alumet-agent_${ALUMET_VERSION}_${ALUMET_DISTRIBUTION}.deb
-    Log    Result stdout : ${output}
-
-    ${result}=    Execute Command Alumet Node    apt list --installed alumet-agent
-    Log    Result stdout : ${result}
-
-    Should Contain    ${result}    alumet
-    should Contain    ${result}    ${ALUMET_VERSION}
-
+    ${output}=    Execute Command Alumet Node   nohup ./cpu_load.sh 20 > /dev/null 2>&1 &
+    Sleep    3s
 
 *** Test Cases ***
 run plugin csv perf
-    [Tags]
+    [Tags]    INPUT_PLUGIN     PERF_PLUGIN  
 
-    ${output}=    Execute Command Alumet Node    alumet-agent --plugins csv,perf,socket-control > /tmp/alumet.log 2>&1 &
+    ${output}=    Execute Command Alumet Node    alumet-agent --plugins csv,perf,socket-control watch "$(cat cpu_load.sh.pid)" > /tmp/alumet.log 2>&1 &
     Sleep    3s
 
     ${output_alumet}=    Execute Command Alumet Node    cat /tmp/alumet.log
@@ -71,7 +65,7 @@ run plugin csv perf
     
 *** Test Cases ***
 check alumet running
-    [Tags]
+    [Tags]    INPUT_PLUGIN     PERF_PLUGIN  
 
     ${output}=    Execute Command Alumet Node    ls alumet-control.sock
     Log    Result stdout : ${output}
@@ -84,21 +78,42 @@ check alumet running
     Should Contain     ${output}    /usr/lib/alumet-agent --plugins csv,perf,socket-control
 
 *** Test Cases ***
+Check Perf Metric perf_hardware_REF_CPU_CYCLES 
+    [Template]    Check Metric    
+    [Tags]    INPUT_PLUGIN     PERF_PLUGIN    
+    
+        # ${metric}                ${resource_kind}    ${domain}
+    perf_hardware_REF_CPU_CYCLES        local_machine   
+
+Check Perf Metric perf_hardware_CACHE_MISSES 
+    [Template]    Check Metric    
+    [Tags]    INPUT_PLUGIN     PERF_PLUGIN    
+    
+        # ${metric}                ${resource_kind}    ${domain}
+    perf_hardware_CACHE_MISSES        local_machine  
+    
+Check Perf Metric perf_hardware_BRANCH_MISSES 
+    [Template]    Check Metric    
+    [Tags]    INPUT_PLUGIN     PERF_PLUGIN    
+    
+        # ${metric}                ${resource_kind}    ${domain}
+    perf_hardware_BRANCH_MISSES        local_machine  
+   
+
+*** Test Cases ***
 stop alumet
-    [Tags]
+    [Tags]    INPUT_PLUGIN     PERF_PLUGIN  
 
     ${output}=    Execute Command Alumet Node    echo "shutdown" | socat UNIX-CONNECT:alumet-control.sock -    
     Log    Result stdout : ${output}  
-    # ${output}=    Execute Command Alumet Node    sudo apt remove -y --purge alumet-agent/now   
-    # Log    Result stdout : ${output}
-
+    
     ${output}=    Execute Command Alumet Node    ls alumet-control.sock
 
     Should Not Contain     ${output}    alumet-control.sock
    
 *** Test Cases ***
 Check alumet not running
-    [Tags]
+    [Tags]    INPUT_PLUGIN     PERF_PLUGIN  
 
     ${output}=    Execute Command Alumet Node    echo "shutdown" | socat UNIX-CONNECT:alumet-control.sock -    
     Log    Result stdout : ${output}  

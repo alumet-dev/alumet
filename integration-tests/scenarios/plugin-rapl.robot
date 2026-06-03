@@ -69,28 +69,28 @@ check alumet running
     Should Contain     ${output}    /usr/lib/alumet-agent --plugins csv,rapl,socket-control
 
 *** Test Cases ***
-Check Rapl Metrics package
+Check Rapl Metric package
     [Template]    Check Metric    
     [Tags]    INPUT_PLUGIN     RAPL_PLUGIN    
-    # ${metric}                ${consumer_kind}    ${domain}
+    # ${metric}                ${resource_kind}    ${domain}
     rapl_consumed_energy_J        cpu_package        package    
 
-Check Rapl Metrics package_total
+Check Rapl Metric package_total
     [Template]    Check Metric    
     [Tags]    INPUT_PLUGIN     RAPL_PLUGIN    
-    # ${metric}                ${consumer_kind}    ${domain}
+    # ${metric}                ${resource_kind}    ${domain}
     rapl_consumed_energy_J    local_machine        package_total    
 
-Check Rapl Metrics dram
+Check Rapl Metric dram
     [Template]    Check Metric    
     [Tags]    INPUT_PLUGIN     RAPL_PLUGIN    
-    # ${metric}                ${consumer_kind}    ${domain}
+    # ${metric}                ${resource_kind}    ${domain}
     rapl_consumed_energy_J        dram                dram    
 
-Check Rapl Metrics dram_total
+Check Rapl Metric dram_total
     [Template]    Check Metric    
     [Tags]    INPUT_PLUGIN     RAPL_PLUGIN    
-    # ${metric}                ${consumer_kind}    ${domain}
+    # ${metric}                ${resource_kind}    ${domain}
     rapl_consumed_energy_J        local_machine    dram_total    
 
 *** Test Cases ***

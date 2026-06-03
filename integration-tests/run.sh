@@ -39,12 +39,10 @@ robot   -v "NODE:localhost" \
         -v "ALUMET_VERSION:$ALUMET_VERSION" \
         -v "ALUMET_DISTRIBUTION:$ALUMET_DISTRIBUTION" \
         --metadata "Test are executed on node $NODE" \
-        scenarios/plugin-rapl.robot
+        scenarios/
 
 echo "End running tests at: $(date)"
 
 # other tags defined on tests that can be exclude
-        # --exclude CPU \
-        # --exclude GPU \
-        # --exclude LOW \
-        # --exclude HIGH \
+        # --exclude RAPL_PLUGIN \
+        # --exclude INSTALLATION \

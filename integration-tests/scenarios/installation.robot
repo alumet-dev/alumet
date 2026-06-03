@@ -21,7 +21,7 @@ Display current date
 
 *** Test Cases ***
 Test connection on target node
-    [Tags]
+    [Tags]    INSTALLATION
 
     Open Connection     172.16.118.53    alias=jumphost
     Login With Public Key             ${USERNAME}     ${KEY}
@@ -40,7 +40,7 @@ Test connection on target node
 
 *** Test Cases ***
 install alumet
-    [Tags]
+    [Tags]    INSTALLATION
 
     ${output}=   Install Alumet
     Log    Result stdout : ${output}
@@ -53,7 +53,7 @@ install alumet
 
 *** Test Cases ***
 which alumet-agent
-    [Tags]
+    [Tags]    INSTALLATION
 
     ${output}=    Execute Command Alumet Node    which alumet-agent
     Log    Result stdout : ${output}
@@ -62,7 +62,7 @@ which alumet-agent
 
 *** Test Cases ***
 help option
-    [Tags]
+    [Tags]    INSTALLATION
 
     ${file_content}=    OperatingSystem.Get File    scenarios/resources/help-option.txt
 
@@ -77,7 +77,7 @@ help option
 
 *** Test Cases ***
 help exec option
-    [Tags]
+    [Tags]    INSTALLATION
 
     ${file_content}=    OperatingSystem.Get File    scenarios/resources/help-exec-option.txt
 
@@ -88,7 +88,7 @@ help exec option
 
 *** Test Cases ***
 help plugins option
-    [Tags]
+    [Tags]    INSTALLATION
 
     ${file_content}=    OperatingSystem.Get File    scenarios/resources/help-plugins-option.txt
 
@@ -99,7 +99,7 @@ help plugins option
 
 *** Test Cases ***
 help watch option
-    [Tags]
+    [Tags]    INSTALLATION
 
     ${file_content}=    OperatingSystem.Get File    scenarios/resources/help-watch-option.txt
 
@@ -110,7 +110,7 @@ help watch option
 
 *** Test Cases ***
 help config option
-    [Tags]
+    [Tags]    INSTALLATION
 
     ${file_content}=    OperatingSystem.Get File    scenarios/resources/help-config-option.txt
 
@@ -121,7 +121,7 @@ help config option
 
 *** Test Cases ***
 config regen
-    [Tags]
+    [Tags]    INSTALLATION
 
     ${output}=    Execute Command Alumet Node    alumet-agent config regen
     Log    Result stdout : ${output}
@@ -130,7 +130,7 @@ config regen
 
 *** Test Cases ***
 uninstall alumet
-    [Tags]
+    [Tags]    INSTALLATION
   
     UnInstall Alumet
     

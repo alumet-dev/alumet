@@ -170,6 +170,20 @@ UnInstall Alumet
 
     Should Not Contain    ${result}    alumet
 
+    # remove alumet package file on target node
+    ${result}=    Execute Command Alumet Node    rm alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb*
+
+    ${result}=    Execute Command Alumet Node    ls -l alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb*
+
+    Should Not Contain    ${result}    alumet
+
+    # remove alumet package file downloaded locally
+    ${result}=    Run     rm alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb*
+
+    ${result}=    Run     ls -l alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb*
+
+    Should Contain    ${result}    cannot access
+
     [Return]    ${output}
 
 ########################################################################################################
@@ -189,11 +203,19 @@ UnInstall Alumet
 #
 ########################################################################################################
 Read resource_kind
-    [Arguments]     ${metric}    ${domain}
+    [Arguments]     ${metric}    ${domain}=${EMPTY}
+
+
 
     # the metric resource_kind is on 4th column 
     # ${output}=    Execute Command Alumet Node     grep ${metric} alumet-output.csv | grep ${domain} | awk -F ';' '{print $4}'
-    ${command}=   Set variable     grep ${metric} alumet-output.csv | awk -F ';' ' $8 == "${domain}" { OFS="|"; print $4 }'
+
+    IF    '${domain}' != ''
+        ${command}=   Set variable     grep ${metric} alumet-output.csv | awk -F ';' ' $8 == "${domain}" { OFS="|"; print $4 }'
+    ELSE
+        ${command}=   Set variable     grep ${metric} alumet-output.csv
+    END
+
     ${output}=    Execute Command Alumet Node     ${command}
 
     [Return]    ${output}
@@ -203,6 +225,7 @@ Read resource_kind
 #   Connect to a target node and read the metric value on the first line of alumet-output.csv file.
 #   input parameters:
 #         metric: metric name to parse 
+#         resource_kind: resource kind name
 #         domain: domain name  
 #
 #   Return parameters:
@@ -215,11 +238,17 @@ Read resource_kind
 #
 ########################################################################################################
 Read value
-    [Arguments]     ${metric}    ${consumer_kind}    ${domain}
+    [Arguments]     ${metric}    ${resource_kind}    ${domain}=${EMPTY}
+
+    IF    '${domain}' != ''
+        ${command}=   Set variable     grep ${metric} alumet-output.csv | awk -F ';' ' $8 == "${domain}" && $4 == "${resource_kind}" { OFS="|"; print $3 }' | sed -n '1p'
+    ELSE
+        ${command}=   Set variable     grep ${metric} alumet-output.csv | awk -F ';' ' $4 == "${resource_kind}" { OFS="|"; print $3 }' | sed -n '1p'
+    END
+
 
     # the metric value is on 3rd column 
-    ${command}=   Set variable     grep ${metric} alumet-output.csv | awk -F ';' ' $8 == "${domain}" && $4 == "${consumer_kind}" { OFS="|"; print $3 }'
-    ${output}=    Execute Command Alumet Node     grep ${metric} alumet-output.csv | grep ${domain} | awk -F ';' '{print $3}' | sed -n '1p' 
+    ${output}=    Execute Command Alumet Node     ${command} 
     Log To Console     metric value read: ${output}
 
     [Return]    ${output}
@@ -232,7 +261,7 @@ Read value
 #
 #   input parameters:
 #         metric:             metric name to parse
-#         consumer_kind:      consumer kind
+#         resource_kind:      resource kind
 #         domain:             domain name  
 #
 #   Return parameters:
@@ -245,10 +274,10 @@ Read value
 #
 ########################################################################################################
 Check Metric
-    [Arguments]     ${metric}    ${consumer_kind}    ${domain}
+    [Arguments]     ${metric}    ${resource_kind}    ${domain}=${EMPTY}
 
     ${output}=     Read resource_kind    ${metric}    ${domain}
-    Should Contain     ${output}    ${consumer_kind}
+    Should Contain     ${output}    ${resource_kind}
 
-    ${output}=    Read value            ${metric}    ${consumer_kind}    ${domain}
+    ${output}=    Read value            ${metric}    ${resource_kind}    ${domain}
     Should Be True    ${output} !=0.0
