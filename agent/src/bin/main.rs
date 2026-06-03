@@ -25,6 +25,7 @@ fn load_plugins_metadata() -> Vec<PluginMetadata> {
     // plugins that work on every target
     let mut plugins = static_plugins![
         plugin_csv::CsvPlugin,
+        plugin_tui::TuiPlugin,
         plugin_prometheus_exporter::PrometheusPlugin,
         plugin_influxdb::InfluxDbPlugin,
         plugin_mongodb::MongoDbPlugin,

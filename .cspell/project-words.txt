@@ -55,6 +55,7 @@ Quarch
 quarchpy
 Raffin
 RAPL
+ratatui
 regen
 rollup
 rustfmt
@@ -64,6 +65,8 @@ servan
 slurm
 slurmstep
 slurmstepd
+sparkline
+Sparklines
 statm
 subconfig
 sublicensable
