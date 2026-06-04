@@ -41,6 +41,7 @@ monitorable
 mpoint
 neowise
 niced
+nohup
 noninteractive
 nvme
 NVML

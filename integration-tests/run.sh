@@ -27,7 +27,7 @@ ALUMET_DISTRIBUTION=1_amd64_ubuntu_22.04
 source "$HOME"/venv-robot/bin/activate
 
 # you can exclude some tests using option --exclude following by TAG name 
-# Available TAGs are : CPU, GPU, LOW, HIGH
+# Available TAGs are : RAPL_PLUGIN, PERF_PLUGIN, INPUT_PLUGIN, INSTALLATION
 
 echo "Start running tests at: $(date)"
 
@@ -38,11 +38,12 @@ robot   -v "NODE:localhost" \
         -v "HOME_TEST:$HOME_TEST"  \
         -v "ALUMET_VERSION:$ALUMET_VERSION" \
         -v "ALUMET_DISTRIBUTION:$ALUMET_DISTRIBUTION" \
-        --metadata "Test are executed on node $NODE" \
+        --metadata "Test are executed on node $NODE with alumet $ALUMET_VERSION $ALUMET_DISTRIBUTION" \
         scenarios/
 
 echo "End running tests at: $(date)"
 
 # other tags defined on tests that can be exclude
+        # --exclude INPUT_PLUGIN \
         # --exclude RAPL_PLUGIN \
         # --exclude INSTALLATION \

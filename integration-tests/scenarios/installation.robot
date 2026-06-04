@@ -42,8 +42,8 @@ Test connection on target node
 install alumet
     [Tags]    INSTALLATION
 
-    ${output}=   Install Alumet
-    Log    Result stdout : ${output}
+    # Alumet is already installed by Suite Setup
+    # we check only if installed version is right
 
     ${result}=    Execute Command Alumet Node    apt list --installed alumet-agent
     Log    Result stdout : ${result}
@@ -126,14 +126,7 @@ config regen
     ${output}=    Execute Command Alumet Node    alumet-agent config regen
     Log    Result stdout : ${output}
 
-    Should Contain     ${output}    Default configuration file written to: /etc/alumet/alumet-config.toml
-
-*** Test Cases ***
-uninstall alumet
-    [Tags]    INSTALLATION
-  
-    UnInstall Alumet
-    
+    Should Contain     ${output}    Default configuration file written to: /etc/alumet/alumet-config.toml    
 
 
 

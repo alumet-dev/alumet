@@ -5,10 +5,6 @@ Library    SSHLibrary
 Library    String
 Resource    ${HOME_TEST}/scenarios/common/alumet_keywords.robot
 # Test Template    Check Metric    
-
-Suite Setup        Install Alumet
-Suite Teardown     UnInstall Alumet
-
 Test timeout    60 seconds
 
 *** Keywords ***
@@ -21,7 +17,7 @@ Test timeout    60 seconds
 
 *** Test Cases ***
 Test connection on target node
-    [Tags]
+    [Tags]    INPUT_PLUGIN     RAPL_PLUGIN    
 
     Open Connection     172.16.118.53    alias=jumphost
     Login With Public Key             ${USERNAME}     ${KEY}

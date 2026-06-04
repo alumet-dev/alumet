@@ -128,6 +128,9 @@ Install Alumet
     # copy linux package on remote host
     Put File    alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb    alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb
 
+    # copy tools files
+    Put File    scenarios/tools/cpu_load.sh     cpu_load.sh
+
     # install alumet package
     ${output}=    Execute Command Alumet Node    sudo DEBIAN_FRONTEND=noninteractive apt install -y ./alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb
 
@@ -169,6 +172,9 @@ UnInstall Alumet
     ${result}=    Execute Command Alumet Node    apt list --installed alumet-agent
 
     Should Not Contain    ${result}    alumet
+
+    # remove alumet-output.csv file
+    ${result}=    Execute Command Alumet Node    rm alumet-output.csv
 
     # remove alumet package file on target node
     ${result}=    Execute Command Alumet Node    rm alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb*

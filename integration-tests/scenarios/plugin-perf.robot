@@ -5,9 +5,6 @@ Library    SSHLibrary
 Library    String
 Resource    ${HOME_TEST}/scenarios/common/alumet_keywords.robot
 
-Suite Setup        Install Alumet
-Suite Teardown     UnInstall Alumet
-# Suite Setup    Log     Test are running on cluster: ${NODE}  level=INFO
 
 Test timeout    60 seconds
 
@@ -23,7 +20,7 @@ Display current date
 
 *** Test Cases ***
 Test connection on target node
-    [Tags]
+    [Tags]    INPUT_PLUGIN     PERF_PLUGIN  
 
     Open Connection     172.16.118.53    alias=jumphost
     Login With Public Key             ${USERNAME}     ${KEY}
