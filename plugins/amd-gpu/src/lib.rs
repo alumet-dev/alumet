@@ -61,7 +61,13 @@ impl AmdInterfaceProvider for AmdSmiProvider {
     type A = AmdSmi;
 
     fn get() -> anyhow::Result<AmdSmi> {
-        Ok(AmdSmi::init(AmdInitFlags::AMDSMI_INIT_AMD_GPUS)?)
+        let lib = AmdSmi::init(AmdInitFlags::AMDSMI_INIT_AMD_GPUS)?;
+        if !lib.version().is_officially_supported {
+            log::warn!(
+                "You are running a version of AMD SMI that is newer than the last version tested with this plugin. Please report any bug/crash on our repository."
+            );
+        }
+        Ok(lib)
     }
 }
 

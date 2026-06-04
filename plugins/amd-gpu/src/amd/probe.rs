@@ -147,14 +147,16 @@ impl<H: ProcessorHandle> AmdGpuSource<H> {
                 let consumer = ResourceConsumer::Process { pid: process.pid };
                 let name = &process.name;
 
-                if compute_units_number > 0 {
+                if compute_units_number > 0
+                    && let Some(cu_occupancy) = process.cu_occupancy
+                {
                     push(
                         measurements,
                         timestamp,
                         self.metrics.process_cu_occupancy,
                         resource,
                         &consumer,
-                        (process.cu_occupancy as f64 / compute_units_number as f64) * 100.0,
+                        (cu_occupancy as f64 / compute_units_number as f64) * 100.0,
                         || (KEY, name.to_string()),
                     );
                 }
@@ -242,7 +244,7 @@ impl<H: ProcessorHandle> Source for AmdGpuSource<H> {
             if features.gpu_asic_info
                 && let Ok(value) = device.handle.device_asic_info()
             {
-                // Push GPU compute-graphic process informations if processes existing
+                // Push GPU compute-graphic process information if processes existing
                 self.handle_gpu_processes(device, measurements, timestamp, &resource, value.num_of_compute_units);
             }
 
@@ -263,15 +265,17 @@ impl<H: ProcessorHandle> Source for AmdGpuSource<H> {
 
             // GPU instant electric power consumption metric pushed
             if features.gpu_power_consumption
-                && device.handle.device_power_managment()?
-                && let Ok(value) = device.handle.device_power_consumption()
+                && device.handle.is_power_managment_enabled()?
+                && let Ok(value) = device.handle.device_power_info()
+                && let Some(power) = value.socket_power
             {
+                // TODO should we signal the difference between current and average socket power?
                 measurements.push(MeasurementPoint::new(
                     timestamp,
                     self.metrics.gpu_power_consumption,
                     resource.clone(),
                     consumer.clone(),
-                    value.socket_power,
+                    power,
                 ));
             }
 

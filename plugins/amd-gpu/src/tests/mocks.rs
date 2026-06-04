@@ -1,7 +1,7 @@
-use amd_smi_wrapper::metrics::{
-    AmdAsicInfo, AmdEnergyConsumption, AmdEngineUsage, AmdMemoryType, AmdPowerConsumption, AmdProcess,
-    AmdProcessEngineUsage, AmdProcessMemoryUsage, AmdTemperatureType,
-};
+use amd_smi_wrapper::metrics::asic_info::AmdAsicInfo;
+use amd_smi_wrapper::metrics::power_info::AmdPowerInfo;
+use amd_smi_wrapper::metrics::process_info::{AmdProcessEngineUsage, AmdProcessInfo, AmdProcessMemoryUsage};
+use amd_smi_wrapper::metrics::{AmdEnergyConsumption, AmdEngineUsage, AmdMemoryType, AmdTemperatureType};
 
 pub const MOCK_SOURCE_NAME: &str = "amd_gpu_devices";
 pub const MOCK_TIMESTAMP: u64 = 1712024507665;
@@ -31,10 +31,10 @@ pub const MOCK_ENERGY: [AmdEnergyConsumption; 2] = [
     },
 ];
 
-pub const MOCK_POWER: AmdPowerConsumption = AmdPowerConsumption {
-    socket_power: 43,
-    current_socket_power: 45,
-    average_socket_power: 47,
+pub const MOCK_POWER: AmdPowerInfo = AmdPowerInfo {
+    socket_power: Some(43),
+    current_socket_power: Some(45),
+    average_socket_power: Some(47),
     gfx_voltage: 850,
     soc_voltage: 840,
     mem_voltage: 830,
@@ -68,12 +68,12 @@ pub fn mock_asic_info() -> AmdAsicInfo {
         oam_id: 1,
         num_of_compute_units: 104,
         target_graphics_version: 2314,
-        subsystem_id: 3124,
+        subsystem_id: Some(3124),
     }
 }
 
-pub fn mock_process() -> AmdProcess {
-    AmdProcess {
+pub fn mock_process() -> AmdProcessInfo {
+    AmdProcessInfo {
         name: MOCK_PROCESS_NAME.to_string(),
         pid: 1,
         mem: 131072,
@@ -87,7 +87,7 @@ pub fn mock_process() -> AmdProcess {
             vram_mem: 3456789,
         },
         container_name: MOCK_PROCESS_NAME.to_string(),
-        cu_occupancy: 42,
-        evicted_time: 65535,
+        cu_occupancy: Some(42),
+        evicted_time: Some(65535),
     }
 }
