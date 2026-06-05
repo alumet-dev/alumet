@@ -10,9 +10,6 @@ Suite Setup    Log     Test are running on cluster: ${NODE}  level=INFO
 Test timeout    180 seconds
 
 *** Keywords ***
-Display current date
-    ${date}=    Get Time    result_format=%Y-%m-%d %H:%M:%S
-    Log To Console    Current date : ${date}
 
 *** Variables ***
 
@@ -23,20 +20,8 @@ Display current date
 Test connection on target node
     [Tags]    INSTALLATION
 
-    Open Connection     172.16.118.53    alias=jumphost
-    Login With Public Key             ${USERNAME}     ${KEY}
-
-    Open Connection    ${NODE}
-    
-    Login With Public Key    ${USERNAME}     ${KEY}
-    ...    jumphost_index_or_alias=jumphost
-
-
-    ${output}=    Execute Command    hostname
+    ${output}    ${stderr}=    Execute Command Target Node    hostname
     Log    Output Result of SSH : ${output}
-
-    Close All Connections
-
 
 *** Test Cases ***
 install alumet
@@ -45,7 +30,7 @@ install alumet
     # Alumet is already installed by Suite Setup
     # we check only if installed version is right
 
-    ${result}=    Execute Command Alumet Node    apt list --installed alumet-agent
+    ${result}    ${stderr}=    Execute Command Target Node    apt list --installed alumet-agent
     Log    Result stdout : ${result}
 
     Should Contain    ${result}    alumet
@@ -55,7 +40,7 @@ install alumet
 which alumet-agent
     [Tags]    INSTALLATION
 
-    ${output}=    Execute Command Alumet Node    which alumet-agent
+    ${output}    ${stderr}=    Execute Command Target Node    which alumet-agent
     Log    Result stdout : ${output}
 
     Should Contain    ${output}    /usr/bin/alumet-agent 
@@ -66,12 +51,8 @@ help option
 
     ${file_content}=    OperatingSystem.Get File    scenarios/resources/help-option.txt
 
-    ${output}=    Execute Command Alumet Node    alumet-agent -h
+    ${output}    ${stderr}=    Execute Command Target Node    alumet-agent -h
     Log    Result stdout : ${output}
-
-    # Should Contain    ${output}    Usage
-    # Should Contain    ${output}    Commands    
-    # Should Contain    ${output}    Options    
 
     Should Be Equal As Strings    ${file_content}    ${output}
 
@@ -81,7 +62,7 @@ help exec option
 
     ${file_content}=    OperatingSystem.Get File    scenarios/resources/help-exec-option.txt
 
-    ${output}=    Execute Command Alumet Node    alumet-agent exec -h
+    ${output}    ${stderr}=    Execute Command Target Node    alumet-agent exec -h
     Log    Result stdout : ${output}
 
     Should Be Equal As Strings    ${file_content}    ${output}
@@ -92,7 +73,7 @@ help plugins option
 
     ${file_content}=    OperatingSystem.Get File    scenarios/resources/help-plugins-option.txt
 
-    ${output}=    Execute Command Alumet Node    alumet-agent plugins -h
+    ${output}    ${stderr}=    Execute Command Target Node    alumet-agent plugins -h
     Log    Result stdout : ${output}
 
     Should Be Equal As Strings    ${file_content}    ${output}    
@@ -103,7 +84,7 @@ help watch option
 
     ${file_content}=    OperatingSystem.Get File    scenarios/resources/help-watch-option.txt
 
-    ${output}=    Execute Command Alumet Node    alumet-agent watch -h
+    ${output}    ${stderr}=    Execute Command Target Node    alumet-agent watch -h
     Log    Result stdout : ${output}
 
     Should Be Equal As Strings    ${file_content}    ${output}        
@@ -114,7 +95,7 @@ help config option
 
     ${file_content}=    OperatingSystem.Get File    scenarios/resources/help-config-option.txt
 
-    ${output}=    Execute Command Alumet Node    alumet-agent config -h
+    ${output}    ${stderr}=    Execute Command Target Node    alumet-agent config -h
     Log    Result stdout : ${output}
 
     Should Be Equal As Strings    ${file_content}    ${output}
@@ -123,7 +104,7 @@ help config option
 config regen
     [Tags]    INSTALLATION
 
-    ${output}=    Execute Command Alumet Node    alumet-agent config regen
+    ${output}    ${stderr}=    Execute Command Target Node    alumet-agent config regen
     Log    Result stdout : ${output}
 
     Should Contain     ${output}    Default configuration file written to: /etc/alumet/alumet-config.toml    

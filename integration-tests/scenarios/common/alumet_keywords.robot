@@ -8,40 +8,18 @@ Library    SSHLibrary
 *** Keywords ***
 
 ########################################################################################################
-# Compare values 
-#   Compare 2 values with a precision of N decimals
+# Compare values Percent
+#   Compare 2 values with a precision expressed as a % 
 #   input parameters:
 #       value1
 #       value2
+#       precision in %
 #
 #   return parameter:
 #    boolean: true if value1 = value2 according the precision
 #
 ########################################################################################################
-Compare Values
-    [Arguments]     ${value1}    ${value2}    ${NbDecimal}
-    
-    ${precision}=    Evaluate    10 ** -${NbDecimal}
-    ${diff}=    Evaluate    abs(round(${value1}, ${NbDecimal}) - round(${value2}, ${NbDecimal}))
-    ${diff_str}=    Evaluate    str(${diff})
-    Log To Console    difference:    ${diff_str}
-
-    ${result}=    Evaluate     ${diff} < ${precision}
-
-    [Return]    ${result}
-
-########################################################################################################
-# Compare values percent
-#   Compare 2 values with a precision of N decimals
-#   input parameters:
-#       value1
-#       value2
-#
-#   return parameter:
-#    boolean: true if value1 = value2 according the precision
-#
-########################################################################################################
-Compare Values percent
+Compare Values Percent
     [Arguments]     ${value1}    ${value2}    ${percent}
     
     ${diff}=    Evaluate    abs(${value1}-${value2})/${value1}*100
@@ -49,7 +27,7 @@ Compare Values percent
 
     [Return]    ${result}
 ########################################################################################################
-# Execute command on target node
+# Execute Command Target Node
 #   Connect to a target node and execute a command on this node
 #   input parameters:
 #       Command:     the command to execute on remote host
@@ -63,10 +41,10 @@ Compare Values percent
 #       ${KEY}                      : ssh key to open the ssh connection       
 #
 ########################################################################################################
-Execute Command Alumet Node
+Execute Command Target Node
     [Arguments]     ${Command}
 
-    Open Connection     172.16.118.53    alias=jumphost
+    Open Connection     ${GATEWAY}    alias=jumphost
     Login With Public Key             ${USERNAME}     ${KEY}
 
     Open Connection    ${NODE}
@@ -89,8 +67,7 @@ Execute Command Alumet Node
 
     Close All Connections
 
-    [Return]    ${stdout}
-
+    [Return]    ${stdout}    ${stderr}
 
 ########################################################################################################
 # Install Alumet
@@ -117,13 +94,15 @@ Install Alumet
     Run Keyword If    ${exists}==False    Fail    'Error downloading alumet package file. Test suite is stopped'
 
 
-    Open Connection     172.16.118.53    alias=jumphost
+    Open Connection     ${GATEWAY}    alias=jumphost
     Login With Public Key             ${USERNAME}     ${KEY}
 
     Open Connection    ${NODE}
     
     Login With Public Key    ${USERNAME}     ${KEY}
     ...    jumphost_index_or_alias=jumphost
+
+    # create tmp directory to put all required files on target node
 
     # copy linux package on remote host
     Put File    alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb    alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb
@@ -132,10 +111,10 @@ Install Alumet
     Put File    scenarios/tools/cpu_load.sh     cpu_load.sh
 
     # install alumet package
-    ${output}=    Execute Command Alumet Node    sudo DEBIAN_FRONTEND=noninteractive apt install -y ./alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb
+    ${output}    ${stderr}=    Execute Command Target Node    sudo DEBIAN_FRONTEND=noninteractive apt install -y ./alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb
 
     # check il installation ok
-    ${result}=    Execute Command Alumet Node    apt list --installed alumet-agent
+    ${result}    ${stderr}=    Execute Command Target Node    apt list --installed alumet-agent
 
     # cancel test suite if installation failed
     ${exists}=    Run Keyword And Return Status     Should Contain    ${result}    alumet
@@ -167,28 +146,32 @@ Install Alumet
 ########################################################################################################
 UnInstall Alumet
 
-    ${output}=    Execute Command Alumet Node    sudo DEBIAN_FRONTEND=noninteractive apt purge -y alumet-agent
+    ${output}    ${stderr}=    Execute Command Target Node    sudo DEBIAN_FRONTEND=noninteractive apt purge -y alumet-agent
 
-    ${result}=    Execute Command Alumet Node    apt list --installed alumet-agent
+    ${result}    ${stderr}=    Execute Command Target Node    apt list --installed alumet-agent
 
     Should Not Contain    ${result}    alumet
 
     # remove alumet-output.csv file
-    ${result}=    Execute Command Alumet Node    rm alumet-output.csv
+    ${result}    ${stderr}=    Execute Command Target Node    rm alumet-output.csv
 
     # remove alumet package file on target node
-    ${result}=    Execute Command Alumet Node    rm alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb*
+    ${result}    ${stderr}=    Execute Command Target Node    rm alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb*
 
-    ${result}=    Execute Command Alumet Node    ls -l alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb*
+    ${result}    ${stderr}=    Execute Command Target Node    ls -l alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb*
 
     Should Not Contain    ${result}    alumet
 
     # remove alumet package file downloaded locally
     ${result}=    Run     rm alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb*
-
     ${result}=    Run     ls -l alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb*
-
     Should Contain    ${result}    cannot access
+
+    # remove cpu_load.*
+    ${result}    ${stderr}=    Execute Command Target Node    rm cpu_load.*
+    ${result}    ${stderr}=    Execute Command Target Node    ls -l cpu_load.*
+    Should Contain    ${stderr}    cannot access
+
 
     [Return]    ${output}
 
@@ -211,18 +194,14 @@ UnInstall Alumet
 Read resource_kind
     [Arguments]     ${metric}    ${domain}=${EMPTY}
 
-
-
     # the metric resource_kind is on 4th column 
-    # ${output}=    Execute Command Alumet Node     grep ${metric} alumet-output.csv | grep ${domain} | awk -F ';' '{print $4}'
-
     IF    '${domain}' != ''
         ${command}=   Set variable     grep ${metric} alumet-output.csv | awk -F ';' ' $8 == "${domain}" { OFS="|"; print $4 }'
     ELSE
         ${command}=   Set variable     grep ${metric} alumet-output.csv
     END
 
-    ${output}=    Execute Command Alumet Node     ${command}
+    ${output}    ${stderr}=    Execute Command Target Node     ${command}
 
     [Return]    ${output}
 
@@ -254,7 +233,7 @@ Read value
 
 
     # the metric value is on 3rd column 
-    ${output}=    Execute Command Alumet Node     ${command} 
+    ${output}    ${stderr}=    Execute Command Target Node     ${command} 
     Log To Console     metric value read: ${output}
 
     [Return]    ${output}

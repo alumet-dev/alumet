@@ -3,7 +3,7 @@
 This folder contains all script files and scenarios for testing alumet on bare metal.
 The structure of files is:
 
-```bash
+```text
 
 ├── README.md
 ├── run.sh
@@ -32,19 +32,19 @@ The current version contains the following robot framework files:
 - plugin-perf.robot: for testing perf plugin
 - plugin-rapl.robot: for testing rapl plugin.
 
-The __init__.robot file contains the Suite Setup (Install Alumet) and Teardown (UnInstall Alumet). When this file is present,  robot framework executes at the beginning of the tests the keyword _Install Alumet_ and at the end of test execution the keyword _UnInstall alumet_
+The \_\_init\_\_.robot file contains the Suite Setup (Install Alumet) and Teardown (UnInstall Alumet). When this file is present,  robot framework executes at the beginning of the tests the keyword `Install Alumet` and at the end of test execution the keyword `UnInstall alumet`
 
-Each test can have one or several tags allowing to exclude tests to during the execution with robot framework.
+Each test can have one or several tags allowing the exclusion of tests from being run by robot framework.
 
-Before executing the tests, you need to install robot framework.
-After you need to initialize the robot framework environment:
+Before executing the tests, you need to install [robot framework](https://docs.robotframework.org/docs/getting_started/testing#install-robot-framework-in-a-virtual-environment).
+Then you need to initialize the robot framework virtual environment:
 
 ```bash
- source ~/venv-robot/bin/activate
+source ~/venv-robot/bin/activate
 (venv-robot) [zychlae@carbon0 integration_tests]$
 ```
 
-A script run.sh allows to execute the robot framework tests on a target node and with a target alumet release and distribution. For that, you can modify the variables in run.sh script:
+The script run.sh allows to execute the robot framework tests on a target node and with a target alumet's release and distribution. For that, you can modify the variables in run.sh script:
 
 ```bash
 # credentials used to logon on the target node
@@ -56,8 +56,6 @@ HOME_TEST=$(pwd)
 ALUMET_VERSION=0.9.4
 ALUMET_DISTRIBUTION=1_amd64_ubuntu_22.04
 ```
-
-
 
 Then you can execute your test:
 
@@ -75,18 +73,7 @@ install alumet                                                        | PASS |
 ------------------------------------------------------------------------------
 which alumet-agent                                                    | PASS |
 ------------------------------------------------------------------------------
-help option                                                           | PASS |
-------------------------------------------------------------------------------
-help exec option                                                      | PASS |
-------------------------------------------------------------------------------
-help plugins option                                                   | PASS |
-------------------------------------------------------------------------------
-help watch option                                                     | PASS |
-------------------------------------------------------------------------------
-help config option                                                    | PASS |
-------------------------------------------------------------------------------
-config regen                                                          | FAIL |
-'' does not contain 'Default configuration file written to: /etc/alumet/alumet-config.toml'
+[...]
 ------------------------------------------------------------------------------
 Scenarios.Installation :: Alumet installation / uninstallation        | FAIL |
 9 tests, 8 passed, 1 failed
@@ -104,16 +91,7 @@ check alumet running                                                  | PASS |
 Check Perf Metric perf_hardware_REF_CPU_CYCLES                        metric value read: 17688
 Check Perf Metric perf_hardware_REF_CPU_CYCLES                        | PASS |
 ------------------------------------------------------------------------------
-Check Perf Metric perf_hardware_CACHE_MISSES                          metric value read: 0
-Check Perf Metric perf_hardware_CACHE_MISSES                          | FAIL |
-'0 !=0.0' should be true.
-------------------------------------------------------------------------------
-Check Perf Metric perf_hardware_BRANCH_MISSES                         metric value read: 26
-Check Perf Metric perf_hardware_BRANCH_MISSES                         | PASS |
-------------------------------------------------------------------------------
-stop alumet                                                           | PASS |
-------------------------------------------------------------------------------
-Check alumet not running                                              | PASS |
+[...]
 ------------------------------------------------------------------------------
 Scenarios.Plugin-Perf :: Alumet test plugin perf                      | FAIL |
 9 tests, 8 passed, 1 failed
@@ -129,18 +107,7 @@ check alumet running                                                  | PASS |
 Check Rapl Metric package                                             metric value read: 22.81256103515625
 Check Rapl Metric package                                             | PASS |
 ------------------------------------------------------------------------------
-Check Rapl Metric package_total                                       metric value read: 43.15618896484375
-Check Rapl Metric package_total                                       | PASS |
-------------------------------------------------------------------------------
-Check Rapl Metric dram                                                metric value read: 2.7979583740234375
-Check Rapl Metric dram                                                | PASS |
-------------------------------------------------------------------------------
-Check Rapl Metric dram_total                                          metric value read: 5.789459228515625
-Check Rapl Metric dram_total                                          | PASS |
-------------------------------------------------------------------------------
-stop alumet                                                           | PASS |
-------------------------------------------------------------------------------
-Check alumet not running                                              | PASS |
+[...]
 ------------------------------------------------------------------------------
 Scenarios.Plugin-Rapl :: Alumet test plugin rapl                      | PASS |
 9 tests, 9 passed, 0 failed
@@ -149,7 +116,7 @@ Scenarios                                                             | FAIL |
 27 tests, 25 passed, 2 failed
 ```
 
-The robot framework generates a report and log file in html format.
+Robot framework generates a report and a log file in html format.
 
-To write a new test suite for an input plugin, you must be used the Check Metric keyword as a template. 
-You can take example with the plugin-rapl.robot.
+To write a new test suite for an input plugin, you must use the `Check Metric` keyword to validate the csv output file.
+You use plugin-rapl.robot as an example.

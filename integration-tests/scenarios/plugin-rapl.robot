@@ -19,29 +19,17 @@ Test timeout    60 seconds
 Test connection on target node
     [Tags]    INPUT_PLUGIN     RAPL_PLUGIN    
 
-    Open Connection     172.16.118.53    alias=jumphost
-    Login With Public Key             ${USERNAME}     ${KEY}
-
-    Open Connection    ${NODE}
-    
-    Login With Public Key    ${USERNAME}     ${KEY}
-    ...    jumphost_index_or_alias=jumphost
-
-
-    ${output}=    Execute Command    hostname
+    ${output}    ${stderr}=    Execute Command Target Node    hostname
     Log    Output Result of SSH : ${output}
-
-    Close All Connections
 
 *** Test Cases ***
 run plugins socket-control csv rapl
     [Tags]    INPUT_PLUGIN     RAPL_PLUGIN
 
-    ${output}=    Execute Command Alumet Node    alumet-agent --plugins csv,rapl,socket-control > /tmp/alumet.log 2>&1 &
+    ${output}    ${stderr}=    Execute Command Target Node    alumet-agent --plugins csv,rapl,socket-control > /tmp/alumet.log 2>&1 &
     Sleep    3s
 
-    ${output_alumet}=    Execute Command Alumet Node    cat /tmp/alumet.log
-    # ${output}=    Execute Command Alumet Node    date; ls -l
+    ${output_alumet}    ${stderr}=    Execute Command Target Node    cat /tmp/alumet.log
     Log    Result stdout : ${output_alumet}
 
     # Should Contain     ${output_alumet}    ${expected_started_plugins}    
@@ -54,15 +42,19 @@ run plugins socket-control csv rapl
 check alumet running
     [Tags]    INPUT_PLUGIN     RAPL_PLUGIN
 
-    ${output}=    Execute Command Alumet Node    ls alumet-control.sock
+    ${output}    ${stderr}=    Execute Command Target Node    ls alumet-control.sock
     Log    Result stdout : ${output}
 
     Should Contain     ${output}    alumet-control.sock
 
-    ${output}=    Execute Command Alumet Node    ps -f -u ${USERNAME}
+    ${output}    ${stderr}=    Execute Command Target Node    ps -f -u ${USERNAME}
     Log    Result stdout : ${output}
 
     Should Contain     ${output}    /usr/lib/alumet-agent --plugins csv,rapl,socket-control
+
+    ${result}=  Compare values percent      100     105     8
+
+    Should Be True     ${result}
 
 *** Test Cases ***
 Check Rapl Metric package
@@ -93,12 +85,10 @@ Check Rapl Metric dram_total
 stop alumet
     [Tags]    INPUT_PLUGIN     RAPL_PLUGIN
 
-    ${output}=    Execute Command Alumet Node    echo "shutdown" | socat UNIX-CONNECT:alumet-control.sock -    
+    ${output}    ${stderr}=    Execute Command Target Node    echo "shutdown" | socat UNIX-CONNECT:alumet-control.sock -    
     Log    Result stdout : ${output}  
-    # ${output}=    Execute Command Alumet Node    sudo apt remove -y --purge alumet-agent/now   
-    # Log    Result stdout : ${output}
 
-    ${output}=    Execute Command Alumet Node    ls alumet-control.sock
+    ${output}    ${stderr}=    Execute Command Target Node    ls alumet-control.sock
 
     Should Not Contain     ${output}    alumet-control.sock
    
@@ -106,15 +96,13 @@ stop alumet
 Check alumet not running
     [Tags]    INPUT_PLUGIN     RAPL_PLUGIN
 
-    ${output}=    Execute Command Alumet Node    echo "shutdown" | socat UNIX-CONNECT:alumet-control.sock -    
+    ${output}=    Execute Command Target Node    echo "shutdown" | socat UNIX-CONNECT:alumet-control.sock -    
     Log    Result stdout : ${output}  
-    # ${output}=    Execute Command Alumet Node    sudo apt remove -y --purge alumet-agent/now   
-    # Log    Result stdout : ${output}
 
-    ${output}=    Execute Command Alumet Node    ls alumet-control.sock
+    ${output}    ${stderr}=    Execute Command Target Node    ls alumet-control.sock
 
     Should Not Contain     ${output}    alumet-control.sock
 
-    ${output}=    Execute Command Alumet Node    ps -f -u ${USERNAME}
+    ${output}    ${stderr}=    Execute Command Target Node    ps -f -u ${USERNAME}
 
     Should Not Contain     ${output}    alumet-agent

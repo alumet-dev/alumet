@@ -10,8 +10,12 @@
 
 #set -x
 
-# credentials used to logon on the target node
+# target node to install alumet
 NODE=otpaas2
+# gateway or jumphost to connect to the target node
+# it could be an alias name or IP address
+GATEWAY=172.16.118.53
+# credentials used to logon on the target node
 USERNAME=emmanuel
 KEY=${HOME}/.ssh/id_rsa
 HOME_TEST=$(pwd)
@@ -31,10 +35,10 @@ source "$HOME"/venv-robot/bin/activate
 
 echo "Start running tests at: $(date)"
 
-robot   -v "NODE:localhost" \
+robot   -v "NODE:$NODE"       \
+        -v "GATEWAY:$GATEWAY" \
         -v "USERNAME:$USERNAME" \
         -v "KEY:$KEY" \
-        -v "NODE:$NODE"       \
         -v "HOME_TEST:$HOME_TEST"  \
         -v "ALUMET_VERSION:$ALUMET_VERSION" \
         -v "ALUMET_DISTRIBUTION:$ALUMET_DISTRIBUTION" \
@@ -44,6 +48,8 @@ robot   -v "NODE:localhost" \
 echo "End running tests at: $(date)"
 
 # other tags defined on tests that can be exclude
+        # --exclude INSTALLATION \
+        # --exclude PERF_PLUGIN \
         # --exclude INPUT_PLUGIN \
         # --exclude RAPL_PLUGIN \
         # --exclude INSTALLATION \
