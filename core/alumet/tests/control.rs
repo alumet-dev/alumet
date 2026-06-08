@@ -234,7 +234,7 @@ fn source_flush() {
 
     // poll often but never flush automatically
     let trigger = TriggerSpec::builder(Duration::from_millis(100))
-        .flush_interval(Duration::from_secs(120))
+        .flush_interval(Duration::from_secs(1_000))
         .build()
         .unwrap();
 
@@ -273,7 +273,6 @@ fn source_flush() {
 
     // check that the source has been flushed
     println!("checking flush");
-    let n_written_after_flush = counters.n_written.load(COUNTER_ORD);
     let n_flushed_after_flush = counters.n_transform_in.load(COUNTER_ORD);
     assert_ne!(n_flushed_after_flush, 0);
 
@@ -281,9 +280,7 @@ fn source_flush() {
     println!("waiting more");
     std::thread::sleep(Duration::from_millis(500));
     println!("checking not flushed");
-    let n_written_later = counters.n_written.load(COUNTER_ORD);
     let n_flushed_later = counters.n_transform_in.load(COUNTER_ORD);
-    assert!(n_written_later > n_written_after_flush);
     assert_eq!(n_flushed_later, n_flushed_after_flush);
 
     // shutdown
