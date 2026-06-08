@@ -1,0 +1,39 @@
+Alumet standard agent: measure energy and performance metrics
+
+Usage: alumet-agent [OPTIONS] [COMMAND]
+
+Commands:
+  run      Run the agent and monitor the system
+  exec     Execute a command and observe its process
+  watch    Watch a PID and observe it until its end
+  config   Manipulate the configuration
+  plugins  Get plugins information
+  help     Print this message or the help of the given subcommand(s)
+
+Options:
+      --config <CONFIG>
+          Path to the config file [env: ALUMET_CONFIG=/etc/alumet/alumet-config.toml] [default: alumet-config.toml]
+      --no-default-config
+          If set, the config file must exist, otherwise the agent will fail to start with an error
+      --config-override <CONFIG_OVERRIDE>
+          Config options overrides
+      --plugins <PLUGINS>
+          List of plugins to enable, separated by commas, ex. `csv,rapl`
+      --max-update-interval <MAX_UPDATE_INTERVAL>
+          Maximum amount of time between two updates of the sources' commands
+      --source-channel-size <SOURCE_CHANNEL_SIZE>
+          How many `MeasurementBuffer`s can be stored in the channel that sources write to
+      --normal-worker-threads <NORMAL_WORKER_THREADS>
+          How many "normal" worker threads to spawn [env: ALUMET_NORMAL_THREADS=]
+      --priority-worker-threads <PRIORITY_WORKER_THREADS>
+          How many "high-priority" worker threads to spawn [env: ALUMET_PRIORITY_THREADS=]
+      --output-file <OUTPUT_FILE>
+          Path to the output file (CSV plugin)
+      --relay-out <RELAY_OUT>
+          Address and port of the server to connect to with the relay client (relay-client plugin)
+      --relay-in <RELAY_IN>
+          Address and/or port that the relay server should listen to (relay-server plugin)
+  -h, --help
+          Print help (see more with '--help')
+  -V, --version
+          Print version
