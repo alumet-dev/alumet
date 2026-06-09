@@ -11,6 +11,7 @@ use anyhow::Context;
 use procfs::{Current, CurrentSI};
 use rlimit::{Resource, getrlimit, setrlimit};
 
+mod cpus;
 mod kernel;
 mod memory;
 mod network;

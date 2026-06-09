@@ -64,6 +64,8 @@ struct ProcessStatsProbe {
 
     /// The memory page size, in bytes
     page_size: u64,
+
+    n_cores: usize,
 }
 
 impl ProcessStatsProbe {
@@ -73,6 +75,7 @@ impl ProcessStatsProbe {
         push_first_stats: bool,
         metrics: ProcessMetrics,
         mem_mode: MemoryStatsMode,
+        n_cores: usize,
     ) -> Result<Self, procfs::ProcError> {
         let file_mem = match mem_mode {
             MemoryStatsMode::Quick => process.open_relative("statm")?,
@@ -89,6 +92,7 @@ impl ProcessStatsProbe {
             push_first_stats,
             metrics,
             page_size: procfs::page_size(),
+            n_cores,
         })
     }
 
@@ -243,13 +247,16 @@ impl Source for ProcessStatsProbe {
                 t,
             );
             if let Some(prev_t) = prev_t {
-                // cpu_time_delta is in nanoseconds, use delta_t to turn it into a percentage
-                // Note: 100% is *one* core, a process running on multiple core may use more than 100% of cpu.
-                // TODO change this
                 let delta_t = t.duration_since(prev_t).unwrap().as_nanos() as f64;
-                let percent_user = 100.0 * (measurements.user as f64 / delta_t);
-                let percent_system = 100.0 * (measurements.user as f64 / delta_t);
-                let percent_total = 100.0 * ((measurements.user + measurements.system) as f64 / delta_t);
+                let n_cores = self.n_cores as f64;
+
+                let user = measurements.user as f64;
+                let system = measurements.system as f64;
+                let total = user + system;
+
+                let percent_user = 100.0 * (user / delta_t) / n_cores;
+                let percent_system = 100.0 * (system / delta_t) / n_cores;
+                let percent_total = 100.0 * (total / delta_t) / n_cores;
                 // TODO guest value?
                 buffer.push(
                     MeasurementPoint::new(
@@ -371,6 +378,7 @@ pub struct ManualProcessMonitor {
 struct ProcessSourceSpawner {
     ns_per_ticks: u64,
     metrics: ProcessMetrics,
+    n_cores: usize,
 }
 
 #[derive(Clone)]
@@ -411,10 +419,17 @@ impl ProcessFingerprint {
 
 impl ManualProcessMonitor {
     pub fn new(alumet_handle: PluginControlHandle, metrics: ProcessMetrics, settings: MonitoringSettings) -> Self {
+        // To get the number of logical core, one could think about calling num_cpus::get().
+        // However, this is affected by the constraints set on the Alumet process (sched affinity, cgroups cpuset), which is not what we want.
+        let n_cores = crate::cpus::online_cpus().unwrap_or_default().len();
         let ns_per_ticks = ns_per_ticks();
         Self {
             alumet_handle,
-            source_spawner: ProcessSourceSpawner { ns_per_ticks, metrics },
+            source_spawner: ProcessSourceSpawner {
+                ns_per_ticks,
+                metrics,
+                n_cores,
+            },
             settings,
         }
     }
@@ -466,12 +481,19 @@ impl ProcessWatcher {
         metrics: ProcessMetrics,
         groups: Vec<(ProcessFilter, MonitoringSettings)>,
     ) -> Self {
+        // To get the number of logical core, one could think about calling num_cpus::get().
+        // However, this is affected by the constraints set on the Alumet process (sched affinity, cgroups cpuset), which is not what we want.
+        let n_cores = crate::cpus::online_cpus().unwrap_or_default().len();
         let ns_per_ticks = ns_per_ticks();
         Self {
             watched_processes: HashMap::new(),
             alumet_handle,
             monitoring: MultiProcessMonitoring {
-                source_spawner: ProcessSourceSpawner { ns_per_ticks, metrics },
+                source_spawner: ProcessSourceSpawner {
+                    ns_per_ticks,
+                    metrics,
+                    n_cores,
+                },
                 groups,
             },
         }
@@ -582,8 +604,15 @@ impl ProcessSourceSpawner {
             })?;
         log::trace!("adding source {source_name} with trigger specification {trigger:?}");
         let source = Box::new(
-            ProcessStatsProbe::new(p, self.ns_per_ticks, true, self.metrics.clone(), settings.mem_mode)
-                .with_context(|| format!("failed to create source {source_name}"))?,
+            ProcessStatsProbe::new(
+                p,
+                self.ns_per_ticks,
+                true,
+                self.metrics.clone(),
+                settings.mem_mode,
+                self.n_cores,
+            )
+            .with_context(|| format!("failed to create source {source_name}"))?,
         );
         create_many.add_source(&source_name, source, trigger);
         Ok(())
@@ -600,16 +629,16 @@ impl Source for ProcessWatcher {
 
 impl ProcessFilter {
     fn accepts(&self, p: &Process) -> Result<bool, ProcError> {
-        if let Some(pid) = self.pid {
-            if p.pid != pid {
-                return Ok(false);
-            }
+        if let Some(pid) = self.pid
+            && p.pid != pid
+        {
+            return Ok(false);
         }
 
-        if let Some(ppid) = self.ppid {
-            if p.stat()?.ppid != ppid {
-                return Ok(false);
-            }
+        if let Some(ppid) = self.ppid
+            && p.stat()?.ppid != ppid
+        {
+            return Ok(false);
         }
 
         if let Some(r) = &self.exe_regex {
