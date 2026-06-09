@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    any::Any,
+    sync::{Arc, Mutex},
+};
 
 use crate::cgroup_events::CgroupFsMountCallback;
 use alumet::{
@@ -45,7 +48,9 @@ impl<T: JobTagger> Transform for JobAnnotationTransform<T> {
                     Ok(true) => {
                         let job_attrs = self.tagger.attributes_for_cgroup(&cgroup);
                         for (k, v) in job_attrs {
-                            m.add_attr(k, v);
+                            if !m.attributes_keys().any(|key| key == k) {
+                                m.add_attr(k, v);
+                            }
                         }
                     }
                     Ok(false) => {
