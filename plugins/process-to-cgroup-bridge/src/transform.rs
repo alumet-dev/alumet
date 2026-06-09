@@ -14,6 +14,7 @@ pub struct ProcessToCgroupBridgeTransform {
     processes_metrics_ids: Vec<RawMetricId>,
     merge_similar_cgroups: bool,
     keep_processed_measurements: bool,
+    pod_cgroup_only: bool,
 
     #[cfg(test)]
     proc_path: PathBuf,
@@ -60,6 +61,7 @@ impl ProcessToCgroupBridgeTransform {
         processes_metrics_ids: Vec<RawMetricId>,
         merge_similar_cgroups: bool,
         keep_processed_measurements: bool,
+        pod_cgroup_only: bool,
 
         #[cfg(test)] proc_path: PathBuf,
     ) -> Self {
@@ -67,6 +69,7 @@ impl ProcessToCgroupBridgeTransform {
             processes_metrics_ids,
             merge_similar_cgroups,
             keep_processed_measurements,
+            pod_cgroup_only,
 
             #[cfg(test)]
             proc_path,
@@ -84,7 +87,11 @@ impl ProcessToCgroupBridgeTransform {
             Ok(pid) => pid,
             Err(_) => return Ok(None),
         };
-        let cgroup_path = self.find_cgroup_path_from_process_id(pid)?;
+        let mut cgroup_path = self.find_cgroup_path_from_process_id(pid)?;
+        if self.pod_cgroup_only {
+            // Maybe need to remove last part of cgroup
+            cgroup_path = truncate_to_last_pod(&cgroup_path);
+        }
         let cgroup_consumer = ResourceConsumer::ControlGroup {
             path: cgroup_path.into(),
         };
@@ -202,5 +209,65 @@ fn extract_numeric_value(measurement: &MeasurementPoint) -> Option<f64> {
     match measurement.value {
         WrappedMeasurementValue::F64(v) => Some(v),
         WrappedMeasurementValue::U64(v) => Some(v as f64),
+    }
+}
+
+/// Truncate the cgroup path to retrieve only pod parts.
+/// Entry:
+/// `/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-podxxx.slice/crio-yyyyy`
+/// will return
+/// `/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-podxxx.slice`
+///
+/// Entry:
+/// `sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-podyyy.slice/`
+/// will return
+/// `/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-podyyy.slice`
+fn truncate_to_last_pod(path: &str) -> String {
+    let parts: Vec<&str> = path.split("/").collect();
+    if let Some(pos) = parts.iter().rposition(|p| p.contains("-pod")) {
+        let result = parts[..=pos].join("/");
+        return result;
+    }
+    String::from(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_truncate_with_slice_suffix() {
+        let input =
+            "/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-podxxx.slice/crio-yyyyy";
+        let expected = "/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-podxxx.slice";
+        assert_eq!(truncate_to_last_pod(input), expected);
+    }
+
+    #[test]
+    fn test_truncate_no_suffix() {
+        let input = "/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-podxxx.scope";
+        let expected = "/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-podxxx.scope";
+        assert_eq!(truncate_to_last_pod(input), expected);
+    }
+
+    #[test]
+    fn test_truncate_no_trailing_slash() {
+        let input = "/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-podxxx";
+        let expected = "/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-podxxx";
+        assert_eq!(truncate_to_last_pod(input), expected);
+    }
+
+    #[test]
+    fn test_no_pod_in_path() {
+        let input = "/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/crio-yyyyy";
+        let expected = "/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/crio-yyyyy";
+        assert_eq!(truncate_to_last_pod(input), expected);
+    }
+
+    #[test]
+    fn test_empty_path() {
+        let input = "";
+        let expected = "";
+        assert_eq!(truncate_to_last_pod(input), expected);
     }
 }

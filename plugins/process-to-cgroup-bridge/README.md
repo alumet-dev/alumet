@@ -24,6 +24,8 @@ processes_metrics = [
 merge_similar_cgroups = true
 # Will keep all the measurements that have been processed by the transformer. In case it's false only the measurements with a cgroup resource consumer will be kept.
 keep_processed_measurements = true
+# Will keep use the cgroup of pod instead of container
+pod_cgroup_only = true
 ```
 
 ## More informations
@@ -36,3 +38,13 @@ In case the transform plugin doesn't find a cgroup for a process measurement, it
 
 The plugin currently does not handle processes managed by cgroup v1 correctly.
 If a process is associated with multiple cgroups (that's the case in cgroup v1), the plugin will arbitrarily select one from the list found in the /proc/[pid]/cgroup file.
+
+### `pod_cgroup_only` argument
+
+Sometimes, the plugin retrieve as cgroup the container's one, so in case of annotation, the plugin is not able to find the related cgroup as we decided to only look at pod level.
+
+#### Example
+
+cgroup retrieved is: `/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-podYYYYYYYYY.slice/crio-XXXXXXX.scope`.
+annotation plugin only know: `/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-podYYYYYYYYY.slice`.
+So, set `pod_cgroup_only` argument at true will remove the last part and use as cgroup name the pod's one: `/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-podYYYYYYYYY.slice/crio-XXXXXXX.scope` will be replaced by `/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-podYYYYYYYYY.slice`

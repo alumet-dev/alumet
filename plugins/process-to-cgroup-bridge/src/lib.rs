@@ -43,6 +43,7 @@ impl AlumetPlugin for ProcessToCgroupBridgePlugin {
         let processes_metrics = self.config.processes_metrics.clone();
         let merge_similar_cgroups = self.config.merge_similar_cgroups;
         let keep_processed_measurements = self.config.keep_processed_measurements;
+        let pod_cgroup_only = self.config.pod_cgroup_only;
 
         #[cfg(test)]
         let proc_path = self.config.proc_path.clone();
@@ -63,6 +64,8 @@ impl AlumetPlugin for ProcessToCgroupBridgePlugin {
                 processes_metrics_ids,
                 merge_similar_cgroups,
                 keep_processed_measurements,
+                pod_cgroup_only,
+
 
                 #[cfg(test)]
                 proc_path,
@@ -85,6 +88,8 @@ pub struct Config {
     pub merge_similar_cgroups: bool,
     /// Will keep all the measurements that have been processed by the transformer. In case it's false only the measurements with a cgroup resource consumer will be kept.
     pub keep_processed_measurements: bool,
+    /// Will keep use the cgroup of pod instead of container
+    pub pod_cgroup_only: bool,
 
     #[cfg(test)]
     pub proc_path: PathBuf,
@@ -99,6 +104,7 @@ impl Default for Config {
             ],
             merge_similar_cgroups: true,
             keep_processed_measurements: true,
+            pod_cgroup_only: true,
 
             #[cfg(test)]
             proc_path: PathBuf::from("/proc"),
