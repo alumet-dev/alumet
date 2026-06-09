@@ -152,15 +152,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "amd-smi-wrapper-sys"
-version = "0.1.0"
-source = "git+https://github.com/alumet-dev/amd-smi-wrapper.git?tag=v0.4.0#f3c153d8099976e09d3c55e1196a68678dcaa7b0"
-dependencies = [
- "bindgen",
- "libloading",
-]
-
-[[package]]
 name = "android_system_properties"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"

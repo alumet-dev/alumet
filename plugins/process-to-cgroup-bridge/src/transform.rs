@@ -98,8 +98,26 @@ impl ProcessToCgroupBridgeTransform {
 
         let procfs_cgroup_filepath = procfs_cgroup_base_path.join(pid.to_string()).join("cgroup");
 
-        let contents = fs::read_to_string(&procfs_cgroup_filepath)
-            .with_context(|| format!("failed to read {:?}", procfs_cgroup_filepath))?;
+        let result = fs::read_to_string(&procfs_cgroup_filepath);
+        let contents = match result {
+            Ok(contents) => contents,
+            Err(e) => {
+                let error_kind = e.kind();
+                let error_msg = e.to_string();
+                log::error!(
+                    "failed to read the file {:?}: {} (Type: {:?})",
+                    procfs_cgroup_filepath,
+                    error_msg,
+                    error_kind
+                );
+                return Err(e).with_context(|| {
+                    format!(
+                        "failed to read {:?}: {} (Type: {:?})",
+                        procfs_cgroup_filepath, error_msg, error_kind
+                    )
+                })?;
+            }
+        };
 
         // a procfs cgroupv2 file will contain only one line
         // eg: 0::/system.slice/docker-7c7fc86f5f2a609c41c6edd65bd1b64135124a687fa6516f6b177b040d6e3b68.scope

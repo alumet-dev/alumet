@@ -107,8 +107,36 @@ fn prepare_watcher(
     mut callback: impl Callback + 'static,
     coalesce_v1: Option<Duration>,
 ) -> anyhow::Result<MountWatcher> {
-    let watcher =
-        MountWatcher::new(move |event| handle_event(&event.mounted, event.coalesced, coalesce_v1, &mut callback))?;
+    let watcher = MountWatcher::new(move |event| {
+        log::debug!("CgroupMountWait event received: mounted {:?}", event.mounted);
+        log::debug!("CgroupMountWait event received: unmounted {:?}", event.unmounted);
+        log::debug!(
+            "CgroupMountWait event received: initial={}, coalesced={}",
+            event.initial,
+            event.coalesced
+        );
+        // find the cgroup filesystems, if any
+        let new_cgroupfs = extract_cgroup_hierarchies(&event.mounted);
+
+        // coalesce cgroupv1 events, because multiple cgroupfs v1 are mounted in a short period of time, and we want them all
+        if let Some(delay) = coalesce_v1 {
+            if !event.coalesced && new_cgroupfs.iter().any(|c| c.version() == CgroupVersion::V1) {
+                return WatchControl::Coalesce { delay };
+            }
+        }
+
+        // call the user-provided function
+        if !new_cgroupfs.is_empty() {
+            match callback.on_cgroupfs_mounted(new_cgroupfs) {
+                Ok(ControlFlow::Continue(())) => return WatchControl::Continue,
+                Ok(ControlFlow::Break(())) => return WatchControl::Stop,
+                Err(err) => log::error!("error in callback: {err:?}"),
+            };
+        }
+
+        // no cgroups, continue
+        WatchControl::Continue
+    })?;
     Ok(watcher)
 }
 

@@ -90,14 +90,19 @@ impl OptionalSharedHierarchy {
 
 impl CgroupFsMountCallback for OptionalSharedHierarchy {
     fn on_cgroupfs_mounted(&mut self, cgroupfs: &Vec<CgroupHierarchy>) -> anyhow::Result<()> {
+        log::debug!("on_cgroupfs_mounted called with {} cgroups", cgroupfs.len());
         if let Some(shared) = &mut self.0 {
             // Find the cgroup v2 hierarchy (there is at most one) and save it, so that the transform can use it.
             for h in cgroupfs {
                 if h.version() == CgroupVersion::V2 {
                     log::debug!("found cgroup v2 hierarchy: {:?} - setting shared state", h.root());
                     shared.set(h.clone());
+                } else {
+                    log::warn!("cgroup v1 hierarchy detected, wtf {h:?}");
                 }
             }
+        } else {
+            log::debug!("cgroupfs mounted but self.0 is None: {:?}", cgroupfs);
         }
         Ok(())
     }
