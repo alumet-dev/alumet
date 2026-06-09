@@ -85,6 +85,7 @@ impl AlumetPlugin for K8sPlugin {
             metrics,
             reactor_config,
             pod_registry,
+            opt_shared_hierarchy: shared_hierarchy,
         };
         self.starting_state = Some(starting_state);
         Ok(())
@@ -106,7 +107,7 @@ impl AlumetPlugin for K8sPlugin {
             ReactorCallbacks {
                 probe_setup,
                 on_removal: NoCallback,
-                on_fs_mount: NoCallback,
+                on_fs_mount: s.opt_shared_hierarchy,
             },
             alumet.pipeline_control(),
         )
@@ -126,6 +127,7 @@ struct StartingState {
     metrics: Metrics,
     reactor_config: ReactorConfig,
     pod_registry: AutoNodePodRegistry,
+    opt_shared_hierarchy: OptionalSharedHierarchy,
 }
 
 #[derive(Serialize, Deserialize)]
