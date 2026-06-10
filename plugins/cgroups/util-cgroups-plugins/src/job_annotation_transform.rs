@@ -1,7 +1,4 @@
-use std::{
-    any::Any,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 use crate::cgroup_events::CgroupFsMountCallback;
 use alumet::{
@@ -29,7 +26,7 @@ impl<T: JobTagger> Transform for JobAnnotationTransform<T> {
     fn apply(&mut self, measurements: &mut MeasurementBuffer, _: &TransformContext) -> Result<(), TransformError> {
         for m in measurements.iter_mut() {
             if let ResourceConsumer::ControlGroup { path: cgroup_path } = &m.consumer
-                && !m.attributes_keys().any(|key| key == "job_id")
+                && !m.attributes_keys().any(|key| key == "uid")
             {
                 // This is a cgroup measurement that does not have a job_id, try to map it to a job.
                 //

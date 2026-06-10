@@ -14,7 +14,6 @@ pub struct ProcessToCgroupBridgeTransform {
     processes_metrics_ids: Vec<RawMetricId>,
     merge_similar_cgroups: bool,
     keep_processed_measurements: bool,
-    pod_cgroup_only: bool,
 
     #[cfg(test)]
     proc_path: PathBuf,
@@ -24,7 +23,7 @@ impl Transform for ProcessToCgroupBridgeTransform {
     fn apply(&mut self, measurements: &mut MeasurementBuffer, _ctx: &TransformContext) -> Result<(), TransformError> {
         let mut cgroup_measurements = MeasurementBuffer::new();
         let mut kept_measurements = MeasurementBuffer::new();
-        for measurement in measurements.iter() {
+        for measurement in measurements.iter_mut() {
             match self.cgroup_measurement_from_measurement(measurement) {
                 Ok(Some(cgroup_measurement)) => {
                     cgroup_measurements.push(cgroup_measurement);
@@ -61,7 +60,6 @@ impl ProcessToCgroupBridgeTransform {
         processes_metrics_ids: Vec<RawMetricId>,
         merge_similar_cgroups: bool,
         keep_processed_measurements: bool,
-        pod_cgroup_only: bool,
 
         #[cfg(test)] proc_path: PathBuf,
     ) -> Self {
@@ -69,7 +67,6 @@ impl ProcessToCgroupBridgeTransform {
             processes_metrics_ids,
             merge_similar_cgroups,
             keep_processed_measurements,
-            pod_cgroup_only,
 
             #[cfg(test)]
             proc_path,
@@ -78,7 +75,7 @@ impl ProcessToCgroupBridgeTransform {
 
     fn cgroup_measurement_from_measurement(
         &self,
-        measurement: &MeasurementPoint,
+        measurement: &mut MeasurementPoint,
     ) -> anyhow::Result<Option<MeasurementPoint>> {
         if !self.processes_metrics_ids.contains(&measurement.metric) {
             return Ok(None);
@@ -87,11 +84,8 @@ impl ProcessToCgroupBridgeTransform {
             Ok(pid) => pid,
             Err(_) => return Ok(None),
         };
-        let mut cgroup_path = self.find_cgroup_path_from_process_id(pid)?;
-        if self.pod_cgroup_only {
-            // Maybe need to remove last part of cgroup
-            cgroup_path = truncate_to_last_pod(&cgroup_path);
-        }
+        let cgroup_path = self.find_cgroup_path_from_process_id(pid)?;
+
         let cgroup_consumer = ResourceConsumer::ControlGroup {
             path: cgroup_path.into(),
         };
@@ -138,7 +132,7 @@ impl ProcessToCgroupBridgeTransform {
         for line in contents.lines() {
             let parts: Vec<&str> = line.split(':').collect();
             if parts.len() >= 3 {
-                if parts[1] != "" {
+                if !parts[1].is_empty() {
                     log::warn!("detected that process {pid} is managed by cgroup v1, selecting the cgroup arbitrarily");
                 }
                 let cgroup_path = parts[2];
@@ -209,65 +203,5 @@ fn extract_numeric_value(measurement: &MeasurementPoint) -> Option<f64> {
     match measurement.value {
         WrappedMeasurementValue::F64(v) => Some(v),
         WrappedMeasurementValue::U64(v) => Some(v as f64),
-    }
-}
-
-/// Truncate the cgroup path to retrieve only pod parts.
-/// Entry:
-/// `/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-podxxx.slice/crio-yyyyy`
-/// will return
-/// `/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-podxxx.slice`
-///
-/// Entry:
-/// `sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-podyyy.slice/`
-/// will return
-/// `/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-podyyy.slice`
-fn truncate_to_last_pod(path: &str) -> String {
-    let parts: Vec<&str> = path.split("/").collect();
-    if let Some(pos) = parts.iter().rposition(|p| p.contains("-pod")) {
-        let result = parts[..=pos].join("/");
-        return result;
-    }
-    String::from(path)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_truncate_with_slice_suffix() {
-        let input =
-            "/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-podxxx.slice/crio-yyyyy";
-        let expected = "/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-podxxx.slice";
-        assert_eq!(truncate_to_last_pod(input), expected);
-    }
-
-    #[test]
-    fn test_truncate_no_suffix() {
-        let input = "/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-podxxx.scope";
-        let expected = "/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-podxxx.scope";
-        assert_eq!(truncate_to_last_pod(input), expected);
-    }
-
-    #[test]
-    fn test_truncate_no_trailing_slash() {
-        let input = "/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-podxxx";
-        let expected = "/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-podxxx";
-        assert_eq!(truncate_to_last_pod(input), expected);
-    }
-
-    #[test]
-    fn test_no_pod_in_path() {
-        let input = "/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/crio-yyyyy";
-        let expected = "/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/crio-yyyyy";
-        assert_eq!(truncate_to_last_pod(input), expected);
-    }
-
-    #[test]
-    fn test_empty_path() {
-        let input = "";
-        let expected = "";
-        assert_eq!(truncate_to_last_pod(input), expected);
     }
 }

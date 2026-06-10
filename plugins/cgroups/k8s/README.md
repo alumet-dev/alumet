@@ -61,6 +61,12 @@ For instance, the `k8s` configuration section should be after the `process-to-cg
 …
 ```
 
+Sometimes, others plugins also retrieve cgroups associated to a container. So in order to annotate them, you need to use the `annotate_containers`
+and set it to **true**. If you do this, you will allow plugin to check for pod UID of a containers.
+For example if `annotate_containers` is:
+- **true** - "/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-podUIDX.slice/crio-UIDY.scope" will resolve as pod UID = UIDX
+- **false** - "/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-podUIDX.slice/crio-UIDY.scope" will not find the pod UID
+
 ## Configuration
 
 Here are some examples of how to configure this plugin.
@@ -98,6 +104,10 @@ k8s_api_url = "http://127.0.0.1:8080"
 token_retrieval = "auto"
 # Interval between each measurement.
 poll_interval = "5s"
+# If `true`, adds attributes like `uid`, `name`, `namespace`, `node` to the cgroup measurements produced by other plugins.
+annotate_foreign_measurements = false
+# Decides whether the cgroups at container level should be annotated or not. A `false` value will only annotate pod cgroups. Note that `annotate_foreign_measurements` needs to be true.
+annotate_containers = true
 ```
 
 ### Example Configuration for a full K8S Cluster
@@ -121,6 +131,10 @@ k8s_api_url = "https://kubernetes.default.svc:443"
 token_retrieval = "file"
 # Interval between each measurement.
 poll_interval = "5s"
+# If `true`, adds attributes like `uid`, `name`, `namespace`, `node` to the cgroup measurements produced by other plugins.
+annotate_foreign_measurements = true
+# Decides whether the cgroups at container level should be annotated or not. A `false` value will only annotate pod cgroups. Note that `annotate_foreign_measurements` needs to be true.
+annotate_containers = true
 ```
 
 ### Possible Token Retrieval Strategies

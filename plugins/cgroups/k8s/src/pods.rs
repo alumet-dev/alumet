@@ -32,6 +32,7 @@ pub struct AutoNodePodRegistry {
     node: String,
     // TODO use uuid instead of string to reduce memory consumption
     pods: FxHashMap<String, PodInfos>,
+    annotate_containers: bool,
 }
 
 /// Encoding/decoding of the K8S API responses.
@@ -113,11 +114,12 @@ impl ApiClient {
 }
 
 impl AutoNodePodRegistry {
-    pub fn new(node: String, k8s_api_client: ApiClient) -> Self {
+    pub fn new(node: String, k8s_api_client: ApiClient, annotate_containers: bool) -> Self {
         Self {
             client: k8s_api_client,
             node,
             pods: Default::default(),
+            annotate_containers,
         }
     }
 
@@ -157,14 +159,22 @@ impl AutoNodePodRegistry {
 /// - `…/kubepods-burstable-pod247ca13b_bc17_4709_ab2c_4d98b5ad4fb2.slice` (matches https://pkg.go.dev/k8s.io/kubernetes/pkg/kubelet/cm#CgroupName.ToSystemd)
 /// - `…/pod247ca13b-bc17-4709-ab2c-4d98b5ad4fb2.slice` (just in case)
 ///
-/// # Containers are excluded
+/// # Containers are excluded unless `annotate_containers` is true
 ///
-/// Returns `None` for cgroups that correspond to individual containers in a pod.
-/// That is, `…/kubepods-burstable-pod{pod_uid}.slice/crio-{container_id}.scope` returns `None`,
+/// Returns `None` for cgroups that correspond to individual containers in a pod if `annotate_containers` is false.
+/// That is, `…/kubepods-burstable-pod{pod_uid}.slice/crio-{container_id}.scope` returns `None`, when `annotate_containers` is false
+/// That is, `…/kubepods-burstable-pod{pod_uid}.slice/crio-{container_id}.scope` returns `Some(pod_uid)`, when `annotate_containers` is true
 /// while `…/kubepods-burstable-pod{pod_uid}.slice` returns `Some(pod_uid)`.
-pub fn extract_pod_uid_from_cgroup(cgroup_fs_path: &Path) -> Option<String> {
-    let cgroup_name = cgroup_fs_path.file_name()?.to_str()?;
-    let (_prefix, suffix) = cgroup_name.rsplit_once("pod")?;
+pub fn extract_pod_uid_from_cgroup(cgroup_fs_path: &Path, annotate_containers: bool) -> Option<String> {
+    let search_part = if annotate_containers {
+        cgroup_fs_path
+            .to_str()?
+            .split('/')
+            .rfind(|part| part.contains("-pod"))?
+    } else {
+        cgroup_fs_path.file_name()?.to_str()?
+    };
+    let (_prefix, suffix) = search_part.rsplit_once("pod")?;
     if suffix.starts_with('s') {
         // we actually have "pods" and not "pod"
         return None;
@@ -179,7 +189,7 @@ pub fn extract_pod_uid_from_cgroup(cgroup_fs_path: &Path) -> Option<String> {
 
 impl JobTagger for AutoNodePodRegistry {
     fn attributes_for_cgroup(&mut self, cgroup: &util_cgroups::Cgroup) -> Vec<(String, AttributeValue)> {
-        let Some(pod_uid) = extract_pod_uid_from_cgroup(cgroup.fs_path()) else {
+        let Some(pod_uid) = extract_pod_uid_from_cgroup(cgroup.fs_path(), self.annotate_containers) else {
             return Vec::new();
         };
         let attrs = self
@@ -217,26 +227,37 @@ mod tests {
             "/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-pod5f32d849_6210_4886_a48d_e0d90e1d0206.slice",
         );
         assert_eq!(
-            extract_pod_uid_from_cgroup(pod_path.as_path()),
+            extract_pod_uid_from_cgroup(pod_path.as_path(), false),
+            Some(String::from("5f32d849-6210-4886-a48d-e0d90e1d0206"))
+        );
+        assert_eq!(
+            extract_pod_uid_from_cgroup(pod_path.as_path(), true),
             Some(String::from("5f32d849-6210-4886-a48d-e0d90e1d0206"))
         );
 
         let pod_parent_path = PathBuf::from("/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice");
-        assert_eq!(extract_pod_uid_from_cgroup(pod_parent_path.as_path()), None);
+        assert_eq!(extract_pod_uid_from_cgroup(pod_parent_path.as_path(), false), None);
+        assert_eq!(extract_pod_uid_from_cgroup(pod_parent_path.as_path(), true), None);
 
         let container_path = PathBuf::from(
             "/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-pod5f32d849_6210_4886_a48d_e0d90e1d0206.slice/crio-85b951fd_6954_491d_bcf4_c7490e49e399.scope",
         );
-        assert_eq!(extract_pod_uid_from_cgroup(container_path.as_path()), None);
+        assert_eq!(extract_pod_uid_from_cgroup(container_path.as_path(), false), None);
+        assert_eq!(
+            extract_pod_uid_from_cgroup(container_path.as_path(), true),
+            Some(String::from("5f32d849-6210-4886-a48d-e0d90e1d0206"))
+        );
 
         let pod_bad_uid_path = PathBuf::from(
             "/sys/fs/cgroup/kubepods.slice/kubepods-besteffort.slice/kubepods-besteffort-podBAD!BAD.slice",
         );
-        assert_eq!(extract_pod_uid_from_cgroup(pod_bad_uid_path.as_path()), None);
+        assert_eq!(extract_pod_uid_from_cgroup(pod_bad_uid_path.as_path(), false), None);
+        assert_eq!(extract_pod_uid_from_cgroup(pod_bad_uid_path.as_path(), true), None);
 
         let non_k8s_app_path =
             PathBuf::from(".../user.slice/user-1000.slice/user@1000.service/app.slice/app-org.gnome.Terminal.slice");
-        assert_eq!(extract_pod_uid_from_cgroup(non_k8s_app_path.as_path()), None);
+        assert_eq!(extract_pod_uid_from_cgroup(non_k8s_app_path.as_path(), false), None);
+        assert_eq!(extract_pod_uid_from_cgroup(non_k8s_app_path.as_path(), true), None);
     }
 
     const TOKEN_CONTENT: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZXhwIjo0MTAyNDQ0ODAwLCJuYW1lIjoiVDNzdDFuZyBUMGszbiJ9.3vho4u0hx9QobMNbpDPvorWhTHsK9nSg2pZAGKxeVxA";
@@ -372,7 +393,7 @@ mod tests {
         let auth_token = Token::with_file(path.to_str().unwrap().to_owned());
         let k8s_api_url = server.url();
         let k8s_api_client = ApiClient::new(&k8s_api_url, auth_token).unwrap();
-        let mut registry = AutoNodePodRegistry::new(node.to_owned(), k8s_api_client);
+        let mut registry = AutoNodePodRegistry::new(node.to_owned(), k8s_api_client, false);
         assert!(registry.pods.is_empty());
 
         // This is the only request we've got
@@ -437,7 +458,7 @@ mod tests {
         let auth_token = Token::with_file(path.to_str().unwrap().to_owned());
         let k8s_api_url = server.url();
         let k8s_api_client = ApiClient::new(&k8s_api_url, auth_token).unwrap();
-        let mut registry = AutoNodePodRegistry::new(node.to_owned(), k8s_api_client);
+        let mut registry = AutoNodePodRegistry::new(node.to_owned(), k8s_api_client, false);
         assert!(registry.pods.is_empty());
 
         println!("refreshed: {:?}", registry.pods);
