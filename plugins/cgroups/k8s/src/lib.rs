@@ -56,13 +56,14 @@ impl AlumetPlugin for K8sPlugin {
         let metrics = Metrics::create(alumet)?;
         let reactor_config = ReactorConfig::default();
         let mut shared_hierarchy = OptionalSharedHierarchy::default();
+        let annotate_containers = self.config.annotate_containers;
 
         // prepare K8S link and test it
         let node = self.config.k8s_node_name();
         let api_token = Token::new(self.config.token_retrieval.clone().into());
         let api_client = ApiClient::new(&self.config.k8s_api_url, api_token)
             .context("failed to create http client for communicating with the K8S API")?;
-        let mut pod_registry = AutoNodePodRegistry::new(node, api_client);
+        let mut pod_registry = AutoNodePodRegistry::new(node, api_client, annotate_containers);
         pod_registry
             .refresh()
             .context("failed to list pods with the K8S API, are the url and token correct?")?;
@@ -85,6 +86,7 @@ impl AlumetPlugin for K8sPlugin {
             metrics,
             reactor_config,
             pod_registry,
+            opt_shared_hierarchy: shared_hierarchy,
         };
         self.starting_state = Some(starting_state);
         Ok(())
@@ -106,7 +108,7 @@ impl AlumetPlugin for K8sPlugin {
             ReactorCallbacks {
                 probe_setup,
                 on_removal: NoCallback,
-                on_fs_mount: NoCallback,
+                on_fs_mount: s.opt_shared_hierarchy,
             },
             alumet.pipeline_control(),
         )
@@ -126,6 +128,7 @@ struct StartingState {
     metrics: Metrics,
     reactor_config: ReactorConfig,
     pod_registry: AutoNodePodRegistry,
+    opt_shared_hierarchy: OptionalSharedHierarchy,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -139,12 +142,14 @@ pub struct Config {
 
     #[serde(with = "humantime_serde")]
     pub poll_interval: Duration,
-    /// If `true`, adds attributes like `job_id` to the measurements produced by other plugins.
-    /// The default value is `false`.
-    ///
-    /// The measurements must have the `cgroup` resource consumer, and **cgroup v2** must be used on the node.
+
+    /// If `true`, adds attributes like `uid`, `name`, `namespace`, `node` to the cgroup measurements produced by other plugins.
     #[serde(default)]
     pub annotate_foreign_measurements: bool,
+    /// Decides whether the cgroups at container level should be annotated or not.
+    /// A `false` value will only annotate pod cgroups.
+    /// Note that `annotate_foreign_measurements` needs to be true.
+    pub annotate_containers: bool,
 }
 
 fn default_k8s_api_url() -> String {
@@ -159,6 +164,7 @@ impl Default for Config {
             token_retrieval: TokenRetrievalConfig::Simple(token::SimpleRetrievalMethod::Auto),
             poll_interval: Duration::from_secs(5),
             annotate_foreign_measurements: false,
+            annotate_containers: false,
         }
     }
 }

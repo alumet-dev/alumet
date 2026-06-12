@@ -5,6 +5,7 @@ ASCIINEMA
 astring
 Atos
 Burstable
+besteffort
 cbindgen
 cdylib
 cgroup
@@ -14,6 +15,7 @@ cgroupv
 cguest
 CNRS
 cpuacct
+crio
 Damerau
 d'Ivoire
 desugars
@@ -28,6 +30,7 @@ hwmon
 indice
 ITLB
 jres
+kubepods
 kwollect
 libdrm
 libgflags
@@ -80,6 +83,7 @@ Thour
 timerfd
 Trystram
 UCUM
+UIDY
 uncore
 VERGEN
 wattmeters

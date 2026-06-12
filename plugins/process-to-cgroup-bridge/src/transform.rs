@@ -23,7 +23,7 @@ impl Transform for ProcessToCgroupBridgeTransform {
     fn apply(&mut self, measurements: &mut MeasurementBuffer, _ctx: &TransformContext) -> Result<(), TransformError> {
         let mut cgroup_measurements = MeasurementBuffer::new();
         let mut kept_measurements = MeasurementBuffer::new();
-        for measurement in measurements.iter() {
+        for measurement in measurements.iter_mut() {
             match self.cgroup_measurement_from_measurement(measurement) {
                 Ok(Some(cgroup_measurement)) => {
                     cgroup_measurements.push(cgroup_measurement);
@@ -75,7 +75,7 @@ impl ProcessToCgroupBridgeTransform {
 
     fn cgroup_measurement_from_measurement(
         &self,
-        measurement: &MeasurementPoint,
+        measurement: &mut MeasurementPoint,
     ) -> anyhow::Result<Option<MeasurementPoint>> {
         if !self.processes_metrics_ids.contains(&measurement.metric) {
             return Ok(None);
@@ -85,6 +85,7 @@ impl ProcessToCgroupBridgeTransform {
             Err(_) => return Ok(None),
         };
         let cgroup_path = self.find_cgroup_path_from_process_id(pid)?;
+
         let cgroup_consumer = ResourceConsumer::ControlGroup {
             path: cgroup_path.into(),
         };
@@ -98,8 +99,26 @@ impl ProcessToCgroupBridgeTransform {
 
         let procfs_cgroup_filepath = procfs_cgroup_base_path.join(pid.to_string()).join("cgroup");
 
-        let contents = fs::read_to_string(&procfs_cgroup_filepath)
-            .with_context(|| format!("failed to read {:?}", procfs_cgroup_filepath))?;
+        let result = fs::read_to_string(&procfs_cgroup_filepath);
+        let contents = match result {
+            Ok(contents) => contents,
+            Err(e) => {
+                let error_kind = e.kind();
+                let error_msg = e.to_string();
+                log::error!(
+                    "failed to read the file {:?}: {} (Type: {:?})",
+                    procfs_cgroup_filepath,
+                    error_msg,
+                    error_kind
+                );
+                return Err(e).with_context(|| {
+                    format!(
+                        "failed to read {:?}: {} (Type: {:?})",
+                        procfs_cgroup_filepath, error_msg, error_kind
+                    )
+                })?;
+            }
+        };
 
         // a procfs cgroupv2 file will contain only one line
         // eg: 0::/system.slice/docker-7c7fc86f5f2a609c41c6edd65bd1b64135124a687fa6516f6b177b040d6e3b68.scope
@@ -113,7 +132,7 @@ impl ProcessToCgroupBridgeTransform {
         for line in contents.lines() {
             let parts: Vec<&str> = line.split(':').collect();
             if parts.len() >= 3 {
-                if parts[1] != "" {
+                if !parts[1].is_empty() {
                     log::warn!("detected that process {pid} is managed by cgroup v1, selecting the cgroup arbitrarily");
                 }
                 let cgroup_path = parts[2];
