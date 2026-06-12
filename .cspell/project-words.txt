@@ -79,6 +79,7 @@ thiserror
 Thour
 timerfd
 Trystram
+Typst
 UCUM
 uncore
 VERGEN
