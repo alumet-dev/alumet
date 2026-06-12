@@ -4,11 +4,17 @@ use alumet::{
     pipeline::elements::{error::WriteError, output::OutputContext},
 };
 use anyhow::Context;
-use opentelemetry::{InstrumentationScope, KeyValue, global};
-use opentelemetry_otlp::{MetricExporter, WithExportConfig};
-use opentelemetry_sdk::Resource;
-use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider};
-use std::{env, sync::OnceLock, time::Duration};
+use opentelemetry_proto::tonic::{
+    collector::metrics::v1::{ExportMetricsServiceRequest, metrics_service_client::MetricsServiceClient},
+    common::v1::{AnyValue, InstrumentationScope, KeyValue, any_value},
+    metrics::v1::{
+        Gauge, Metric as OtelMetric, NumberDataPoint, ResourceMetrics, ScopeMetrics, metric, number_data_point::Value,
+    },
+    resource::v1::Resource,
+};
+use std::{collections::HashMap, env};
+
+use tonic::transport::Channel;
 
 #[derive(Clone)]
 pub struct OpenTelemetryOutput {
@@ -16,9 +22,10 @@ pub struct OpenTelemetryOutput {
     add_attributes_to_labels: bool,
     prefix: String,
     suffix: String,
-    initialized: bool,
     collector_host: String,
-    push_interval_seconds: u64,
+    // Map where the key is the full metric name (including prefix/suffix)
+    metric_map: HashMap<String, OtelMetric>,
+    client: Option<MetricsServiceClient<Channel>>,
 }
 
 impl OpenTelemetryOutput {
@@ -28,46 +35,26 @@ impl OpenTelemetryOutput {
         prefix: String,
         suffix: String,
         collector_host: String,
-        push_interval_seconds: u64,
     ) -> anyhow::Result<OpenTelemetryOutput> {
         Ok(Self {
             use_unit_display_name,
             add_attributes_to_labels,
             prefix,
             suffix,
-            initialized: false,
-            collector_host: format!("{}{}", collector_host, "/v1/metrics"),
-            push_interval_seconds,
+            collector_host,
+            metric_map: HashMap::new(),
+            client: None,
         })
     }
-    pub fn initialize(&mut self) {
-        // Needs to be created inside the tokio thread
-        // TODO: rework after https://github.com/alumet-dev/alumet/issues/119 is implemented
-        let meter_provider = self.init_metrics();
-        global::set_meter_provider(meter_provider.clone());
-    }
-    fn get_resource(&mut self) -> Resource {
-        static RESOURCE: OnceLock<Resource> = OnceLock::new();
-        RESOURCE
-            .get_or_init(|| Resource::builder().with_service_name("alumet-otlp-grpc").build())
-            .clone()
-    }
 
-    fn init_metrics(&mut self) -> SdkMeterProvider {
-        let exporter = MetricExporter::builder()
-            .with_tonic()
-            .with_endpoint(self.collector_host.clone())
-            .build()
-            .expect("Failed to create metric exporter");
-        let reader = PeriodicReader::builder(exporter)
-            .with_interval(Duration::new(self.push_interval_seconds, 0))
-            .build();
-
-        SdkMeterProvider::builder()
-            .with_reader(reader)
-            // .with_periodic_exporter(exporter)
-            .with_resource(self.get_resource())
-            .build()
+    fn get_or_init_client(&mut self) -> anyhow::Result<&mut MetricsServiceClient<Channel>> {
+        if self.client.is_none() {
+            let channel = Channel::from_shared(self.collector_host.clone())
+                .context("Invalid collector host URI")?
+                .connect_lazy();
+            self.client = Some(MetricsServiceClient::new(channel));
+        }
+        Ok(self.client.as_mut().unwrap())
     }
 }
 
@@ -76,62 +63,118 @@ impl alumet::pipeline::Output for OpenTelemetryOutput {
         if measurements.is_empty() {
             return Ok(());
         }
-        if !self.initialized {
-            self.initialize();
-            self.initialized = true;
-        }
-        let common_scope_attributes = vec![KeyValue::new("tool", "alumet")];
-        let scope = InstrumentationScope::builder("alumet")
-            .with_version(env!("CARGO_PKG_VERSION"))
-            .with_attributes(common_scope_attributes)
-            .build();
+
+        self.metric_map.clear();
+
         for m in measurements {
-            // Configure the name of the metric
             let full_metric = ctx
                 .metrics
                 .by_id(&m.metric)
-                .with_context(|| format!("Unknown metric {:?}", m.metric))?;
-            let metric_name = format!("{}{}{}", self.prefix, full_metric.name.clone(), self.suffix);
+                .with_context(|| format!("Unknown metric {:?}", m.metric))
+                .map_err(WriteError::from)?;
 
-            // Create the default labels for all metrics and optionally add attributes
-            let mut labels = vec![
-                KeyValue::new("resource_kind".to_string(), m.resource.kind().to_string()),
-                KeyValue::new("resource_id".to_string(), m.resource.id_string().unwrap_or_default()),
-                KeyValue::new("resource_consumer_kind".to_string(), m.consumer.kind().to_string()),
-                KeyValue::new(
-                    "resource_consumer_id".to_string(),
-                    m.consumer.id_string().unwrap_or_default(),
+            let metric_name = format!("{}{}{}", self.prefix, full_metric.name, self.suffix);
+
+            // Prepare Attributes for this specific data point
+            let mut attributes = vec![
+                make_kv("resource_kind", m.resource.kind().to_string()),
+                make_kv("resource_id", m.resource.id_string().unwrap_or("empty".to_string())),
+                make_kv("resource_consumer_kind", m.consumer.kind().to_string()),
+                make_kv(
+                    "resource_consumer_id",
+                    m.consumer.id_string().unwrap_or("empty".to_string()),
                 ),
             ];
-            if self.add_attributes_to_labels {
-                // Add attributes as labels
-                for (key, value) in m.attributes() {
-                    labels.push(KeyValue::new(key.to_owned(), value.to_string()));
-                }
-            }
-            // OpenTelemetry does not accept empty label
-            for label in &mut labels {
-                if label.value == "".into() {
-                    label.value = "empty".to_string().into();
-                }
-            }
-            labels.sort_by(|a, b| a.key.cmp(&b.key));
 
-            // Prepare the meter provider
-            let meter = global::meter_with_scope(scope.clone());
-            let metric = ctx.metrics.by_id(&m.metric).unwrap().clone();
-            let gauge = meter
-                .f64_gauge(metric_name)
-                .with_description(metric.description.to_string())
-                .with_unit(get_unit_string(full_metric, self.use_unit_display_name))
-                .build();
-            match m.value {
-                WrappedMeasurementValue::F64(v) => gauge.record(v as f64, &labels),
-                WrappedMeasurementValue::U64(v) => gauge.record(v as f64, &labels),
+            if self.add_attributes_to_labels {
+                for (key, value) in m.attributes() {
+                    let v = value.to_string();
+                    let v = if v.is_empty() { "empty".to_string() } else { v };
+                    attributes.push(make_kv(key, v));
+                }
+            }
+
+            attributes.sort_by(|a, b| a.key.cmp(&b.key));
+
+            let time_unix_nano = m
+                .timestamp
+                .duration_since(std::time::UNIX_EPOCH.into())
+                .map_err(|e| anyhow::anyhow!("invalid timestamp: {e}"))?
+                .as_nanos() as u64;
+
+            let data_point = NumberDataPoint {
+                attributes,
+                start_time_unix_nano: 0,
+                time_unix_nano,
+                value: Some(Value::AsDouble(m.value.as_f64())),
+                ..Default::default()
             };
+
+            // Lookup for the metric_name entry in the map, or create one if it doesn't exist
+            let entry = self
+                .metric_map
+                .entry(metric_name.clone())
+                .or_insert_with(|| OtelMetric {
+                    name: metric_name,
+                    description: full_metric.description.to_string(),
+                    unit: get_unit_string(full_metric, self.use_unit_display_name),
+                    data: Some(metric::Data::Gauge(Gauge {
+                        data_points: Vec::new(),
+                    })),
+                    ..Default::default()
+                });
+
+            // Push the data point to the existing (or new) OtelMetric
+            if let Some(metric::Data::Gauge(ref mut gauge)) = entry.data {
+                gauge.data_points.push(data_point);
+            }
         }
 
+        // Convert the Map values into a Vector
+        let otel_metrics: Vec<OtelMetric> = self.metric_map.values().cloned().collect();
+
+        // Build and Send Request
+        let scope = InstrumentationScope {
+            name: "alumet".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            attributes: vec![make_kv("tool", "alumet")],
+            ..Default::default()
+        };
+
+        let resource = Resource {
+            attributes: vec![make_kv("service.name", "alumet-otlp-grpc")],
+            ..Default::default()
+        };
+
+        let request = ExportMetricsServiceRequest {
+            resource_metrics: vec![ResourceMetrics {
+                resource: Some(resource),
+                scope_metrics: vec![ScopeMetrics {
+                    scope: Some(scope),
+                    metrics: otel_metrics,
+                    schema_url: String::new(),
+                }],
+                schema_url: String::new(),
+            }],
+        };
+
+        let client = self.get_or_init_client().map_err(WriteError::from)?;
+
+        tokio::runtime::Handle::current()
+            .block_on(client.export(request))
+            .with_context(|| "Failed to export metrics via gRPC")
+            .map_err(WriteError::from)?;
+
         Ok(())
+    }
+}
+
+fn make_kv(key: impl Into<String>, value: impl Into<String>) -> KeyValue {
+    KeyValue {
+        key: key.into(),
+        value: Some(AnyValue {
+            value: Some(any_value::Value::StringValue(value.into())),
+        }),
     }
 }
 

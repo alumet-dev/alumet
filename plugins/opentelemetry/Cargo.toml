@@ -4,18 +4,23 @@ version = "0.1.0"
 edition.workspace = true
 repository.workspace = true
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 alumet.workspace = true
 anyhow.workspace = true
 serde = { workspace = true, features = ["derive"] }
-opentelemetry = { version = "*" }
-opentelemetry_sdk = { version = "*" }
-opentelemetry-otlp = { version = "*", features = ["grpc-tonic"]}
+opentelemetry-proto = { version = "0.7", features = ["gen-tonic", "metrics"] }
+tonic = { version = "0.12" }
+tokio = { workspace = true }
+log = "0.4"
 
 [dev-dependencies]
 pretty_assertions.workspace = true
+alumet = { workspace = true, features = ["test"] }
+tokio = { workspace = true, features = ["rt", "macros"] }
+tokio-stream = { version = "0.1", features = ["net"] }
+tonic = { version = "0.12", features = ["transport"] }
+toml.workspace = true
+serial_test = "3"
 
 [lints]
 workspace = true
