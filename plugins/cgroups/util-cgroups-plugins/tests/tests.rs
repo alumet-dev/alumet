@@ -159,10 +159,10 @@ impl AlumetPlugin for DumbOARPlugin2 {
 
 #[test]
 fn test_correct_transform() -> anyhow::Result<()> {
-    if std::env::var_os("SKIP_CGROUPFS_TESTS").is_some() {
-        println!("skipped because SKIP_CGROUPFS_TESTS is set");
+    let Ok("true" | "yes" | "1") = std::env::var("RUN_CGROUPFS_TESTS").as_deref() else {
+        println!("skipped because RUN_CGROUPFS_TESTS is not set");
         return Ok(());
-    }
+    };
 
     let app_slice = find_user_app_slice(Path::new(SYSFS_CGROUP))?;
 
@@ -228,10 +228,10 @@ fn test_correct_transform() -> anyhow::Result<()> {
 
 #[test]
 fn test_cgroups_files_not_created() -> anyhow::Result<()> {
-    if std::env::var_os("SKIP_CGROUPFS_TESTS").is_some() {
-        println!("skipped because SKIP_CGROUPFS_TESTS is set");
+    let Ok("true" | "yes" | "1") = std::env::var("RUN_CGROUPFS_TESTS").as_deref() else {
+        println!("skipped because RUN_CGROUPFS_TESTS is not set");
         return Ok(());
-    }
+    };
 
     let app_slice = find_user_app_slice(Path::new(SYSFS_CGROUP)).unwrap();
 
@@ -294,10 +294,11 @@ fn test_cgroups_files_not_created() -> anyhow::Result<()> {
 
 #[test]
 fn test_cgroup_v2_hierarchy_not_created() -> anyhow::Result<()> {
-    if std::env::var_os("SKIP_CGROUPFS_TESTS").is_some() {
-        println!("skipped because SKIP_CGROUPFS_TESTS is set");
+    let Ok("true" | "yes" | "1") = std::env::var("RUN_CGROUPFS_TESTS").as_deref() else {
+        println!("skipped because RUN_CGROUPFS_TESTS is not set");
         return Ok(());
-    }
+    };
+
     let app_slice = find_user_app_slice(Path::new(SYSFS_CGROUP)).unwrap();
 
     // Create cgroupv2 hierarchy
@@ -409,11 +410,12 @@ fn test_no_cgroupv2_at_all() -> anyhow::Result<()> {
 }
 
 #[test]
-fn test_on_cgroupfs_mounted() -> () {
-    if std::env::var_os("SKIP_CGROUPFS_TESTS").is_some() {
-        println!("skipped because SKIP_CGROUPFS_TESTS is set");
+fn test_on_cgroupfs_mounted() {
+    let Ok("true" | "yes" | "1") = std::env::var("RUN_CGROUPFS_TESTS").as_deref() else {
+        println!("skipped because RUN_CGROUPFS_TESTS is not set");
         return ();
-    }
+    };
+
     let app_slice = find_user_app_slice(Path::new(SYSFS_CGROUP)).unwrap();
     // Create cgroupv2 hierarchy
     let cgroup_dir_parent = tempfile::tempdir_in(&app_slice)
@@ -432,8 +434,6 @@ fn test_on_cgroupfs_mounted() -> () {
     )];
     let ret = shared_hierarchy.on_cgroupfs_mounted(&cgroup_hierarchy);
     assert!(ret.is_ok());
-
-    ()
 }
 
 fn prepare_mock_measurements(ctx: &mut TransformCheckInputContext, path: PathBuf) -> anyhow::Result<MeasurementBuffer> {

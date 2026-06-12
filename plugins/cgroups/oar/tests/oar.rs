@@ -22,10 +22,10 @@ const TOLERANCE: Duration = Duration::from_millis(500);
 #[test]
 #[serial]
 fn test_oar3() -> anyhow::Result<()> {
-    if std::env::var_os("SKIP_CGROUPFS_TESTS").is_some() {
-        println!("skipped because SKIP_CGROUPFS_TESTS is set");
+    let Ok("true" | "yes" | "1") = std::env::var("RUN_CGROUPFS_TESTS").as_deref() else {
+        println!("skipped because RUN_CGROUPFS_TESTS is not set");
         return Ok(());
-    }
+    };
 
     let _ = env_logger::Builder::from_default_env().try_init();
 
@@ -107,10 +107,10 @@ fn test_oar3() -> anyhow::Result<()> {
 #[test]
 #[serial]
 fn test_oar2() -> anyhow::Result<()> {
-    if std::env::var_os("SKIP_CGROUPFS_TESTS").is_some() {
-        println!("skipped because SKIP_CGROUPFS_TESTS is set");
+    let Ok("true" | "yes" | "1") = std::env::var("RUN_CGROUPFS_TESTS").as_deref() else {
+        println!("skipped because RUN_CGROUPFS_TESTS is not set");
         return Ok(());
-    }
+    };
 
     let _ = env_logger::Builder::from_default_env().try_init();
 

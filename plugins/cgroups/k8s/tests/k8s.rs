@@ -25,10 +25,10 @@ const TOKEN_CONTENT: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMj
 
 #[test]
 fn test_k8s_cgroupv2() -> anyhow::Result<()> {
-    if std::env::var_os("SKIP_CGROUPFS_TESTS").is_some() {
-        println!("skipped because SKIP_CGROUPFS_TESTS is set");
+    let Ok("true" | "yes" | "1") = std::env::var("RUN_CGROUPFS_TESTS").as_deref() else {
+        println!("skipped because RUN_CGROUPFS_TESTS is not set");
         return Ok(());
-    }
+    };
 
     let _ = env_logger::Builder::from_default_env().try_init();
 
