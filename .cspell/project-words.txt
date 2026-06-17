@@ -82,6 +82,7 @@ thiserror
 Thour
 timerfd
 Trystram
+Typst
 UCUM
 UIDY
 uncore
