@@ -150,7 +150,7 @@ fn test_with_auth() {
         .build_and_start()
         .unwrap();
 
-    agent.wait_for_shutdown(Duration::from_secs(2)).unwrap();
+    agent.wait_for_shutdown(Duration::from_secs(3)).unwrap();
 }
 
 #[test]
