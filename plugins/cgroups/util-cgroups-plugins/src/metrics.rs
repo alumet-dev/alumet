@@ -77,7 +77,7 @@ impl Metrics {
         let cpu_percent = alumet.create_metric::<f64>(
             "cpu_percent",
             Unit::Percent,
-            "Part of the CPU used by the cgroup since the previous measurement (1 core fully used = 100%)",
+            "Part of the CPU used by the cgroup since the previous measurement (all cores fully used = 100%)",
         )?;
         let memory_usage = alumet.create_metric::<u64>(
             "memory_usage",
