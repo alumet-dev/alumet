@@ -16,6 +16,7 @@ pub struct CgroupV1Probe {
     collector: V1Collector,
     io_buf: Vec<u8>,
     last_timestamp: Option<Timestamp>,
+    n_cores: usize,
 }
 
 impl CgroupV1Probe {
@@ -24,8 +25,13 @@ impl CgroupV1Probe {
         let consumer = ResourceConsumer::ControlGroup {
             path: cgroup_canon_path.clone().into(),
         };
+
         let io_buf = Vec::new();
         let collector = V1Collector::in_single_hierarchy(cgroup)?;
+
+        // See CgroupV2Probe
+        let n_cores = crate::cpus::online_cpus()?.len();
+
         Ok(Self {
             consumer,
             delta_counters: Default::default(),
@@ -33,6 +39,7 @@ impl CgroupV1Probe {
             collector,
             io_buf,
             last_timestamp: None,
+            n_cores,
         })
     }
 
@@ -76,7 +83,7 @@ impl Source for CgroupV1Probe {
                         &self.metrics.cpu_percent,
                         t,
                         &resource,
-                        (value as f64 / poll_interval as f64) * 100.0,
+                        (value as f64 / poll_interval as f64 / self.n_cores as f64) * 100.0,
                     )
                     .with_attr("kind", "total"),
                 );
