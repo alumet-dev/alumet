@@ -33,6 +33,8 @@ pub struct FullMetrics {
     pub running_compute_processes: TypedMetricId<u64>,
     /// Relevant currently running graphical processes data in percentage.
     pub running_graphics_processes: TypedMetricId<u64>,
+    /// Get the current clock frequency in Hertz
+    pub clock_info: TypedMetricId<u64>,
 }
 
 #[derive(Clone)]
@@ -114,6 +116,7 @@ impl FullMetrics {
                 Unit::Percent,
                 "Utilization of the GPU streaming multiprocessors by the process",
             )?,
+            clock_info: alumet.create_metric("nvml_clock_info", Unit::Hertz, "Current clock speed for the device")?,
         })
     }
 }

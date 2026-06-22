@@ -180,6 +180,7 @@ mod tests {
     };
     use enum_map::{Enum, EnumMap};
     use nvml_wrapper::{
+        enum_wrappers::device::Clock,
         enums::device::UsedGpuMemory,
         struct_wrappers::device::{MemoryInfo, ProcessInfo, ProcessUtilizationSample, Utilization},
         structs::device::UtilizationInfo,
@@ -332,6 +333,13 @@ mod tests {
                     compute_instance_id: None,
                 }])
             });
+            // values are given in MHz. Expected output metric should be 1 000 Hz, 2 000 Hz ...
+            device.expect_clock_info().returning(|clock: Clock| match clock {
+                Clock::SM => Ok(1),
+                Clock::Video => Ok(2),
+                Clock::Memory => Ok(3),
+                Clock::Graphics => Ok(4),
+            });
             Ok(device)
         });
         ret
@@ -403,10 +411,10 @@ mod tests {
                     // previous power: 100
                     // new power: 150
                     // energy: ?
-                    let points = out.points_by_metric_and_consumer(None);
+                    let points = out.points_by_metric_and_consumer(&[]); // no particular attribute to fetch
                     assert_eq!(points.len(), 2, "wrong number of points, got {points:?}");
                     assert_eq!(
-                        points[&("nvml_instant_power", ResourceConsumer::LocalMachine, None)]
+                        points[&("nvml_instant_power", ResourceConsumer::LocalMachine, vec![])]
                             .value
                             .as_u64(),
                         150
@@ -414,7 +422,7 @@ mod tests {
 
                     // FIXME: the value depends on the time difference between the two calls, and we cannot mock that for the moment…
                     assert!(
-                        points[&("nvml_energy_consumption", ResourceConsumer::LocalMachine, None)]
+                        points[&("nvml_energy_consumption", ResourceConsumer::LocalMachine, vec![])]
                             .value
                             .as_f64()
                             >= 0.0
@@ -464,7 +472,8 @@ mod tests {
             .expect_metric::<u64>("nvml_gpu_memory_info", Unit::Byte)
             .expect_metric::<u64>("nvml_decoder_utilization", Unit::Percent)
             .expect_metric::<u64>("nvml_encoder_utilization", Unit::Percent)
-            .expect_metric::<u64>("nvml_sm_utilization", Unit::Percent);
+            .expect_metric::<u64>("nvml_sm_utilization", Unit::Percent)
+            .expect_metric::<u64>("nvml_clock_info", Unit::Hertz);
 
         let source_name = SourceName::from_str("nvml", &format!("device_{MOCK_BUS_ID}"));
         let runtime_checks = RuntimeExpectations::new()
@@ -477,30 +486,34 @@ mod tests {
                 },
                 |out| {
                     // first trigger
-                    let points = out.points_by_metric_and_consumer(Some("kind"));
+                    // two attributes are fetched:
+                    //  - kind for "memory_info"
+                    //  - clock_type for "clock_info"
+                    let points = out.points_by_metric_and_consumer(&["kind", "clock_type"]);
+                    println!("{:#?}", points);
 
-                    assert_eq!(points.len(), 14, "wrong number of points, got {points:?}");
+                    assert_eq!(points.len(), 18, "wrong number of points, got {points:?}");
 
                     assert_eq!(
-                        points[&("nvml_encoder_utilization", ResourceConsumer::LocalMachine, None)]
+                        points[&("nvml_encoder_utilization", ResourceConsumer::LocalMachine, vec![])]
                             .value
                             .as_u64(),
                         1
                     );
                     assert_eq!(
-                        points[&("nvml_decoder_utilization", ResourceConsumer::LocalMachine, None)]
+                        points[&("nvml_decoder_utilization", ResourceConsumer::LocalMachine, vec![])]
                             .value
                             .as_u64(),
                         50
                     );
                     assert_eq!(
-                        points[&("nvml_gpu_utilization", ResourceConsumer::LocalMachine, None)]
+                        points[&("nvml_gpu_utilization", ResourceConsumer::LocalMachine, vec![])]
                             .value
                             .as_u64(),
                         50
                     );
                     assert_eq!(
-                        points[&("nvml_memory_utilization", ResourceConsumer::LocalMachine, None)]
+                        points[&("nvml_memory_utilization", ResourceConsumer::LocalMachine, vec![])]
                             .value
                             .as_u64(),
                         60
@@ -509,7 +522,7 @@ mod tests {
                         points[&(
                             "nvml_gpu_memory_info",
                             ResourceConsumer::LocalMachine,
-                            Some(AttributeValue::Str("free"))
+                            vec![AttributeValue::Str("free")]
                         )]
                             .value
                             .as_u64(),
@@ -519,7 +532,7 @@ mod tests {
                         points[&(
                             "nvml_gpu_memory_info",
                             ResourceConsumer::LocalMachine,
-                            Some(AttributeValue::Str("reserved"))
+                            vec![AttributeValue::Str("reserved")]
                         )]
                             .value
                             .as_u64(),
@@ -529,7 +542,7 @@ mod tests {
                         points[&(
                             "nvml_gpu_memory_info",
                             ResourceConsumer::LocalMachine,
-                            Some(AttributeValue::Str("total"))
+                            vec![AttributeValue::Str("total")]
                         )]
                             .value
                             .as_u64(),
@@ -539,47 +552,87 @@ mod tests {
                         points[&(
                             "nvml_gpu_memory_info",
                             ResourceConsumer::LocalMachine,
-                            Some(AttributeValue::Str("used"))
+                            vec![AttributeValue::Str("used")]
                         )]
                             .value
                             .as_u64(),
                         0
                     );
                     assert_eq!(
-                        points[&("nvml_n_compute_processes", ResourceConsumer::LocalMachine, None)]
+                        points[&("nvml_n_compute_processes", ResourceConsumer::LocalMachine, vec![])]
                             .value
                             .as_u64(),
                         0
                     );
                     assert_eq!(
-                        points[&("nvml_n_graphic_processes", ResourceConsumer::LocalMachine, None)]
+                        points[&("nvml_n_graphic_processes", ResourceConsumer::LocalMachine, vec![])]
                             .value
                             .as_u64(),
                         1
                     );
                     assert_eq!(
-                        points[&("nvml_temperature_gpu", ResourceConsumer::LocalMachine, None)]
+                        points[&("nvml_temperature_gpu", ResourceConsumer::LocalMachine, vec![])]
                             .value
                             .as_u64(),
                         65
                     );
                     assert_eq!(
-                        points[&("nvml_instant_power", ResourceConsumer::LocalMachine, None)]
+                        points[&("nvml_instant_power", ResourceConsumer::LocalMachine, vec![])]
                             .value
                             .as_u64(),
                         100
                     );
                     assert_eq!(
-                        points[&("nvml_encoder_sampling_period", ResourceConsumer::LocalMachine, None)]
+                        points[&("nvml_encoder_sampling_period", ResourceConsumer::LocalMachine, vec![])]
                             .value
                             .as_u64(),
                         10_000
                     );
                     assert_eq!(
-                        points[&("nvml_decoder_sampling_period", ResourceConsumer::LocalMachine, None)]
+                        points[&("nvml_decoder_sampling_period", ResourceConsumer::LocalMachine, vec![])]
                             .value
                             .as_u64(),
                         1_000
+                    );
+                    assert_eq!(
+                        points[&(
+                            "nvml_clock_info",
+                            ResourceConsumer::LocalMachine,
+                            vec![AttributeValue::Str("SM")]
+                        )]
+                            .value
+                            .as_u64(),
+                        1_000
+                    );
+                    assert_eq!(
+                        points[&(
+                            "nvml_clock_info",
+                            ResourceConsumer::LocalMachine,
+                            vec![AttributeValue::Str("Video")]
+                        )]
+                            .value
+                            .as_u64(),
+                        2_000
+                    );
+                    assert_eq!(
+                        points[&(
+                            "nvml_clock_info",
+                            ResourceConsumer::LocalMachine,
+                            vec![AttributeValue::Str("Memory")]
+                        )]
+                            .value
+                            .as_u64(),
+                        3_000
+                    );
+                    assert_eq!(
+                        points[&(
+                            "nvml_clock_info",
+                            ResourceConsumer::LocalMachine,
+                            vec![AttributeValue::Str("Graphics")]
+                        )]
+                            .value
+                            .as_u64(),
+                        4_000
                     );
                 },
             )
@@ -588,12 +641,16 @@ mod tests {
                 || {},
                 |out| {
                     // second trigger
-                    let points = out.points_by_metric_and_consumer(Some("kind"));
-                    assert_eq!(points.len(), 19, "wrong number of points, got {points:?}");
+                    // two attributes are fetched:
+                    //  - kind for "memory_info"
+                    //  - clock_type for "clock_info"
+                    let points = out.points_by_metric_and_consumer(&["kind", "clock_type"]);
+                    assert_eq!(points.len(), 23, "wrong number of points, got {points:?}");
+                    println!("{:#?}", points);
 
                     // new power value
                     assert_eq!(
-                        points[&("nvml_instant_power", ResourceConsumer::LocalMachine, None)]
+                        points[&("nvml_instant_power", ResourceConsumer::LocalMachine, vec![])]
                             .value
                             .as_u64(),
                         150
@@ -603,7 +660,7 @@ mod tests {
                     // new energy counter: 5000
                     // expected difference : 4990
                     assert_eq!(
-                        points[&("nvml_energy_consumption", ResourceConsumer::LocalMachine, None)]
+                        points[&("nvml_energy_consumption", ResourceConsumer::LocalMachine, vec![])]
                             .value
                             .as_u64(),
                         4990
@@ -611,7 +668,7 @@ mod tests {
 
                     // per-process metrics
                     assert_eq!(
-                        points[&("nvml_sm_utilization", ResourceConsumer::Process { pid: 1234 }, None)]
+                        points[&("nvml_sm_utilization", ResourceConsumer::Process { pid: 1234 }, vec![])]
                             .value
                             .as_u64(),
                         50

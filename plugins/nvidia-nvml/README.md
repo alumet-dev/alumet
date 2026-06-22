@@ -28,6 +28,7 @@ One source will be created per GPU device.
 |`nvml_encoder_utilization`|Gauge|Percentage|GPU video encoder utilization by a process|Process|LocalMachine||
 |`nvml_decoder_utilization`|Gauge|Percentage|GPU video decoder utilization by a process|Process|LocalMachine||
 |`nvml_sm_utilization`|Gauge|Percentage|Utilization of the GPU streaming multiprocessors by a process (3D task and rendering, etc...)|Process|LocalMachine||
+|`nvml_clock_info`|Gauge|Hertz|GPU clock frequency|GPU|LocalMachine|[Clock_type](#clock_type)|
 
 Some metrics can be disabled, see the `mode` configuration option.
 
@@ -43,6 +44,17 @@ The kind of the memory is the type of the allocated memory space reserved by the
 |`total`|Total physical device memory|
 |`used`|Allocated device memory|
 |`reserved`|Device memory (in bytes) reserved for system use (driver or firmware)|
+
+#### Clock_type
+
+The speed of the clock may vary depending on the domain. These are the available domains:
+
+|Value|Description|
+|-----|-----------|
+|`SM`|Streaming Multiprocessor (compute units) clock domain|
+|`Video`|Video encoder/decoder clock domain|
+|`Graphics`|Graphics clock domain|
+|`Memory`|Memory clock domain|
 
 ## Configuration
 

@@ -1,7 +1,10 @@
 //! Detect which features are available on the GPUs.
 
-use nvml_wrapper::{enum_wrappers::device::TemperatureSensor, error::NvmlError};
-use std::fmt::Display;
+use nvml_wrapper::{
+    enum_wrappers::device::{Clock, TemperatureSensor},
+    error::NvmlError,
+};
+use std::{fmt::Display, path::is_separator};
 
 use super::{NvmlDevice, NvmlResult};
 
@@ -43,6 +46,8 @@ pub struct OptionalFeatures {
     pub running_compute_processes: AvailableVersion,
     /// Relevant currently running graphical processes data.
     pub running_graphics_processes: AvailableVersion,
+    /// Clock frequency.
+    pub clock_info: bool,
 }
 
 impl OptionalFeatures {
@@ -59,6 +64,7 @@ impl OptionalFeatures {
             process_utilization_stats: is_supported(device.process_utilization_stats(0))?,
             running_compute_processes: check_running_compute_processes(device)?,
             running_graphics_processes: check_running_graphics_processes(device)?,
+            clock_info: check_clock_info(device)?,
         })
     }
 
@@ -72,6 +78,7 @@ impl OptionalFeatures {
             || self.temperature_gpu
             || self.running_compute_processes != AvailableVersion::None
             || self.running_graphics_processes != AvailableVersion::None
+            || self.clock_info
     }
 }
 
@@ -112,6 +119,9 @@ impl Display for OptionalFeatures {
             AvailableVersion::V2 => available.push("running_graphics_processes(v2)"),
             AvailableVersion::None => (),
         };
+        if self.clock_info {
+            available.push("clock_info");
+        }
         write!(f, "{}", available.join(", "))
     }
 }
@@ -132,6 +142,14 @@ fn check_running_graphics_processes(device: &impl NvmlDevice) -> Result<Availabl
         |d| d.running_graphics_processes(),
         |d| d.running_graphics_processes_v2(),
     )
+}
+
+/// Checks which version of `running_graphic_processes` is available (if any) on this NVML device.
+fn check_clock_info(device: &impl NvmlDevice) -> Result<bool, NvmlError> {
+    Ok(is_supported(device.clock_info(Clock::Graphics))?
+        && is_supported(device.clock_info(Clock::SM))?
+        && is_supported(device.clock_info(Clock::Memory))?
+        && is_supported(device.clock_info(Clock::Video))?)
 }
 
 fn detect_biversion<D: NvmlDevice, R1, R2>(
@@ -186,10 +204,11 @@ mod tests {
             temperature_gpu: true,
             running_compute_processes: AvailableVersion::Latest,
             running_graphics_processes: AvailableVersion::Latest,
+            clock_info: true,
         };
         assert_eq!(
             format!("{}", features),
-            "total_energy_consumption, instant_power, major_utilization, memory_info, decoder_utilization, encoder_utilization, process_utilization_stats, temperature_gpu, running_compute_processes(latest), running_graphics_processes(latest)"
+            "total_energy_consumption, instant_power, major_utilization, memory_info, decoder_utilization, encoder_utilization, process_utilization_stats, temperature_gpu, running_compute_processes(latest), running_graphics_processes(latest), clock_info"
         );
     }
 
@@ -206,6 +225,7 @@ mod tests {
             temperature_gpu: false,
             running_compute_processes: AvailableVersion::V2,
             running_graphics_processes: AvailableVersion::None,
+            clock_info: false,
         };
         assert_eq!(
             format!("{}", features),
@@ -227,6 +247,7 @@ mod tests {
             temperature_gpu: false,
             running_compute_processes: AvailableVersion::None,
             running_graphics_processes: AvailableVersion::None,
+            clock_info: false,
         };
         assert!(!features.has_any());
     }
@@ -278,6 +299,7 @@ mod tests {
                 )))
             })
             .times(1);
+        device.expect_clock_info().returning(|_| Err(NvmlError::NotSupported));
 
         let features = OptionalFeatures::detect_on(&device).expect("detection failed");
         assert_eq!(
@@ -292,7 +314,8 @@ mod tests {
                 encoder_utilization: false,
                 process_utilization_stats: false,
                 running_compute_processes: AvailableVersion::V2,
-                running_graphics_processes: AvailableVersion::None
+                running_graphics_processes: AvailableVersion::None,
+                clock_info: false
             }
         );
 
@@ -315,7 +338,8 @@ mod tests {
                 encoder_utilization: false,
                 process_utilization_stats: false,
                 running_compute_processes: AvailableVersion::V2,
-                running_graphics_processes: AvailableVersion::Latest
+                running_graphics_processes: AvailableVersion::Latest,
+                clock_info: false
             }
         );
 

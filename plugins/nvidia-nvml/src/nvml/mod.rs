@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use nvml_wrapper::enum_wrappers::device::Clock;
+
 pub mod detect;
 pub mod features;
 pub mod nvml_ext;
@@ -100,6 +102,10 @@ pub trait NvmlDevice: Display + Send {
         &self,
         last_seen_timestamp: u64,
     ) -> NvmlResult<Vec<nvml_wrapper::struct_wrappers::device::ProcessUtilizationSample>>;
+
+    /// Current clock frequency.
+    /// See [`nvml_wrapper::Device::clock_info`].
+    fn clock_info(&self, clock_type: Clock) -> NvmlResult<u32>;
 }
 
 #[cfg(test)]
