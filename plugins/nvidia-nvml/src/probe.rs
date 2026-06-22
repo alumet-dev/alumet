@@ -1,10 +1,16 @@
 use anyhow::{Context, anyhow};
-use nvml_wrapper::{enum_wrappers::device::TemperatureSensor, error::NvmlError};
+use nvml_wrapper::{
+    enum_wrappers::device::{Clock, TemperatureSensor},
+    error::NvmlError::{self, UnexpectedVariant},
+};
 use std::{borrow::Cow, time::SystemTime};
 
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
-    pipeline::{Source, elements::error::PollError},
+    pipeline::{
+        Source,
+        elements::error::{PollError, TransformError::UnexpectedInput},
+    },
     plugin::util::CounterDiff,
     resources::{Resource, ResourceConsumer},
 };
@@ -52,6 +58,16 @@ pub struct MinimalSource<D: NvmlDevice> {
 unsafe impl<D: NvmlDevice> Send for FullSource<D> {}
 unsafe impl<D: NvmlDevice> Send for MinimalSource<D> {}
 
+// Converts Clock types from an enum to their str equivalent.
+fn clock_type_to_str(clock_type: Clock) -> Result<&'static str, NvmlError> {
+    match clock_type {
+        Clock::SM => Ok("SM"),
+        Clock::Video => Ok("Video"),
+        Clock::Graphics => Ok("Graphics"),
+        Clock::Memory => Ok("Memory"),
+    }
+}
+
 impl<D: NvmlDevice> FullSource<D> {
     pub fn new(device: DetectedDevice<D>, metrics: FullMetrics) -> Result<Self, NvmlError> {
         let bus_id = Cow::Owned(device.inner.bus_id().to_owned());
@@ -70,6 +86,7 @@ impl<D: NvmlDevice> Source for FullSource<D> {
         let features = &self.device.features;
         let device = &self.device.inner;
         let device_memory_info = device.memory_info()?;
+        let clock_types = [Clock::Graphics, Clock::SM, Clock::Memory, Clock::Video];
 
         // no consumer, we just monitor the device here
         let consumer = ResourceConsumer::LocalMachine;
@@ -304,6 +321,22 @@ impl<D: NvmlDevice> Source for FullSource<D> {
                 }
             }
             self.last_poll_timestamp = Some(timestamp);
+        }
+
+        // Get clock frequency for all clock types, in Hertz
+        if features.clock_info {
+            for clock_type in clock_types {
+                measurements.push(
+                    MeasurementPoint::new(
+                        timestamp,
+                        self.metrics.clock_info,
+                        self.resource.clone(),
+                        consumer.clone(),
+                        (device.clock_info(clock_type)? * 1000) as u64,
+                    )
+                    .with_attr("clock_type", clock_type_to_str(clock_type)?),
+                );
+            }
         }
 
         Ok(())

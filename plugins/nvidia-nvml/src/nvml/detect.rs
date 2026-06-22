@@ -152,6 +152,10 @@ mod tests {
                 .expect_running_graphics_processes()
                 .returning(|| Ok(Vec::new()))
                 .times(1);
+            device
+                .expect_clock_info()
+                .returning(|_| Err(NvmlError::NotSupported))
+                .times(1);
             Ok(device)
         });
 

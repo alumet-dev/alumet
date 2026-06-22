@@ -713,8 +713,8 @@ impl<'a> SourceCheckOutputContext<'a> {
 
     pub fn points_by_metric_and_consumer(
         &'a self,
-        attribute_key: Option<&str>,
-    ) -> IndexMap<(&'a str, ResourceConsumer, Option<AttributeValue>), &'a MeasurementPoint> {
+        attribute_key_list: &[&str],
+    ) -> IndexMap<(&'a str, ResourceConsumer, Vec<AttributeValue>), &'a MeasurementPoint> {
         self.measurements()
             .into_iter()
             .map(|p| {
@@ -727,17 +727,19 @@ impl<'a> SourceCheckOutputContext<'a> {
 
                 // If the metric has an attribute "kind", the value of the attribute is stored
                 // Otherwise, the Option<AttributeValue> field should be equal to None
-                match attribute_key {
-                    None => ((metric_name, consumer, None), p),
-                    Some(key_wanted) => {
-                        let kind = p
-                            .attributes()
-                            .find(|(key, _value)| *key == key_wanted)
-                            .map(|(_key, value)| value.clone());
-                        ((metric_name, consumer, kind), p)
+                // TODO redo comment
+                match &attribute_key_list {
+                    [] => vec![((metric_name, consumer, vec![]), p)],
+                    key_wanted_list => {
+                        let attributes_list = match p.attributes().any(|(key, _value)| key_wanted_list.contains(&key)) {
+                            true => p.attributes().map(|(_key, value)| value.clone()).collect::<Vec<AttributeValue>>(),
+                            false => vec![],
+                        };
+                        vec![((metric_name, consumer.clone(), attributes_list), p)]
                     }
                 }
             })
+            .flatten()
             .collect()
     }
 }

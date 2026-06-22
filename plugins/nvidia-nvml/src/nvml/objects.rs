@@ -4,7 +4,11 @@ use crate::nvml::NvmlProvider;
 
 use super::{NvmlDevice, NvmlLib, NvmlResult};
 use anyhow::Context;
-use nvml_wrapper::{Device, Nvml, enum_wrappers::device::TemperatureSensor, struct_wrappers::device::ProcessInfo};
+use nvml_wrapper::{
+    Device, Nvml,
+    enum_wrappers::device::{Clock, TemperatureSensor},
+    struct_wrappers::device::ProcessInfo,
+};
 use nvml_wrapper_sys::bindings::nvmlDevice_t;
 use std::{fmt::Display, sync::Arc};
 
@@ -192,6 +196,12 @@ impl NvmlDevice for ManagedDevice {
         use super::nvml_ext::DeviceExt;
         self.as_underlying_device()
             .fixed_process_utilization_stats(last_seen_timestamp)
+    }
+
+    /// Current clock frequency.
+    /// See [`nvml_wrapper::Device::clock_info`].
+    fn clock_info(&self, clock_type: Clock) -> NvmlResult<u32> {
+        self.as_underlying_device().clock_info(clock_type)
     }
 }
 
