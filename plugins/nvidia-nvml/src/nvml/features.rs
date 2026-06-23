@@ -4,7 +4,7 @@ use nvml_wrapper::{
     enum_wrappers::device::{Clock, TemperatureSensor},
     error::NvmlError,
 };
-use std::{fmt::Display, path::is_separator};
+use std::fmt::Display;
 
 use super::{NvmlDevice, NvmlResult};
 
