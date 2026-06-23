@@ -711,6 +711,40 @@ impl<'a> SourceCheckOutputContext<'a> {
         self.metrics
     }
 
+    /// Maps measurements to an `IndexMap`.
+    ///
+    /// If multiple measurements have the same name but different attribute values,
+    /// you should include the name of the attribute in `attribute_key_list` so that each
+    /// measurement maps to a distinct key/value pair in the `IndexMap`.
+    ///
+    /// ### Notes
+    /// * The order of elements in the resulting `Vec<AttributeValue>` is not guaranteed.
+    /// * Requesting keys that do not exist in the attributes has no impact on the results.
+    ///
+    /// ### Usage Examples
+    ///
+    /// ```text
+    /// Input:
+    /// [
+    ///     {"clock_speed", "ResourceConsumer", {clock_type = Memory, domain = GPU}},
+    ///     {"clock_speed", "ResourceConsumer", {clock_type = SM}}
+    /// ]
+    ///
+    /// Case 1: attribute_key_list = []
+    /// Output keys -> [("clock_speed", "ResourceConsumer", [])]
+    ///
+    /// Case 2: attribute_key_list = ["clock_type"]
+    /// Output keys -> [
+    ///     ("clock_speed", "ResourceConsumer", [Memory]),
+    ///     ("clock_speed", "ResourceConsumer", [SM])
+    /// ]
+    ///
+    /// Case 3: attribute_key_list = ["domain"]
+    /// Output keys -> [
+    ///     ("clock_speed", "ResourceConsumer", [GPU]),
+    ///     ("clock_speed", "ResourceConsumer", [])
+    /// ]
+    /// ```
     pub fn points_by_metric_and_consumer(
         &'a self,
         attribute_key_list: &[&str],
@@ -725,14 +759,14 @@ impl<'a> SourceCheckOutputContext<'a> {
                 let metric_name = metric.name.as_str();
                 let consumer = p.consumer.clone();
 
-                // If the metric has an attribute "kind", the value of the attribute is stored
-                // Otherwise, the Option<AttributeValue> field should be equal to None
-                // TODO redo comment
+                // if some attributes are requested (ie attribute_key_list != []) :
+                // for each metric containing at least one requested attribute, the key to the IndexMap
+                // will contain the list of all the AttributeValue of the metric.
                 match &attribute_key_list {
                     [] => vec![((metric_name, consumer, vec![]), p)],
                     key_wanted_list => {
                         let attributes_list = match p.attributes().any(|(key, _value)| key_wanted_list.contains(&key)) {
-                            true => p.attributes().map(|(_key, value)| value.clone()).collect::<Vec<AttributeValue>>(),
+                            true => p.attributes().map(|(_key, value)| value.clone()).collect(),
                             false => vec![],
                         };
                         vec![((metric_name, consumer.clone(), attributes_list), p)]
@@ -780,5 +814,157 @@ pub struct OutputCheckInputContext<'a> {
 impl<'a> OutputCheckInputContext<'a> {
     pub fn metrics(&'a self) -> &'a MetricRegistry {
         self.metrics.deref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        measurement::{self, Timestamp, WrappedMeasurementValue},
+        units::{Unit, UnitPrefix::Plain},
+    };
+
+    use super::*;
+
+    fn setup_mock_data<'a>() -> (MeasurementBuffer, MetricRegistry) {
+        let mut measurements = MeasurementBuffer::new();
+        let mut metrics = MetricRegistry::new();
+
+        let now = Timestamp::now();
+
+        let metric = Metric {
+            name: "clock_speed".to_string(),
+            description: "".to_string(),
+            unit: PrefixedUnit {
+                base_unit: Unit::Hertz,
+                prefix: Plain,
+            },
+            value_type: measurement::WrappedMeasurementType::U64,
+        };
+
+        let id = metrics
+            .register(metric, DuplicateCriteria::Different, DuplicateReaction::Error)
+            .unwrap();
+
+        let point1: MeasurementPoint = MeasurementPoint::new_untyped(
+            now,
+            id,
+            Resource::LocalMachine,
+            ResourceConsumer::LocalMachine,
+            WrappedMeasurementValue::U64(123),
+        )
+        .with_attr("clock_type", "Memory")
+        .with_attr("domain", "GPU");
+
+        let point2: MeasurementPoint = MeasurementPoint::new_untyped(
+            now,
+            id,
+            Resource::LocalMachine,
+            ResourceConsumer::LocalMachine,
+            WrappedMeasurementValue::U64(456),
+        )
+        .with_attr("clock_type", "SM");
+
+        measurements.push(point1);
+        measurements.push(point2);
+
+        (measurements, metrics)
+    }
+
+    #[test]
+    fn test_attribute_key_list_empty() {
+        let (measurement, metrics) = setup_mock_data();
+        let source = SourceCheckOutputContext {
+            measurements: &measurement,
+            metrics: &metrics,
+        };
+        let attribute_key_list: &[&str] = &[];
+
+        let result = source.points_by_metric_and_consumer(attribute_key_list);
+
+        // If attribute_key_list is empty,
+        // the duplicate key collisions collapse into a single key with an empty vec![]
+        assert_eq!(result.len(), 1);
+
+        let expected_key = ("clock_speed", ResourceConsumer::LocalMachine, vec![]);
+        assert!(result.contains_key(&expected_key));
+    }
+
+    #[test]
+    fn test_attribute_key_list_with_clock_type() {
+        let (measurement, metrics) = setup_mock_data();
+        let source = SourceCheckOutputContext {
+            measurements: &measurement,
+            metrics: &metrics,
+        };
+        let attribute_key_list = &["clock_type"];
+
+        let result = source.points_by_metric_and_consumer(attribute_key_list);
+
+        // Should produce 2 distinct entries because both have the requested attribute,
+        // mapping to their full list of attribute values.
+        assert_eq!(result.len(), 2);
+
+        let key1 = (
+            "clock_speed",
+            ResourceConsumer::LocalMachine,
+            vec![AttributeValue::from("Memory"), AttributeValue::from("GPU")],
+        );
+        let key2 = (
+            "clock_speed",
+            ResourceConsumer::LocalMachine,
+            vec![AttributeValue::from("SM")],
+        );
+
+        assert!(result.contains_key(&key1));
+        assert!(result.contains_key(&key2));
+    }
+
+    #[test]
+    fn test_attribute_key_list_with_domain() {
+        let (measurement, metrics) = setup_mock_data();
+        let source = SourceCheckOutputContext {
+            measurements: &measurement,
+            metrics: &metrics,
+        };
+        let attribute_key_list = &["domain"];
+
+        let result = source.points_by_metric_and_consumer(attribute_key_list);
+
+        // Measurement 1 contains "domain" -> returns all its attributes [Memory, GPU]
+        // Measurement 2 does NOT contain "domain" -> returns []
+        assert_eq!(result.len(), 2);
+
+        let key_with_domain = (
+            "clock_speed",
+            ResourceConsumer::LocalMachine,
+            vec![AttributeValue::from("Memory"), AttributeValue::from("GPU")],
+        );
+        let key_without_domain = ("clock_speed", ResourceConsumer::LocalMachine, vec![]);
+
+        assert!(result.contains_key(&key_with_domain));
+        assert!(result.contains_key(&key_without_domain));
+    }
+
+    #[test]
+    fn test_multiple_requested_keys_returns_all_attributes() {
+        let (measurement, metrics) = setup_mock_data();
+        let source = SourceCheckOutputContext {
+            measurements: &measurement,
+            metrics: &metrics,
+        };
+        let attribute_key_list = &["clock_type", "non_existent_key"];
+
+        let result = source.points_by_metric_and_consumer(attribute_key_list);
+
+        let expected_key = (
+            "clock_speed",
+            ResourceConsumer::LocalMachine,
+            vec![AttributeValue::from("Memory"), AttributeValue::from("GPU")],
+        );
+
+        // Even though "non_existent_key" wasn't found, "clock_type" matched,
+        // so ALL attributes are exported to the key.
+        assert!(result.contains_key(&expected_key));
     }
 }

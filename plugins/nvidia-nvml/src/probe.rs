@@ -1,16 +1,13 @@
 use anyhow::{Context, anyhow};
 use nvml_wrapper::{
     enum_wrappers::device::{Clock, TemperatureSensor},
-    error::NvmlError::{self, UnexpectedVariant},
+    error::NvmlError::{self},
 };
 use std::{borrow::Cow, time::SystemTime};
 
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
-    pipeline::{
-        Source,
-        elements::error::{PollError, TransformError::UnexpectedInput},
-    },
+    pipeline::{Source, elements::error::PollError},
     plugin::util::CounterDiff,
     resources::{Resource, ResourceConsumer},
 };
