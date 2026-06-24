@@ -190,7 +190,7 @@ fn test_correct_transform() -> anyhow::Result<()> {
 
     // With this closure, we want to check that the measurement contains the correct
     // number of element in the measurement buffer and then we want to check if all
-    // measurements with "cgroups" as ressource consumer have a "job_id" attribute
+    // measurements with "cgroups" as resource consumer have a "job_id" attribute
     let check_output = move |ctx: &mut TransformCheckOutputContext| {
         let measurements = ctx.measurements();
         assert_eq!(3, measurements.len());
@@ -257,7 +257,7 @@ fn test_cgroups_files_not_created() -> anyhow::Result<()> {
 
     // With this closure, we want to check that the measurement contains the correct
     // number of element in the measurement buffer and then we want to check if all
-    // measurements with "cgroups" as ressource consumer have a "job_id" attribute
+    // measurements with "cgroups" as resource consumer have a "job_id" attribute
     let check_output = move |ctx: &mut TransformCheckOutputContext| {
         let measurements = ctx.measurements();
         assert_eq!(3, measurements.len());
@@ -323,7 +323,7 @@ fn test_cgroup_v2_hierarchy_not_created() -> anyhow::Result<()> {
 
     // With this closure, we want to check that the measurement contains the correct
     // number of element in the measurement buffer and then we want to check if all
-    // measurements with "cgroups" as ressource consumer have a "job_id" attribute
+    // measurements with "cgroups" as resource consumer have a "job_id" attribute
     let check_output = move |ctx: &mut TransformCheckOutputContext| {
         let measurements = ctx.measurements();
         for measure in measurements {
@@ -373,7 +373,7 @@ fn test_no_cgroupv2_at_all() -> anyhow::Result<()> {
 
     // With this closure, we want to check that the measurement contains the correct
     // number of element in the measurement buffer and then we want to check if all
-    // measurements with "cgroups" as ressource consumer have a "job_id" attribute
+    // measurements with "cgroups" as resource consumer have a "job_id" attribute
     let check_output = move |ctx: &mut TransformCheckOutputContext| {
         let measurements = ctx.measurements();
         assert_eq!(3, measurements.len());

@@ -4,8 +4,8 @@ amdsmi
 ASCIINEMA
 astring
 Atos
-Burstable
 besteffort
+Burstable
 cbindgen
 cdylib
 cgroup
@@ -15,11 +15,14 @@ cgroupv
 cguest
 CNRS
 cpuacct
+cpuset
 crio
-Damerau
 d'Ivoire
+Damerau
 desugars
+doctests
 DTLB
+evalexpr
 Eviden
 FSCREDS
 giga
@@ -28,6 +31,7 @@ humantime
 hwinfo
 hwmon
 indice
+inotify
 ITLB
 jres
 kubepods
@@ -47,9 +51,11 @@ nvme
 NVML
 oarstat
 oarsub
+Opensearch
 pagetables
 paradoxe
 PERFMON
+pidfd
 POWERCAP
 psys
 ptraceable
@@ -69,9 +75,11 @@ simplifiable
 slurm
 slurmstep
 slurmstepd
+smaps
 statm
 subconfig
 sublicensable
+substeps
 subtable
 subtables
 subtrait
@@ -79,6 +87,8 @@ subtraits
 superchip
 superchips
 SYSFS
+sysio
+Thinkpad
 thiserror
 Thour
 timerfd
