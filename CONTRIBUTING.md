@@ -136,7 +136,7 @@ main          A---B---C---D   (local copy updated)
 feat/xyz                    E---F   (branch rebased)
 ```
 
-If the PR gets approved by the projet maintainers, it will be merged into upstream.
+If the PR gets approved by the project maintainers, it will be merged into upstream.
 A merge commit `M` will be created, with some information about the PR: title, description, etc.
 
 ```txt

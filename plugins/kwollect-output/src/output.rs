@@ -75,7 +75,7 @@ impl alumet::pipeline::Output for KwollectOutput {
             let ts_tmp = measure.timestamp.to_unix_timestamp();
             let ts = ts_tmp.0 as f64 + ts_tmp.1 as f64 / 1_000_000_000.0;
             let mut json_map: HashMap<String, AttributeValue> = HashMap::new();
-            // Add ressource_kind, ressource_id, consumer_kind and consumer_id
+            // Add resource_kind, resource_id, consumer_kind and consumer_id
             json_map.insert(
                 "ressource_kind".to_string(),
                 AttributeValue::String(measure.resource.kind().to_owned()),

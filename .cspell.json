@@ -50,7 +50,8 @@
         {
             "languageId": "markdown",
             "ignoreRegExpList": [
-                "markdown_code_block"
+                "markdown_code_block",
+                "^(.+)\\/([^\\/]+)$"
             ]
         }
     ],
