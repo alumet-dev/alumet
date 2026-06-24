@@ -1,0 +1,39 @@
+name: Robot framework files validation
+
+on:
+  pull_request:
+    paths:
+      - integration-tests/
+
+jobs:
+  Robot-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install linters
+        run: |
+          pip install robotframework-find-unused robotframework-robocop
+        
+      - name: Install dependencies
+        working-directory: integration-tests
+        run: |
+          pip install -r requirements.txt
+      
+      - name: Robocop check
+        working-directory: integration-tests
+        run: |
+          robocop check
+      
+      - name: Robocop format
+        working-directory: integration-tests
+        run: |
+          robocop format --check
+      
+      - name: Run Robot Framework Find Unused
+        working-directory: integration-tests
+        run: |
+          for type in arguments files keywords returns variables; do
+            echo "Checking presence of unused $type"
+            robotunused $type -v
+          done

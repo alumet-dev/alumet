@@ -59,6 +59,7 @@ quarchpy
 Raffin
 RAPL
 regen
+robotunused
 rollup
 rustfmt
 sagittaire
