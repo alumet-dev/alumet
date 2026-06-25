@@ -3,7 +3,7 @@ name: Robot framework files validation
 on:
   pull_request:
     paths:
-      - integration-tests/
+      - integration-tests/**
 
 jobs:
   Robot-validation:
