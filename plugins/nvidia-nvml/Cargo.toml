@@ -8,6 +8,7 @@ repository.workspace = true
 alumet.workspace = true
 anyhow.workspace = true
 humantime-serde.workspace = true
+indexmap = "2.14.0"
 log.workspace = true
 nvml-wrapper = { version = "0.12.0", features = ["legacy-functions"] }
 nvml-wrapper-sys = { version = "0.9.0" }

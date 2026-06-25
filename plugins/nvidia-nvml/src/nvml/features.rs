@@ -144,7 +144,7 @@ fn check_running_graphics_processes(device: &impl NvmlDevice) -> Result<Availabl
     )
 }
 
-/// Checks which version of `running_graphic_processes` is available (if any) on this NVML device.
+/// Checks that every type of clock is supported on the device.
 fn check_clock_info(device: &impl NvmlDevice) -> Result<bool, NvmlError> {
     Ok(is_supported(device.clock_info(Clock::Graphics))?
         && is_supported(device.clock_info(Clock::SM))?

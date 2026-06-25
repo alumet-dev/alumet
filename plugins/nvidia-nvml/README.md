@@ -47,7 +47,7 @@ The kind of the memory is the type of the allocated memory space reserved by the
 
 #### Clock_type
 
-The speed of the clock may vary depending on the domain. These are the available domains:
+The speed of the clock may vary depending on the type. These are the available types:
 
 |Value|Description|
 |-----|-----------|
