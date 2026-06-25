@@ -3198,6 +3198,7 @@ dependencies = [
  "anyhow",
  "enum-map",
  "humantime-serde",
+ "indexmap 2.14.0",
  "log",
  "mockall",
  "nvml-wrapper",

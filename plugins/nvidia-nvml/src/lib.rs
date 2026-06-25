@@ -165,7 +165,7 @@ impl Default for Config {
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::HashMap,
+        cmp::Ordering,
         sync::{Arc, Mutex},
     };
 
@@ -179,6 +179,7 @@ mod tests {
         units::{PrefixedUnit, Unit},
     };
     use enum_map::{Enum, EnumMap};
+    use indexmap::IndexMap;
     use nvml_wrapper::{
         enum_wrappers::device::Clock,
         enums::device::UsedGpuMemory,
@@ -234,6 +235,88 @@ mod tests {
         PowerUsage,
         ProcessUtilizationStats,
         // other values could be added in the future
+    }
+
+    // utility function for comparing values in points_by_metric_and_consumer
+    pub fn cmp_by_key_list(
+        attribute_key_list: &[&str],
+        myself: (&str, &AttributeValue),
+        other: (&str, &AttributeValue),
+    ) -> Ordering {
+        let self_position = attribute_key_list.iter().position(|key| myself.0 == *key);
+        let other_position = attribute_key_list.iter().position(|key| other.0 == *key);
+
+        self_position.cmp(&other_position)
+    }
+
+    /// Maps measurements to an `IndexMap`.
+    ///
+    /// If multiple measurements have the same name but different attribute values,
+    /// you should include the name of the attribute in `attribute_key_list` so that each
+    /// measurement maps to a distinct key/value pair in the `IndexMap`.
+    ///
+    /// ### Notes
+    /// * The order of elements in the resulting `Vec<AttributeValue>` is dependent on the order
+    ///     of elements in `attribute_key_list`.
+    /// * Requesting keys that do not exist in the attributes has no impact on the results.
+    ///
+    /// ### Usage Examples
+    ///
+    /// ```text
+    /// Input:
+    /// [
+    ///     {"clock_speed", "ResourceConsumer", {"clock_type" = Memory, "domain" = GPU}},
+    ///     {"clock_speed", "ResourceConsumer", {"clock_type" = SM}}
+    /// ]
+    ///
+    /// Case 1: attribute_key_list = []
+    /// Output keys -> [("clock_speed", "ResourceConsumer", [])]
+    ///
+    /// Case 2: attribute_key_list = ["domain"]
+    /// Output keys -> [
+    ///     ("clock_speed", "ResourceConsumer", [("domain" = GPU)]),
+    ///     ("clock_speed", "ResourceConsumer", [])
+    /// ]
+    ///  
+    /// Case 3: attribute_key_list = ["domain", "clock_type"]
+    /// Output keys -> [
+    ///     ("clock_speed", "ResourceConsumer", [("domain" = GPU), ("clock_type" = Memory)]),
+    ///     ("clock_speed", "ResourceConsumer", [("clock_type" = SM)])
+    /// ]
+    /// ```
+    pub fn points_by_metric_and_consumer<'a>(
+        source: &'a SourceCheckOutputContext,
+        attribute_key_list: &[&str],
+    ) -> IndexMap<(&'a str, ResourceConsumer, Vec<(&'a str, &'a AttributeValue)>), &'a MeasurementPoint> {
+        source
+            .measurements()
+            .into_iter()
+            .map(|p| {
+                let metric = source
+                    .metrics()
+                    .by_id(&p.metric)
+                    .unwrap_or_else(|| panic!("unknown metric with id {} in {p:?}", &p.metric.as_u64()));
+                let metric_name = metric.name.as_str();
+                let consumer = p.consumer.clone();
+
+                // if some attributes are requested (ie attribute_key_list != []) :
+                // for each metric containing at least one requested attribute, the key to the IndexMap
+                // will contain the list of all the AttributeValue of the metric.
+                match &attribute_key_list {
+                    [] => vec![((metric_name, consumer, vec![]), p)],
+                    key_wanted_list => {
+                        let mut attributes_list =
+                            match p.attributes().any(|(key, _value)| key_wanted_list.contains(&key)) {
+                                true => p.attributes().collect(),
+                                false => vec![],
+                            };
+                        attributes_list.sort_by(|myself, other| cmp_by_key_list(attribute_key_list, *myself, *other));
+                        vec![((metric_name, consumer.clone(), attributes_list), p)]
+                    }
+                }
+            })
+            .flatten()
+            .collect()
     }
 
     fn mock_no_gpu(mock: &mut MockNvmlLib) {
@@ -411,7 +494,7 @@ mod tests {
                     // previous power: 100
                     // new power: 150
                     // energy: ?
-                    let points = out.points_by_metric_and_consumer(&[]); // no particular attribute to fetch
+                    let points = points_by_metric_and_consumer(out, &[]); // no particular attribute to fetch
                     assert_eq!(points.len(), 2, "wrong number of points, got {points:?}");
                     assert_eq!(
                         points[&("nvml_instant_power", ResourceConsumer::LocalMachine, vec![])]
@@ -489,8 +572,7 @@ mod tests {
                     // two attributes are fetched:
                     //  - kind for "memory_info"
                     //  - clock_type for "clock_info"
-                    let points = out.points_by_metric_and_consumer(&["kind", "clock_type"]);
-                    println!("{:#?}", points);
+                    let points = points_by_metric_and_consumer(out, &["kind", "clock_type"]);
 
                     assert_eq!(points.len(), 18, "wrong number of points, got {points:?}");
 
@@ -522,7 +604,7 @@ mod tests {
                         points[&(
                             "nvml_gpu_memory_info",
                             ResourceConsumer::LocalMachine,
-                            vec![AttributeValue::Str("free")]
+                            vec![("kind", &AttributeValue::Str("free"))]
                         )]
                             .value
                             .as_u64(),
@@ -532,7 +614,7 @@ mod tests {
                         points[&(
                             "nvml_gpu_memory_info",
                             ResourceConsumer::LocalMachine,
-                            vec![AttributeValue::Str("reserved")]
+                            vec![("kind", &AttributeValue::Str("reserved"))]
                         )]
                             .value
                             .as_u64(),
@@ -542,7 +624,7 @@ mod tests {
                         points[&(
                             "nvml_gpu_memory_info",
                             ResourceConsumer::LocalMachine,
-                            vec![AttributeValue::Str("total")]
+                            vec![("kind", &AttributeValue::Str("total"))]
                         )]
                             .value
                             .as_u64(),
@@ -552,7 +634,7 @@ mod tests {
                         points[&(
                             "nvml_gpu_memory_info",
                             ResourceConsumer::LocalMachine,
-                            vec![AttributeValue::Str("used")]
+                            vec![("kind", &AttributeValue::Str("used"))]
                         )]
                             .value
                             .as_u64(),
@@ -598,41 +680,41 @@ mod tests {
                         points[&(
                             "nvml_clock_info",
                             ResourceConsumer::LocalMachine,
-                            vec![AttributeValue::Str("SM")]
+                            vec![("clock_type", &AttributeValue::Str("SM"))]
                         )]
                             .value
                             .as_u64(),
-                        1_000
+                        1_000_000
                     );
                     assert_eq!(
                         points[&(
                             "nvml_clock_info",
                             ResourceConsumer::LocalMachine,
-                            vec![AttributeValue::Str("Video")]
+                            vec![("clock_type", &AttributeValue::Str("Video"))]
                         )]
                             .value
                             .as_u64(),
-                        2_000
+                        2_000_000
                     );
                     assert_eq!(
                         points[&(
                             "nvml_clock_info",
                             ResourceConsumer::LocalMachine,
-                            vec![AttributeValue::Str("Memory")]
+                            vec![("clock_type", &AttributeValue::Str("Memory"))]
                         )]
                             .value
                             .as_u64(),
-                        3_000
+                        3_000_000
                     );
                     assert_eq!(
                         points[&(
                             "nvml_clock_info",
                             ResourceConsumer::LocalMachine,
-                            vec![AttributeValue::Str("Graphics")]
+                            vec![("clock_type", &AttributeValue::Str("Graphics"))]
                         )]
                             .value
                             .as_u64(),
-                        4_000
+                        4_000_000
                     );
                 },
             )
@@ -644,7 +726,7 @@ mod tests {
                     // two attributes are fetched:
                     //  - kind for "memory_info"
                     //  - clock_type for "clock_info"
-                    let points = out.points_by_metric_and_consumer(&["kind", "clock_type"]);
+                    let points = points_by_metric_and_consumer(out, &["kind", "clock_type"]);
                     assert_eq!(points.len(), 23, "wrong number of points, got {points:?}");
                     println!("{:#?}", points);
 
@@ -679,6 +761,114 @@ mod tests {
         let running = agent
             .with_expectations(startup_checks)
             .with_expectations(runtime_checks)
+            .build_and_start()
+            .expect("should start fine");
+        running
+            .wait_for_shutdown(Duration::from_secs(1))
+            .expect("error(s) detected");
+    }
+
+    #[test]
+    fn test_sort_by_key() {
+        let attribute_key_list = &["clock_type", "kind"];
+        let val = AttributeValue::Str("Dummy Value");
+
+        // 'clock_type' comes before 'kind'
+        let myself = ("clock_type", &val);
+        let other = ("kind", &val);
+        assert_eq!(cmp_by_key_list(attribute_key_list, myself, other), Ordering::Less);
+        assert_eq!(cmp_by_key_list(attribute_key_list, other, myself), Ordering::Greater);
+
+        // Same keys should return Equal
+        let myself = ("kind", &val);
+        let other = ("kind", &val);
+        assert_eq!(cmp_by_key_list(attribute_key_list, myself, other), Ordering::Equal);
+
+        // in attribute_key_list, 'clock_type' comes before 'kind'
+        // so it should be the same in the sorted list
+        let mut list_to_sort = vec![("kind", &val), ("clock_type", &val)];
+        list_to_sort.sort_by(|myself, other| cmp_by_key_list(attribute_key_list, *myself, *other));
+        assert_eq!(list_to_sort, vec![("clock_type", &val), ("kind", &val)])
+    }
+
+    #[test]
+    fn test_points_by_metric_and_consumer() {
+        let mut nvml = MockNvmlLib::new();
+        let _device_state = mock_one_gpu(&mut nvml);
+
+        let config = serialize_config(super::Config {
+            mode: Mode::Full,
+            ..Default::default()
+        })
+        .unwrap();
+
+        let mut plugins = PluginSet::new();
+        plugins.add_plugin(PluginInfo {
+            metadata: NvmlPlugin::test_metadata(nvml),
+            enabled: true,
+            config: Some(config.0),
+        });
+        let agent = alumet::agent::Builder::new(plugins);
+
+        let source_name = SourceName::from_str("nvml", &format!("device_{MOCK_BUS_ID}"));
+        let key_list_empty_checks = RuntimeExpectations::new().test_source(
+            source_name.clone(),
+            move || {},
+            |out| {
+                let points = points_by_metric_and_consumer(out, &[]);
+
+                // metrics with attributes only appear once
+                assert_eq!(points.len(), 12, "wrong number of points, got {points:?}");
+
+                let expected_key_clock = ("nvml_clock_info", ResourceConsumer::LocalMachine, vec![]);
+                let expected_key_memory = ("nvml_gpu_memory_info", ResourceConsumer::LocalMachine, vec![]);
+                assert!(points.contains_key(&expected_key_clock));
+                assert!(points.contains_key(&expected_key_memory));
+            },
+        );
+
+        let with_clock_type_check = RuntimeExpectations::new().test_source(
+            source_name.clone(),
+            move || {},
+            |out| {
+                let points = points_by_metric_and_consumer(out, &["clock_type"]);
+
+                // metrics with attributes only appear once,
+                // except clock_speed, which has 1 point for each clock type (4 types)
+                assert_eq!(points.len(), 15, "wrong number of points, got {points:?}");
+
+                let expected_key_clock1 = (
+                    "nvml_clock_info",
+                    ResourceConsumer::LocalMachine,
+                    vec![("clock_type", &AttributeValue::Str("SM"))],
+                );
+                let expected_key_clock2 = (
+                    "nvml_clock_info",
+                    ResourceConsumer::LocalMachine,
+                    vec![("clock_type", &AttributeValue::Str("Video"))],
+                );
+                let expected_key_clock3 = (
+                    "nvml_clock_info",
+                    ResourceConsumer::LocalMachine,
+                    vec![("clock_type", &AttributeValue::Str("Graphics"))],
+                );
+                let expected_key_clock4 = (
+                    "nvml_clock_info",
+                    ResourceConsumer::LocalMachine,
+                    vec![("clock_type", &AttributeValue::Str("Memory"))],
+                );
+                let expected_key_memory = ("nvml_gpu_memory_info", ResourceConsumer::LocalMachine, vec![]);
+                assert!(points.contains_key(&expected_key_clock1));
+                assert!(points.contains_key(&expected_key_clock2));
+                assert!(points.contains_key(&expected_key_clock3));
+                assert!(points.contains_key(&expected_key_clock4));
+                assert!(points.contains_key(&expected_key_memory));
+            },
+        );
+
+        let running = agent
+            .with_expectations(key_list_empty_checks)
+            .with_expectations(with_clock_type_check)
             .build_and_start()
             .expect("should start fine");
         running

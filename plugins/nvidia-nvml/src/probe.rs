@@ -329,7 +329,7 @@ impl<D: NvmlDevice> Source for FullSource<D> {
                         self.metrics.clock_info,
                         self.resource.clone(),
                         consumer.clone(),
-                        (device.clock_info(clock_type)? * 1000) as u64,
+                        (device.clock_info(clock_type)? * 1_000_000) as u64,
                     )
                     .with_attr("clock_type", clock_type_to_str(clock_type)?),
                 );
