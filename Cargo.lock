@@ -5172,7 +5172,7 @@ dependencies = [
 
 [[package]]
 name = "util-cgroups-plugins"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "alumet",
  "anyhow",
