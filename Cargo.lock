@@ -47,7 +47,15 @@ dependencies = [
  "console-subscriber",
  "env_logger",
  "futures",
+<<<<<<< HEAD
  "indexmap 2.13.0",
+=======
+<<<<<<< HEAD
+ "indexmap",
+=======
+ "indexmap 2.14.0",
+>>>>>>> f8237c4 (fix(nvml,core/test): code review fixes)
+>>>>>>> 99d3752 (fix(nvml,core/test): code review fixes)
  "indoc",
  "libc",
  "log",
@@ -481,7 +489,15 @@ dependencies = [
  "getrandom 0.2.17",
  "getrandom 0.3.4",
  "hex",
+<<<<<<< HEAD
  "indexmap 2.13.0",
+=======
+<<<<<<< HEAD
+ "indexmap",
+=======
+ "indexmap 2.14.0",
+>>>>>>> f8237c4 (fix(nvml,core/test): code review fixes)
+>>>>>>> 99d3752 (fix(nvml,core/test): code review fixes)
  "js-sys",
  "once_cell",
  "rand 0.9.4",
@@ -573,7 +589,15 @@ checksum = "eadd868a2ce9ca38de7eeafdcec9c7065ef89b42b32f0839278d55f35c54d1ff"
 dependencies = [
  "clap",
  "heck 0.4.1",
+<<<<<<< HEAD
  "indexmap 2.13.0",
+=======
+<<<<<<< HEAD
+ "indexmap",
+=======
+ "indexmap 2.14.0",
+>>>>>>> f8237c4 (fix(nvml,core/test): code review fixes)
+>>>>>>> 99d3752 (fix(nvml,core/test): code review fixes)
  "log",
  "proc-macro2",
  "quote",
@@ -1450,7 +1474,15 @@ dependencies = [
  "futures-sink",
  "futures-util",
  "http 0.2.12",
+<<<<<<< HEAD
  "indexmap 2.13.0",
+=======
+<<<<<<< HEAD
+ "indexmap",
+=======
+ "indexmap 2.14.0",
+>>>>>>> f8237c4 (fix(nvml,core/test): code review fixes)
+>>>>>>> 99d3752 (fix(nvml,core/test): code review fixes)
  "slab",
  "tokio",
  "tokio-util",
@@ -1469,7 +1501,15 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "http 1.4.0",
+<<<<<<< HEAD
  "indexmap 2.13.0",
+=======
+<<<<<<< HEAD
+ "indexmap",
+=======
+ "indexmap 2.14.0",
+>>>>>>> f8237c4 (fix(nvml,core/test): code review fixes)
+>>>>>>> 99d3752 (fix(nvml,core/test): code review fixes)
  "slab",
  "tokio",
  "tokio-util",
@@ -1513,9 +1553,9 @@ dependencies = [
 
 [[package]]
 name = "hashbrown"
-version = "0.16.1"
+version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
+checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 
 [[package]]
 name = "hdrhistogram"
@@ -1967,6 +2007,7 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
+<<<<<<< HEAD
 version = "1.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bd070e393353796e801d209ad339e89596eb4c8d430d18ede6a1cced8fafbd99"
@@ -1977,12 +2018,28 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
+=======
+<<<<<<< HEAD
+>>>>>>> 99d3752 (fix(nvml,core/test): code review fixes)
 version = "2.13.0"
+=======
+version = "1.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7714e70437a7dc3ac8eb7e6f8df75fd8eb422675fc7678aff7364301092b1017"
+checksum = "bd070e393353796e801d209ad339e89596eb4c8d430d18ede6a1cced8fafbd99"
+dependencies = [
+ "autocfg",
+ "hashbrown 0.12.3",
+]
+
+[[package]]
+name = "indexmap"
+version = "2.14.0"
+>>>>>>> f8237c4 (fix(nvml,core/test): code review fixes)
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d466e9454f08e4a911e14806c24e16fba1b4c121d1ea474396f396069cf949d9"
 dependencies = [
  "equivalent",
- "hashbrown 0.16.1",
+ "hashbrown 0.17.1",
  "serde",
  "serde_core",
 ]
@@ -2808,7 +2865,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3672b37090dbd86368a4145bc067582552b29c27377cad4e0a306c97f9bd7772"
 dependencies = [
  "fixedbitset",
+<<<<<<< HEAD
  "indexmap 2.13.0",
+=======
+<<<<<<< HEAD
+ "indexmap",
+=======
+ "indexmap 2.14.0",
+>>>>>>> f8237c4 (fix(nvml,core/test): code review fixes)
+>>>>>>> 99d3752 (fix(nvml,core/test): code review fixes)
 ]
 
 [[package]]
@@ -3119,6 +3184,7 @@ dependencies = [
  "anyhow",
  "enum-map",
  "humantime-serde",
+ "indexmap 2.14.0",
  "log",
  "mockall",
  "nvml-wrapper",
@@ -4070,7 +4136,15 @@ version = "1.0.149"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "83fc039473c5595ace860d8c4fafa220ff474b3fc6bfdb4293327f1a37e94d86"
 dependencies = [
+<<<<<<< HEAD
  "indexmap 2.13.0",
+=======
+<<<<<<< HEAD
+ "indexmap",
+=======
+ "indexmap 2.14.0",
+>>>>>>> f8237c4 (fix(nvml,core/test): code review fixes)
+>>>>>>> 99d3752 (fix(nvml,core/test): code review fixes)
  "itoa",
  "memchr",
  "serde",
@@ -4616,7 +4690,15 @@ version = "0.9.12+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf92845e79fc2e2def6a5d828f0801e29a2f8acc037becc5ab08595c7d5e9863"
 dependencies = [
+<<<<<<< HEAD
  "indexmap 2.13.0",
+=======
+<<<<<<< HEAD
+ "indexmap",
+=======
+ "indexmap 2.14.0",
+>>>>>>> f8237c4 (fix(nvml,core/test): code review fixes)
+>>>>>>> 99d3752 (fix(nvml,core/test): code review fixes)
  "serde_core",
  "serde_spanned 1.0.4",
  "toml_datetime 0.7.5+spec-1.1.0",
@@ -4658,7 +4740,15 @@ version = "0.22.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "41fe8c660ae4257887cf66394862d21dbca4a6ddd26f04a3560410406a2f819a"
 dependencies = [
+<<<<<<< HEAD
  "indexmap 2.13.0",
+=======
+<<<<<<< HEAD
+ "indexmap",
+=======
+ "indexmap 2.14.0",
+>>>>>>> f8237c4 (fix(nvml,core/test): code review fixes)
+>>>>>>> 99d3752 (fix(nvml,core/test): code review fixes)
  "serde",
  "serde_spanned 0.6.9",
  "toml_datetime 0.6.11",
@@ -4672,7 +4762,15 @@ version = "0.25.5+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ca1a40644a28bce036923f6a431df0b34236949d111cc07cb6dca830c9ef2e1"
 dependencies = [
+<<<<<<< HEAD
  "indexmap 2.13.0",
+=======
+<<<<<<< HEAD
+ "indexmap",
+=======
+ "indexmap 2.14.0",
+>>>>>>> f8237c4 (fix(nvml,core/test): code review fixes)
+>>>>>>> 99d3752 (fix(nvml,core/test): code review fixes)
  "toml_datetime 1.0.1+spec-1.1.0",
  "toml_parser",
  "winnow 1.0.0",
@@ -4811,7 +4909,15 @@ checksum = "ebe5ef63511595f1344e2d5cfa636d973292adc0eec1f0ad45fae9f0851ab1d4"
 dependencies = [
  "futures-core",
  "futures-util",
+<<<<<<< HEAD
  "indexmap 2.13.0",
+=======
+<<<<<<< HEAD
+ "indexmap",
+=======
+ "indexmap 2.14.0",
+>>>>>>> f8237c4 (fix(nvml,core/test): code review fixes)
+>>>>>>> 99d3752 (fix(nvml,core/test): code review fixes)
  "pin-project-lite",
  "slab",
  "sync_wrapper",
@@ -5239,7 +5345,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bb0e353e6a2fbdc176932bbaab493762eb1255a7900fe0fea1a2f96c296cc909"
 dependencies = [
  "anyhow",
+<<<<<<< HEAD
  "indexmap 2.13.0",
+=======
+<<<<<<< HEAD
+ "indexmap",
+=======
+ "indexmap 2.14.0",
+>>>>>>> f8237c4 (fix(nvml,core/test): code review fixes)
+>>>>>>> 99d3752 (fix(nvml,core/test): code review fixes)
  "wasm-encoder",
  "wasmparser",
 ]
@@ -5252,7 +5366,15 @@ checksum = "47b807c72e1bac69382b3a6fb3dbe8ea4c0ed87ff5629b8685ae6b9a611028fe"
 dependencies = [
  "bitflags",
  "hashbrown 0.15.5",
+<<<<<<< HEAD
  "indexmap 2.13.0",
+=======
+<<<<<<< HEAD
+ "indexmap",
+=======
+ "indexmap 2.14.0",
+>>>>>>> f8237c4 (fix(nvml,core/test): code review fixes)
+>>>>>>> 99d3752 (fix(nvml,core/test): code review fixes)
  "semver",
 ]
 
@@ -5646,7 +5768,15 @@ checksum = "b7c566e0f4b284dd6561c786d9cb0142da491f46a9fbed79ea69cdad5db17f21"
 dependencies = [
  "anyhow",
  "heck 0.5.0",
+<<<<<<< HEAD
  "indexmap 2.13.0",
+=======
+<<<<<<< HEAD
+ "indexmap",
+=======
+ "indexmap 2.14.0",
+>>>>>>> f8237c4 (fix(nvml,core/test): code review fixes)
+>>>>>>> 99d3752 (fix(nvml,core/test): code review fixes)
  "prettyplease",
  "syn",
  "wasm-metadata",
@@ -5677,7 +5807,15 @@ checksum = "9d66ea20e9553b30172b5e831994e35fbde2d165325bec84fc43dbf6f4eb9cb2"
 dependencies = [
  "anyhow",
  "bitflags",
+<<<<<<< HEAD
  "indexmap 2.13.0",
+=======
+<<<<<<< HEAD
+ "indexmap",
+=======
+ "indexmap 2.14.0",
+>>>>>>> f8237c4 (fix(nvml,core/test): code review fixes)
+>>>>>>> 99d3752 (fix(nvml,core/test): code review fixes)
  "log",
  "serde",
  "serde_derive",
@@ -5696,7 +5834,15 @@ checksum = "ecc8ac4bc1dc3381b7f59c34f00b67e18f910c2c0f50015669dde7def656a736"
 dependencies = [
  "anyhow",
  "id-arena",
+<<<<<<< HEAD
  "indexmap 2.13.0",
+=======
+<<<<<<< HEAD
+ "indexmap",
+=======
+ "indexmap 2.14.0",
+>>>>>>> f8237c4 (fix(nvml,core/test): code review fixes)
+>>>>>>> 99d3752 (fix(nvml,core/test): code review fixes)
  "log",
  "semver",
  "serde",
