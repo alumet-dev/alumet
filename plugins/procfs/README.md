@@ -19,6 +19,7 @@ There are various information collected by this plugin relative to Kernel, CPU, 
 |`kernel_n_procs_running`|Gauge|none|Number of processes in a runnable state|LocalMachine|LocalMachine||
 |`kernel_n_procs_blocked`|Gauge|none|Numbers of processes that are blocked on input/output operations|LocalMachine|LocalMachine||
 |`cpu_time_delta`|CounterDiff|millisecond|CPU usage|LocalMachine|Process|[kind](#kind)|
+|`cpu_percent`|Gauge|Percent (0 to 100)|`cpu_time_delta / delta_t / n_cores` (all cores used fully = 100%)|`LocalMachine`|Process|[kind](#kind)|
 |`memory_usage`|Gauge|bytes|Memory usage|LocalMachine|Process|[kind](#kind)|
 |`network_bytes`|Gauge|bytes|Tx/Rx bytes per interface|LocalMachine|LocalMachine|direction,interface|
 |`network_packets`|Gauge|bytes|Tx/Rx packets per interface|LocalMachine|LocalMachine|direction,interface|
