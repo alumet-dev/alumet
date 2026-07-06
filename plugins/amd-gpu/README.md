@@ -17,7 +17,7 @@ Here are the metrics collected by the plugin source:
 |Name|Type|Unit|Description|Resource|ResourceConsumer|Attributes|
 |----|----|----|-----------|--------|----------------|----------|
 |`amd_gpu_activity_usage`|Gauge|percentage|GPU activity usage|GPU|LocalMachine|[activity_type](#activity_type)|
-|`amd_gpu_energy_consumption`|CounterDiff|millijoule|Average between 2 measurement points based on the energy consumed since the last start-up|GPU|LocalMachine||
+|`amd_gpu_energy_consumption`|CounterDiff|millijoule|Difference between 2 measurement points based on the energy consumed since the last start-up|GPU|LocalMachine||
 |`amd_gpu_memory_usage`|Gauge|megabyte|Video compute memory (VRAM) and graphics table translation memory (GTT) usage|GPU|LocalMachine|[memory_type](#memory_type)|
 |`amd_gpu_power_consumption`|Gauge|watt|Estimated average electricity consumption|GPU|LocalMachine||
 |`amd_gpu_temperature`|Gauge|celsius|Values ​​from AMD GPUs equipped with different sensors to precisely locate temperature by zone|GPU|LocalMachine|[thermal_zone](#thermal_zone)|

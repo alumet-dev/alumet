@@ -16,7 +16,7 @@ Here are the metrics collected by the plugin source.
 
 |Name|Type|Unit|Description|Attributes|More information|
 |----|----|----|-----------|----------|-----------------|
-|`rapl_consumed_energy`|Counter Diff|joule|Energy consumed since the previous measurement|[domain](#domain)||
+|`rapl_consumed_energy`|CounterDiff|joule|Energy consumed since the previous measurement|[domain](#domain)||
 
 Assuming a poll_interval and flush_interval of 1s:
 - At `t0` = 0s the plugin starts.
