@@ -147,7 +147,7 @@ mod tests {
             device
                 .expect_running_compute_processes()
                 .returning(|| Ok(Vec::new()))
-                .times(1);
+                .times(2);
             device
                 .expect_running_graphics_processes()
                 .returning(|| Ok(Vec::new()))

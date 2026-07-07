@@ -1,12 +1,14 @@
 use anyhow::{Context, anyhow};
 use nvml_wrapper::{
     enum_wrappers::device::{Clock, TemperatureSensor},
-    error::NvmlError::{self},
+    enums::device::UsedGpuMemory,
+    error::NvmlError,
+    struct_wrappers::device::ProcessInfo,
 };
 use std::{borrow::Cow, time::SystemTime};
 
 use alumet::{
-    measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
+    measurement::{AttributeValue::U64, MeasurementAccumulator, MeasurementPoint, Timestamp},
     pipeline::{Source, elements::error::PollError},
     plugin::util::CounterDiff,
     resources::{Resource, ResourceConsumer},
@@ -62,6 +64,46 @@ fn clock_type_to_str(clock_type: Clock) -> Result<&'static str, NvmlError> {
         Clock::Video => Ok("Video"),
         Clock::Graphics => Ok("Graphics"),
         Clock::Memory => Ok("Memory"),
+    }
+}
+
+fn push_mem_usage_per_process<D: NvmlDevice>(
+    vec_process_info: Vec<ProcessInfo>,
+    timestamp: Timestamp,
+    source: &FullSource<D>,
+    measurements: &mut MeasurementAccumulator,
+    context: &'static str,
+) {
+    for process_info in vec_process_info {
+        match process_info.used_gpu_memory {
+            UsedGpuMemory::Unavailable => (),
+            UsedGpuMemory::Used(n) => {
+                let consumer = ResourceConsumer::Process { pid: process_info.pid };
+                let measurement = MeasurementPoint::new(
+                    timestamp,
+                    source.metrics.used_gpu_memory,
+                    source.resource.clone(),
+                    consumer.clone(),
+                    n as u64,
+                )
+                .with_attr("context", context);
+
+                match process_info.gpu_instance_id {
+                    None => (),
+                    Some(id) => {
+                        measurement.clone().with_attr("gpu_instance_id", U64(id.into()));
+                    }
+                }
+
+                match process_info.compute_instance_id {
+                    None => (),
+                    Some(id) => {
+                        measurement.clone().with_attr("compute_instance_id", U64(id.into()));
+                    }
+                }
+                measurements.push(measurement);
+            }
+        };
     }
 }
 
@@ -267,6 +309,28 @@ impl<D: NvmlDevice> Source for FullSource<D> {
                 consumer.clone(),
                 n as u64,
             ));
+        }
+
+        if features.used_gpu_memory {
+            // fetching correct version for compute processes and graphics processes
+            let running_compute_processes = match features.running_compute_processes {
+                AvailableVersion::Latest => Some(device.running_compute_processes()?),
+                AvailableVersion::V2 => Some(device.running_compute_processes_v2()?),
+                AvailableVersion::None => None,
+            };
+            let running_graphics_processes = match features.running_graphics_processes {
+                AvailableVersion::Latest => Some(device.running_graphics_processes()?),
+                AvailableVersion::V2 => Some(device.running_graphics_processes_v2()?),
+                AvailableVersion::None => None,
+            };
+
+            if let Some(vec_process_info_compute) = running_compute_processes {
+                push_mem_usage_per_process(vec_process_info_compute, timestamp, self, measurements, "compute");
+            }
+
+            if let Some(vec_process_info_graphics) = running_graphics_processes {
+                push_mem_usage_per_process(vec_process_info_graphics, timestamp, self, measurements, "graphics");
+            }
         }
 
         // Collection of the device processes-scoped measurements

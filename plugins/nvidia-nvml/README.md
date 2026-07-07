@@ -29,6 +29,7 @@ One source will be created per GPU device.
 |`nvml_decoder_utilization`|Gauge|Percentage|GPU video decoder utilization by a process|Process|LocalMachine||
 |`nvml_sm_utilization`|Gauge|Percentage|Utilization of the GPU streaming multiprocessors by a process (3D task and rendering, etc...)|Process|LocalMachine||
 |`nvml_clock_info`|Gauge|Hertz|GPU clock frequency|GPU|LocalMachine|[Clock_type](#clock_type)|
+|`nvml_used_gpu_memory`|Gauge|bytes|VRAM allocated per process|Process|LocalMachine|[Context](#context), [GPU_instance_ID, Compute_instance_ID](#gpu_instance_id-and-compute_instance_id)|
 
 Some metrics can be disabled, see the `mode` configuration option.
 
@@ -55,6 +56,19 @@ The speed of the clock may vary depending on the type. These are the available t
 |`Video`|Video encoder/decoder clock domain|
 |`Graphics`|Graphics clock domain|
 |`Memory`|Memory clock domain|
+
+#### Context
+
+There are two possible contexts for processes:
+
+|Value|Description|
+|-----|-----------|
+|`Graphics`|Graphics based processes (OpenGL, DirectX, etc.).|
+|`Video`|Compute processes (a CUDA application, etc.).|
+
+#### GPU_instance_ID and Compute_instance_ID
+
+Attributes containing the GPU instance ID and compute instance ID of the process. Only available when MIG (Multi Instance GPU) is enabled.
 
 ## Configuration
 
@@ -107,4 +121,6 @@ When NVIDIA measures 'utilization', they actually mean the percent of time that 
 
 For example, if *memory utilization* $= 60\%$, then it means that during the last **sample of time** (for instance, the past 1 second), 60% of **that time** ($=600ms$) was spent reading or writing the memory.
 
-This is also true for **nvml_gpu_utilization**, **nvml_memory_utilization**, **nvml_encoder_utilization**, **nvml_decoder_utilization** and **nvml_sm_utilization**.
+This is also true for `nvml_gpu_utilization`, `nvml_memory_utilization`, `nvml_encoder_utilization`, `nvml_decoder_utilization` and `nvml_sm_utilization`.
+
+However, `nvml_used_gpu_memory` refers to the VRAM allocation per process.
