@@ -10,13 +10,11 @@ on:
         description: Tag to checkout in alumet repo
         type: string
         required: false
-        default: 'main'
+        default: main
   push:
     branches:
       - 'ci/generate-snapshot-periodically'
 
-env:
-  periodicity: "7 days"
 
 jobs:
   check-last-commits:
@@ -29,15 +27,26 @@ jobs:
         with:
           fetch-depth: 0
           ref: main
+
       - name: Check recent modifications
         id: check
         run: |
-          COMMITS=$(git log --since="${{ env.periodicity }} ago" --oneline)
-          if [[ -n "$COMMITS" ]]; then
+          LATEST_RELEASE=$(gh release view --json tagName --jq '.tagName' 2>/dev/null || true)
+
+          if [[ -z "$LATEST_RELEASE" ]]; then
+            echo "No previous release/snapshot found"
             echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+
+          if git diff --quiet "$LATEST_RELEASE"..HEAD; then
+            echo "No changes since $LATEST_RELEASE"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Changes detected since $LATEST_RELEASE"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
   setup:
     runs-on: ubuntu-latest
     needs:
@@ -58,14 +67,21 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.inputs.tag || 'main' }}
+
       - id: prepare-matrix
         run: |
-          MATRIX=$(jq -nc '{arch: ["x86_64", "aarch64"]}')
+          MATRIX='{"arch":["x86_64","aarch64"]}'
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+
       - id: get-tag
         run: |
-          TAG=$(git tag --sort=-v:refname | head -n 1)
+          TAG="${{ github.event.inputs.tag }}"
+          if [[ -z "$TAG" ]]; then
+            TAG=$(git tag --sort=-v:refname | head -n 1)
+          fi
+
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
       - id: get-package-version-and-snapshot-info
         run: |
           DATE=$(date +%Y%m%d)
@@ -74,12 +90,15 @@ jobs:
           HASH=$(git rev-parse --short=7 HEAD)
           version_deb="$VERSION+${DATE}.git$HASH"
           version_rpm="${version_deb//+/\^}"
-          echo "version_deb=$version_deb" >> "$GITHUB_OUTPUT"
-          echo "version_rpm=$version_rpm" >> "$GITHUB_OUTPUT"
-          # echo "version_docker=$VERSION-git$HASH" >> "$GITHUB_OUTPUT"
-          echo "revision=1" >> "$GITHUB_OUTPUT"
-          echo "snapshot_name=snapshot-${DATE}" >> "$GITHUB_OUTPUT"
-          echo "hash=${HASH}" >> "$GITHUB_OUTPUT"
+          {
+            echo "version_deb=$version_deb"
+            echo "version_rpm=$version_rpm"
+            # echo "version_docker=$VERSION-git$HASH"
+            echo "revision=1"
+            echo "snapshot_name=snapshot-${DATE}"
+            echo "hash=${HASH}"
+          } | tee -a "$GITHUB_OUTPUT"
+
 
   create-rpm:
     uses: alumet-dev/packaging/.github/workflows/build_rpm.yaml@main
@@ -95,6 +114,7 @@ jobs:
       release-version: ${{ needs.setup.outputs.revision }}
       tag: ${{ github.event.inputs.tag || 'main' }}
 
+
   create-deb:
     uses: alumet-dev/packaging/.github/workflows/build_deb.yaml@main
     strategy:
@@ -109,8 +129,9 @@ jobs:
       revision: ${{ needs.setup.outputs.revision }}
       tag: ${{ github.event.inputs.tag || 'main' }}
 
+
   create-docker_deb:
-    uses: alumet-dev/packaging/.github/workflows/build_docker.yaml@ci/make-docker-build-allow-prelease
+    uses: alumet-dev/packaging/.github/workflows/build_docker.yaml@main
     strategy:
       fail-fast: false
       matrix:
@@ -123,9 +144,11 @@ jobs:
       version: ${{ needs.setup.outputs.version_deb }}
       release-version: ${{ needs.setup.outputs.revision }}
       build_rpm: false
-    
+      move_latest_tag: false
+
+
   create-docker_rpm:
-    uses: alumet-dev/packaging/.github/workflows/build_docker.yaml@ci/make-docker-build-allow-prelease
+    uses: alumet-dev/packaging/.github/workflows/build_docker.yaml@main
     strategy:
       fail-fast: false
       matrix:
@@ -138,6 +161,8 @@ jobs:
       version: ${{ needs.setup.outputs.version_rpm }}
       release-version: ${{ needs.setup.outputs.revision }}
       build_deb: false
+      move_latest_tag: false
+
 
   create-pre-release:
     runs-on: ubuntu-latest
@@ -161,19 +186,25 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.get-app-token.outputs.token }}
         run: |
+          WORKFLOW_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             BODY="Snapshot created manually on $(date '+%Y-%m-%d %H:%M:%S').
-          Version: ${{ needs.setup.outputs.hash }}"
+
+          Version: ${{ needs.setup.outputs.hash }}
+
+          [View workflow run]($WORKFLOW_URL)"
           else
             BODY="Automated weekly snapshot build from $(date '+%Y-%m-%d').
-          Version: ${{ needs.setup.outputs.hash }}"
+          Version: ${{ needs.setup.outputs.hash }}
+          [View workflow run]($WORKFLOW_URL)"
           fi
           gh release create "${{ needs.setup.outputs.snapshot_name }}" \
             --repo "${{ github.repository }}" \
             --title "Snapshot: ${{ needs.setup.outputs.snapshot_name }}" \
             --notes "$BODY" \
             --prerelease \
-            --latest=false
+            --latest=false \
+            --target "${{ github.sha }}"
 
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -190,7 +221,7 @@ jobs:
         run: |
           find artifacts -type f -name '*.rpm' -print0 |
             while IFS= read -r -d '' rpm; do
-              new_rpm="${rpm//^/+}"
+              new_rpm="${rpm//\^/+}"
               [[ "$rpm" == "$new_rpm" ]] || mv "$rpm" "$new_rpm"
               gh release upload "${{ needs.setup.outputs.snapshot_name }}" "$new_rpm" --clobber
             done
@@ -214,8 +245,8 @@ jobs:
           pattern: "**/*.docker.tar"
           path: ./docker-artifacts
           merge-multiple: true
-      -
-        name: Login to GitHub Container Registry
+
+      - name: Login to GitHub Container Registry
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
@@ -248,28 +279,13 @@ jobs:
             archs=(${base_to_arch_map[$base]})
             echo "Creating multi-arch manifest for: $base with the following archs: ${archs[@]}"
 
-            # cmd="docker manifest create $base"
-            # for arch in "${archs[@]}"
-            #   do
-            #     cmd+=" ${base}_${arch}"
-            #   done
+            cmd="docker manifest create $base"
+            for arch in "${archs[@]}"
+              do
+                cmd+=" ${base}_${arch}"
+              done
 
-            # eval "$cmd"
-            # docker manifest push "$base"
-
-            echo "Creating multi-arch manifest for: $base"
-            echo "Architectures: ${archs[*]}"
-
-            for arch in "${archs[@]}"; do
-                image="${base}_${arch}"
-                echo "Inspecting: $image"
-                docker manifest inspect "$image"
-            done
-
-            docker manifest create "$base" \
-                "${base}_x86_64" \
-                "${base}_aarch64"
-
+            eval "$cmd"
             docker manifest push "$base"
 
           done
