@@ -6,12 +6,17 @@ on:
     types: ["published"]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 concurrency:
   group: "release-workflow"
   cancel-in-progress: true
 
 jobs:
   gather-informations:
+    # Do not trigger on prerelease
+    if: ${{ github.event_name == 'workflow_dispatch' || !github.event.release.prerelease }} 
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.get_tags.outputs.VERSION }}
@@ -125,7 +130,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Download RPM artifact
         uses: actions/download-artifact@v4
