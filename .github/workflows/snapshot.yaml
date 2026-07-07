@@ -64,7 +64,11 @@ jobs:
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
       - id: get-tag
         run: |
-          TAG=$(git tag --sort=-v:refname | head -n 1)
+          TAG="${{ github.event.inputs.tag }}"
+          if [[ -z "$TAG" ]]; then
+            TAG=$(git tag --sort=-v:refname | head -n 1)
+          fi
+
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
       - id: get-package-version-and-snapshot-info
         run: |
@@ -110,7 +114,7 @@ jobs:
       tag: ${{ github.event.inputs.tag || 'main' }}
 
   create-docker_deb:
-    uses: alumet-dev/packaging/.github/workflows/build_docker.yaml@ci/make-docker-build-allow-prelease
+    uses: alumet-dev/packaging/.github/workflows/build_docker.yaml@main
     strategy:
       fail-fast: false
       matrix:
@@ -123,9 +127,11 @@ jobs:
       version: ${{ needs.setup.outputs.version_deb }}
       release-version: ${{ needs.setup.outputs.revision }}
       build_rpm: false
+      move_latest_tag: false
+
     
   create-docker_rpm:
-    uses: alumet-dev/packaging/.github/workflows/build_docker.yaml@ci/make-docker-build-allow-prelease
+    uses: alumet-dev/packaging/.github/workflows/build_docker.yaml@main
     strategy:
       fail-fast: false
       matrix:
@@ -138,6 +144,7 @@ jobs:
       version: ${{ needs.setup.outputs.version_rpm }}
       release-version: ${{ needs.setup.outputs.revision }}
       build_deb: false
+      move_latest_tag: false
 
   create-pre-release:
     runs-on: ubuntu-latest
@@ -190,7 +197,7 @@ jobs:
         run: |
           find artifacts -type f -name '*.rpm' -print0 |
             while IFS= read -r -d '' rpm; do
-              new_rpm="${rpm//^/+}"
+              new_rpm="${rpm//\^/+}"
               [[ "$rpm" == "$new_rpm" ]] || mv "$rpm" "$new_rpm"
               gh release upload "${{ needs.setup.outputs.snapshot_name }}" "$new_rpm" --clobber
             done
@@ -248,28 +255,13 @@ jobs:
             archs=(${base_to_arch_map[$base]})
             echo "Creating multi-arch manifest for: $base with the following archs: ${archs[@]}"
 
-            # cmd="docker manifest create $base"
-            # for arch in "${archs[@]}"
-            #   do
-            #     cmd+=" ${base}_${arch}"
-            #   done
+            cmd="docker manifest create $base"
+            for arch in "${archs[@]}"
+              do
+                cmd+=" ${base}_${arch}"
+              done
 
-            # eval "$cmd"
-            # docker manifest push "$base"
-
-            echo "Creating multi-arch manifest for: $base"
-            echo "Architectures: ${archs[*]}"
-
-            for arch in "${archs[@]}"; do
-                image="${base}_${arch}"
-                echo "Inspecting: $image"
-                docker manifest inspect "$image"
-            done
-
-            docker manifest create "$base" \
-                "${base}_x86_64" \
-                "${base}_aarch64"
-
+            eval "$cmd"
             docker manifest push "$base"
 
           done
