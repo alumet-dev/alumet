@@ -33,6 +33,8 @@ pub struct FullMetrics {
     pub running_compute_processes: TypedMetricId<u64>,
     /// Relevant currently running graphical processes data in percentage.
     pub running_graphics_processes: TypedMetricId<u64>,
+    // Memory used per process
+    pub used_gpu_memory: TypedMetricId<u64>,
     /// Get the current clock frequency in Hertz
     pub clock_info: TypedMetricId<u64>,
 }
@@ -93,6 +95,11 @@ impl FullMetrics {
                 "nvml_n_graphic_processes",
                 Unit::Unity,
                 "Number of graphic processes running on the device",
+            )?,
+            used_gpu_memory: alumet.create_metric(
+                "nvml_used_gpu_memory",
+                Unit::Byte,
+                "Memory allocated per process",
             )?,
 
             // device process-related measurements

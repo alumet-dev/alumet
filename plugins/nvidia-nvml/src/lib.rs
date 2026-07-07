@@ -259,6 +259,7 @@ mod tests {
     /// * The order of elements in the resulting `Vec<AttributeValue>` is dependent on the order
     ///     of elements in `attribute_key_list`.
     /// * Requesting keys that do not exist in the attributes has no impact on the results.
+    /// * Only the requested keys are output to the final IndexMap.
     ///
     /// ### Usage Examples
     ///
@@ -301,15 +302,14 @@ mod tests {
 
                 // if some attributes are requested (ie attribute_key_list != []) :
                 // for each metric containing at least one requested attribute, the key to the IndexMap
-                // will contain the list of all the AttributeValue of the metric.
+                // will contain the list of all the requested AttributeValue of the metric.
                 match &attribute_key_list {
                     [] => vec![((metric_name, consumer, vec![]), p)],
                     key_wanted_list => {
-                        let mut attributes_list =
-                            match p.attributes().any(|(key, _value)| key_wanted_list.contains(&key)) {
-                                true => p.attributes().collect(),
-                                false => vec![],
-                            };
+                        let mut attributes_list = p
+                            .attributes()
+                            .filter(|(key, _value)| key_wanted_list.contains(&key))
+                            .collect::<Vec<(&str, &AttributeValue)>>();
                         attributes_list.sort_by(|myself, other| cmp_by_key_list(attribute_key_list, *myself, *other));
                         vec![((metric_name, consumer.clone(), attributes_list), p)]
                     }
@@ -553,6 +553,7 @@ mod tests {
             .expect_metric::<u64>("nvml_n_graphic_processes", Unit::Unity)
             .expect_metric::<u64>("nvml_memory_utilization", Unit::Percent)
             .expect_metric::<u64>("nvml_gpu_memory_info", Unit::Byte)
+            .expect_metric::<u64>("nvml_used_gpu_memory", Unit::Byte)
             .expect_metric::<u64>("nvml_decoder_utilization", Unit::Percent)
             .expect_metric::<u64>("nvml_encoder_utilization", Unit::Percent)
             .expect_metric::<u64>("nvml_sm_utilization", Unit::Percent)
@@ -572,9 +573,8 @@ mod tests {
                     // two attributes are fetched:
                     //  - kind for "memory_info"
                     //  - clock_type for "clock_info"
-                    let points = points_by_metric_and_consumer(out, &["kind", "clock_type"]);
-
-                    assert_eq!(points.len(), 18, "wrong number of points, got {points:?}");
+                    let points = points_by_metric_and_consumer(out, &["kind", "clock_type", "context"]);
+                    assert_eq!(points.len(), 19, "wrong number of points, got {points:?}");
 
                     assert_eq!(
                         points[&("nvml_encoder_utilization", ResourceConsumer::LocalMachine, vec![])]
@@ -653,6 +653,16 @@ mod tests {
                         1
                     );
                     assert_eq!(
+                        points[&(
+                            "nvml_used_gpu_memory",
+                            ResourceConsumer::Process { pid: 1234 },
+                            vec![("context", &AttributeValue::Str("graphics")),]
+                        )]
+                            .value
+                            .as_u64(),
+                        64_000
+                    );
+                    assert_eq!(
                         points[&("nvml_temperature_gpu", ResourceConsumer::LocalMachine, vec![])]
                             .value
                             .as_u64(),
@@ -723,11 +733,8 @@ mod tests {
                 || {},
                 |out| {
                     // second trigger
-                    // two attributes are fetched:
-                    //  - kind for "memory_info"
-                    //  - clock_type for "clock_info"
                     let points = points_by_metric_and_consumer(out, &["kind", "clock_type"]);
-                    assert_eq!(points.len(), 23, "wrong number of points, got {points:?}");
+                    assert_eq!(points.len(), 24, "wrong number of points, got {points:?}");
 
                     // new power value
                     assert_eq!(
@@ -834,7 +841,7 @@ mod tests {
 
                 // metrics with attributes only appear once,
                 // except clock_speed, which has 1 point for each clock type (4 types)
-                assert_eq!(points.len(), 15, "wrong number of points, got {points:?}");
+                assert_eq!(points.len(), 16, "wrong number of points, got {points:?}");
 
                 let expected_key_clock1 = (
                     "nvml_clock_info",
