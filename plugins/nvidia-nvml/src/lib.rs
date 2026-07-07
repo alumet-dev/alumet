@@ -728,7 +728,6 @@ mod tests {
                     //  - clock_type for "clock_info"
                     let points = points_by_metric_and_consumer(out, &["kind", "clock_type"]);
                     assert_eq!(points.len(), 23, "wrong number of points, got {points:?}");
-                    println!("{:#?}", points);
 
                     // new power value
                     assert_eq!(
