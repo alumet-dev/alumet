@@ -1,0 +1,275 @@
+---
+name: Create a snapshot
+
+on:
+  schedule:
+    - cron: '0 0 * * 1'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to checkout in alumet repo
+        type: string
+        required: false
+        default: 'main'
+  push:
+    branches:
+      - 'ci/generate-snapshot-periodically'
+
+env:
+  periodicity: "7 days"
+
+jobs:
+  check-last-commits:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: main
+      - name: Check recent modifications
+        id: check
+        run: |
+          COMMITS=$(git log --since="${{ env.periodicity }} ago" --oneline)
+          if [[ -n "$COMMITS" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+  setup:
+    runs-on: ubuntu-latest
+    needs:
+      - check-last-commits
+    if: >
+      needs.check-last-commits.outputs.changed == 'true' ||
+      github.event_name == 'workflow_dispatch'
+    outputs:
+      matrix: ${{ steps.prepare-matrix.outputs.matrix }}
+      version_deb: ${{ steps.get-package-version-and-snapshot-info.outputs.version_deb }}
+      version_rpm: ${{ steps.get-package-version-and-snapshot-info.outputs.version_rpm }}
+      revision: ${{ steps.get-package-version-and-snapshot-info.outputs.revision }}
+      snapshot_name: ${{ steps.get-package-version-and-snapshot-info.outputs.snapshot_name }}
+      hash: ${{ steps.get-package-version-and-snapshot-info.outputs.hash }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.tag || 'main' }}
+      - id: prepare-matrix
+        run: |
+          MATRIX=$(jq -nc '{arch: ["x86_64", "aarch64"]}')
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+      - id: get-tag
+        run: |
+          TAG=$(git tag --sort=-v:refname | head -n 1)
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+      - id: get-package-version-and-snapshot-info
+        run: |
+          DATE=$(date +%Y%m%d)
+          TAG="${{ steps.get-tag.outputs.tag }}"
+          VERSION="${TAG#v}"
+          HASH=$(git rev-parse --short=7 HEAD)
+          version_deb="$VERSION+${DATE}.git$HASH"
+          version_rpm="${version_deb//+/\^}"
+          echo "version_deb=$version_deb" >> "$GITHUB_OUTPUT"
+          echo "version_rpm=$version_rpm" >> "$GITHUB_OUTPUT"
+          # echo "version_docker=$VERSION-git$HASH" >> "$GITHUB_OUTPUT"
+          echo "revision=1" >> "$GITHUB_OUTPUT"
+          echo "snapshot_name=snapshot-${DATE}" >> "$GITHUB_OUTPUT"
+          echo "hash=${HASH}" >> "$GITHUB_OUTPUT"
+
+  create-rpm:
+    uses: alumet-dev/packaging/.github/workflows/build_rpm.yaml@main
+    strategy:
+      fail-fast: false
+      matrix:
+        ${{ fromJSON(needs.setup.outputs.matrix) }}
+    needs:
+      - setup
+    with:
+      arch: ${{ matrix.arch }}
+      version: ${{ needs.setup.outputs.version_rpm }}
+      release-version: ${{ needs.setup.outputs.revision }}
+      tag: ${{ github.event.inputs.tag || 'main' }}
+
+  create-deb:
+    uses: alumet-dev/packaging/.github/workflows/build_deb.yaml@main
+    strategy:
+      fail-fast: false
+      matrix:
+        ${{ fromJSON(needs.setup.outputs.matrix) }}
+    needs:
+      - setup
+    with:
+      arch: ${{ matrix.arch }}
+      version: ${{ needs.setup.outputs.version_deb }}
+      revision: ${{ needs.setup.outputs.revision }}
+      tag: ${{ github.event.inputs.tag || 'main' }}
+
+  create-docker_deb:
+    uses: alumet-dev/packaging/.github/workflows/build_docker.yaml@ci/make-docker-build-allow-prelease
+    strategy:
+      fail-fast: false
+      matrix:
+        ${{ fromJSON(needs.setup.outputs.matrix) }}
+    needs:
+      - setup
+      - create-deb
+    with:
+      arch: ${{ matrix.arch }}
+      version: ${{ needs.setup.outputs.version_deb }}
+      release-version: ${{ needs.setup.outputs.revision }}
+      build_rpm: false
+    
+  create-docker_rpm:
+    uses: alumet-dev/packaging/.github/workflows/build_docker.yaml@ci/make-docker-build-allow-prelease
+    strategy:
+      fail-fast: false
+      matrix:
+        ${{ fromJSON(needs.setup.outputs.matrix) }}
+    needs:
+      - setup
+      - create-rpm
+    with:
+      arch: ${{ matrix.arch }}
+      version: ${{ needs.setup.outputs.version_rpm }}
+      release-version: ${{ needs.setup.outputs.revision }}
+      build_deb: false
+
+  create-pre-release:
+    runs-on: ubuntu-latest
+    continue-on-error: false
+    permissions:
+      contents: write
+    needs:
+      - setup
+      - create-rpm
+      - create-deb
+      - create-docker_deb
+      - create-docker_rpm
+    steps:
+      - uses: actions/create-github-app-token@v3
+        id: get-app-token
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Create snapshot release
+        env:
+          GH_TOKEN: ${{ steps.get-app-token.outputs.token }}
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            BODY="Snapshot created manually on $(date '+%Y-%m-%d %H:%M:%S').
+          Version: ${{ needs.setup.outputs.hash }}"
+          else
+            BODY="Automated weekly snapshot build from $(date '+%Y-%m-%d').
+          Version: ${{ needs.setup.outputs.hash }}"
+          fi
+          gh release create "${{ needs.setup.outputs.snapshot_name }}" \
+            --repo "${{ github.repository }}" \
+            --title "Snapshot: ${{ needs.setup.outputs.snapshot_name }}" \
+            --notes "$BODY" \
+            --prerelease \
+            --latest=false
+
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Upload artifacts to github pre-release
+        env:
+          GH_TOKEN: ${{ steps.get-app-token.outputs.token }}
+        run: |
+          find artifacts -type f -name '*.rpm' -print0 |
+            while IFS= read -r -d '' rpm; do
+              new_rpm="${rpm//^/+}"
+              [[ "$rpm" == "$new_rpm" ]] || mv "$rpm" "$new_rpm"
+              gh release upload "${{ needs.setup.outputs.snapshot_name }}" "$new_rpm" --clobber
+            done
+          find artifacts -type f -name '*.deb' -print0 | xargs -0 gh release upload "${{ needs.setup.outputs.snapshot_name }}" --clobber
+
+  push-docker:
+    permissions:
+      actions: read
+      packages: write
+    needs:
+      - create-docker_deb
+      - create-docker_rpm
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create docker artifacts directory
+        run: mkdir docker-artifacts
+
+      - name: Download docker images artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "**/*.docker.tar"
+          path: ./docker-artifacts
+          merge-multiple: true
+      -
+        name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push images with multi-arch support
+        run: |
+          tars=$(find ./docker-artifacts -type f)
+          declare -A base_to_arch_map
+          for tar in $tars
+            do
+              image_tags=$(docker load -q -i "$tar" | grep '^Loaded image:' | sed 's/^Loaded image: //')
+              echo "Loaded:"
+              printf '%s\n' "$image_tags"
+              while IFS= read -r image_tag; do
+                  [[ -z "$image_tag" ]] && continue
+
+                  echo "Pushing: '$image_tag'"
+                  docker push $image_tag
+                  # Prepare to create the multi-arch manifest
+                  base_tag="${image_tag%_aarch64}"
+                  base_tag="${base_tag%_x86_64}"
+                  arch="${image_tag:${#base_tag}}"
+                  arch="${arch#_}"
+                  base_to_arch_map["$base_tag"]+="${arch} "
+                done <<< "$image_tags"
+            done
+          for base in "${!base_to_arch_map[@]}"; do
+            archs=(${base_to_arch_map[$base]})
+            echo "Creating multi-arch manifest for: $base with the following archs: ${archs[@]}"
+
+            # cmd="docker manifest create $base"
+            # for arch in "${archs[@]}"
+            #   do
+            #     cmd+=" ${base}_${arch}"
+            #   done
+
+            # eval "$cmd"
+            # docker manifest push "$base"
+
+            echo "Creating multi-arch manifest for: $base"
+            echo "Architectures: ${archs[*]}"
+
+            for arch in "${archs[@]}"; do
+                image="${base}_${arch}"
+                echo "Inspecting: $image"
+                docker manifest inspect "$image"
+            done
+
+            docker manifest create "$base" \
+                "${base}_x86_64" \
+                "${base}_aarch64"
+
+            docker manifest push "$base"
+
+          done
