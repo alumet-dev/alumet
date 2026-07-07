@@ -711,13 +711,14 @@ impl<'a> SourceCheckOutputContext<'a> {
         self.metrics
     }
 
-    /// ## Deprecated
-    /// Former utility function for tests for the NVML plugin.
-    /// Moved to plugins/nvidia-nvml/src/lib.rs
+    #[deprecated(
+        since = "v0.9.5",
+        note = " Former utility function for tests for the NVML plugin. Moved to plugins/nvidia-nvml/src/lib.rs"
+    )]
     pub fn points_by_metric_and_consumer(
         &'a self,
-        attribute_key_list: &[&str],
-    ) -> IndexMap<(&'a str, ResourceConsumer, Vec<AttributeValue>), &'a MeasurementPoint> {
+        attribute_key: Option<&str>,
+    ) -> IndexMap<(&'a str, ResourceConsumer, Option<AttributeValue>), &'a MeasurementPoint> {
         self.measurements()
             .into_iter()
             .map(|p| {
@@ -728,21 +729,19 @@ impl<'a> SourceCheckOutputContext<'a> {
                 let metric_name = metric.name.as_str();
                 let consumer = p.consumer.clone();
 
-                // if some attributes are requested (ie attribute_key_list != []) :
-                // for each metric containing at least one requested attribute, the key to the IndexMap
-                // will contain the list of all the AttributeValue of the metric.
-                match &attribute_key_list {
-                    [] => vec![((metric_name, consumer, vec![]), p)],
-                    key_wanted_list => {
-                        let attributes_list = match p.attributes().any(|(key, _value)| key_wanted_list.contains(&key)) {
-                            true => p.attributes().map(|(_key, value)| value.clone()).collect(),
-                            false => vec![],
-                        };
-                        vec![((metric_name, consumer.clone(), attributes_list), p)]
+                // If the metric has an attribute "kind", the value of the attribute is stored
+                // Otherwise, the Option<AttributeValue> field should be equal to None
+                match attribute_key {
+                    None => ((metric_name, consumer, None), p),
+                    Some(key_wanted) => {
+                        let kind = p
+                            .attributes()
+                            .find(|(key, _value)| *key == key_wanted)
+                            .map(|(_key, value)| value.clone());
+                        ((metric_name, consumer, kind), p)
                     }
                 }
             })
-            .flatten()
             .collect()
     }
 }
