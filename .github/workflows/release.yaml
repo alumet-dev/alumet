@@ -6,9 +6,6 @@ on:
     types: ["published"]
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 concurrency:
   group: "release-workflow"
   cancel-in-progress: true
