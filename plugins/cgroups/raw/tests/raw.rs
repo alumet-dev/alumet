@@ -35,7 +35,7 @@ fn test_raw_cgroupv2() -> anyhow::Result<()> {
         metadata: PluginMetadata::from_static::<RawCgroupPlugin>(),
         enabled: true,
         config: Some(config_to_toml_table(&Config {
-            poll_interval: Duration::from_secs(1),
+            ..Default::default()
         })),
     });
 

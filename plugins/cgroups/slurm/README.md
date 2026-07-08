@@ -64,6 +64,10 @@ Put the following in the configuration file of the Alumet agent (usually `alumet
 # Interval between two measurements.
 poll_interval = "1s"
 
+# Make slurm measurements polling disable.
+# This is useful if you only need to use a subpart of the plugin such as cgroups observer or annotation transform.
+disable_sources = false
+
 # Interval between two scans of the cgroup v1 hierarchies.
 # Only applies to cgroup v1 hierarchies (cgroupv2 supports inotify).
 cgroupv1_refresh_interval = "30s"

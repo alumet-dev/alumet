@@ -4,7 +4,7 @@ use alumet::{
         plugin::{PluginInfo, PluginSet},
     },
     measurement::WrappedMeasurementValue,
-    pipeline::naming::SourceName,
+    pipeline::{naming::SourceName, control::request::{self, ElementListFilter}, naming::{ElementKind, ElementName}},
     plugin::{
         PluginMetadata,
         rust::{AlumetPlugin, deserialize_config, serialize_config},
@@ -16,6 +16,7 @@ use alumet::{
 
 use plugin_slurm::{Config, SlurmPlugin};
 use util_cgroups::measure::v2::mock::{CpuStatMock, MockFileCgroupKV};
+use util_cgroups_plugins::config::CommonConfig;
 
 use anyhow::Result;
 use std::{
@@ -31,7 +32,6 @@ const TIMEOUT: Duration = Duration::from_secs(5);
 fn create_mock_plugin() -> SlurmPlugin {
     SlurmPlugin {
         config: Some(Config {
-            poll_interval: Duration::from_secs(1),
             ..Default::default()
         }),
         starting_state: None,
@@ -48,7 +48,8 @@ fn test_default_config() {
     let config: Config = deserialize_config(config_table).expect("ERROR : Failed to deserialize config");
 
     assert_eq!(config.ignore_non_jobs, true);
-    assert_eq!(config.poll_interval, Duration::from_secs(1));
+    assert_eq!(config.common.poll_interval, Duration::from_secs(5));
+    assert_eq!(config.common.disable_sources, false);
 }
 
 // Test `init` function to initialize slurm_cgroupv2 plugin configuration
@@ -78,7 +79,6 @@ fn test_correct_run_with_no_jobs() {
 
     let mut plugins = PluginSet::new();
     let config = Config {
-        poll_interval: Duration::from_secs(1),
         ignore_non_jobs: true,
         ..Default::default()
     };
@@ -115,7 +115,6 @@ fn test_correct_run_with_one_job() {
 
     let mut plugins = PluginSet::new();
     let config = Config {
-        poll_interval: Duration::from_secs(1),
         ..Default::default()
     };
     plugins.add_plugin(PluginInfo {
@@ -192,7 +191,7 @@ fn test_correct_run_with_one_job() {
         .build_and_start()
         .unwrap();
 
-    agent.wait_for_shutdown(TIMEOUT).unwrap();
+    agent.wait_for_shutdown(TIMEOUT).unwrap()
 }
 
 #[test]
@@ -204,7 +203,6 @@ fn test_correct_run_with_two_jobs() {
 
     let mut plugins = PluginSet::new();
     let config = Config {
-        poll_interval: Duration::from_secs(1),
         ..Default::default()
     };
     plugins.add_plugin(PluginInfo {
@@ -220,6 +218,7 @@ fn test_correct_run_with_two_jobs() {
         .expect_metric::<u64>("cgroup_memory_pagetables", Unit::Byte.clone())
         .expect_metric::<u64>("memory_usage", Unit::Byte.clone())
         .expect_metric::<u64>("cpu_time_delta", PrefixedUnit::nano(Unit::Second));
+
 
     let path_src11 = root.clone();
     let path_src12 = root.clone();
@@ -347,7 +346,6 @@ fn test_correct_run_with_one_job_coming_later() {
 
     let mut plugins = PluginSet::new();
     let config = Config {
-        poll_interval: Duration::from_secs(1),
         ..Default::default()
     };
     plugins.add_plugin(PluginInfo {
@@ -414,7 +412,6 @@ fn test_cgroupv1_two_jobs() {
 
     let mut plugins = PluginSet::new();
     let config = Config {
-        poll_interval: Duration::from_secs(1),
         ..Default::default()
     };
     plugins.add_plugin(PluginInfo {
