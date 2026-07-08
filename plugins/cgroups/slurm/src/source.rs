@@ -13,6 +13,7 @@ use util_cgroups_plugins::{
 
 #[derive(Clone)]
 pub struct JobSourceSetup {
+    start_sources: bool,
     tagger: SlurmJobTagger,
     trigger: TriggerSpec,
     ignore_non_jobs: bool,
@@ -21,11 +22,10 @@ pub struct JobSourceSetup {
 
 impl JobSourceSetup {
     pub fn new(config: Config, tagger: SlurmJobTagger) -> anyhow::Result<Self> {
-        let trigger = TriggerSpec::at_interval(config.poll_interval);
-
         Ok(Self {
+            start_sources: !config.common.disable_sources,
             tagger,
-            trigger,
+            trigger: TriggerSpec::at_interval(config.common.poll_interval),
             ignore_non_jobs: config.ignore_non_jobs,
             jobs_monitoring_level: config.jobs_monitoring_level,
         })
@@ -65,6 +65,9 @@ fn setup_name(
 
 impl CgroupSetupCallback for JobSourceSetup {
     fn setup_new_probe(&mut self, cgroup: &Cgroup, metrics: &Metrics) -> Option<ProbeSetup> {
+        if !self.start_sources {
+            return None
+        }
         // extracts attributes "job_id", "job_step" and "user_id"
         let attrs = self.tagger.attributes_for_cgroup(cgroup);
 

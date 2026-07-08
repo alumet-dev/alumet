@@ -23,10 +23,7 @@ pub struct CgroupV2Probe {
 }
 
 impl CgroupV2Probe {
-    pub fn new(cgroup: Cgroup<'_>, metrics: AugmentedMetrics) -> anyhow::Result<Self> {
-        let consumer = ResourceConsumer::ControlGroup {
-            path: cgroup.canonical_path().to_owned().into(),
-        };
+    pub fn new(cgroup: Cgroup<'_>, consumer: ResourceConsumer, metrics: AugmentedMetrics) -> anyhow::Result<Self> {
         let mut io_buf = Vec::new();
         let collector = V2Collector::new(
             cgroup,

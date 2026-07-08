@@ -12,7 +12,7 @@ log.workspace = true
 procfs = "0.16.0"
 regex = "1.10.6"
 serde = { workspace = true, features = ["derive"] }
-rlimit = "0.10.2"
+rlimit = { workspace = true }
 tokio = { workspace = true, features = ["rt"] }
 
 [lints]

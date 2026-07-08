@@ -13,6 +13,7 @@ use util_cgroups_plugins::{
         CachedCgroupHierarchy, JobAnnotationTransform, OptionalSharedHierarchy, SharedCgroupHierarchy,
     },
     metrics::Metrics,
+    config::CommonConfig,
 };
 
 use crate::attr::SlurmJobTagger;
@@ -120,9 +121,8 @@ impl AlumetPlugin for SlurmPlugin {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
-    /// Interval between two measurements.
-    #[serde(with = "humantime_serde")]
-    pub poll_interval: Duration,
+    #[serde(flatten)]
+    pub common: CommonConfig,
 
     /// Interval between two scans of the cgroup v1 hierarchies.
     /// Only applies to cgroup v1 hierarchies (cgroupv2 supports inotify).
@@ -156,7 +156,7 @@ impl Default for Config {
     #[cfg_attr(tarpaulin, ignore)]
     fn default() -> Self {
         Self {
-            poll_interval: Duration::from_secs(1),
+            common: CommonConfig::default(),
             cgroupv1_refresh_interval: None,
             ignore_non_jobs: true,
             jobs_monitoring_level: JobMonitoringLevel::Job,

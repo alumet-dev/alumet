@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
+use rlimit::{Resource, getrlimit, setrlimit};
 
 use alumet::{
     metrics::TypedMetricId,
@@ -81,6 +82,8 @@ impl AlumetPlugin for PerfPlugin {
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
+        //increase_file_descriptors_soft_limit().context("Error while increasing file descriptors soft limit")?;
+
         let mut config = self.config.lock().unwrap();
 
         let mut hardware_metrics = Vec::with_capacity(config.hardware_events.len());
@@ -123,13 +126,22 @@ impl AlumetPlugin for PerfPlugin {
                         },
                         format!("source-pid[{pid}]"),
                     )),
-                    alumet::resources::ResourceConsumer::ControlGroup { path } => Some((
-                        Observable::Cgroup {
-                            path: path.to_string(),
-                            fd: File::open(path.as_ref()).unwrap(),
-                        },
-                        format!("source-cgroup[{path}]"),
-                    )),
+                    alumet::resources::ResourceConsumer::ControlGroup { path } => {
+                        // making an asumption about the cgroup mounting point here to be /sys/fs/cgroup
+                        // we just have information about the canonical path here
+                        // making it hard to not recompute the mounting path here
+                        // note that it will only work for cgroup v2
+                        // todo: make it dynamic or configurable
+                        let absolute_path = format!("/sys/fs/cgroup{}", path.to_string());
+                        let fd = File::open(&absolute_path).unwrap();
+                        Some((
+                            Observable::Cgroup {
+                                path: absolute_path,
+                                fd: fd,
+                            },
+                            format!("source-cgroup[{path}]"),
+                        ))
+                    },
                     _ => None,
                 };
 
@@ -180,6 +192,17 @@ impl AlumetPlugin for PerfPlugin {
     fn stop(&mut self) -> anyhow::Result<()> {
         Ok(())
     }
+}
+
+// prevent 'Too many open files' error
+fn increase_file_descriptors_soft_limit() -> Result<(), anyhow::Error> {
+    let (fd_soft, fd_hard) = getrlimit(Resource::NOFILE).context("Error while getting file descriptors limits")?;
+    setrlimit(Resource::NOFILE, fd_hard, fd_hard)
+        .context("Error while setting file descriptors soft limit from {fd_soft} to {fd_hard}")?;
+    log::debug!(
+        "Increased file descriptors soft limit ({fd_soft}) to reach hard limit value ({fd_hard}) to prevent 'Too many open files' error"
+    );
+    Ok(())
 }
 
 #[derive(Serialize, Deserialize)]

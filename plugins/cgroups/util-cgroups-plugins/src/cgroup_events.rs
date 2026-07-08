@@ -4,6 +4,9 @@ use std::{
     time::Duration,
 };
 
+use alumet::plugin::event::StartConsumerMeasurement;
+use alumet::resources::ResourceConsumer;
+
 use alumet::pipeline::{
     Source,
     control::{PluginControlHandle, request},
@@ -265,7 +268,10 @@ where
 
         // create the sources
         let mut sources = Vec::with_capacity(cgroups.len());
+        let mut resource_consumers = Vec::with_capacity(cgroups.len());
         for cgroup in cgroups {
+            let resource_consumer = ResourceConsumer::ControlGroup{ path: cgroup.canonical_path().to_owned().into() };
+            resource_consumers.push(resource_consumer.clone());
             // setup the source
             let setup = self
                 .state
@@ -276,7 +282,7 @@ where
                 Some(s) => {
                     // create the source
                     log::debug!("creating a source for cgroup {}", cgroup.unique_name());
-                    match make_cgroup_source(cgroup, s.metrics) {
+                    match make_cgroup_source(cgroup, resource_consumer, s.metrics) {
                         Ok(source) => {
                             sources.push((source, s.source_settings));
                         }
@@ -292,6 +298,10 @@ where
                 }
             }
         }
+
+        // sending events to the event bus to inform the other cgroups collectors that new cgroups have been created
+        alumet::plugin::event::start_consumer_measurement()
+            .publish(StartConsumerMeasurement(resource_consumers));
 
         // spawn the sources on the Alumet pipeline
         for (source, pers) in sources {
@@ -318,10 +328,10 @@ where
     }
 }
 
-fn make_cgroup_source(cgroup: Cgroup<'_>, metrics: AugmentedMetrics) -> anyhow::Result<Box<dyn Source>> {
+fn make_cgroup_source(cgroup: Cgroup<'_>, consumer: ResourceConsumer, metrics: AugmentedMetrics) -> anyhow::Result<Box<dyn Source>> {
     match cgroup.hierarchy().version() {
-        CgroupVersion::V1 => Ok(Box::new(CgroupV1Probe::new(cgroup, metrics)?)),
-        CgroupVersion::V2 => Ok(Box::new(CgroupV2Probe::new(cgroup, metrics)?)),
+        CgroupVersion::V1 => Ok(Box::new(CgroupV1Probe::new(cgroup, consumer, metrics)?)),
+        CgroupVersion::V2 => Ok(Box::new(CgroupV2Probe::new(cgroup, consumer, metrics)?)),
     }
 }
 

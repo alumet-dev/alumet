@@ -8,6 +8,7 @@ use util_cgroups_plugins::{
 
 #[derive(Clone)]
 pub struct SourceSetup {
+    pub start_sources: bool,
     pub trigger: TriggerSpec,
     pub k8s_pods: super::pods::AutoNodePodRegistry,
 }
@@ -18,6 +19,9 @@ impl CgroupSetupCallback for SourceSetup {
         cgroup: &util_cgroups::Cgroup,
         metrics: &Metrics,
     ) -> Option<util_cgroups_plugins::cgroup_events::ProbeSetup> {
+        if !self.start_sources {
+            return None
+        }
         // Retrieves associated attributes
         let attrs = self.k8s_pods.attributes_for_cgroup(cgroup);
 

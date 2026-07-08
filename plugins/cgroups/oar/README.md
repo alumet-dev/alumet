@@ -73,6 +73,9 @@ Put the following in the configuration file of the Alumet agent (usually `alumet
 oar_version = "oar3"
 # Interval between each measurement.
 poll_interval = "1s"
+# Make oar measurements polling disable.
+# This is useful if you only need to use a subpart of the plugin such as cgroups observer or annotation transform.
+disable_sources = false
 # If true, only monitors jobs and ignore other cgroups.
 jobs_only = true
 ```
