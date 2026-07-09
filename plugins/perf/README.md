@@ -67,6 +67,10 @@ cache_events = [
     "LL_READ_MISS",
 #   // any combination of {cache-id}_{cache-op}_{cache-result} from the lists previously mentionned
 ]
+
+# If true, start the sources in "paused" state.
+# This is useful in combination with other plugins that will resume the sources.
+add_source_in_pause_state = false
 ```
 
 ⚠️ Note that by default, the plugin will only collect measurements when running Alumet in `exec` mode.
