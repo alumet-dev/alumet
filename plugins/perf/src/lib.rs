@@ -7,7 +7,7 @@ use rlimit::{Resource, getrlimit, setrlimit};
 
 use alumet::{
     metrics::TypedMetricId,
-    pipeline::{control::request, elements::source::trigger::TriggerSpec},
+    pipeline::{control::request, elements::source::{control::TaskState, trigger::TriggerSpec}},
     plugin::{
         AlumetPostStart, event,
         rust::{AlumetPlugin, deserialize_config, serialize_config},
@@ -62,6 +62,7 @@ impl AlumetPlugin for PerfPlugin {
                 .context("invalid event in config")?,
             // The metrics are initialized in start()
             metrics: Vec::new(),
+            add_source_in_pause_state: config.add_source_in_pause_state,
         };
         Ok(Box::new(PerfPlugin {
             config: Arc::new(Mutex::new(config)),
@@ -69,7 +70,7 @@ impl AlumetPlugin for PerfPlugin {
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
-        //increase_file_descriptors_soft_limit().context("Error while increasing file descriptors soft limit")?;
+        increase_file_descriptors_soft_limit().context("Error while increasing file descriptors soft limit")?;
 
         let mut config = self.config.lock().unwrap();
 
@@ -128,6 +129,7 @@ impl AlumetPlugin for PerfPlugin {
                     }
                     let poll_interval = config.poll_interval;
                     let flush_interval = config.flush_interval;
+                    let add_source_in_pause_state = config.add_source_in_pause_state;
                     drop(config);
 
                     let source = builder.build()?;
@@ -135,7 +137,12 @@ impl AlumetPlugin for PerfPlugin {
                         .flush_interval(flush_interval)
                         .build()?;
 
-                    let request = request::create_one().add_source(&source_name, Box::new(source), trigger);
+                    let init_source_state = match add_source_in_pause_state {
+                        false => TaskState::Run,
+                        true => TaskState::Pause,
+                    };
+
+                    let request = request::create_one().add_source_with_state(&source_name, Box::new(source), trigger, init_source_state);
                     runtime.block_on(pipeline_control.dispatch(request, Duration::from_secs(1)))?;
                     log::debug!("New source has started.");
                 }
@@ -174,6 +181,14 @@ struct Config {
     /// Each entry is either a bare string (`"REF_CPU_CYCLES"`, `"INSTRUCTIONS:u"`) or an inline
     /// table with an optional metric `rename` (`{ event = "LL_READ_MISS", rename = "llc_miss" }`).
     events: Vec<spec::EventEntry>,
+
+    /// If `true`, the perf sources will be started in pause state.
+    /// The default value is `false`.
+    ///
+    /// This behavior is necessary to have fine-grained control over which source to monitor.
+    /// !! It's essentially needed for advanced Alumet setup with a control plugin that manage the state of sources.
+    #[serde(default)]
+    pub add_source_in_pause_state: bool,
 }
 
 impl Default for Config {
@@ -188,6 +203,8 @@ impl Default for Config {
                 spec::EventEntry::Simple("BRANCH_MISSES".to_owned()),
                 spec::EventEntry::Simple("LL_READ_MISS".to_owned()),
             ],
+
+            add_source_in_pause_state: false,
         }
     }
 }
@@ -199,4 +216,6 @@ struct ParsedConfig {
 
     events: Vec<spec::ParsedEvent>,
     metrics: Vec<TypedMetricId<u64>>,
+
+    add_source_in_pause_state: bool,
 }

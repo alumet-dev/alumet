@@ -151,6 +151,10 @@ events = [
     { event = "CONTEXT_SWITCHES", rename = "ctxsw" }, # -> metric perf_ctxsw
     { event = "LL_READ_MISS#h", rename = "LL_READ_MISS_HYPERVISOR"}, # hypervisor only
 ]
+
+# If true, start the sources in "paused" state.
+# This is useful in combination with other plugins that will resume the sources.
+add_source_in_pause_state = false
 ```
 
 ⚠️ Note that by default, the plugin will only collect measurements when running Alumet in `exec` mode.
