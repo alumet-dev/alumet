@@ -34,9 +34,7 @@ fn test_raw_cgroupv2() -> anyhow::Result<()> {
     plugins.add_plugin(PluginInfo {
         metadata: PluginMetadata::from_static::<RawCgroupPlugin>(),
         enabled: true,
-        config: Some(config_to_toml_table(&Config {
-            ..Default::default()
-        })),
+        config: Some(config_to_toml_table(&Config { ..Default::default() })),
     });
 
     // start the measurement pipeline, without our "test_raw" cgroup

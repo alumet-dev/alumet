@@ -4,7 +4,11 @@ use alumet::{
         plugin::{PluginInfo, PluginSet},
     },
     measurement::WrappedMeasurementValue,
-    pipeline::{naming::SourceName, control::request::{self, ElementListFilter}, naming::{ElementKind, ElementName}},
+    pipeline::{
+        control::request::{self, ElementListFilter},
+        naming::SourceName,
+        naming::{ElementKind, ElementName},
+    },
     plugin::{
         PluginMetadata,
         rust::{AlumetPlugin, deserialize_config, serialize_config},
@@ -31,9 +35,7 @@ const TIMEOUT: Duration = Duration::from_secs(5);
 // Create a fake plugin structure for slurm_cgroupv2 plugin
 fn create_mock_plugin() -> SlurmPlugin {
     SlurmPlugin {
-        config: Some(Config {
-            ..Default::default()
-        }),
+        config: Some(Config { ..Default::default() }),
         starting_state: None,
         reactor: None,
     }
@@ -114,9 +116,7 @@ fn test_correct_run_with_one_job() {
     cgroupv2::create_cgroupv2_tree_slurm_job(&root).unwrap();
 
     let mut plugins = PluginSet::new();
-    let config = Config {
-        ..Default::default()
-    };
+    let config = Config { ..Default::default() };
     plugins.add_plugin(PluginInfo {
         metadata: PluginMetadata::from_static::<SlurmPlugin>(),
         enabled: true,
@@ -202,9 +202,7 @@ fn test_correct_run_with_two_jobs() {
     cgroupv2::create_cgroupv2_tree_slurm_jobs(&root).unwrap();
 
     let mut plugins = PluginSet::new();
-    let config = Config {
-        ..Default::default()
-    };
+    let config = Config { ..Default::default() };
     plugins.add_plugin(PluginInfo {
         metadata: PluginMetadata::from_static::<SlurmPlugin>(),
         enabled: true,
@@ -218,7 +216,6 @@ fn test_correct_run_with_two_jobs() {
         .expect_metric::<u64>("cgroup_memory_pagetables", Unit::Byte.clone())
         .expect_metric::<u64>("memory_usage", Unit::Byte.clone())
         .expect_metric::<u64>("cpu_time_delta", PrefixedUnit::nano(Unit::Second));
-
 
     let path_src11 = root.clone();
     let path_src12 = root.clone();
@@ -345,9 +342,7 @@ fn test_correct_run_with_one_job_coming_later() {
     cgroupv2::create_cgroupv2_tree_slurm_empty(&root).unwrap();
 
     let mut plugins = PluginSet::new();
-    let config = Config {
-        ..Default::default()
-    };
+    let config = Config { ..Default::default() };
     plugins.add_plugin(PluginInfo {
         metadata: PluginMetadata::from_static::<SlurmPlugin>(),
         enabled: true,
@@ -411,9 +406,7 @@ fn test_cgroupv1_two_jobs() {
     cgroupv1::fake_cgroupv1_hierarchies(&root, "1000", "2", 56, 78).unwrap();
 
     let mut plugins = PluginSet::new();
-    let config = Config {
-        ..Default::default()
-    };
+    let config = Config { ..Default::default() };
     plugins.add_plugin(PluginInfo {
         metadata: PluginMetadata::from_static::<SlurmPlugin>(),
         enabled: true,

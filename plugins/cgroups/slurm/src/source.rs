@@ -66,7 +66,7 @@ fn setup_name(
 impl CgroupSetupCallback for JobSourceSetup {
     fn setup_new_probe(&mut self, cgroup: &Cgroup, metrics: &Metrics) -> Option<ProbeSetup> {
         if !self.start_sources {
-            return None
+            return None;
         }
         // extracts attributes "job_id", "job_step" and "user_id"
         let attrs = self.tagger.attributes_for_cgroup(cgroup);

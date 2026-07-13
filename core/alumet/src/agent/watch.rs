@@ -47,8 +47,8 @@ pub fn watch_process(agent: RunningAgent, pid: u32, shutdown_timeout: Duration) 
         log::error!("Could not trigger a first time poll before the child spawn: {e}");
     }
     log::info!("Watch process spawned with pid {pid_i32}.");
-    crate::plugin::event::start_consumer_measurement()
-        .publish(StartConsumerMeasurement(vec![ResourceConsumer::Process { pid }]));
+    let consumer = ResourceConsumer::Process { pid };
+    crate::plugin::event::start_consumer_measurement().publish(StartConsumerMeasurement(vec![consumer.clone()]));
 
     // Spawn the process and wait for it to exit.
     wait_child(pid_i32)?;
@@ -61,7 +61,7 @@ pub fn watch_process(agent: RunningAgent, pid: u32, shutdown_timeout: Duration) 
 
     // Publish an event to perform a measurement at the end of the experiment
     log::info!("Publishing EndConsumerMeasurement event");
-    crate::plugin::event::end_consumer_measurement().publish(EndConsumerMeasurement);
+    crate::plugin::event::end_consumer_measurement().publish(EndConsumerMeasurement(vec![consumer]));
 
     // Stop the pipeline
     agent.pipeline.control_handle().shutdown();

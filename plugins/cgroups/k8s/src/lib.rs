@@ -12,11 +12,11 @@ use crate::{
 use source::SourceSetup;
 use util_cgroups_plugins::{
     cgroup_events::{CgroupReactor, NoCallback, ReactorCallbacks, ReactorConfig},
+    config::CommonConfig,
     job_annotation_transform::{
         CachedCgroupHierarchy, JobAnnotationTransform, OptionalSharedHierarchy, SharedCgroupHierarchy,
     },
     metrics::Metrics,
-    config::CommonConfig,
 };
 
 mod pods;

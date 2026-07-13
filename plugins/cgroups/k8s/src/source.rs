@@ -20,7 +20,7 @@ impl CgroupSetupCallback for SourceSetup {
         metrics: &Metrics,
     ) -> Option<util_cgroups_plugins::cgroup_events::ProbeSetup> {
         if !self.start_sources {
-            return None
+            return None;
         }
         // Retrieves associated attributes
         let attrs = self.k8s_pods.attributes_for_cgroup(cgroup);

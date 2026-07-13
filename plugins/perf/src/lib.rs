@@ -1,13 +1,17 @@
+use rlimit::{Resource, getrlimit, setrlimit};
 use std::{
     fs::File,
     sync::{Arc, Mutex},
     time::Duration,
 };
-use rlimit::{Resource, getrlimit, setrlimit};
 
 use alumet::{
     metrics::TypedMetricId,
-    pipeline::{control::request, elements::source::{control::TaskState, trigger::TriggerSpec}},
+    pipeline::{
+        control::{matching::SourceMatcher, request},
+        elements::source::{control::TaskState, trigger::TriggerSpec},
+        matching::{SourceNamePattern, StringPattern},
+    },
     plugin::{
         AlumetPostStart, event,
         rust::{AlumetPlugin, deserialize_config, serialize_config},
@@ -114,10 +118,12 @@ impl AlumetPlugin for PerfPlugin {
 
     fn post_pipeline_start(&mut self, alumet: &mut AlumetPostStart) -> anyhow::Result<()> {
         let config_cloned = self.config.clone();
-        let pipeline_control = alumet.pipeline_control();
-        let runtime = alumet.async_runtime().clone();
+        let pipeline_control_start = alumet.pipeline_control();
+        let pipeline_control_end = alumet.pipeline_control();
+        let runtime_start = alumet.async_runtime().clone();
+        let runtime_end = alumet.async_runtime().clone();
 
-        // Listen to events.
+        // Listen to start consumer events, starting sources.
         event::start_consumer_measurement().subscribe(move |e| {
             for consumer in e.0 {
                 let observable = match consumer {
@@ -125,10 +131,10 @@ impl AlumetPlugin for PerfPlugin {
                         Observable::Process {
                             pid: i32::try_from(pid).unwrap(),
                         },
-                        format!("source-pid[{pid}]"),
+                        process_source_name(pid),
                     )),
                     alumet::resources::ResourceConsumer::ControlGroup { path } => {
-                        // making an asumption about the cgroup mounting point here to be /sys/fs/cgroup
+                        // making an assumption about the cgroup mounting point here to be /sys/fs/cgroup
                         // we just have information about the canonical path here
                         // making it hard to not recompute the mounting path here
                         // note that it will only work for cgroup v2
@@ -138,11 +144,11 @@ impl AlumetPlugin for PerfPlugin {
                         Some((
                             Observable::Cgroup {
                                 path: absolute_path,
-                                fd: fd,
+                                fd,
                             },
-                            format!("source-cgroup[{path}]"),
+                            cgroup_source_name(path),
                         ))
-                    },
+                    }
                     _ => None,
                 };
 
@@ -186,13 +192,38 @@ impl AlumetPlugin for PerfPlugin {
                         true => TaskState::Pause,
                     };
 
-                    let request = request::create_one().add_source_with_state(&source_name, Box::new(source), trigger, init_source_state);
-                    runtime.block_on(pipeline_control.dispatch(request, Duration::from_secs(1)))?;
-                    log::debug!("New source has started.");
+                    let request = request::create_one().add_source_with_state(
+                        &source_name,
+                        Box::new(source),
+                        trigger,
+                        init_source_state,
+                    );
+                    runtime_start.block_on(pipeline_control_start.dispatch(request, Duration::from_secs(1)))?;
+                    log::debug!("New source {source_name} has started.");
                 }
             }
             Ok(())
         });
+
+        // Listen to end consumer events, stopping sources.
+        event::end_consumer_measurement().subscribe(move |e| {
+            for consumer in e.0 {
+                let source_name = match consumer {
+                    alumet::resources::ResourceConsumer::Process { pid } => process_source_name(pid),
+                    alumet::resources::ResourceConsumer::ControlGroup { path } => cgroup_source_name(path),
+                    _ => continue,
+                };
+                let stop_request = request::source::source(SourceMatcher::Name(SourceNamePattern::new(
+                    StringPattern::Exact("perf".to_string()),
+                    StringPattern::Exact(source_name.clone()),
+                )))
+                .stop();
+                runtime_end.block_on(pipeline_control_end.dispatch(stop_request, Duration::from_secs(1)))?;
+                log::debug!("Source {source_name} has stopped.");
+            }
+            Ok(())
+        });
+
         Ok(())
     }
 
@@ -210,6 +241,14 @@ fn increase_file_descriptors_soft_limit() -> Result<(), anyhow::Error> {
         "Increased file descriptors soft limit ({fd_soft}) to reach hard limit value ({fd_hard}) to prevent 'Too many open files' error"
     );
     Ok(())
+}
+
+fn process_source_name(pid: u32) -> String {
+    format!("source-pid[{pid}]")
+}
+
+fn cgroup_source_name(path: alumet::resources::StrCow) -> String {
+    format!("source-cgroup[{path}]")
 }
 
 #[derive(Serialize, Deserialize)]

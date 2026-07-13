@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use alumet::plugin::event::StartConsumerMeasurement;
+use alumet::plugin::event::{EndConsumerMeasurement, StartConsumerMeasurement};
 use alumet::resources::ResourceConsumer;
 
 use alumet::pipeline::{
@@ -270,7 +270,9 @@ where
         let mut sources = Vec::with_capacity(cgroups.len());
         let mut resource_consumers = Vec::with_capacity(cgroups.len());
         for cgroup in cgroups {
-            let resource_consumer = ResourceConsumer::ControlGroup{ path: cgroup.canonical_path().to_owned().into() };
+            let resource_consumer = ResourceConsumer::ControlGroup {
+                path: cgroup.canonical_path().to_owned().into(),
+            };
             resource_consumers.push(resource_consumer.clone());
             // setup the source
             let setup = self
@@ -300,8 +302,7 @@ where
         }
 
         // sending events to the event bus to inform the other cgroups collectors that new cgroups have been created
-        alumet::plugin::event::start_consumer_measurement()
-            .publish(StartConsumerMeasurement(resource_consumers));
+        alumet::plugin::event::start_consumer_measurement().publish(StartConsumerMeasurement(resource_consumers));
 
         // spawn the sources on the Alumet pipeline
         for (source, pers) in sources {
@@ -317,18 +318,36 @@ where
     }
 
     fn on_cgroups_removed(&mut self, cgroups: Vec<Cgroup>) -> anyhow::Result<()> {
-        // The source will stop itself: it will try to gather measurements and see that the cgroup no longer exists.
-        // What we do here is delegate the work to someone else, because it depends on the context.
-        // Some plugins may want to keep track of the active cgroups, others may want to send a notification, etc.
-        self.state
-            .callbacks
-            .on_removal
-            .on_cgroups_removed(cgroups)
-            .context("error in cgroup removal callback")
+        if cgroups.len() > 0 {
+            let mut resource_consumers = Vec::with_capacity(cgroups.len());
+            for cgroup in &cgroups {
+                let resource_consumer = ResourceConsumer::ControlGroup {
+                    path: cgroup.canonical_path().to_owned().into(),
+                };
+                resource_consumers.push(resource_consumer.clone());
+            }
+            // sending events to the event bus to inform the other cgroups collectors that new cgroups have been created
+            alumet::plugin::event::end_consumer_measurement().publish(EndConsumerMeasurement(resource_consumers));
+            // The source will stop itself: it will try to gather measurements and see that the cgroup no longer exists.
+            // What we do here is delegate the work to someone else, because it depends on the context.
+            // Some plugins may want to keep track of the active cgroups, others may want to send a notification, etc.
+            println!("REMOVED: {cgroups:?}");
+            return self
+                .state
+                .callbacks
+                .on_removal
+                .on_cgroups_removed(cgroups)
+                .context("error in cgroup removal callback");
+        }
+        Ok(())
     }
 }
 
-fn make_cgroup_source(cgroup: Cgroup<'_>, consumer: ResourceConsumer, metrics: AugmentedMetrics) -> anyhow::Result<Box<dyn Source>> {
+fn make_cgroup_source(
+    cgroup: Cgroup<'_>,
+    consumer: ResourceConsumer,
+    metrics: AugmentedMetrics,
+) -> anyhow::Result<Box<dyn Source>> {
     match cgroup.hierarchy().version() {
         CgroupVersion::V1 => Ok(Box::new(CgroupV1Probe::new(cgroup, consumer, metrics)?)),
         CgroupVersion::V2 => Ok(Box::new(CgroupV2Probe::new(cgroup, consumer, metrics)?)),
