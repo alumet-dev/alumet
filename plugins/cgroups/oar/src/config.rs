@@ -4,7 +4,7 @@ use util_cgroups_plugins::config::CommonConfig;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
     #[serde(flatten)]
-    pub (crate) common: CommonConfig,
+    pub(crate) common: CommonConfig,
     pub(crate) oar_version: OarVersion,
     pub(crate) jobs_only: bool,
     /// If `true`, adds attributes like `job_id` to the measurements produced by other plugins.

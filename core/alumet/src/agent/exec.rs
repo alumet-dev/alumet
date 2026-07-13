@@ -49,7 +49,7 @@ pub fn exec_process(
     }
 
     // Spawn the process and wait for it to exit.
-    let exit_status = exec_child(program, args)?;
+    let (consumer, exit_status) = exec_child(program, args)?;
     log::info!("Child process exited with {exit_status}, Alumet will now stop.");
 
     // One last measurement.
@@ -59,7 +59,7 @@ pub fn exec_process(
 
     // Publish an event to perform a measurement at the end of the experiment
     log::info!("Publishing EndConsumerMeasurement event");
-    crate::plugin::event::end_consumer_measurement().publish(EndConsumerMeasurement);
+    crate::plugin::event::end_consumer_measurement().publish(EndConsumerMeasurement(vec![consumer]));
 
     // Stop the pipeline
     log::debug!("Initiating shutdown.");
@@ -69,7 +69,7 @@ pub fn exec_process(
 }
 
 /// Spawns a child process and waits for it to exit.
-fn exec_child(external_command: String, args: Vec<String>) -> Result<ExitStatus, ExecError> {
+fn exec_child(external_command: String, args: Vec<String>) -> Result<(ResourceConsumer, ExitStatus), ExecError> {
     // Spawn the process.
     let mut p = Command::new(external_command.clone())
         .args(args)
@@ -79,12 +79,12 @@ fn exec_child(external_command: String, args: Vec<String>) -> Result<ExitStatus,
     // Notify the plugins that there is a process to observe.
     let pid = p.id();
     log::info!("Child process '{external_command}' spawned with pid {pid}.");
-    crate::plugin::event::start_consumer_measurement()
-        .publish(StartConsumerMeasurement(vec![ResourceConsumer::Process { pid }]));
+    let consumer = ResourceConsumer::Process { pid };
+    crate::plugin::event::start_consumer_measurement().publish(StartConsumerMeasurement(vec![consumer.clone()]));
 
     // Wait for the process to terminate.
     let status = p.wait().map_err(|e| ExecError::ProcessWait(pid, e))?;
-    Ok(status)
+    Ok((consumer, status))
 }
 
 const TRIGGER_TIMEOUT: Duration = Duration::from_secs(1);

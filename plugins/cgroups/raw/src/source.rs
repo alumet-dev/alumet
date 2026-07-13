@@ -18,7 +18,7 @@ impl CgroupSetupCallback for SourceSetup {
         metrics: &Metrics,
     ) -> Option<util_cgroups_plugins::cgroup_events::ProbeSetup> {
         if !self.start_sources {
-            return None
+            return None;
         }
         // no custom attributes, this is the "raw" cgroup plugin :)
         let metrics = AugmentedMetrics::no_additional_attribute(metrics);

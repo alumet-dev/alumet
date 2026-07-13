@@ -104,7 +104,7 @@ k8s_api_url = "http://127.0.0.1:8080"
 token_retrieval = "auto"
 # Interval between each measurement.
 poll_interval = "5s"
-# Make k8s measurements polling disable.
+# Disable k8s measurements. If true, no sources will be created.
 # This is useful if you only need to use a subpart of the plugin such as cgroups observer or annotation transform.
 disable_sources = false
 # If `true`, adds attributes like `uid`, `name`, `namespace`, `node` to the cgroup measurements produced by other plugins.

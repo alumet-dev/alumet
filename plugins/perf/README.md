@@ -183,7 +183,6 @@ poll_interval = "1s"
 sources_disable = true
 ```
 
-
 ## More information
 
 ### perf_event_paranoid and capabilities

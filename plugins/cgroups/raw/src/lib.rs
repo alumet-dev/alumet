@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 use source::SourceSetup;
 use util_cgroups_plugins::{
     cgroup_events::{CgroupReactor, NoCallback, ReactorCallbacks, ReactorConfig},
-    metrics::Metrics,
     config::CommonConfig,
+    metrics::Metrics,
 };
 
 mod source;
