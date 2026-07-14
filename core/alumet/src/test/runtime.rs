@@ -711,6 +711,10 @@ impl<'a> SourceCheckOutputContext<'a> {
         self.metrics
     }
 
+    #[deprecated(
+        since = "v0.9.5",
+        note = " Former utility function for tests for the NVML plugin. Moved to plugins/nvidia-nvml/src/lib.rs"
+    )]
     pub fn points_by_metric_and_consumer(
         &'a self,
         attribute_key: Option<&str>,

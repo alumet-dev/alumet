@@ -3192,12 +3192,13 @@ dependencies = [
 
 [[package]]
 name = "plugin-nvidia-nvml"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "alumet",
  "anyhow",
  "enum-map",
  "humantime-serde",
+ "indexmap 2.14.0",
  "log",
  "mockall",
  "nvml-wrapper",
