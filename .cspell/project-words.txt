@@ -38,6 +38,7 @@ kubepods
 kwollect
 libdrm
 libgflags
+libpfm
 libpowercap
 libusb
 miri

@@ -3254,7 +3254,9 @@ dependencies = [
  "anyhow",
  "humantime-serde",
  "itertools 0.13.0",
+ "libloading",
  "log",
+ "perf-event-open-sys2",
  "perf-event2",
  "serde",
 ]
