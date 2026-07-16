@@ -9,8 +9,46 @@ use alumet::{
 };
 use anyhow::Context;
 use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 
 use crate::cpu;
+
+/// Which CPU privilege levels to count. Applied to every perf event created by the plugin
+/// so it is a plugin-wide setting.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct Privilege {
+    /// Count events that occur in user space.
+    pub user: bool,
+    /// Count events that occur in kernel space.
+    pub kernel: bool,
+    /// Count events that occur in the hypervisor.
+    pub hypervisor: bool,
+    /// Count events that occur while the CPU is idle.
+    pub idle: bool,
+}
+
+impl Default for Privilege {
+    fn default() -> Self {
+        // Current behavior, which matches `perf_event::Builder`'s own defaults: count user
+        // space (and idle), but not the kernel nor the hypervisor.
+        Self {
+            user: true,
+            kernel: false,
+            hypervisor: false,
+            idle: true,
+        }
+    }
+}
+
+impl Privilege {
+    /// Apply the exclusion flags to a perf event builder.
+    fn apply(self, builder: &mut perf_event::Builder<'_>) {
+        builder.exclude_user(!self.user);
+        builder.exclude_kernel(!self.kernel);
+        builder.exclude_hv(!self.hypervisor);
+        builder.exclude_idle(!self.idle);
+    }
+}
 
 #[derive(Debug)]
 pub enum Observable {
@@ -78,14 +116,17 @@ pub struct PerfEventSourceBuilder {
     groups: Vec<EventGroup>,
     /// The available CPUs to monitor.
     online_cpus: Vec<u32>,
+    /// CPU privilege levels to count (applied to every event).
+    privilege: Privilege,
 }
 
 impl PerfEventSourceBuilder {
-    pub fn observe(observable: Observable) -> anyhow::Result<Self> {
+    pub fn observe(observable: Observable, privilege: Privilege) -> anyhow::Result<Self> {
         Ok(Self {
             observable,
             groups: Vec::new(),
             online_cpus: cpu::online_cpus().context("could not detect online CPUs")?,
+            privilege,
         })
     }
 
@@ -94,12 +135,25 @@ impl PerfEventSourceBuilder {
         event: E,
         alumet_metric: TypedMetricId<u64>,
     ) -> anyhow::Result<&mut Self> {
+        let privilege = self.privilege;
+
+        // Returns a new [`perf_event::Builder`] for a single event, with the plugin's
+        // privilege levels applied (see [`Privilege`]).
+        fn new_event_builder<'a, E: perf_event::events::Event>(
+            event: E,
+            privilege: Privilege,
+        ) -> perf_event::Builder<'a> {
+            let mut builder = perf_event::Builder::new(event);
+            privilege.apply(&mut builder);
+            builder
+        }
+
         // Returns a new [`perf_event::Builder`] configured to build a group of perf events.
-        fn new_group_builder<'a>() -> perf_event::Builder<'a> {
+        fn new_group_builder<'a>(privilege: Privilege) -> perf_event::Builder<'a> {
             use perf_event::ReadFormat;
 
             // use the DUMMY event for the group leader, because its value is not included in the result of Group::read
-            let mut builder = perf_event::Builder::new(perf_event::events::Software::DUMMY);
+            let mut builder = new_event_builder(perf_event::events::Software::DUMMY, privilege);
             builder.read_format(
                 ReadFormat::GROUP | ReadFormat::TOTAL_TIME_ENABLED | ReadFormat::TOTAL_TIME_RUNNING | ReadFormat::ID,
             );
@@ -113,7 +167,7 @@ impl PerfEventSourceBuilder {
                     // Observe the process on any cpu.
 
                     // build group
-                    let mut perf_group = new_group_builder()
+                    let mut perf_group = new_group_builder(privilege)
                         .observe_pid(*pid)
                         .any_cpu()
                         .build_group()
@@ -121,7 +175,7 @@ impl PerfEventSourceBuilder {
 
                     // add event (the params must be the same)
                     let counter = perf_group
-                        .add(perf_event::Builder::new(event).observe_pid(*pid).any_cpu())
+                        .add(new_event_builder(event, privilege).observe_pid(*pid).any_cpu())
                         .with_context(|| format!("perf_group.add with observe_pid({pid}).any_cpu()"))?;
 
                     // add metadata
@@ -147,7 +201,7 @@ impl PerfEventSourceBuilder {
                         let cpu_id = *cpu_id as usize;
 
                         // build group
-                        let mut perf_group = new_group_builder()
+                        let mut perf_group = new_group_builder(privilege)
                             .observe_cgroup(fd)
                             .one_cpu(cpu_id)
                             .build_group()
@@ -156,7 +210,7 @@ impl PerfEventSourceBuilder {
                         // add event (the params must be the same)
                         let counter = perf_group
                             .add(
-                                perf_event::Builder::new(event.clone())
+                                new_event_builder(event.clone(), privilege)
                                     .observe_cgroup(fd)
                                     .one_cpu(cpu_id),
                             )
@@ -179,7 +233,7 @@ impl PerfEventSourceBuilder {
         } else {
             // add to the group(s)
             for group in &mut self.groups {
-                let mut event_builder = perf_event::Builder::new(event.clone());
+                let mut event_builder = new_event_builder(event.clone(), privilege);
 
                 // Compute the event params to be the same as the group's params.
                 match &self.observable {
