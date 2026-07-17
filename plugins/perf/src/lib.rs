@@ -23,6 +23,7 @@ use crate::source::{Observable, PerfEventSourceBuilder};
 compile_error!("This plugin only works on Linux.");
 
 mod cpu;
+mod multiplexing;
 mod native;
 mod pfm;
 mod raw;
@@ -59,6 +60,7 @@ impl AlumetPlugin for PerfPlugin {
                 .map(spec::parse)
                 .try_collect()
                 .context("invalid event in config")?,
+            multiplexing_auto_scale: config.multiplexing_auto_scale,
             // The metrics are initialized in start()
             metrics: Vec::new(),
         };
@@ -108,7 +110,7 @@ impl AlumetPlugin for PerfPlugin {
                 if let Some((o, source_name)) = observable {
                     log::info!("Starting to observe {o:?}...");
                     let config = config_cloned.lock().unwrap();
-                    let mut builder = PerfEventSourceBuilder::observe(o)?;
+                    let mut builder = PerfEventSourceBuilder::observe(o, config.multiplexing_auto_scale)?;
                     for (event, metric) in config.events.iter().zip(&config.metrics) {
                         builder
                             .add(&event.event, *metric)
@@ -151,6 +153,17 @@ struct Config {
     /// Each entry is either a bare string (`"REF_CPU_CYCLES"`, `"INSTRUCTIONS:u"`) or an inline
     /// table with an optional metric `rename` (`{ event = "LL_READ_MISS", rename = "llc_miss" }`).
     events: Vec<spec::EventEntry>,
+
+    /// Whether to compensate for the multiplexing of the perf events.
+    ///
+    /// A CPU only has a few hardware counters. When more events are requested than it can hold, the
+    /// kernel only counts them part of the time, and the raw values are underestimated. When this is
+    /// enabled (the default), the plugin extrapolates the missing part, like the `perf` tool does.
+    /// When disabled, the raw values are reported as they are.
+    ///
+    /// Either way, every measurement carries an `accuracy` attribute telling whether its value is
+    /// exact, extrapolated or underestimated.
+    multiplexing_auto_scale: bool,
 }
 
 impl Default for Config {
@@ -165,6 +178,7 @@ impl Default for Config {
                 spec::EventEntry::Simple("BRANCH_MISSES".to_owned()),
                 spec::EventEntry::Simple("LL_READ_MISS".to_owned()),
             ],
+            multiplexing_auto_scale: true,
         }
     }
 }
@@ -176,4 +190,5 @@ struct ParsedConfig {
 
     events: Vec<spec::ParsedEvent>,
     metrics: Vec<TypedMetricId<u64>>,
+    multiplexing_auto_scale: bool,
 }

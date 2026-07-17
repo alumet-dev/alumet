@@ -133,6 +133,23 @@ The modifiers do not change the metric name, so if you measure the same event wi
 modifiers, give at least one of them a `rename` to avoid a name clash. A `rename` replaces the whole
 suffix (and is normalized the same way); the metric then becomes `perf_{rename}`.
 
+#### Attributes
+
+Every measurement carries an `accuracy` attribute describing how faithful its value is (see
+[Counter multiplexing](#counter-multiplexing) below):
+
+- `exact`: an exact count.
+- `extrapolated`: the value includes at least one multiplexed interval that was extrapolated (only
+  happens when `multiplexing_auto_scale` is on). It is an estimate, which may be slightly above or
+  below the truth.
+- `underestimated`: the value is known to be too low, either because multiplexed intervals were
+  reported raw (`multiplexing_auto_scale` off) or because the counter was starved for some intervals
+  (the events could not be counted at all).
+
+Because the reported values are cumulative counters, the accuracy only ever degrades from `exact` to
+`extrapolated` to `underestimated`, and never improves: a single imperfect interval affects every
+value reported afterwards.
+
 ## Configuration
 
 Here is a configuration example of the plugin. It's part of the Alumet configuration file (eg: `alumet-config.toml`).
@@ -151,9 +168,32 @@ events = [
     { event = "CONTEXT_SWITCHES", rename = "ctxsw" }, # -> metric perf_ctxsw
     { event = "LL_READ_MISS#h", rename = "LL_READ_MISS_HYPERVISOR"}, # hypervisor only
 ]
+
+# Compensate for counter multiplexing (optional, true by default).
+# See the "Counter multiplexing" section below.
+multiplexing_auto_scale = true
 ```
 
 ## More information
+
+### Counter multiplexing
+
+A CPU only has a few hardware counters. When you configure more events than it can hold, the kernel
+cannot count them all at once: it puts them on the counters in turn, so each event is only counted
+during a fraction of the time. The raw values are then underestimated by that fraction.
+
+By default (`multiplexing_auto_scale = true`), the plugin compensates for this the same way the
+`perf` tool does: it extrapolates the missing part, assuming the events kept occurring at the same
+rate while they were not on a counter. This is an **estimation**, not an exact measurement, so the
+affected measurements are marked `accuracy = "extrapolated"` (see [Attributes](#attributes)).
+
+Set `multiplexing_auto_scale = false` to report the raw kernel values instead, without any
+compensation. Those values are marked `accuracy = "underestimated"`, so you can still tell which
+ones are affected.
+
+The surest way to avoid multiplexing altogether is to configure no more events than the CPU has
+hardware counters (typically 4 to 8). Note that a single event can already be multiplexed if
+something else is using the PMU, for example another `perf` process running system-wide.
 
 ### perf_event_paranoid and capabilities
 
