@@ -148,7 +148,7 @@ impl AlumetPlugin for PrometheusPlugin {
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, default)]
 struct Config {
     host: String,
     prefix: String,
@@ -166,5 +166,23 @@ impl Default for Config {
             port: 9091,
             add_attributes_to_labels: true,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alumet::plugin::ConfigTable;
+
+    // empty table (packaged .deb ships no section) must fall back to defaults
+    #[test]
+    fn missing_config_section_falls_back_to_defaults() {
+        let config: Config = deserialize_config(ConfigTable(Default::default()))
+            .expect("an empty config table must deserialize to the defaults");
+        assert_eq!(config.host, "0.0.0.0");
+        assert_eq!(config.port, 9091);
+        assert_eq!(config.suffix, "_alumet");
+        assert_eq!(config.prefix, "");
+        assert!(config.add_attributes_to_labels);
     }
 }
