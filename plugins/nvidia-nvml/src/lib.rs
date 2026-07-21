@@ -165,6 +165,7 @@ impl Default for Config {
 #[cfg(test)]
 mod tests {
     use std::{
+        borrow::Cow,
         cmp::Ordering,
         sync::{Arc, Mutex},
     };
@@ -174,7 +175,7 @@ mod tests {
         measurement::{AttributeValue, MeasurementPoint},
         pipeline::naming::SourceName,
         plugin::PluginMetadata,
-        resources::ResourceConsumer,
+        resources::{Resource, ResourceConsumer},
         test::{RuntimeExpectations, StartupExpectations, runtime::SourceCheckOutputContext},
         units::{PrefixedUnit, Unit},
     };
@@ -409,12 +410,21 @@ mod tests {
             device.expect_running_compute_processes().returning(|| Ok(Vec::new()));
             device.expect_running_graphics_processes_count().returning(|| Ok(1));
             device.expect_running_graphics_processes().returning(|| {
-                Ok(vec![ProcessInfo {
-                    pid: 1234,
-                    used_gpu_memory: UsedGpuMemory::Used(64_000),
-                    gpu_instance_id: None,
-                    compute_instance_id: None,
-                }])
+                // testing with and without gpu_instance_id and compute_instance_id
+                Ok(vec![
+                    ProcessInfo {
+                        pid: 1234,
+                        used_gpu_memory: UsedGpuMemory::Used(64_000),
+                        gpu_instance_id: Some(0),
+                        compute_instance_id: Some(1),
+                    },
+                    ProcessInfo {
+                        pid: 5678,
+                        used_gpu_memory: UsedGpuMemory::Used(32_000),
+                        gpu_instance_id: None,
+                        compute_instance_id: None,
+                    },
+                ])
             });
             // values are given in MHz. Expected output metric should be 1 000 Hz, 2 000 Hz ...
             device.expect_clock_info().returning(|clock: Clock| match clock {
@@ -569,12 +579,14 @@ mod tests {
                     device_state.lock().unwrap().reset();
                 },
                 |out| {
+                    let bus_id: Cow<'_, str> = Cow::Owned(MOCK_BUS_ID.to_owned());
                     // first trigger
                     // two attributes are fetched:
                     //  - kind for "memory_info"
                     //  - clock_type for "clock_info"
-                    let points = points_by_metric_and_consumer(out, &["kind", "clock_type", "context"]);
-                    assert_eq!(points.len(), 19, "wrong number of points, got {points:?}");
+                    let points =
+                        points_by_metric_and_consumer(out, &["kind", "clock_type", "context", "compute_instance_id"]);
+                    assert_eq!(points.len(), 20, "wrong number of points, got {points:?}");
 
                     assert_eq!(
                         points[&("nvml_encoder_utilization", ResourceConsumer::LocalMachine, vec![])]
@@ -652,15 +664,56 @@ mod tests {
                             .as_u64(),
                         1
                     );
+                    // compute instance ID
                     assert_eq!(
                         points[&(
                             "nvml_used_gpu_memory",
                             ResourceConsumer::Process { pid: 1234 },
-                            vec![("context", &AttributeValue::Str("graphics")),]
+                            vec![
+                                ("context", &AttributeValue::Str("graphics")),
+                                ("compute_instance_id", &AttributeValue::U64(1))
+                            ]
                         )]
                             .value
                             .as_u64(),
                         64_000
+                    );
+                    // GpuPartition
+                    assert_eq!(
+                        points[&(
+                            "nvml_used_gpu_memory",
+                            ResourceConsumer::Process { pid: 1234 },
+                            vec![
+                                ("context", &AttributeValue::Str("graphics")),
+                                ("compute_instance_id", &AttributeValue::U64(1))
+                            ]
+                        )]
+                            .resource,
+                        Resource::GpuPartition {
+                            parent_id: bus_id.clone(),
+                            partition_id: 0
+                        }
+                    );
+                    // no compute instance ID
+                    assert_eq!(
+                        points[&(
+                            "nvml_used_gpu_memory",
+                            ResourceConsumer::Process { pid: 5678 },
+                            vec![("context", &AttributeValue::Str("graphics")),]
+                        )]
+                            .value
+                            .as_u64(),
+                        32_000
+                    );
+                    // no GpuPartition
+                    assert_eq!(
+                        points[&(
+                            "nvml_used_gpu_memory",
+                            ResourceConsumer::Process { pid: 5678 },
+                            vec![("context", &AttributeValue::Str("graphics")),]
+                        )]
+                            .resource,
+                        Resource::Gpu { bus_id }
                     );
                     assert_eq!(
                         points[&("nvml_temperature_gpu", ResourceConsumer::LocalMachine, vec![])]
@@ -734,7 +787,7 @@ mod tests {
                 |out| {
                     // second trigger
                     let points = points_by_metric_and_consumer(out, &["kind", "clock_type"]);
-                    assert_eq!(points.len(), 24, "wrong number of points, got {points:?}");
+                    assert_eq!(points.len(), 25, "wrong number of points, got {points:?}");
 
                     // new power value
                     assert_eq!(
@@ -841,7 +894,7 @@ mod tests {
 
                 // metrics with attributes only appear once,
                 // except clock_speed, which has 1 point for each clock type (4 types)
-                assert_eq!(points.len(), 16, "wrong number of points, got {points:?}");
+                assert_eq!(points.len(), 17, "wrong number of points, got {points:?}");
 
                 let expected_key_clock1 = (
                     "nvml_clock_info",
