@@ -54,6 +54,8 @@ pub enum Resource {
     Dram { pkg_id: u32 },
     /// A dedicated GPU.
     Gpu { bus_id: StrCow },
+    /// A dedicated GPU.
+    GpuPartition { parent_id: StrCow, partition_id: u32 },
     /// A custom resource.
     Custom { kind: StrCow, id: StrCow },
 }
@@ -99,6 +101,7 @@ impl Resource {
             Resource::CpuCore { .. } => "cpu_core",
             Resource::Dram { .. } => "dram",
             Resource::Gpu { .. } => "gpu",
+            Resource::GpuPartition { .. } => "gpu_partition",
             Resource::Custom { kind, id: _ } => kind,
         }
     }
@@ -117,6 +120,10 @@ impl Resource {
             Resource::CpuCore { id } => LazyDisplayable::U32(*id),
             Resource::Dram { pkg_id } => LazyDisplayable::U32(*pkg_id),
             Resource::Gpu { bus_id } => LazyDisplayable::Str(bus_id),
+            Resource::GpuPartition {
+                parent_id,
+                partition_id,
+            } => LazyDisplayable::StrU32(parent_id, *partition_id),
             Resource::Custom { kind: _, id } => LazyDisplayable::Str(id),
         }
     }
@@ -222,6 +229,7 @@ pub enum InvalidConsumerError {
 enum LazyDisplayable<'a> {
     U32(u32),
     Str(&'a str),
+    StrU32(&'a str, u32),
 }
 
 impl<'a> fmt::Display for LazyDisplayable<'a> {
@@ -229,6 +237,7 @@ impl<'a> fmt::Display for LazyDisplayable<'a> {
         match self {
             LazyDisplayable::U32(id) => write!(f, "{id}"),
             LazyDisplayable::Str(id) => write!(f, "{id}"),
+            LazyDisplayable::StrU32(id1, id2) => write!(f, "{id1}/{id2}"),
         }
     }
 }

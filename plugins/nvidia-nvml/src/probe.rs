@@ -79,28 +79,29 @@ fn push_mem_usage_per_process<D: NvmlDevice>(
             UsedGpuMemory::Unavailable => (),
             UsedGpuMemory::Used(n) => {
                 let consumer = ResourceConsumer::Process { pid: process_info.pid };
-                let measurement = MeasurementPoint::new(
-                    timestamp,
-                    source.metrics.used_gpu_memory,
-                    source.resource.clone(),
-                    consumer.clone(),
-                    n as u64,
-                )
-                .with_attr("context", context);
-
-                match process_info.gpu_instance_id {
-                    None => (),
-                    Some(id) => {
-                        measurement.clone().with_attr("gpu_instance_id", U64(id.into()));
+                let resource = match process_info.gpu_instance_id {
+                    // if MIG (Multi Instance GPU) : Resource = GpuPartition, else Resource = GPU
+                    None => source.resource.clone(),
+                    Some(partition_id) => {
+                        let parent_id = Cow::Owned(source.resource.clone().id_string().expect("GPU has no bus ID"));
+                        Resource::GpuPartition {
+                            parent_id,
+                            partition_id,
+                        }
                     }
-                }
+                };
+
+                let mut measurement =
+                    MeasurementPoint::new(timestamp, source.metrics.used_gpu_memory, resource, consumer, n as u64)
+                        .with_attr("context", context);
 
                 match process_info.compute_instance_id {
                     None => (),
                     Some(id) => {
-                        measurement.clone().with_attr("compute_instance_id", U64(id.into()));
+                        measurement.add_attr("compute_instance_id", U64(id.into()));
                     }
                 }
+
                 measurements.push(measurement);
             }
         };

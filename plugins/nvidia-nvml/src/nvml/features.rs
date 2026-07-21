@@ -48,7 +48,7 @@ pub struct OptionalFeatures {
     pub running_graphics_processes: AvailableVersion,
     /// Clock frequency.
     pub clock_info: bool,
-    // GPU memory info per process.
+    // Amount of used GPU memory.
     pub used_gpu_memory: bool,
 }
 
