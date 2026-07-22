@@ -716,3 +716,507 @@ mod tests_substitute_env {
         assert_eq!(substitute_env(input), Err(InvalidSubstitutionError::WrongSyntax));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+    use toml::Table;
+
+    struct MockDefaultConfigProvider;
+    impl DefaultConfigProvider for MockDefaultConfigProvider {
+        fn default_config(&self) -> anyhow::Result<toml::Table> {
+            let mut table = Table::new();
+            table.insert("Georges".to_string(), toml::Value::String("Brassens".to_string()));
+            table.insert("age".to_string(), toml::Value::Integer(60));
+            Ok(table)
+        }
+    }
+
+    #[test]
+    fn test_default_config_string() {
+        let provider = MockDefaultConfigProvider;
+        let result = provider.default_config_string();
+        assert!(result.is_ok());
+        let config_string = result.unwrap();
+        assert!(config_string.contains(r#"Georges = "Brassens""#));
+        assert!(config_string.contains("age = 60"));
+    }
+
+    #[test]
+    fn test_parse_file_with_string() {
+        let loader = Loader::parse_file("config.toml");
+        assert_eq!(loader.file, PathBuf::from("config.toml"));
+        assert!(loader.default_provider.is_none());
+        assert!(!loader.save_default);
+        assert!(loader.overrides.is_none());
+        assert!(!loader.substitute_env);
+    }
+    #[test]
+    fn test_parse_file_with_pathbuf() {
+        let path = PathBuf::from("/path/to/config.toml");
+        let loader = Loader::parse_file(path);
+        assert_eq!(loader.file, PathBuf::from("/path/to/config.toml"));
+        assert!(loader.default_provider.is_none());
+        assert!(!loader.save_default);
+        assert!(loader.overrides.is_none());
+        assert!(!loader.substitute_env);
+    }
+
+    #[test]
+    fn test_or_default_with_save_to_file_true() {
+        let loader = Loader::parse_file("config.toml");
+        let provider = MockDefaultConfigProvider;
+        let new_loader = loader.or_default(provider, true);
+        assert!(new_loader.default_provider.is_some());
+        assert!(new_loader.save_default);
+    }
+
+    #[test]
+    fn test_or_default_with_save_to_file_false() {
+        let loader = Loader::parse_file("config.toml");
+        let provider = MockDefaultConfigProvider;
+        let new_loader = loader.or_default(provider, false);
+        assert!(new_loader.default_provider.is_some());
+        assert!(!new_loader.save_default);
+    }
+
+    #[test]
+    fn test_or_default_boxed_with_save_to_file_true() {
+        let loader = Loader::parse_file("config.toml");
+        let provider = Box::new(MockDefaultConfigProvider);
+        let new_loader = loader.or_default_boxed(provider, true);
+        assert!(new_loader.default_provider.is_some());
+        assert!(new_loader.save_default);
+    }
+
+    #[test]
+    fn test_or_default_boxed_with_save_to_file_false() {
+        let loader = Loader::parse_file("config.toml");
+        let provider = Box::new(MockDefaultConfigProvider);
+        let new_loader = loader.or_default_boxed(provider, false);
+        assert!(new_loader.default_provider.is_some());
+        assert!(!new_loader.save_default);
+    }
+
+    #[test]
+    fn test_with_override_when_none() {
+        let loader = Loader::parse_file("config.toml");
+        let mut override_table = Table::new();
+        override_table.insert("Johnny".to_string(), toml::Value::String("Hallyday".to_string()));
+        let new_loader = loader.with_override(override_table);
+        assert!(new_loader.overrides.is_some());
+        let overrides = new_loader.overrides.unwrap();
+        assert_eq!(
+            overrides.get("Johnny"),
+            Some(&toml::Value::String("Hallyday".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_with_override_when_some() {
+        let loader = Loader::parse_file("config.toml");
+        let mut initial_override = Table::new();
+        initial_override.insert("Sylvie".to_string(), toml::Value::String("Vartan".to_string()));
+        let loader_with_override = loader.with_override(initial_override);
+
+        let mut new_override = Table::new();
+        new_override.insert("age".to_string(), toml::Value::Integer(81));
+        let final_loader = loader_with_override.with_override(new_override);
+
+        assert!(final_loader.overrides.is_some());
+        let overrides = final_loader.overrides.unwrap();
+        assert_eq!(
+            overrides.get("Sylvie"),
+            Some(&toml::Value::String("Vartan".to_string()))
+        );
+        assert_eq!(overrides.get("age"), Some(&toml::Value::Integer(81)));
+    }
+
+    #[test]
+    fn test_with_override_deep_merge() {
+        let loader = Loader::parse_file("config.toml");
+        let mut initial_override = Table::new();
+        let mut nested_table = Table::new();
+        nested_table.insert("Vanessa".to_string(), toml::Value::String("Paradis".to_string()));
+        initial_override.insert("nested".to_string(), toml::Value::Table(nested_table));
+        let loader_with_override = loader.with_override(initial_override);
+
+        let mut new_override = Table::new();
+        let mut nested_table2 = Table::new();
+        nested_table2.insert("Marignan".to_string(), toml::Value::Integer(1515));
+        new_override.insert("nested".to_string(), toml::Value::Table(nested_table2));
+        let final_loader = loader_with_override.with_override(new_override);
+
+        assert!(final_loader.overrides.is_some());
+        let overrides = final_loader.overrides.unwrap();
+        let nested = overrides.get("nested").and_then(|v| v.as_table()).unwrap();
+        assert_eq!(nested.get("Vanessa"), Some(&toml::Value::String("Paradis".to_string())));
+        assert_eq!(nested.get("Marignan"), Some(&toml::Value::Integer(1515)));
+    }
+
+    #[test]
+    fn test_with_override_replace_existing_value() {
+        let loader = Loader::parse_file("config.toml");
+        let mut initial_override = Table::new();
+        initial_override.insert("Vanessa".to_string(), toml::Value::String("Guide".to_string()));
+        let loader_with_override = loader.with_override(initial_override);
+
+        let mut new_override = Table::new();
+        new_override.insert("Vanessa".to_string(), toml::Value::String("Paradis".to_string()));
+        let final_loader = loader_with_override.with_override(new_override);
+
+        assert!(final_loader.overrides.is_some());
+        let overrides = final_loader.overrides.unwrap();
+        assert_eq!(
+            overrides.get("Vanessa"),
+            Some(&toml::Value::String("Paradis".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_substitute_env_variables_enabled() {
+        let loader = Loader::parse_file("config.toml");
+        let new_loader = loader.substitute_env_variables(true);
+        assert!(new_loader.substitute_env);
+    }
+
+    #[test]
+    fn test_substitute_env_variables_disabled() {
+        let loader = Loader::parse_file("config.toml");
+        let new_loader = loader.substitute_env_variables(false);
+        assert!(!new_loader.substitute_env);
+    }
+
+    #[test]
+    fn test_load_existing_file() {
+        // Create a temporary config file
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, r#"France = "Gall""#).unwrap();
+        let file_path = temp_file.path().to_str().unwrap().to_string();
+
+        // Load the config
+        let loader = Loader::parse_file(&file_path);
+        let result = loader.load();
+
+        assert!(result.is_ok());
+        let config = result.unwrap();
+        assert_eq!(config.get("France"), Some(&toml::Value::String("Gall".to_string())));
+    }
+
+    #[test]
+    fn test_load_nonexistent_file_without_default() {
+        let file_path = "nonexistent_config.toml";
+
+        // Load the config (should fail since file doesn't exist and no default provider)
+        let loader = Loader::parse_file(file_path);
+        let result = loader.load();
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err.kind, LoadErrorCause::Read(_)));
+    }
+
+    #[test]
+    fn test_load_nonexistent_file_with_default() {
+        // Temporary file path that doesn't exist
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("config.toml");
+        let file_path_str = file_path.to_str().unwrap().to_string();
+
+        // Default config provider
+        struct TestDefaultProvider;
+        impl DefaultConfigProvider for TestDefaultProvider {
+            fn default_config(&self) -> anyhow::Result<toml::Table> {
+                let mut table = toml::Table::new();
+                table.insert("Mireille".to_string(), toml::Value::String("Mathieu".to_string()));
+                Ok(table)
+            }
+        }
+
+        // Load with default provider
+        let loader = Loader::parse_file(&file_path_str).or_default(TestDefaultProvider, false);
+        let result = loader.load();
+
+        assert!(result.is_ok());
+        let config = result.unwrap();
+        assert_eq!(
+            config.get("Mireille"),
+            Some(&toml::Value::String("Mathieu".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_load_with_override() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, r#"Francoise = "pardi""#).unwrap();
+        let file_path = temp_file.path().to_str().unwrap().to_string();
+
+        // Create override
+        let mut override_table = toml::Table::new();
+        override_table.insert("Francoise".to_string(), toml::Value::String("Hardy".to_string()));
+
+        // Load with override
+        let loader = Loader::parse_file(&file_path).with_override(override_table);
+        let result = loader.load();
+
+        assert!(result.is_ok());
+        let config = result.unwrap();
+        assert_eq!(config.get("Francoise"), Some(&toml::Value::String("Hardy".to_string())));
+    }
+
+    #[test]
+    fn test_load_with_env_substitution() {
+        // Set an environment variable
+        unsafe {
+            std::env::set_var("BLACK_EAGLE", "Barbara");
+        }
+
+        // Create a temporary config file with env var substitution
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, r#"singer = "${{BLACK_EAGLE}}""#).unwrap();
+        let file_path = temp_file.path().to_str().unwrap().to_string();
+
+        // Load with env substitution enabled
+        let loader = Loader::parse_file(&file_path).substitute_env_variables(true);
+        let result = loader.load();
+
+        assert!(result.is_ok());
+        let config = result.unwrap();
+        assert_eq!(config.get("singer"), Some(&toml::Value::String("Barbara".to_string())));
+
+        unsafe {
+            std::env::remove_var("BLACK_EAGLE");
+        }
+    }
+
+    #[test]
+    fn test_load_invalid_toml() {
+        // Create a temporary config file with invalid TOML
+        let mut temp_file = NamedTempFile::new().unwrap();
+        write!(temp_file, "Patricia = Kaas  # Born on December 5, 1966").unwrap(); // Quotes are missing
+        let file_path = temp_file.path().to_str().unwrap().to_string();
+
+        // Load the config (should fail due to invalid TOML)
+        let loader = Loader::parse_file(&file_path);
+        let result = loader.load();
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err.kind, LoadErrorCause::InvalidToml(_)));
+    }
+
+    #[test]
+    fn test_load_impl_with_override() {
+        let config_content = r#"
+            Lara = "Fabian"
+            year = 1789
+            "#;
+
+        let file = NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), config_content).unwrap();
+
+        let mut loader = Loader::parse_file(file.path());
+        let mut override_table = Table::new();
+
+        override_table.insert("Liane".to_string(), toml::Value::String("Foly".to_string()));
+
+        loader.overrides = Some(override_table);
+
+        let result = loader.load_impl();
+        assert!(result.is_ok());
+
+        let config = result.unwrap();
+
+        assert_eq!(config.get("Liane"), Some(&toml::Value::String("Foly".to_string())));
+
+        // Should still be there
+        assert_eq!(config.get("Lara"), Some(&toml::Value::String("Fabian".to_string())));
+        assert_eq!(config.get("year"), Some(&toml::Value::Integer(1789)));
+    }
+
+    #[test]
+    fn test_load_impl_with_env_substitution() {
+        unsafe {
+            std::env::set_var("SONG", "Le_diner");
+        }
+        let config_content = r#"
+            Benabar = "${SONG}"
+            year = 1969
+            "#;
+
+        let file = NamedTempFile::new().unwrap();
+        std::fs::write(file.path(), config_content).unwrap();
+
+        let mut loader = Loader::parse_file(file.path());
+        loader.substitute_env = true;
+
+        let config = loader.load_impl().unwrap();
+
+        assert_eq!(
+            config.get("Benabar"),
+            Some(&toml::Value::String("Le_diner".to_string()))
+        );
+        assert_eq!(config.get("year"), Some(&toml::Value::Integer(1969)));
+
+        unsafe {
+            std::env::remove_var("SONG");
+        }
+    }
+
+    #[test]
+    fn test_read_config_or_default_existing_file() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, r#"Berthe = "Morisot""#).unwrap();
+        let file_path = temp_file.path().to_str().unwrap().to_string();
+        let mut loader = Loader::parse_file(&file_path);
+        let result = loader.read_config_or_default();
+
+        assert!(result.is_ok());
+        let content = result.unwrap();
+        assert!(content.contains(r#"Berthe = "Morisot""#));
+    }
+
+    #[test]
+    fn test_read_config_or_default_nonexistent_file_without_default() {
+        let file_path = "nonexistent_config.toml";
+
+        let mut loader = Loader::parse_file(file_path);
+        let result = loader.read_config_or_default();
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, LoadErrorCause::Read(_)));
+    }
+
+    #[test]
+    fn test_read_config_or_default_nonexistent_file_with_default() {
+        // Temporary file path that doesn't exist
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("config.toml");
+        let file_path_str = file_path.to_str().unwrap().to_string();
+        // Create a default config provider
+        struct TestDefaultProvider;
+        impl DefaultConfigProvider for TestDefaultProvider {
+            fn default_config(&self) -> anyhow::Result<toml::Table> {
+                let mut table = toml::Table::new();
+                table.insert("Suzanne".to_string(), toml::Value::String("Valadon".to_string()));
+                Ok(table)
+            }
+        }
+        // Test read_config_or_default with default provider
+        let mut loader = Loader::parse_file(&file_path_str).or_default(TestDefaultProvider, false);
+        let result = loader.read_config_or_default();
+
+        assert!(result.is_ok());
+        let content = result.unwrap();
+        assert!(content.contains(r#"Suzanne = "Valadon""#));
+    }
+
+    #[test]
+    fn test_read_config_or_default_with_save() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("config.toml");
+        let file_path_str = file_path.to_str().unwrap().to_string();
+
+        struct TestDefaultProvider;
+        impl DefaultConfigProvider for TestDefaultProvider {
+            fn default_config(&self) -> anyhow::Result<toml::Table> {
+                let mut table = toml::Table::new();
+                table.insert("Camille".to_string(), toml::Value::String("Claudel".to_string()));
+                Ok(table)
+            }
+        }
+        let mut loader = Loader::parse_file(&file_path_str).or_default(TestDefaultProvider, true);
+        let result = loader.read_config_or_default();
+
+        assert!(result.is_ok());
+        let content = result.unwrap();
+        assert!(content.contains(r#"Camille = "Claudel""#));
+
+        assert!(std::path::Path::new(&file_path_str).exists());
+    }
+
+    #[test]
+    fn test_default_config_provider_closure() {
+        // Create a closure that returns a config table
+        let config_closure = || {
+            let mut table = toml::Table::new();
+            table.insert("Françoise".to_string(), toml::Value::String("Gilot".to_string()));
+            table.insert("year".to_string(), toml::Value::Integer(1789));
+            Ok(table)
+        };
+        // Test that the closure implements DefaultConfigProvider
+        let result = config_closure.default_config();
+        assert!(result.is_ok());
+        let table = result.unwrap();
+
+        assert_eq!(table.get("Françoise"), Some(&toml::Value::String("Gilot".to_string())));
+        assert_eq!(table.get("year"), Some(&toml::Value::Integer(1789)));
+    }
+
+    #[test]
+    fn test_default_config_provider_closure_error() {
+        // Create a closure that returns an error
+        let error_closure = || Err(anyhow::anyhow!("Test error"));
+        // Test that the error is propagated correctly
+        let result = error_closure.default_config();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_merge_override_simple_values() {
+        let mut original = toml::Table::new();
+        original.insert("Catherine".to_string(), toml::Value::String("Devieille".to_string()));
+
+        let mut overrider = toml::Table::new();
+        overrider.insert("Catherine".to_string(), toml::Value::String("Deneuve".to_string()));
+        overrider.insert("year".to_string(), toml::Value::Integer(6942));
+
+        merge_override(&mut original, overrider);
+
+        assert_eq!(
+            original.get("Catherine"),
+            Some(&toml::Value::String("Deneuve".to_string()))
+        );
+        assert_eq!(original.get("year"), Some(&toml::Value::Integer(6942)));
+    }
+
+    #[test]
+    fn test_merge_override_nested_tables() {
+        let mut original = toml::Table::new();
+        let mut nested_original = toml::Table::new();
+        nested_original.insert("Juliette".to_string(), toml::Value::String("Brioche".to_string()));
+        original.insert("nested".to_string(), toml::Value::Table(nested_original));
+
+        let mut overrider = toml::Table::new();
+        let mut nested_overrider = toml::Table::new();
+        nested_overrider.insert("Juliette".to_string(), toml::Value::String("Binoche".to_string()));
+        nested_overrider.insert("Rhone".to_string(), toml::Value::Integer(69));
+        overrider.insert("nested".to_string(), toml::Value::Table(nested_overrider));
+
+        merge_override(&mut original, overrider);
+
+        let nested = original.get("nested").and_then(|v| v.as_table()).unwrap();
+        assert_eq!(
+            nested.get("Juliette"),
+            Some(&toml::Value::String("Binoche".to_string()))
+        );
+        assert_eq!(nested.get("Rhone"), Some(&toml::Value::Integer(69)));
+    }
+
+    #[test]
+    fn test_merge_override_mixed_types() {
+        let mut original = toml::Table::new();
+        original.insert("forty".to_string(), toml::Value::String("quarante".to_string()));
+
+        let mut overrider = toml::Table::new();
+        overrider.insert("forty".to_string(), toml::Value::Integer(40));
+
+        merge_override(&mut original, overrider);
+
+        // When types differ, the overrider value should replace the original
+        assert_eq!(original.get("forty"), Some(&toml::Value::Integer(40)));
+    }
+}

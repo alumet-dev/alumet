@@ -45,6 +45,7 @@ env_logger.workspace = true
 pretty_assertions = "1.4.1"
 serde = { workspace = true, features = ["derive"] }
 serial_test = "3.2.0"
+tempfile = { workspace = true }
 
 [lints]
 workspace = true
