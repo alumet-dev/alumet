@@ -11,6 +11,7 @@ use anyhow::Context;
 use itertools::Itertools;
 
 use crate::cpu;
+use crate::multiplexing::{Scaling, Snapshot};
 
 #[derive(Debug)]
 pub enum Observable {
@@ -27,6 +28,8 @@ pub enum Observable {
 
 pub struct PerfEventSource {
     event_groups: Vec<EventGroup>,
+    /// See [`Config::multiplexing_auto_scale`](crate::Config).
+    multiplexing_auto_scale: bool,
 }
 
 struct EventGroup {
@@ -35,35 +38,81 @@ struct EventGroup {
     observed_consumer: ResourceConsumer,
     cpu_id: Option<u32>,
     counters: Vec<(perf_event::Counter, TypedMetricId<u64>)>,
+    scaling: Scaling,
+    /// Whether the previous poll found the group starved, so that we only warn on the transition
+    /// into starvation and not on every poll while it lasts.
+    starved: bool,
+}
+
+impl EventGroup {
+    /// Reads the group, updates the corrected cumulative value of each of its counters, and logs
+    /// anything worth reporting about the multiplexing.
+    fn read_and_correct(&mut self, auto_scale: bool) -> Result<(), PollError> {
+        use crate::multiplexing::Interval;
+
+        let counts = self.perf_group.read()?;
+
+        // Always available: `new_group_builder` asks for TOTAL_TIME_ENABLED and TOTAL_TIME_RUNNING.
+        let (Some(time_enabled), Some(time_running)) = (counts.time_enabled(), counts.time_running()) else {
+            return Err(PollError::Fatal(anyhow::anyhow!(
+                "perf_events did not report time_enabled/time_running, which are required to detect multiplexing"
+            )));
+        };
+        let now = Snapshot {
+            time_enabled: time_enabled.as_nanos(),
+            time_running: time_running.as_nanos(),
+            values: self.counters.iter().map(|(counter, _)| counts[counter]).collect(),
+        };
+
+        let interval = self.scaling.account(now, auto_scale);
+        // Only warn on the transition: starvation can last for the whole lifetime of the source.
+        let just_starved = interval == Interval::Starved && !self.starved;
+        self.starved = interval == Interval::Starved;
+        match interval {
+            Interval::Idle | Interval::Exact => (),
+            Interval::Multiplexed { running, enabled } => {
+                log::debug!(
+                    "perf group of {:?} (cpu {:?}) was only on the PMU {:.1}% of the time, its values are {}",
+                    self.observed_consumer,
+                    self.cpu_id,
+                    100.0 * (running as f64) / (enabled as f64),
+                    if auto_scale { "extrapolated" } else { "underestimated" },
+                );
+            }
+            Interval::Starved if just_starved => {
+                log::warn!(
+                    "perf group of {:?} (cpu {:?}) ran but never made it onto the PMU, its counters are stalled. \
+                     Possible causes: more events configured than the CPU has hardware counters, another tool \
+                     using the PMU system-wide, or a CPU whose PMU does not provide these events (on hybrid CPUs, \
+                     generic events are only available on some cores).",
+                    self.observed_consumer,
+                    self.cpu_id,
+                );
+            }
+            Interval::Starved => (),
+        }
+        Ok(())
+    }
 }
 
 impl Source for PerfEventSource {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
+        let auto_scale = self.multiplexing_auto_scale;
         for group in &mut self.event_groups {
-            // read all counters in the group
-            let counts = group.perf_group.read()?;
+            // read all counters in the group and account for the multiplexing
+            group.read_and_correct(auto_scale)?;
 
             // get some metadata about the measurement perimeter
             let resource = &group.observed_resource;
             let consumer = &group.observed_consumer;
+            let accuracy = group.scaling.accuracy().as_str();
 
-            // TODO: check time_enabled and time_running to detect issues
-            log::trace!(
-                "Got perf_events measurements: time_enabled={:?}, time_running={:?}",
-                counts.time_enabled(),
-                counts.time_running()
-            );
-
-            // for each counter, push its value
-            for (perf_counter, alumet_metric) in &group.counters {
-                let value = counts[perf_counter];
-                measurements.push(MeasurementPoint::new(
-                    timestamp,
-                    *alumet_metric,
-                    resource.clone(),
-                    consumer.clone(),
-                    value,
-                ))
+            // for each counter, push its value (the two vecs are in the same order by construction)
+            for ((_, alumet_metric), value) in group.counters.iter().zip(group.scaling.corrected()) {
+                measurements.push(
+                    MeasurementPoint::new(timestamp, *alumet_metric, resource.clone(), consumer.clone(), *value)
+                        .with_attr("accuracy", accuracy),
+                )
             }
         }
         Ok(())
@@ -78,14 +127,17 @@ pub struct PerfEventSourceBuilder {
     groups: Vec<EventGroup>,
     /// The available CPUs to monitor.
     online_cpus: Vec<u32>,
+    /// See [`Config::multiplexing_auto_scale`](crate::Config).
+    multiplexing_auto_scale: bool,
 }
 
 impl PerfEventSourceBuilder {
-    pub fn observe(observable: Observable) -> anyhow::Result<Self> {
+    pub fn observe(observable: Observable, multiplexing_auto_scale: bool) -> anyhow::Result<Self> {
         Ok(Self {
             observable,
             groups: Vec::new(),
             online_cpus: cpu::online_cpus().context("could not detect online CPUs")?,
+            multiplexing_auto_scale,
         })
     }
 
@@ -133,6 +185,9 @@ impl PerfEventSourceBuilder {
                         },
                         cpu_id: None,
                         counters: vec![(counter, alumet_metric)],
+                        // properly sized in build(), once all the events have been added
+                        scaling: Scaling::default(),
+                        starved: false,
                     };
 
                     // done
@@ -170,6 +225,9 @@ impl PerfEventSourceBuilder {
                             },
                             cpu_id: None,
                             counters: vec![(counter, alumet_metric)],
+                            // properly sized in build(), once all the events have been added
+                            scaling: Scaling::default(),
+                            starved: false,
                         };
                         groups.push(group_with_info);
                     }
@@ -215,11 +273,15 @@ impl PerfEventSourceBuilder {
                 .join(", ")
         );
         for group in &mut self.groups {
+            // All the events have been added, the number of counters is now known.
+            group.scaling = Scaling::new(group.counters.len());
             group.perf_group.enable()?;
         }
 
         Ok(PerfEventSource {
             event_groups: self.groups,
+            multiplexing_auto_scale: self.multiplexing_auto_scale,
         })
     }
 }
+

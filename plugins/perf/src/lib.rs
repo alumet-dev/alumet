@@ -26,6 +26,7 @@ compile_error!("This plugin only works on Linux.");
 
 mod cpu;
 mod events;
+mod multiplexing;
 mod source;
 
 pub struct PerfPlugin {
@@ -70,6 +71,7 @@ impl AlumetPlugin for PerfPlugin {
                 .map(|e| events::parse_cache(&e))
                 .try_collect()
                 .context("invalid cache event in config")?,
+            multiplexing_auto_scale: config.multiplexing_auto_scale,
             // The metrics are initialized in start()
             hardware_metrics: Vec::new(),
             software_metrics: Vec::new(),
@@ -136,7 +138,7 @@ impl AlumetPlugin for PerfPlugin {
                 if let Some((o, source_name)) = observable {
                     log::info!("Starting to observe {o:?}...");
                     let config = config_cloned.lock().unwrap();
-                    let mut builder = PerfEventSourceBuilder::observe(o)?;
+                    let mut builder = PerfEventSourceBuilder::observe(o, config.multiplexing_auto_scale)?;
                     for (event, metric) in config.hardware_events.iter().zip(&config.hardware_metrics) {
                         builder.add(event.event, *metric).with_context(|| {
                             format!(
@@ -193,6 +195,22 @@ struct Config {
     hardware_events: Vec<String>,
     software_events: Vec<String>,
     cache_events: Vec<String>,
+
+    /// Whether to compensate for the multiplexing of the perf events.
+    ///
+    /// A CPU only has a few hardware counters. When more events are requested than it can hold, the
+    /// kernel only counts them part of the time, and the raw values are underestimated. When this is
+    /// enabled (the default), the plugin extrapolates the missing part, like the `perf` tool does.
+    /// When disabled, the raw values are reported as they are.
+    ///
+    /// Either way, every measurement carries an `accuracy` attribute telling whether its value is
+    /// exact, extrapolated or underestimated.
+    #[serde(default = "default_multiplexing_auto_scale")]
+    multiplexing_auto_scale: bool,
+}
+
+fn default_multiplexing_auto_scale() -> bool {
+    true
 }
 
 impl Default for Config {
@@ -208,6 +226,7 @@ impl Default for Config {
             ],
             software_events: vec![],
             cache_events: vec!["LL_READ_MISS".to_owned()],
+            multiplexing_auto_scale: default_multiplexing_auto_scale(),
         }
     }
 }
@@ -223,4 +242,5 @@ struct ParsedConfig {
     hardware_metrics: Vec<TypedMetricId<u64>>,
     software_metrics: Vec<TypedMetricId<u64>>,
     cache_metrics: Vec<TypedMetricId<u64>>,
+    multiplexing_auto_scale: bool,
 }
