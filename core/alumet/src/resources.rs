@@ -54,7 +54,7 @@ pub enum Resource {
     Dram { pkg_id: u32 },
     /// A dedicated GPU.
     Gpu { bus_id: StrCow },
-    /// A dedicated GPU.
+    /// A partitioned GPU.
     GpuPartition { parent_id: StrCow, partition_id: u32 },
     /// A custom resource.
     Custom { kind: StrCow, id: StrCow },

@@ -63,8 +63,8 @@ There are two possible contexts for processes:
 
 |Value|Description|
 |-----|-----------|
-|`Graphics`|Graphics based processes (OpenGL, DirectX, etc.).|
-|`Compute`|Compute processes (a CUDA application, etc.).|
+|`graphics`|Graphics based processes (OpenGL, DirectX, etc.).|
+|`compute`|Compute processes (a CUDA application, etc.).|
 
 #### compute_instance_id
 
