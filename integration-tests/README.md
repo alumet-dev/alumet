@@ -2,38 +2,55 @@
 
 This folder contains all script files and scenarios for testing alumet on bare metal.
 
+## Prerequisites
+
+Before running the tests, ensure you have:
+
+- Python **>= 3.12**
+- Poetry **>= 2.1**
+
 ## Run the tests
 
-Before executing the tests, you need to install robot framework. Robot framework required Python. Once python is installed,
-robot framework and its dependencies are installed with the pip install command:
+Before executing the tests, you need to install robot framework.
+To do so, you can run the following command, which will install robotframework and the required dependencies.
 
 ```bash
-pip install -r requirements.txt
+make init
 ```
 
 You should now be able to run the robotframework test scenarios.
 
+```bash
+make test
+```
+
 ## Validate the robot framework files
 
-In order to check the lint and format of your robot files.
-You must install the following tools: [robocop](https://robocop.dev/stable/)
-and [robotunused](https://github.com/Lakitna/robotframework-find-unused). This can be done by running the following command:
+The following tools: [robocop](https://robocop.dev/stable/)
+and [robotunused](https://github.com/Lakitna/robotframework-find-unused) will be used
+in order to check the lint and format of your robot files.
+
+You can run the following commands:
 
 ```bash
-pip install robotframework-find-unused robotframework-robocop
+# Lint, using: robocop check
+make lint
+
+# Check the format, using: robocop format --check
+make format-check
+
+# Search for any unused object in your robot tests
+make unused
+
+# Run every checks
+make check
 ```
 
-Then you should be able to use these tools to, format, lint and check your files. To do so, run:
+These commands must pass before pushing your code.
+
+You can format your code with:
 
 ```bash
-# Lint
-robocop check
-
-# Format
-robocop format
-
-# Find any unused part, component, else
-for type in arguments files keywords returns variables; do robotunused $type -v; done
+# Format, using: robocop format
+make format
 ```
-
-These three commands must pass before pushing your code.
