@@ -13,3 +13,5 @@ tarpaulin-report.html
 *.csv
 alumet-config.toml
 integration-tests/.robocop_cache/
+integration-tests/.venv
+integration-tests/output

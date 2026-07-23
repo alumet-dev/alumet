@@ -1,0 +1,27 @@
+[project]
+name = "alumet-integration-testing"
+version = "0.1.0"
+description = "Integration testing with Robot Framework for alumet-agent"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "robotframework (>=7.4.2,<8.0.0)",
+    "robotframework-sshlibrary (>=3.8.0,<4.0.0)",
+]
+
+[dependency-groups]
+dev = [
+    "robotframework-find-unused (>=0.9.0,<0.10.0)",
+    "robotframework-robocop (>=8.3.2,<9.0.0)",
+]
+
+[tool.poetry]
+package-mode = false
+requires-poetry = ">=2.1"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.robocop]
+language = ["en"]

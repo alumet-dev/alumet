@@ -8,32 +8,35 @@ on:
 jobs:
   Robot-validation:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: integration-tests
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install linters
+      - name: Install poetry
         run: |
-          pip install robotframework-find-unused robotframework-robocop
-        
+          VERSION_STRING=$(grep "requires-poetry" pyproject.toml | awk '{ print $3 }' | sed -e 's/"//g')
+          pipx install poetry"$VERSION_STRING"
+
+      - name: Install python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: integration-tests/pyproject.toml
+          cache: poetry
+
       - name: Install dependencies
-        working-directory: integration-tests
         run: |
-          pip install -r requirements.txt
-      
+          make init
+
       - name: Robocop check
-        working-directory: integration-tests
         run: |
-          robocop check
-      
+          make lint
+
       - name: Robocop format
-        working-directory: integration-tests
         run: |
-          robocop format --check
-      
+          make format-check
+
       - name: Run Robot Framework Find Unused
-        working-directory: integration-tests
         run: |
-          for type in arguments files keywords returns variables; do
-            echo "Checking presence of unused $type"
-            robotunused $type -v
-          done
+          make unused
