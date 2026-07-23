@@ -19,7 +19,7 @@ use itertools::Itertools;
 use perf_event::events::{Cache, Hardware, Software};
 use serde::{Deserialize, Serialize};
 
-use crate::source::{Observable, PerfEventSourceBuilder};
+use crate::source::{Observable, PerfEventSourceBuilder, Privilege};
 
 #[cfg(not(target_os = "linux"))]
 compile_error!("This plugin only works on Linux.");
@@ -70,6 +70,7 @@ impl AlumetPlugin for PerfPlugin {
                 .map(|e| events::parse_cache(&e))
                 .try_collect()
                 .context("invalid cache event in config")?,
+            privilege: config.privilege,
             // The metrics are initialized in start()
             hardware_metrics: Vec::new(),
             software_metrics: Vec::new(),
@@ -136,7 +137,7 @@ impl AlumetPlugin for PerfPlugin {
                 if let Some((o, source_name)) = observable {
                     log::info!("Starting to observe {o:?}...");
                     let config = config_cloned.lock().unwrap();
-                    let mut builder = PerfEventSourceBuilder::observe(o)?;
+                    let mut builder = PerfEventSourceBuilder::observe(o, config.privilege)?;
                     for (event, metric) in config.hardware_events.iter().zip(&config.hardware_metrics) {
                         builder.add(event.event, *metric).with_context(|| {
                             format!(
@@ -193,6 +194,11 @@ struct Config {
     hardware_events: Vec<String>,
     software_events: Vec<String>,
     cache_events: Vec<String>,
+
+    /// CPU privilege levels to count (user/kernel/hypervisor/idle). Plugin-wide, applied to
+    /// every event. Optional, defaults to user + idle only.
+    #[serde(default)]
+    privilege: Privilege,
 }
 
 impl Default for Config {
@@ -208,6 +214,7 @@ impl Default for Config {
             ],
             software_events: vec![],
             cache_events: vec!["LL_READ_MISS".to_owned()],
+            privilege: Privilege::default(),
         }
     }
 }
@@ -223,4 +230,5 @@ struct ParsedConfig {
     hardware_metrics: Vec<TypedMetricId<u64>>,
     software_metrics: Vec<TypedMetricId<u64>>,
     cache_metrics: Vec<TypedMetricId<u64>>,
+    privilege: Privilege,
 }

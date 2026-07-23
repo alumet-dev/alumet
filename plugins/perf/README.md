@@ -67,6 +67,15 @@ cache_events = [
     "LL_READ_MISS",
 #   // any combination of {cache-id}_{cache-op}_{cache-result} from the lists previously mentionned
 ]
+
+# Which CPU privilege levels to count. This is optional, default is user + idle.
+# This is a **plugin-wide** setting: it applies to every event.
+# Counting the kernel also requires the appropriate permissions, refer to "perf_event_paranoid and capabilities" section.
+[plugins.perf.privilege]
+user = true
+kernel = false
+hypervisor = false
+idle = true
 ```
 
 ## More information
