@@ -26,6 +26,7 @@ compile_error!("This plugin only works on Linux.");
 
 mod cpu;
 mod events;
+mod pfm;
 mod source;
 
 pub struct PerfPlugin {
@@ -70,10 +71,17 @@ impl AlumetPlugin for PerfPlugin {
                 .map(|e| events::parse_cache(&e))
                 .try_collect()
                 .context("invalid cache event in config")?,
+            pfm_events: config
+                .pfm_events
+                .into_iter()
+                .map(|e| pfm::parse_event(&e))
+                .try_collect()
+                .context("invalid pfm event in config")?,
             // The metrics are initialized in start()
             hardware_metrics: Vec::new(),
             software_metrics: Vec::new(),
             cache_metrics: Vec::new(),
+            pfm_metrics: Vec::new(),
         };
         Ok(Box::new(PerfPlugin {
             config: Arc::new(Mutex::new(config)),
@@ -86,6 +94,7 @@ impl AlumetPlugin for PerfPlugin {
         let mut hardware_metrics = Vec::with_capacity(config.hardware_events.len());
         let mut software_metrics = Vec::with_capacity(config.software_events.len());
         let mut cache_metrics = Vec::with_capacity(config.cache_events.len());
+        let mut pfm_metrics = Vec::with_capacity(config.pfm_events.len());
 
         for e in &config.hardware_events {
             let metric_name = format!("perf_hardware_{}", e.name);
@@ -102,9 +111,16 @@ impl AlumetPlugin for PerfPlugin {
             let metric = alumet.create_metric::<u64>(metric_name, Unit::Unity, e.description.clone())?;
             cache_metrics.push(metric);
         }
+        for e in &config.pfm_events {
+            let metric_name = format!("perf_pfm_{}", e.name);
+            let metric = alumet.create_metric::<u64>(metric_name, Unit::Unity, e.description.clone())?;
+            pfm_metrics.push(metric);
+        }
+
         config.hardware_metrics = hardware_metrics;
         config.software_metrics = software_metrics;
         config.cache_metrics = cache_metrics;
+        config.pfm_metrics = pfm_metrics;
         Ok(())
     }
 
@@ -158,6 +174,11 @@ impl AlumetPlugin for PerfPlugin {
                             .add(event.event.clone(), *metric)
                             .with_context(|| format!("could not configure cache event {}", event.name))?;
                     }
+                    for (event, metric) in config.pfm_events.iter().zip(&config.pfm_metrics) {
+                        builder
+                            .add(event.event, *metric)
+                            .with_context(|| format!("could not configure pfm event {}", event.name))?;
+                    }
                     let poll_interval = config.poll_interval;
                     let flush_interval = config.flush_interval;
                     drop(config);
@@ -193,6 +214,7 @@ struct Config {
     hardware_events: Vec<String>,
     software_events: Vec<String>,
     cache_events: Vec<String>,
+    pfm_events: Vec<String>,
 }
 
 impl Default for Config {
@@ -208,6 +230,7 @@ impl Default for Config {
             ],
             software_events: vec![],
             cache_events: vec!["LL_READ_MISS".to_owned()],
+            pfm_events: vec![],
         }
     }
 }
@@ -220,7 +243,9 @@ struct ParsedConfig {
     hardware_events: Vec<NamedPerfEvent<Hardware>>,
     software_events: Vec<NamedPerfEvent<Software>>,
     cache_events: Vec<NamedPerfEvent<Cache>>,
+    pfm_events: Vec<NamedPerfEvent<pfm::PfmEvent>>,
     hardware_metrics: Vec<TypedMetricId<u64>>,
     software_metrics: Vec<TypedMetricId<u64>>,
     cache_metrics: Vec<TypedMetricId<u64>>,
+    pfm_metrics: Vec<TypedMetricId<u64>>,
 }
