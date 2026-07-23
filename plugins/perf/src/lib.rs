@@ -1,3 +1,4 @@
+use rlimit::{Resource, getrlimit, setrlimit};
 use std::{
     fs::File,
     sync::{Arc, Mutex},
@@ -6,7 +7,11 @@ use std::{
 
 use alumet::{
     metrics::TypedMetricId,
-    pipeline::{control::request, elements::source::trigger::TriggerSpec},
+    pipeline::{
+        control::{matching::SourceMatcher, request},
+        elements::source::{control::TaskState, trigger::TriggerSpec},
+        matching::{SourceNamePattern, StringPattern},
+    },
     plugin::{
         AlumetPostStart, event,
         rust::{AlumetPlugin, deserialize_config, serialize_config},
@@ -74,6 +79,7 @@ impl AlumetPlugin for PerfPlugin {
             hardware_metrics: Vec::new(),
             software_metrics: Vec::new(),
             cache_metrics: Vec::new(),
+            add_source_in_pause_state: config.add_source_in_pause_state,
         };
         Ok(Box::new(PerfPlugin {
             config: Arc::new(Mutex::new(config)),
@@ -81,6 +87,8 @@ impl AlumetPlugin for PerfPlugin {
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
+        increase_file_descriptors_soft_limit().context("Error while increasing file descriptors soft limit")?;
+
         let mut config = self.config.lock().unwrap();
 
         let mut hardware_metrics = Vec::with_capacity(config.hardware_events.len());
@@ -110,10 +118,12 @@ impl AlumetPlugin for PerfPlugin {
 
     fn post_pipeline_start(&mut self, alumet: &mut AlumetPostStart) -> anyhow::Result<()> {
         let config_cloned = self.config.clone();
-        let pipeline_control = alumet.pipeline_control();
-        let runtime = alumet.async_runtime().clone();
+        let pipeline_control_start = alumet.pipeline_control();
+        let pipeline_control_end = alumet.pipeline_control();
+        let runtime_start = alumet.async_runtime().clone();
+        let runtime_end = alumet.async_runtime().clone();
 
-        // Listen to events.
+        // Listen to start consumer events, starting sources.
         event::start_consumer_measurement().subscribe(move |e| {
             for consumer in e.0 {
                 let observable = match consumer {
@@ -121,15 +131,24 @@ impl AlumetPlugin for PerfPlugin {
                         Observable::Process {
                             pid: i32::try_from(pid).unwrap(),
                         },
-                        format!("source-pid[{pid}]"),
+                        process_source_name(pid),
                     )),
-                    alumet::resources::ResourceConsumer::ControlGroup { path } => Some((
-                        Observable::Cgroup {
-                            path: path.to_string(),
-                            fd: File::open(path.as_ref()).unwrap(),
-                        },
-                        format!("source-cgroup[{path}]"),
-                    )),
+                    alumet::resources::ResourceConsumer::ControlGroup { path } => {
+                        // making an assumption about the cgroup mounting point here to be /sys/fs/cgroup
+                        // we just have information about the canonical path here
+                        // making it hard to not recompute the mounting path here
+                        // note that it will only work for cgroup v2
+                        // todo: make it dynamic or configurable
+                        let absolute_path = format!("/sys/fs/cgroup{}", path.to_string());
+                        let fd = File::open(&absolute_path).unwrap();
+                        Some((
+                            Observable::Cgroup {
+                                path: absolute_path,
+                                fd,
+                            },
+                            cgroup_source_name(path),
+                        ))
+                    }
                     _ => None,
                 };
 
@@ -160,6 +179,7 @@ impl AlumetPlugin for PerfPlugin {
                     }
                     let poll_interval = config.poll_interval;
                     let flush_interval = config.flush_interval;
+                    let add_source_in_pause_state = config.add_source_in_pause_state;
                     drop(config);
 
                     let source = builder.build()?;
@@ -167,19 +187,68 @@ impl AlumetPlugin for PerfPlugin {
                         .flush_interval(flush_interval)
                         .build()?;
 
-                    let request = request::create_one().add_source(&source_name, Box::new(source), trigger);
-                    runtime.block_on(pipeline_control.dispatch(request, Duration::from_secs(1)))?;
-                    log::debug!("New source has started.");
+                    let init_source_state = match add_source_in_pause_state {
+                        false => TaskState::Run,
+                        true => TaskState::Pause,
+                    };
+
+                    let request = request::create_one().add_source_with_state(
+                        &source_name,
+                        Box::new(source),
+                        trigger,
+                        init_source_state,
+                    );
+                    runtime_start.block_on(pipeline_control_start.dispatch(request, Duration::from_secs(1)))?;
+                    log::debug!("New source {source_name} has started.");
                 }
             }
             Ok(())
         });
+
+        // Listen to end consumer events, stopping sources.
+        event::end_consumer_measurement().subscribe(move |e| {
+            for consumer in e.0 {
+                let source_name = match consumer {
+                    alumet::resources::ResourceConsumer::Process { pid } => process_source_name(pid),
+                    alumet::resources::ResourceConsumer::ControlGroup { path } => cgroup_source_name(path),
+                    _ => continue,
+                };
+                let stop_request = request::source::source(SourceMatcher::Name(SourceNamePattern::new(
+                    StringPattern::Exact("perf".to_string()),
+                    StringPattern::Exact(source_name.clone()),
+                )))
+                .stop();
+                runtime_end.block_on(pipeline_control_end.dispatch(stop_request, Duration::from_secs(1)))?;
+                log::debug!("Source {source_name} has stopped.");
+            }
+            Ok(())
+        });
+
         Ok(())
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
         Ok(())
     }
+}
+
+// prevent 'Too many open files' error
+fn increase_file_descriptors_soft_limit() -> Result<(), anyhow::Error> {
+    let (fd_soft, fd_hard) = getrlimit(Resource::NOFILE).context("Error while getting file descriptors limits")?;
+    setrlimit(Resource::NOFILE, fd_hard, fd_hard)
+        .context("Error while setting file descriptors soft limit from {fd_soft} to {fd_hard}")?;
+    log::debug!(
+        "Increased file descriptors soft limit ({fd_soft}) to reach hard limit value ({fd_hard}) to prevent 'Too many open files' error"
+    );
+    Ok(())
+}
+
+fn process_source_name(pid: u32) -> String {
+    format!("source-pid[{pid}]")
+}
+
+fn cgroup_source_name(path: alumet::resources::StrCow) -> String {
+    format!("source-cgroup[{path}]")
 }
 
 #[derive(Serialize, Deserialize)]
@@ -193,6 +262,14 @@ struct Config {
     hardware_events: Vec<String>,
     software_events: Vec<String>,
     cache_events: Vec<String>,
+
+    /// If `true`, the perf sources will be started in pause state.
+    /// The default value is `false`.
+    ///
+    /// This behavior is necessary to have fine-grained control over which source to monitor.
+    /// !! It's essentially needed for advanced Alumet setup with a control plugin that manage the state of sources.
+    #[serde(default)]
+    pub add_source_in_pause_state: bool,
 }
 
 impl Default for Config {
@@ -208,6 +285,8 @@ impl Default for Config {
             ],
             software_events: vec![],
             cache_events: vec!["LL_READ_MISS".to_owned()],
+
+            add_source_in_pause_state: false,
         }
     }
 }
@@ -223,4 +302,6 @@ struct ParsedConfig {
     hardware_metrics: Vec<TypedMetricId<u64>>,
     software_metrics: Vec<TypedMetricId<u64>>,
     cache_metrics: Vec<TypedMetricId<u64>>,
+
+    add_source_in_pause_state: bool,
 }

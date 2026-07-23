@@ -17,6 +17,7 @@ use util_cgroups_plugins::{
 
 #[derive(Clone)]
 pub struct JobSourceSetup {
+    start_sources: bool,
     tagger: OarJobTagger,
     username_from_userid: bool,
     trigger: TriggerSpec,
@@ -26,9 +27,11 @@ pub struct JobSourceSetup {
 
 impl JobSourceSetup {
     pub fn new(config: Config, tracker: JobTracker, tagger: OarJobTagger) -> anyhow::Result<Self> {
-        let trigger = TriggerSpec::at_interval(config.poll_interval);
+        let trigger = TriggerSpec::at_interval(config.common.poll_interval);
+        let start_sources = !config.common.disable_sources;
         match config.oar_version {
             OarVersion::Oar2 => Ok(Self {
+                start_sources,
                 tagger,
                 username_from_userid: false,
                 trigger,
@@ -36,6 +39,7 @@ impl JobSourceSetup {
                 jobs_only: config.jobs_only,
             }),
             OarVersion::Oar3 => Ok(Self {
+                start_sources,
                 tagger,
                 username_from_userid: true,
                 trigger,
@@ -87,6 +91,9 @@ where
 
 impl CgroupSetupCallback for JobSourceSetup {
     fn setup_new_probe(&mut self, cgroup: &Cgroup, metrics: &Metrics) -> Option<ProbeSetup> {
+        if !self.start_sources {
+            return None;
+        }
         // extracts attributes "job_id" and ("user" or "user_id")
         let attrs = self.tagger.attributes_for_cgroup(cgroup);
         let cgroup_name = cgroup.unique_name();

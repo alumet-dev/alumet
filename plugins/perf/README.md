@@ -67,6 +67,36 @@ cache_events = [
     "LL_READ_MISS",
 #   // any combination of {cache-id}_{cache-op}_{cache-result} from the lists previously mentionned
 ]
+
+# If true, start the sources in "paused" state.
+# This is useful in combination with other plugins that will resume the sources.
+add_source_in_pause_state = false
+```
+
+⚠️ Note that by default, the plugin will only collect measurements when running Alumet in `exec` mode.
+
+Example: `alumet --plugins perf,csv exec -- sleep 10`
+
+In this case, the plugin will collect the measurements for that specific sleep process.
+
+Another use case would be to collect the measurements in a typical `watch` scenarios.
+
+The plugin currently supports `watch` mode only for cgroups, see how to configure the plugin for this scenario [here](#collecting-cgroups-in-watch-mode).
+
+### Collecting cgroups in watch mode
+
+To dynamically collect measurements about cgroups, the perf plugin needs another Observer plugin that can detect new cgroups and notify Alumet.
+
+All the cgroups plugins (cgroups-raw, k8s, slurm, oar) have this Observer capability.
+
+Make sure that one of this plugin is activated in your configuration file.
+
+Example:
+
+```toml
+[plugins.cgroups]
+poll_interval = "1s"
+sources_disable = true
 ```
 
 ## More information

@@ -164,11 +164,11 @@ impl PerfEventSourceBuilder {
 
                         let group_with_info = EventGroup {
                             perf_group,
-                            observed_resource: Resource::LocalMachine,
+                            observed_resource: Resource::CpuCore { id: cpu_id as u32 },
                             observed_consumer: ResourceConsumer::ControlGroup {
                                 path: path.to_owned().into(),
                             },
-                            cpu_id: None,
+                            cpu_id: Some(cpu_id as u32),
                             counters: vec![(counter, alumet_metric)],
                         };
                         groups.push(group_with_info);

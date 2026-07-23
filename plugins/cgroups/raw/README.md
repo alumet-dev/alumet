@@ -36,6 +36,9 @@ Put the following in the configuration file of the Alumet agent (usually `alumet
 [plugins.cgroups]
 # Interval between each measurement.
 poll_interval = "1s"
+# Make cgroups measurements polling disable.
+# This is useful if you only need to use a subpart of the plugin such as cgroups observer or annotation transform.
+disable_sources = false
 ```
 
 ## Automatic Detection
