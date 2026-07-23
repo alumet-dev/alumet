@@ -48,6 +48,8 @@ pub struct OptionalFeatures {
     pub running_graphics_processes: AvailableVersion,
     /// Clock frequency.
     pub clock_info: bool,
+    // Amount of used GPU memory.
+    pub used_gpu_memory: bool,
 }
 
 impl OptionalFeatures {
@@ -65,6 +67,8 @@ impl OptionalFeatures {
             running_compute_processes: check_running_compute_processes(device)?,
             running_graphics_processes: check_running_graphics_processes(device)?,
             clock_info: check_clock_info(device)?,
+            used_gpu_memory: check_running_compute_processes(device)? != AvailableVersion::None
+                || check_running_graphics_processes(device)? != AvailableVersion::None,
         })
     }
 
@@ -79,6 +83,7 @@ impl OptionalFeatures {
             || self.running_compute_processes != AvailableVersion::None
             || self.running_graphics_processes != AvailableVersion::None
             || self.clock_info
+            || self.used_gpu_memory
     }
 }
 
@@ -121,6 +126,9 @@ impl Display for OptionalFeatures {
         };
         if self.clock_info {
             available.push("clock_info");
+        }
+        if self.used_gpu_memory {
+            available.push("used_gpu_memory");
         }
         write!(f, "{}", available.join(", "))
     }
@@ -205,10 +213,11 @@ mod tests {
             running_compute_processes: AvailableVersion::Latest,
             running_graphics_processes: AvailableVersion::Latest,
             clock_info: true,
+            used_gpu_memory: true,
         };
         assert_eq!(
             format!("{}", features),
-            "total_energy_consumption, instant_power, major_utilization, memory_info, decoder_utilization, encoder_utilization, process_utilization_stats, temperature_gpu, running_compute_processes(latest), running_graphics_processes(latest), clock_info"
+            "total_energy_consumption, instant_power, major_utilization, memory_info, decoder_utilization, encoder_utilization, process_utilization_stats, temperature_gpu, running_compute_processes(latest), running_graphics_processes(latest), clock_info, used_gpu_memory"
         );
     }
 
@@ -226,10 +235,11 @@ mod tests {
             running_compute_processes: AvailableVersion::V2,
             running_graphics_processes: AvailableVersion::None,
             clock_info: false,
+            used_gpu_memory: true,
         };
         assert_eq!(
             format!("{}", features),
-            "total_energy_consumption, major_utilization, memory_info, decoder_utilization, encoder_utilization, running_compute_processes(v2)"
+            "total_energy_consumption, major_utilization, memory_info, decoder_utilization, encoder_utilization, running_compute_processes(v2), used_gpu_memory"
         );
     }
 
@@ -248,6 +258,7 @@ mod tests {
             running_compute_processes: AvailableVersion::None,
             running_graphics_processes: AvailableVersion::None,
             clock_info: false,
+            used_gpu_memory: false,
         };
         assert!(!features.has_any());
     }
@@ -315,7 +326,8 @@ mod tests {
                 process_utilization_stats: false,
                 running_compute_processes: AvailableVersion::V2,
                 running_graphics_processes: AvailableVersion::None,
-                clock_info: false
+                clock_info: false,
+                used_gpu_memory: true,
             }
         );
 
@@ -339,7 +351,8 @@ mod tests {
                 process_utilization_stats: false,
                 running_compute_processes: AvailableVersion::V2,
                 running_graphics_processes: AvailableVersion::Latest,
-                clock_info: false
+                clock_info: false,
+                used_gpu_memory: true,
             }
         );
 
