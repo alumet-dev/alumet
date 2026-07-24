@@ -5,7 +5,7 @@ export
 
 # version of Alumet to installed
 ALUMET_VERSION=0.9.4
-ALUMET_DISTRIBUTION=1_amd64_ubuntu_22.04
+ALUMET_DISTRIBUTION=1_ubuntu_24.04
 
 REQUIRED_VARS := NODE GATEWAY USERNAME KEY 
 
@@ -66,7 +66,7 @@ test: check-required-vars
         --metadata "Alumet version":$(ALUMET_VERSION) \
 		--metadata "Alumet distribution":$(ALUMET_DISTRIBUTION) \
 		--metadata "Environnement target node":$(NODE) \
-        ./scenarios/
+        ./scenarios/container
 
 
 unused:
