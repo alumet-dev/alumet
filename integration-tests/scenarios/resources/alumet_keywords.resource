@@ -9,6 +9,9 @@ Documentation       This resource file contains reusable keywords for interactin
 Library             OperatingSystem
 Library             SSHLibrary
 
+*** Variables ***
+${ALUMET_CONTAINER_NAME}    alumet_robot_fm
+
 
 *** Keywords ***
 Compare Values Percent
@@ -137,3 +140,36 @@ Check Metric
 
     ${output}=    Read Value    ${metric}    ${resource_kind}    ${domain}
     Should Be True    ${output} !=0.0
+
+Install Alumet As Container
+    [Documentation]    Launch Alumet as container
+    ...     input parameters:
+    ...         list of input plugins 
+    ...     Return parameters:
+    ...         none
+    [Arguments]    ${list_plugins}=${EMPTY}
+
+    IF    '${list_plugins}' != ''
+        VAR    ${entryPoint}=    '["/usr/bin/alumet-agent",  "--config", "/etc/alumet/alumet-config.toml", "--plugins", "${list_plugins}"]'
+        ${result}=    Run    podman run -d --cap-add=PERFMON --cap-add=SYS_NICE --cap-add=SYS_PTRACE --entrypoint ${entryPoint} --replace --privileged --name ${ALUMET_CONTAINER_NAME} ghcr.io/alumet-dev/alumet-agent:${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}
+    ELSE
+        ${result}=    Run    podman run -d --cap-add=PERFMON --cap-add=SYS_NICE --cap-add=SYS_PTRACE --name ${ALUMET_CONTAINER_NAME} ghcr.io/alumet-dev/alumet-agent:${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}
+    END
+
+    ${result}=    Run    podman logs ${ALUMET_CONTAINER_NAME}
+    Log    result: ${result}
+
+    Should Contain    ${result}    Starting Alumet
+    Should Contain    ${result}    ${ALUMET_VERSION}
+
+UnInstall Alumet As Container
+    [Documentation]    Stop and delete Alumet Container
+
+    ${result}=    Run    podman rm -f ${ALUMET_CONTAINER_NAME}
+    Log    result: ${result}
+
+    ${result}=    Run    podman ps -a | grep ${ALUMET_CONTAINER_NAME}
+    Log    result: ${result}
+
+    Should Not Contain    ${result}    ${ALUMET_CONTAINER_NAME}
+
