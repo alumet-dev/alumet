@@ -11,6 +11,7 @@ tmp/
 .cargo
 tarpaulin-report.html
 *.csv
+*/.env
 alumet-config.toml
 integration-tests/.robocop_cache/
 integration-tests/.venv

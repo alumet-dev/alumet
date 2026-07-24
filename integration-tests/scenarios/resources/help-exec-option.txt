@@ -1,0 +1,11 @@
+Execute a command and observe its process
+
+Usage: alumet-agent exec [OPTIONS] <PROGRAM> [ARGS]...
+
+Arguments:
+  <PROGRAM>  The program to run
+  [ARGS]...  Arguments to the program
+
+Options:
+      --ignore-exit-code  If set, don't propagate the exit code of the executed program
+  -h, --help              Print help (see more with '--help')

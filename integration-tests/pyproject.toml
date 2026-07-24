@@ -25,3 +25,6 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.robocop]
 language = ["en"]
+
+[tool.robocop.lint]
+ignore = ["LEN01"]
