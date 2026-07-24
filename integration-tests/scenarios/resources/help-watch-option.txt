@@ -1,0 +1,9 @@
+Watch a PID and observe it until its end
+
+Usage: alumet-agent watch <PID>
+
+Arguments:
+  <PID>  The PID to watch
+
+Options:
+  -h, --help  Print help
