@@ -141,3 +141,102 @@ fn trigger_poll_now(pipeline: &MeasurementPipeline) -> anyhow::Result<()> {
         .block_on(send_task)
         .context("failed to send TriggerMessage")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    mod test_wait_child_sysfs {
+        use super::*;
+        use std::process::Command;
+
+        #[test]
+        fn process_running() {
+            let mut child = Command::new("sleep")
+                .arg("3")
+                .spawn()
+                .expect("Failed to spawn child process");
+
+            let pid = i32::try_from(child.id()).unwrap();
+            println!("Process created with PID: {}", pid);
+
+            let handle = std::thread::spawn(move || {
+                child.wait().expect("Failed to wait child");
+            });
+
+            let result = wait_child_sysfs(pid);
+
+            assert!(result.is_ok());
+
+            handle.join().unwrap();
+        }
+
+        #[test]
+        fn process_not_running() {
+            // Use a PID that is unlikely to be in use (e.g., a very high number)
+            let pid = 999999999;
+            let result = wait_child_sysfs(pid);
+            assert!(result.is_ok());
+        }
+    }
+
+    mod test_wait_child {
+        use super::*;
+        use std::process::Command;
+
+        #[test]
+        fn process_exits() {
+            let mut child = Command::new("sleep").arg("3").spawn().expect("Failed to spawn child");
+
+            let pid = child.id() as i32;
+
+            let result = wait_child(pid);
+
+            assert!(result.is_ok());
+
+            // Reap the child to avoid leaving a zombie
+            child.wait().expect("Failed to wait child");
+        }
+
+        #[test]
+        fn invalid_pid() {
+            let pid = 999999999;
+
+            let result = wait_child(pid);
+
+            assert!(result.is_ok());
+        }
+    }
+
+    mod test_watch_process {
+        use super::*;
+        use crate::pipeline::Builder;
+        use std::process::Command;
+
+        #[test]
+        fn trigger_poll_now_success() {
+            let builder = Builder::new();
+            let mp = builder.build().expect("Failed to create MeasurementPipeline");
+
+            let result = trigger_poll_now(&mp);
+
+            assert!(result.is_ok());
+        }
+
+        #[test]
+        fn success() {
+            let builder = Builder::new();
+            let mp = builder.build().expect("Failed to create MeasurementPipeline");
+            let agent = RunningAgent {
+                pipeline: mp,
+                initialized_plugins: vec![],
+            };
+
+            let child = Command::new("sleep").arg("3").spawn().expect("Failed to spawn child");
+
+            let pid = child.id();
+
+            let res = watch_process(agent, pid, Duration::from_secs(5));
+            assert!(res.is_ok());
+        }
+    }
+}
