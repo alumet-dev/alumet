@@ -59,6 +59,7 @@ dependencies = [
  "serde",
  "serial_test",
  "smallvec",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
