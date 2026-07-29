@@ -69,8 +69,6 @@ impl alumet::pipeline::Output for PrometheusOutput {
         let mut registry = self.state.registry.blocking_write();
 
         for m in measurements {
-            let metric = ctx.metrics.by_id(&m.metric).unwrap();
-
             // Configure the name of the metric
             let full_metric = ctx
                 .metrics
@@ -104,16 +102,13 @@ impl alumet::pipeline::Output for PrometheusOutput {
                 let unit_string = get_unit_string(full_metric);
                 let family = Family::<Vec<(String, String)>, Gauge<f64, AtomicU64>>::default();
 
-                if unit_string.is_empty() {
-                    registry.register_with_unit(
-                        metric_name.clone(),
-                        &metric.description,
-                        prometheus_client::registry::Unit::Other(sanitize_name(unit_string)),
-                        family.clone(),
-                    );
-                } else {
-                    registry.register(metric_name.clone(), &metric.description, family.clone());
-                }
+                register_family(
+                    &mut registry,
+                    metric_name.clone(),
+                    &full_metric.description,
+                    unit_string,
+                    family.clone(),
+                );
 
                 metrics.insert(metric_name.clone(), family.clone());
                 // Check that it was correctly registered
@@ -128,6 +123,27 @@ impl alumet::pipeline::Output for PrometheusOutput {
         }
 
         Ok(())
+    }
+}
+
+/// Registers a metric family: `register_with_unit` when it has a unit (added as a name
+/// suffix), plain `register` otherwise (avoiding the trailing underscore it would add).
+fn register_family(
+    registry: &mut Registry,
+    metric_name: String,
+    description: &str,
+    unit_string: String,
+    family: Family<Vec<(String, String)>, Gauge<f64, AtomicU64>>,
+) {
+    if unit_string.is_empty() {
+        registry.register(metric_name, description, family);
+    } else {
+        registry.register_with_unit(
+            metric_name,
+            description,
+            prometheus_client::registry::Unit::Other(sanitize_name(unit_string)),
+            family,
+        );
     }
 }
 
@@ -180,7 +196,7 @@ mod tests {
         units::{PrefixedUnit, Unit, UnitPrefix},
     };
 
-    use crate::output::{get_unit_string, sanitize_name};
+    use crate::output::{get_unit_string, register_family, sanitize_name};
 
     #[test]
     fn test_sanitize_name() {
@@ -219,6 +235,61 @@ mod tests {
         assert_eq!(
             get_unit_string(&new_metric(Unit::WattHour, UnitPrefix::Nano)),
             "nanowatt_hours".to_string()
+        );
+    }
+
+    #[test]
+    fn unit_carrying_metric_keeps_unit_and_unitless_has_no_trailing_underscore() {
+        use prometheus_client::encoding::text::encode;
+        use prometheus_client::metrics::{family::Family, gauge::Gauge};
+        use prometheus_client::registry::Registry;
+        use std::sync::atomic::AtomicU64;
+
+        let mut registry = Registry::default();
+
+        // kernel_cpu_time is milli(Second), so get_unit_string gives "milliseconds"
+        let with_unit = Family::<Vec<(String, String)>, Gauge<f64, AtomicU64>>::default();
+        with_unit
+            .get_or_create(&vec![("cpu_state".to_string(), "idle".to_string())])
+            .set(4950.0);
+        register_family(
+            &mut registry,
+            "kernel_cpu_time_alumet".to_string(),
+            "busy CPU time",
+            "milliseconds".to_string(),
+            with_unit,
+        );
+
+        let unitless = Family::<Vec<(String, String)>, Gauge<f64, AtomicU64>>::default();
+        unitless
+            .get_or_create(&vec![("resource_kind".to_string(), "local_machine".to_string())])
+            .set(42.0);
+        register_family(
+            &mut registry,
+            "kernel_context_switches_alumet".to_string(),
+            "number of context switches",
+            String::new(),
+            unitless,
+        );
+
+        let mut buf = String::new();
+        encode(&mut buf, &registry).unwrap();
+
+        assert!(
+            buf.contains("kernel_cpu_time_alumet_milliseconds"),
+            "unit-carrying metric should regain its unit suffix:\n{buf}"
+        );
+        assert!(
+            buf.contains("# UNIT kernel_cpu_time_alumet_milliseconds"),
+            "unit-carrying metric should emit a UNIT line:\n{buf}"
+        );
+        assert!(
+            !buf.contains("kernel_context_switches_alumet_"),
+            "unitless metric must not grow a trailing underscore:\n{buf}"
+        );
+        assert!(
+            buf.contains("kernel_context_switches_alumet{"),
+            "unitless metric should still be exported:\n{buf}"
         );
     }
 }
