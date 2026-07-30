@@ -5,11 +5,11 @@ export
 
 # version of Alumet to installed
 ALUMET_VERSION=0.9.4
-# version 1_amd64_ubuntu_22.04 fonctionne pour baremetal
-#ALUMET_DISTRIBUTION=1_amd64_ubuntu_22.04
-#version pour container
-ALUMET_DISTRIBUTION=1_ubuntu_24.04
-
+# distribution of Alumet to installed
+# Note that all versions are not available as docker images; for example version 22.04 is not available for ubuntu, but 24.04 is.
+# For this version of integration test, we test only the OCI images.
+ALUMET_DISTRIBUTION=ubuntu_24.04
+ALUMET_ARCHITECTURE=amd64
 
 REQUIRED_VARS := NODE GATEWAY USERNAME KEY 
 
@@ -17,10 +17,11 @@ all: init test
 
 help:
 	@echo "Current test set-up:"
-	@echo "  ALUMET_VERSION         $(ALUMET_VERSION)"
-	@echo "  ALUMET_DISTRIBUTION    $(ALUMET_DISTRIBUTION)"	
-	@echo "  Target node            $(NODE)"
-	@echo "  Modify the variables ALUMET_VERSION, ALUMET_DISTRIBUTION in this Makefile if you want to modify the set-up"
+	@echo "  ALUMET_VERSION         	$(ALUMET_VERSION)"
+	@echo "  ALUMET_DISTRIBUTION    	$(ALUMET_DISTRIBUTION)"
+	@echo "  ALUMET_ARCHITECTECTURE    	$(ALUMET_ARCHITECTECTURE)"
+	@echo "  Target node            	$(NODE)"
+	@echo "  Modify the variables ALUMET_VERSION, ALUMET_DISTRIBUTION, ALUMET_ARCHITECTURE in this Makefile if you want to modify the set-up"
 	@echo "  Modify the variables NODE, GATEWAY, USERNAME, KEY in the .env file if you want to modify the set-up"
 
 	@echo "Available commands:"
@@ -53,11 +54,16 @@ lint:
 
 test: check-required-vars
 	@echo "Current test set-up:"
-	@echo "  ALUMET_VERSION         $(ALUMET_VERSION)"
-	@echo "  ALUMET_DISTRIBUTION    $(ALUMET_DISTRIBUTION)"	
-	@echo "  Target node            $(NODE)"
-	@echo "  Modify the variables ALUMET_VERSION, ALUMET_DISTRIBUTION in this Makefile if you want to modify the set-up"
+	@echo "  ALUMET_VERSION         	$(ALUMET_VERSION)"
+	@echo "  ALUMET_DISTRIBUTION    	$(ALUMET_DISTRIBUTION)"	
+	@echo "  ALUMET_ARCHITECTECTURE    	$(ALUMET_ARCHITECTECTURE)"	
+	@echo "  Target node            	$(NODE)"
+	@echo "  Modify the variables ALUMET_VERSION, ALUMET_DISTRIBUTION, ALUMET_ARCHITECTURE in this Makefile if you want to modify the set-up"
 	@echo "  Modify the variables NODE, GATEWAY, USERNAME, KEY in the .env file if you want to modify the set-up"
+
+	# Note: to exclude some tests you can:
+	# scpecify a path to a file or a directory /subdirectory (./scenario/container for example)
+	# or add the option --exclude {tag name} to robot command
 
 	poetry run robot \
 		--outputdir ./output \
@@ -67,14 +73,12 @@ test: check-required-vars
         -v "KEY:$(KEY)" \
         -v "ALUMET_VERSION:$(ALUMET_VERSION)" \
         -v "ALUMET_DISTRIBUTION:$(ALUMET_DISTRIBUTION)" \
+		-v "ALUMET_ARCHITECTURE:$(ALUMET_ARCHITECTURE)" \
         --metadata "Alumet version":$(ALUMET_VERSION) \
 		--metadata "Alumet distribution":$(ALUMET_DISTRIBUTION) \
+		--metadata "Alumet architecture":$(ALUMET_ARCHITECTURE) \
 		--metadata "Environnement target node":$(NODE) \
-		./scenarios/container/
-		#./scenarios/container/plugin-perf.robot
-        #./scenarios/baremetal/
-		#./scenarios/container/
-        #./scenarios/baremetal/plugin-rapl.robot
+		./scenarios/
 
 unused:
 	for type in arguments files keywords returns variables; do \
