@@ -2,12 +2,13 @@
 Documentation       Alumet test plugin rapl
 
 Library             OperatingSystem
+Library             String
 Library             SSHLibrary
 Resource            ../resources/alumet_keywords.resource
 
 Test Timeout        60 seconds
 
-Test Tags           input_plugin    rapl_plugin
+Test Tags           baremetal    input_plugin    rapl_plugin
 
 
 *** Test Cases ***
@@ -40,9 +41,15 @@ Check plugins socket-control csv rapl
     Log    Result stdout : ${output_alumet}
     Log    stderr Result : ${stderr}
 
-    Should Contain    ${output_alumet}    csv v0.2.0
-    Should Contain    ${output_alumet}    socket-control v0.2.1
-    Should Contain    ${output_alumet}    rapl v0.3.1
+    # check that csv and perf plugins are started
+    ${started_section}=    Get Regexp Matches
+    ...    ${output_alumet}
+    ...    plugins started:(.*?)plugins disabled:
+    ...    1
+    ...    flags=DOTALL
+    Should Contain    ${started_section}[0]    csv
+    Should Contain    ${started_section}[0]    rapl
+    Should Contain    ${started_section}[0]    socket-control
 
 Check alumet running
     [Documentation]    Verify that alumet-agent is running with the correct plugins

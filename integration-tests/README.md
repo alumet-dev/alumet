@@ -4,7 +4,6 @@ This folder contains all script files and scenarios for testing alumet.
 Below, the structure of this folder.
 
 ```text
-
 ├── Makefile
 ├── output
 │   ├── log.html
@@ -18,8 +17,12 @@ Below, the structure of this folder.
     │   ├── installation.robot
     │   ├── plugin-perf.robot
     │   └── plugin-rapl.robot
-    ├── common
+    ├── container
+    │   ├── installation.robot
+    │   ├── plugin-perf.robot
+    │   └── plugin-rapl.robot
     ├── resources
+    │   ├── alumet-config.toml
     │   ├── alumet_keywords.resource
     │   ├── help-config-option.txt
     │   ├── help-exec-option.txt
@@ -31,7 +34,7 @@ Below, the structure of this folder.
 ```
 
 `scenarios` folder contains all robotframework files.
-One folder per type of test, for example we have `baremetal` folder regarding the test of alumet installed in native mode. For future test, we should have a `container` folder for example.
+One folder per type of test, for example we have `baremetal` folder regarding the test of alumet installed in native mode, `container` folder regarding the test of alumet docker images.
 
 `resources` folder is for keywords that are used by several test suite.
 
@@ -57,8 +60,26 @@ make init
 
 ## Run the tests
 
-The \_\_init\_\_.robot file contains the Suite Setup (Install Alumet) and Teardown (UnInstall Alumet). When this file is present,  robot framework executes at the beginning of the tests the keyword `Install Alumet` and at the end of test execution the keyword `UnInstall alumet`
-Each test can have one or several tags allowing the exclusion of tests from being run by robot framework.
+The \_\_init\_\_.robot file contains the Suite Setup (Install Alumet) and Teardown (UnInstall Alumet). When this file is present,  robot framework executes at the beginning of the tests the keyword `Install Alumet` and at the end of test execution the keyword `UnInstall alumet`.
+Each test can have one or several tags allowing the exclusion of tests from being run by robot framework. For example, use the tag `baremetal` to exclude tests with alumet installation on baremetal. You need to edit the `Makefile` and modify the target test to add the tag you want to exclude (see line 81 below). You can also modify the path of scenarios to be executed to restric to a folder/sub folder or a file (see line 82 below):
+
+```text
+ 68         poetry run robot \
+ 69                 --outputdir ./output \
+ 70                 -v "NODE:$(NODE)"       \
+ 71         -v "GATEWAY:$(GATEWAY)" \
+ 72         -v "USERNAME:$(USERNAME)" \
+ 73         -v "KEY:$(KEY)" \
+ 74         -v "ALUMET_VERSION:$(ALUMET_VERSION)" \
+ 75         -v "ALUMET_DISTRIBUTION:$(ALUMET_DISTRIBUTION)" \
+ 76                 -v "ALUMET_ARCHITECTURE:$(ALUMET_ARCHITECTURE)" \
+ 77         --metadata "Alumet version":$(ALUMET_VERSION) \
+ 78                 --metadata "Alumet distribution":$(ALUMET_DISTRIBUTION) \
+ 79                 --metadata "Alumet architecture":$(ALUMET_ARCHITECTURE) \
+ 80                 --metadata "Environnement target node":$(NODE) \
+ 81                 --exclude baremetal \
+ 82                 ./scenarios/
+```
 
 To run the robot framework test scenarios execute the command:
 
