@@ -10,11 +10,8 @@ Test Timeout        180 seconds
 
 Test Tags           installation
 
-*** Variables ***
-${ALUMET_CONTAINER_NAME}    alumet_robot_fm
 
 *** Test Cases ***
-
 Launch Alumet Container
     [Documentation]    Launch Alumet as container
 
@@ -25,4 +22,3 @@ Stop Alumet Container
 
     UnInstall Alumet As Container
     Log    Hello
-    
