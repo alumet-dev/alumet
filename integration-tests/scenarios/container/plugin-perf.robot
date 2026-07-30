@@ -66,8 +66,8 @@ Copy csv File
 Check Perf Metric perf_hardware_REF_CPU_CYCLES
     [Documentation]    Check perf_hardware_REF_CPU_CYCLES metric
     [Template]    Check Metric
-    # ${metric}                   ${resource_kind}    ${domain}
-    perf_hardware_REF_CPU_CYCLES    local_machine      ${EMPTY}
+    # ${metric}    ${resource_kind}    ${domain}
+    perf_hardware_REF_CPU_CYCLES    local_machine    ${EMPTY}
 
 Check Perf Metric perf_hardware_CACHE_MISSES
     [Documentation]    Check perf_hardware_CACHE_MISSES metric
