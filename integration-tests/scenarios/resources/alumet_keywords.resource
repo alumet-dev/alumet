@@ -102,17 +102,19 @@ Read Value
     ...         ${KEY}                      : ssh key to open the ssh connection
     [Arguments]    ${metric}    ${resource_kind}    ${domain}=${EMPTY}
 
+    # sed -n 'Np' command below means that we read the N first metric value found in the csv file
+    # it is better not to read the first value but second or higher
+    # the metric value is on 3rd column (print $3)
     IF    '${domain}' != ''
         VAR    ${command}=
         ...    grep ${metric} alumet-output.csv | awk -F ';' ' $8 == "${domain}" &&
-        ...    $4 == "${resource_kind}" { OFS="|"; print $3 }' | sed -n '1p'
+        ...    $4 == "${resource_kind}" { OFS="|"; print $3 }' | sed -n '2p'
     ELSE
         VAR    ${command}=
         ...    grep ${metric} alumet-output.csv | awk -F ';' '
-        ...    $4 == "${resource_kind}" { OFS="|"; print $3 }' | sed -n '1p'
+        ...    $4 == "${resource_kind}" { OFS="|"; print $3 }' | sed -n '2p'
     END
 
-    # the metric value is on 3rd column
     ${output}    ${stderr}=    Execute Command Target Node    ${command}
     Log    output: ${output}
     Log    stderr: ${stderr}
@@ -149,27 +151,87 @@ Install Alumet As Container
     ...         none
     [Arguments]    ${list_plugins}=${EMPTY}
 
+    Log    alumer version: ${ALUMET_VERSION}
+    Log    alumer distribution: ${ALUMET_DISTRIBUTION}
+
     IF    '${list_plugins}' != ''
-        VAR    ${entryPoint}=    '["/usr/bin/alumet-agent",  "--config", "/etc/alumet/alumet-config.toml", "--plugins", "${list_plugins}"]'
-        ${result}=    Run    podman run -d --cap-add=PERFMON --cap-add=SYS_NICE --cap-add=SYS_PTRACE --entrypoint ${entryPoint} --replace --privileged --name ${ALUMET_CONTAINER_NAME} ghcr.io/alumet-dev/alumet-agent:${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}
+        VAR  ${entryPoint}=    '["/usr/bin/alumet-agent",  "--config", "/etc/alumet/alumet-config.toml", "--plugins", "${list_plugins}"]'
+
+        # test if perf plugin is present
+        ${perf_present}=    Evaluate    "perf" in """${list_plugins}"""
+
+        IF    ${perf_present}
+            Log    "perf" plugin is activated
+            VAR  ${command}=    sudo podman run -d --pid=host --cap-add=PERFMON --cap-add=SYS_NICE --cap-add=SYS_PTRACE --entrypoint ${entryPoint} --replace --privileged --name ${ALUMET_CONTAINER_NAME} ghcr.io/alumet-dev/alumet-agent:${ALUMET_VERSION}-${ALUMET_DISTRIBUTION} watch "$(cat cpu_load.sh.pid)"
+        ELSE
+            Log    "perf" plugin is not activated
+            VAR  ${command}=    sudo podman run -d --pid=host --cap-add=PERFMON --cap-add=SYS_NICE --cap-add=SYS_PTRACE --entrypoint ${entryPoint} --replace --privileged --name ${ALUMET_CONTAINER_NAME} ghcr.io/alumet-dev/alumet-agent:${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}
+        END
+
     ELSE
-        ${result}=    Run    podman run -d --cap-add=PERFMON --cap-add=SYS_NICE --cap-add=SYS_PTRACE --name ${ALUMET_CONTAINER_NAME} ghcr.io/alumet-dev/alumet-agent:${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}
+        VAR  ${command}=    sudo podman run -d --cap-add=PERFMON --cap-add=SYS_NICE --cap-add=SYS_PTRACE --name ${ALUMET_CONTAINER_NAME} ghcr.io/alumet-dev/alumet-agent:${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}
     END
 
-    ${result}=    Run    podman logs ${ALUMET_CONTAINER_NAME}
-    Log    result: ${result}
+    #VAR    ${command}=    env | grep -i proxy
 
-    Should Contain    ${result}    Starting Alumet
-    Should Contain    ${result}    ${ALUMET_VERSION}
+    ${result}=    Execute Command Target Node    ${command}
+    Log    result: ${result}
 
 UnInstall Alumet As Container
-    [Documentation]    Stop and delete Alumet Container
+    [Documentation]    Stop and delete Alumet Container, remove temporary files used for testing
 
-    ${result}=    Run    podman rm -f ${ALUMET_CONTAINER_NAME}
+    ${result}=    Execute Command Target Node    sudo podman rm -f ${ALUMET_CONTAINER_NAME}
     Log    result: ${result}
 
-    ${result}=    Run    podman ps -a | grep ${ALUMET_CONTAINER_NAME}
+    ${result}=    Execute Command Target Node    sudo podman ps -a | grep ${ALUMET_CONTAINER_NAME}
     Log    result: ${result}
 
     Should Not Contain    ${result}    ${ALUMET_CONTAINER_NAME}
+
+    # remove alumet-output.csv file
+    ${result}    ${stderr}=    Execute Command Target Node    rm alumet-output.csv
+    Log    result: ${result}
+    Log    stderr: ${stderr}
+
+    ${result}    ${stderr}=    Execute Command Target Node    ls -l alumet-output.csv
+    Log    result: ${result}
+    Log    stderr: ${stderr}
+
+    Should Contain    ${stderr}    cannot access
+
+    # remove cpu_load.*
+    ${result}    ${stderr}=    Execute Command Target Node    rm cpu_load.*
+    Log    result: ${result}
+    Log    stderr: ${stderr}
+
+    ${result}    ${stderr}=    Execute Command Target Node    ls -l cpu_load.*
+    Log    result: ${result}
+    Log    stderr: ${stderr}
+
+    Should Contain    ${stderr}    cannot access
+
+Copy tools File
+    [Documentation]    Copy tools file from Alumet container to local directory
+
+    Open Connection    ${GATEWAY}    alias=jumphost
+    Login With Public Key    ${USERNAME}    ${KEY}
+
+    Open Connection    ${NODE}
+
+    Login With Public Key    ${USERNAME}    ${KEY}
+    ...    jumphost_index_or_alias=jumphost
+
+    # copy tools files
+    Put File    scenarios/tools/cpu_load.sh    cpu_load.sh
+
+    Close All Connections
+
+Copy csv File
+    [Documentation]    Copy csv file from Alumet container to local directory
+
+    ${result}=    Execute Command Target Node    sudo podman cp ${ALUMET_CONTAINER_NAME}:/app/alumet-output.csv alumet-output.csv
+    Log    result: ${result}
+
+    OperatingSystem.File Should Exist    alumet-output.csv    msg=the alumet-output.csv file does not exist
+    
 
