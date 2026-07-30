@@ -2,10 +2,9 @@
 Documentation       Alumet test plugin perf
 
 Library             OperatingSystem
-Library             SSHLibrary
 Library             Process
 Library             String
-
+Library             SSHLibrary
 Resource            ../resources/alumet_keywords.resource
 
 Test Timeout        60 seconds
@@ -17,21 +16,19 @@ Test Tags           input_plugin    perf_plugin
 Run cpu_load
     [Documentation]    Execute cpu_load script in the background
 
-    Copy tools File
-    
-    VAR  ${command}=    nohup ./cpu_load.sh 20 > /dev/null 2>&1 &
-    ${output}   ${stderr}=    Execute Command Target Node     ${command}
+    Copy Tools File
+
+    VAR    ${command}=    nohup ./cpu_load.sh 20 > /dev/null 2>&1 &
+    ${output}    ${stderr}=    Execute Command Target Node    ${command}
     Sleep    3s
     Log    Output Result of SSH : ${output}
     Log    stderr Result of SSH : ${stderr}
 
-Run plugin csv perf
+Run plugins csv perf
     [Documentation]    Run alumet-agent with csv and perf plugins
 
     Install Alumet As Container    csv,perf
-    #watch "$(cat cpu_load.sh.pid)" 
-    
-    ${result}   ${stderr}=    Execute Command Target Node       sudo podman logs ${ALUMET_CONTAINER_NAME}
+    ${result}    ${stderr}=    Execute Command Target Node    sudo podman logs ${ALUMET_CONTAINER_NAME}
     Log    result: ${result}
     Log    stderr: ${stderr}
 
@@ -52,7 +49,7 @@ Run plugin csv perf
 Check alumet running
     [Documentation]    Verify that alumet-agent is running with the correct plugins
 
-    ${output}   ${stderr}=    Execute Command Target Node       sudo podman exec ${ALUMET_CONTAINER_NAME} ps -f
+    ${output}    ${stderr}=    Execute Command Target Node    sudo podman exec ${ALUMET_CONTAINER_NAME} ps -f
     Log    Result stdout : ${output}
     Log    stderr Result : ${stderr}
 
@@ -63,14 +60,14 @@ Copy csv File
     [Documentation]    Copy alumet csv file
 
     # wait several seconds to get some metrics in csv file
-    sleep    10s
-    Copy csv File
+    Sleep    10s
+    Copy Csv File
 
 Check Perf Metric perf_hardware_REF_CPU_CYCLES
     [Documentation]    Check perf_hardware_REF_CPU_CYCLES metric
     [Template]    Check Metric
-    # ${metric}                   ${resource_kind}    ${domain}
-    perf_hardware_REF_CPU_CYCLES    local_machine      ${EMPTY}
+    # ${metric}    ${resource_kind}    ${domain}
+    perf_hardware_REF_CPU_CYCLES    local_machine    ${EMPTY}
 
 Check Perf Metric perf_hardware_CACHE_MISSES
     [Documentation]    Check perf_hardware_CACHE_MISSES metric

@@ -2,8 +2,8 @@
 Documentation       Alumet test plugin rapl
 
 Library             OperatingSystem
-Library             SSHLibrary
 Library             String
+Library             SSHLibrary
 Resource            ../resources/alumet_keywords.resource
 
 Test Timeout        60 seconds
@@ -19,14 +19,12 @@ Test connection on target node
     Log    Output Result of SSH : ${output}
     Log    stderr Result of SSH : ${stderr}
 
-Run plugin csv rapl
+Run plugins csv rapl
     [Documentation]    Run alumet-agent with csv and rapl plugins
 
     Install Alumet As Container    csv,rapl
-    
-    sleep   10s
 
-    ${result}   ${stderr}=    Execute Command Target Node    sudo podman logs ${ALUMET_CONTAINER_NAME}
+    ${result}    ${stderr}=    Execute Command Target Node    sudo podman logs ${ALUMET_CONTAINER_NAME}
     Log    result: ${result}
     Log    stderr: ${stderr}
 
@@ -41,12 +39,12 @@ Run plugin csv rapl
     ...    1
     ...    flags=DOTALL
     Should Contain    ${started_section}[0]    csv
-    Should Contain    ${started_section}[0]    rapl    
+    Should Contain    ${started_section}[0]    rapl
 
 Check alumet running
     [Documentation]    Verify that alumet-agent is running with the correct plugins
 
-    ${output}   ${stderr}=    Execute Command Target Node      sudo podman exec ${ALUMET_CONTAINER_NAME} ps -f
+    ${output}    ${stderr}=    Execute Command Target Node    sudo podman exec ${ALUMET_CONTAINER_NAME} ps -f
     Log    Result stdout : ${output}
     Log    Result stderr : ${stderr}
 
@@ -58,8 +56,8 @@ Copy csv File
     [Documentation]    Copy alumet csv file
 
     # wait several seconds to get some metrics in csv file
-    sleep    10s
-    Copy csv File
+    Sleep    10s
+    Copy Csv File
 
 Check Rapl Metric package
     [Documentation]    Check rapl_consumed_energy_J metric for cpu_package
@@ -86,11 +84,11 @@ Stop alumet
 
     UnInstall Alumet As Container
     Log    Stop alumet
-    
+
 Check alumet not running
     [Documentation]    Verify that alumet-agent is not running
-    
-   ${output}=    Execute Command Target Node    sudo podman exec ${ALUMET_CONTAINER_NAME} ps -f
-    Log    Result stdout : ${output}    
+
+    ${output}=    Execute Command Target Node    sudo podman exec ${ALUMET_CONTAINER_NAME} ps -f
+    Log    Result stdout : ${output}
 
     Should Not Contain    ${output}    alumet-agent

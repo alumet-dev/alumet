@@ -9,6 +9,7 @@ Documentation       This resource file contains reusable keywords for interactin
 Library             OperatingSystem
 Library             SSHLibrary
 
+
 *** Variables ***
 ${ALUMET_CONTAINER_NAME}    alumet_robot_fm
 
@@ -146,7 +147,7 @@ Check Metric
 Install Alumet As Container
     [Documentation]    Launch Alumet as container
     ...     input parameters:
-    ...         list of input plugins 
+    ...         list of input plugins
     ...     Return parameters:
     ...         none
     [Arguments]    ${list_plugins}=${EMPTY}
@@ -155,24 +156,33 @@ Install Alumet As Container
     Log    alumer distribution: ${ALUMET_DISTRIBUTION}
 
     IF    '${list_plugins}' != ''
-        VAR  ${entryPoint}=    '["/usr/bin/alumet-agent",  "--config", "/etc/alumet/alumet-config.toml", "--plugins", "${list_plugins}"]'
+        VAR    ${entryPoint}=    '["/usr/bin/alumet-agent",
+        ...    "--config", "/etc/alumet/alumet-config.toml",
+        ...    "--plugins", "${list_plugins}"]'
 
         # test if perf plugin is present
         ${perf_present}=    Evaluate    "perf" in """${list_plugins}"""
 
         IF    ${perf_present}
             Log    "perf" plugin is activated
-            VAR  ${command}=    sudo podman run -d --pid=host --cap-add=PERFMON --cap-add=SYS_NICE --cap-add=SYS_PTRACE --entrypoint ${entryPoint} --replace --privileged --name ${ALUMET_CONTAINER_NAME} ghcr.io/alumet-dev/alumet-agent:${ALUMET_VERSION}-${ALUMET_DISTRIBUTION} watch "$(cat cpu_load.sh.pid)"
+            VAR    ${command}=    sudo podman run -d --pid=host
+            ...    --cap-add=PERFMON --cap-add=SYS_NICE --cap-add=SYS_PTRACE
+            ...    --entrypoint ${entryPoint} --replace --privileged
+            ...    --name ${ALUMET_CONTAINER_NAME}
+            ...    ghcr.io/alumet-dev/alumet-agent:${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}
+            ...    watch "$(cat cpu_load.sh.pid)"
         ELSE
             Log    "perf" plugin is not activated
-            VAR  ${command}=    sudo podman run -d --pid=host --cap-add=PERFMON --cap-add=SYS_NICE --cap-add=SYS_PTRACE --entrypoint ${entryPoint} --replace --privileged --name ${ALUMET_CONTAINER_NAME} ghcr.io/alumet-dev/alumet-agent:${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}
+            VAR    ${command}=    sudo podman run -d --pid=host
+            ...    --cap-add=PERFMON --cap-add=SYS_NICE --cap-add=SYS_PTRACE
+            ...    --entrypoint ${entryPoint} --replace --privileged
+            ...    --name ${ALUMET_CONTAINER_NAME}
+            ...    ghcr.io/alumet-dev/alumet-agent:${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}
         END
-
     ELSE
-        VAR  ${command}=    sudo podman run -d --cap-add=PERFMON --cap-add=SYS_NICE --cap-add=SYS_PTRACE --name ${ALUMET_CONTAINER_NAME} ghcr.io/alumet-dev/alumet-agent:${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}
+        VAR    ${command}=    sudo podman run -d --cap-add=PERFMON --cap-add=SYS_NICE --cap-add=SYS_PTRACE
+        ...    --name ${ALUMET_CONTAINER_NAME} ghcr.io/alumet-dev/alumet-agent:${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}
     END
-
-    #VAR    ${command}=    env | grep -i proxy
 
     ${result}=    Execute Command Target Node    ${command}
     Log    result: ${result}
@@ -210,7 +220,7 @@ UnInstall Alumet As Container
 
     Should Contain    ${stderr}    cannot access
 
-Copy tools File
+Copy Tools File
     [Documentation]    Copy tools file from Alumet container to local directory
 
     Open Connection    ${GATEWAY}    alias=jumphost
@@ -226,12 +236,11 @@ Copy tools File
 
     Close All Connections
 
-Copy csv File
+Copy Csv File
     [Documentation]    Copy csv file from Alumet container to local directory
 
-    ${result}=    Execute Command Target Node    sudo podman cp ${ALUMET_CONTAINER_NAME}:/app/alumet-output.csv alumet-output.csv
+    VAR    ${command}=    sudo podman cp ${ALUMET_CONTAINER_NAME}:/app/alumet-output.csv alumet-output.csv
+    ${result}=    Execute Command Target Node    ${command}
     Log    result: ${result}
 
     OperatingSystem.File Should Exist    alumet-output.csv    msg=the alumet-output.csv file does not exist
-    
-
