@@ -9,7 +9,7 @@ Resource            ../resources/alumet_keywords.resource
 
 Test Timeout        60 seconds
 
-Test Tags           input_plugin    perf_plugin
+Test Tags           container    input_plugin    perf_plugin
 
 
 *** Test Cases ***

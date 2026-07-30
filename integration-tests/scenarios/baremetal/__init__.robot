@@ -30,11 +30,11 @@ Install Alumet
 
     # first download the right linux package file, exit test suite if download error
     ${output}=    Run
-    ...    wget https://github.com/alumet-dev/alumet/releases/download/v${ALUMET_VERSION}/alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb
+    ...    wget https://github.com/alumet-dev/alumet/releases/download/v${ALUMET_VERSION}/alumet-agent_${ALUMET_VERSION}-1_${ALUMET_ARCHITECTURE}_${ALUMET_DISTRIBUTION}.deb
     Log    output download package: ${output}
     ${exists}=    Run Keyword And Return Status
     ...    OperatingSystem.File Should Exist
-    ...    alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb
+    ...    alumet-agent_${ALUMET_VERSION}-1_${ALUMET_ARCHITECTURE}_${ALUMET_DISTRIBUTION}.deb
     IF    not ${exists}
         Fail    'Error downloading alumet package file. Test suite is stopped'
     END
@@ -49,14 +49,14 @@ Install Alumet
 
     # copy linux package on remote host
     Put File
-    ...    alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb
-    ...    alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb
+    ...    alumet-agent_${ALUMET_VERSION}-1_${ALUMET_ARCHITECTURE}_${ALUMET_DISTRIBUTION}.deb
+    ...    alumet-agent_${ALUMET_VERSION}-1_${ALUMET_ARCHITECTURE}_${ALUMET_DISTRIBUTION}.deb
 
     # copy tools files
     Put File    scenarios/tools/cpu_load.sh    cpu_load.sh
 
     VAR    ${command}=    sudo DEBIAN_FRONTEND=noninteractive apt install -y
-    ...    ./alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb
+    ...    ./alumet-agent_${ALUMET_VERSION}-1_${ALUMET_ARCHITECTURE}_${ALUMET_DISTRIBUTION}.deb
     # install alumet package
     ${output}=    Execute Command Target Node    ${command}
     Log    result: ${output}
@@ -111,22 +111,22 @@ UnInstall Alumet
 
     # remove alumet package file on target node
     ${result}    ${stderr}=    Execute Command Target Node
-    ...    rm alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb*
+    ...    rm alumet-agent_${ALUMET_VERSION}-1_${ALUMET_ARCHITECTURE}_${ALUMET_DISTRIBUTION}.deb*
     Log    result: ${result}
     Log    stderr: ${stderr}
 
     ${result}    ${stderr}=    Execute Command Target Node
-    ...    ls -l alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb*
+    ...    ls -l alumet-agent_${ALUMET_VERSION}-1_${ALUMET_ARCHITECTURE}_${ALUMET_DISTRIBUTION}.deb*
     Log    result: ${result}
     Log    stderr: ${stderr}
 
     Should Not Contain    ${result}    alumet
 
     # remove alumet package file downloaded locally
-    ${result}=    Run    rm alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb*
+    ${result}=    Run    rm alumet-agent_${ALUMET_VERSION}-1_${ALUMET_ARCHITECTURE}_${ALUMET_DISTRIBUTION}.deb*
     Log    result: ${result}
 
-    ${result}=    Run    ls -l alumet-agent_${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}.deb*
+    ${result}=    Run    ls -l alumet-agent_${ALUMET_VERSION}-1_${ALUMET_ARCHITECTURE}_${ALUMET_DISTRIBUTION}.deb*
     Log    result: ${result}
 
     Should Contain    ${result}    cannot access

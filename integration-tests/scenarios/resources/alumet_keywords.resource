@@ -152,8 +152,9 @@ Install Alumet As Container
     ...         none
     [Arguments]    ${list_plugins}=${EMPTY}
 
-    Log    alumer version: ${ALUMET_VERSION}
-    Log    alumer distribution: ${ALUMET_DISTRIBUTION}
+    Log    alumet version: ${ALUMET_VERSION}
+    Log    alumet distribution: ${ALUMET_DISTRIBUTION}
+    Log    alumet architecture: ${ALUMET_ARCHITECTURE}
 
     IF    '${list_plugins}' != ''
         VAR    ${entryPoint}=    '["/usr/bin/alumet-agent",
@@ -169,7 +170,7 @@ Install Alumet As Container
             ...    --cap-add=PERFMON --cap-add=SYS_NICE --cap-add=SYS_PTRACE
             ...    --entrypoint ${entryPoint} --replace --privileged
             ...    --name ${ALUMET_CONTAINER_NAME}
-            ...    ghcr.io/alumet-dev/alumet-agent:${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}
+            ...    ghcr.io/alumet-dev/alumet-agent:${ALUMET_VERSION}-1_${ALUMET_DISTRIBUTION}
             ...    watch "$(cat cpu_load.sh.pid)"
         ELSE
             Log    "perf" plugin is not activated
@@ -177,11 +178,13 @@ Install Alumet As Container
             ...    --cap-add=PERFMON --cap-add=SYS_NICE --cap-add=SYS_PTRACE
             ...    --entrypoint ${entryPoint} --replace --privileged
             ...    --name ${ALUMET_CONTAINER_NAME}
-            ...    ghcr.io/alumet-dev/alumet-agent:${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}
+            ...    ghcr.io/alumet-dev/alumet-agent:${ALUMET_VERSION}-1_${ALUMET_DISTRIBUTION}
         END
     ELSE
-        VAR    ${command}=    sudo podman run -d --cap-add=PERFMON --cap-add=SYS_NICE --cap-add=SYS_PTRACE
-        ...    --name ${ALUMET_CONTAINER_NAME} ghcr.io/alumet-dev/alumet-agent:${ALUMET_VERSION}-${ALUMET_DISTRIBUTION}
+        VAR    ${command}=
+        ...    sudo podman run -d --cap-add=PERFMON --cap-add=SYS_NICE --cap-add=SYS_PTRACE
+        ...    --name ${ALUMET_CONTAINER_NAME}
+        ...    ghcr.io/alumet-dev/alumet-agent:${ALUMET_VERSION}-1_${ALUMET_DISTRIBUTION}
     END
 
     ${result}=    Execute Command Target Node    ${command}
@@ -240,7 +243,12 @@ Copy Csv File
     [Documentation]    Copy csv file from Alumet container to local directory
 
     VAR    ${command}=    sudo podman cp ${ALUMET_CONTAINER_NAME}:/app/alumet-output.csv alumet-output.csv
-    ${result}=    Execute Command Target Node    ${command}
+    ${result}    ${stderr}=    Execute Command Target Node    ${command}
     Log    result: ${result}
+    Log    stderr: ${stderr}
 
-    OperatingSystem.File Should Exist    alumet-output.csv    msg=the alumet-output.csv file does not exist
+    # check if alumet-output.csv file exists
+    ${result}    ${stderr}=    Execute Command Target Node    ls -l alumet-output.csv
+    Log    result: ${result}
+    Log    stderr: ${stderr}
+    Should Contain    ${result}    alumet-output.csv
