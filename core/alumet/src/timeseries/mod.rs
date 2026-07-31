@@ -1,11 +1,7 @@
-use std::ops::RangeInclusive;
+use crate::measurement::{MeasurementBuffer, MeasurementPoint};
 
-use crate::measurement::{MeasurementBuffer, MeasurementPoint, Timestamp};
-
-pub mod grouped_buffer;
 pub mod interpolate;
 pub mod multi_interp;
-pub mod together;
 
 #[derive(Default)]
 pub struct Timeseries {
@@ -31,34 +27,6 @@ impl Timeseries {
     }
 }
 
-impl<'a> Timeslice<'a> {
-    pub fn restrict(&self, range: RangeInclusive<Timestamp>) -> Timeslice<'a> {
-        // the data points are sorted, we just need to find the borders
-        let i_first_ok = self
-            .points
-            .iter()
-            .enumerate()
-            .find_map(|(i, m)| if &m.timestamp >= range.start() { Some(i) } else { None });
-        let i_last_ok = self
-            .points
-            .iter()
-            .rev()
-            .enumerate()
-            .find_map(|(i, m)| if &m.timestamp <= range.end() { Some(i) } else { None });
-        if let (Some(first), Some(last)) = (i_first_ok, i_last_ok) {
-            if last > first {
-                return Timeslice {
-                    points: &self.points[first..=last],
-                };
-            }
-        }
-        // nothing in range
-        Timeslice {
-            points: &self.points[0..0],
-        }
-    }
-}
-
 impl From<MeasurementBuffer> for Timeseries {
     fn from(value: MeasurementBuffer) -> Self {
         let mut points: Vec<MeasurementPoint> = value.into_iter().collect();
@@ -78,5 +46,65 @@ impl<'a> From<&'a [MeasurementPoint]> for Timeslice<'a> {
     fn from(points: &'a [MeasurementPoint]) -> Self {
         assert!(points.is_sorted_by_key(|p| p.timestamp));
         Self { points }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod test_from_trait_implementation {
+        use super::*;
+        use crate::{
+            measurement::Timestamp,
+            metrics::{RawMetricId, TypedMetricId},
+            resources::{Resource, ResourceConsumer},
+        };
+        use std::{marker::PhantomData, sync::LazyLock, time::Duration};
+
+        static BASE_TIMESTAMP: LazyLock<Timestamp> = LazyLock::new(Timestamp::now);
+
+        // Helper function to create test measurement points
+        fn create_test_point(timestamp: Timestamp, id: u64, value: u64) -> MeasurementPoint {
+            let metric: TypedMetricId<f64> = TypedMetricId(RawMetricId::from_u64(id), PhantomData);
+            MeasurementPoint::new(
+                timestamp,
+                metric,
+                Resource::LocalMachine,
+                ResourceConsumer::LocalMachine,
+                value as f64,
+            )
+        }
+
+        #[test]
+        fn timeslice_from_sorted_slice() {
+            let id = 9;
+
+            let points = vec![
+                create_test_point(*BASE_TIMESTAMP, id, 100),
+                create_test_point(*BASE_TIMESTAMP + Duration::from_secs(10), id, 200),
+                create_test_point(*BASE_TIMESTAMP + Duration::from_secs(20), id, 300),
+            ];
+
+            let slice = Timeslice::from(points.as_slice());
+
+            assert_eq!(slice.points.len(), 3);
+            for (i, mp) in points.iter().enumerate() {
+                assert_eq!(slice.points[i].timestamp, mp.timestamp);
+            }
+        }
+
+        #[test]
+        #[should_panic]
+        fn timeslice_from_unsorted_slice() {
+            let id = 10;
+
+            let points = vec![
+                create_test_point(*BASE_TIMESTAMP + Duration::from_secs(10), id, 200),
+                create_test_point(*BASE_TIMESTAMP, id, 100),
+            ];
+
+            let _ = Timeslice::from(points.as_slice());
+        }
     }
 }

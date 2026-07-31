@@ -413,4 +413,168 @@ mod tests {
             WrappedMeasurementValue::F64(value),
         )
     }
+
+    mod test_interpolation_reference_trait {
+        use super::*;
+        use pretty_assertions::assert_eq;
+        use std::{ops::Add, sync::LazyLock, time::Duration};
+
+        static BASE_TIMESTAMP: LazyLock<Timestamp> = LazyLock::new(Timestamp::now);
+
+        #[test]
+        fn extract_range_all_before() {
+            let ts_vec = vec![
+                BASE_TIMESTAMP.add(Duration::from_secs(10)),
+                BASE_TIMESTAMP.add(Duration::from_secs(20)),
+                BASE_TIMESTAMP.add(Duration::from_secs(30)),
+            ];
+            let r = InterpolationReference::from(ts_vec.clone());
+
+            let (before, inside, after) = r.extract_range(
+                &BASE_TIMESTAMP.add(Duration::from_secs(40)),
+                &BASE_TIMESTAMP.add(Duration::from_secs(50)),
+            );
+
+            assert_eq!(before.t, ts_vec);
+            assert!(inside.t.is_empty());
+            assert!(after.t.is_empty());
+        }
+
+        #[test]
+        fn extract_range_all_after() {
+            let ts_vec = vec![
+                BASE_TIMESTAMP.add(Duration::from_secs(40)),
+                BASE_TIMESTAMP.add(Duration::from_secs(50)),
+                BASE_TIMESTAMP.add(Duration::from_secs(60)),
+            ];
+            let r = InterpolationReference::from(ts_vec.clone());
+
+            let (before, inside, after) = r.extract_range(
+                &BASE_TIMESTAMP.add(Duration::from_secs(10)),
+                &BASE_TIMESTAMP.add(Duration::from_secs(20)),
+            );
+
+            assert!(before.t.is_empty());
+            assert!(inside.t.is_empty());
+            assert_eq!(after.t, ts_vec);
+        }
+
+        #[test]
+        fn extract_range_middle() {
+            let r = InterpolationReference::from(vec![
+                BASE_TIMESTAMP.add(Duration::from_secs(10)),
+                BASE_TIMESTAMP.add(Duration::from_secs(20)),
+                BASE_TIMESTAMP.add(Duration::from_secs(30)),
+                BASE_TIMESTAMP.add(Duration::from_secs(40)),
+                BASE_TIMESTAMP.add(Duration::from_secs(50)),
+            ]);
+
+            let (before, inside, after) = r.extract_range(
+                &BASE_TIMESTAMP.add(Duration::from_secs(20)),
+                &BASE_TIMESTAMP.add(Duration::from_secs(40)),
+            );
+
+            assert_eq!(before.t, vec![BASE_TIMESTAMP.add(Duration::from_secs(10))]);
+            assert_eq!(
+                inside.t,
+                vec![
+                    BASE_TIMESTAMP.add(Duration::from_secs(20)),
+                    BASE_TIMESTAMP.add(Duration::from_secs(30)),
+                    BASE_TIMESTAMP.add(Duration::from_secs(40))
+                ]
+            );
+            assert_eq!(after.t, vec![BASE_TIMESTAMP.add(Duration::from_secs(50))]);
+        }
+
+        #[test]
+        fn extract_range_single_element() {
+            let r = InterpolationReference::from(vec![
+                BASE_TIMESTAMP.add(Duration::from_secs(10)),
+                BASE_TIMESTAMP.add(Duration::from_secs(20)),
+                BASE_TIMESTAMP.add(Duration::from_secs(30)),
+            ]);
+
+            let (before, inside, after) = r.extract_range(
+                &(BASE_TIMESTAMP.add(Duration::from_secs(20))),
+                &BASE_TIMESTAMP.add(Duration::from_secs(20)),
+            );
+
+            assert_eq!(before.t, vec![BASE_TIMESTAMP.add(Duration::from_secs(10))]);
+            assert_eq!(inside.t, vec![BASE_TIMESTAMP.add(Duration::from_secs(20))]);
+            assert_eq!(after.t, vec![BASE_TIMESTAMP.add(Duration::from_secs(30))]);
+        }
+
+        #[test]
+        fn extract_range_no_before() {
+            let r = InterpolationReference::from(vec![
+                BASE_TIMESTAMP.add(Duration::from_secs(10)),
+                BASE_TIMESTAMP.add(Duration::from_secs(20)),
+                BASE_TIMESTAMP.add(Duration::from_secs(30)),
+            ]);
+
+            let (before, inside, after) = r.extract_range(
+                &BASE_TIMESTAMP.add(Duration::from_secs(10)),
+                &BASE_TIMESTAMP.add(Duration::from_secs(20)),
+            );
+
+            assert!(before.t.is_empty());
+            assert_eq!(
+                inside.t,
+                vec![
+                    BASE_TIMESTAMP.add(Duration::from_secs(10)),
+                    BASE_TIMESTAMP.add(Duration::from_secs(20))
+                ]
+            );
+            assert_eq!(after.t, vec![BASE_TIMESTAMP.add(Duration::from_secs(30))]);
+        }
+
+        #[test]
+        fn extract_range_no_after() {
+            let r = InterpolationReference::from(vec![
+                BASE_TIMESTAMP.add(Duration::from_secs(10)),
+                BASE_TIMESTAMP.add(Duration::from_secs(20)),
+                BASE_TIMESTAMP.add(Duration::from_secs(30)),
+            ]);
+
+            let (before, inside, after) = r.extract_range(
+                &BASE_TIMESTAMP.add(Duration::from_secs(20)),
+                &BASE_TIMESTAMP.add(Duration::from_secs(30)),
+            );
+
+            assert_eq!(before.t, vec![BASE_TIMESTAMP.add(Duration::from_secs(10))]);
+            assert_eq!(
+                inside.t,
+                vec![
+                    BASE_TIMESTAMP.add(Duration::from_secs(20)),
+                    BASE_TIMESTAMP.add(Duration::from_secs(30))
+                ]
+            );
+            assert!(after.t.is_empty());
+        }
+
+        #[test]
+        fn extract_range_everything() {
+            let r = InterpolationReference::from(vec![
+                BASE_TIMESTAMP.add(Duration::from_secs(10)),
+                BASE_TIMESTAMP.add(Duration::from_secs(20)),
+                BASE_TIMESTAMP.add(Duration::from_secs(30)),
+            ]);
+
+            let (before, inside, after) = r.extract_range(
+                &BASE_TIMESTAMP.add(Duration::from_secs(10)),
+                &BASE_TIMESTAMP.add(Duration::from_secs(30)),
+            );
+
+            assert!(before.t.is_empty());
+            assert_eq!(
+                inside.t,
+                vec![
+                    BASE_TIMESTAMP.add(Duration::from_secs(10)),
+                    BASE_TIMESTAMP.add(Duration::from_secs(20)),
+                    BASE_TIMESTAMP.add(Duration::from_secs(30))
+                ]
+            );
+            assert!(after.t.is_empty());
+        }
+    }
 }
