@@ -52,6 +52,7 @@ plugin-k8s = { path = "../plugins/cgroups/k8s" }
 plugin-oar = { path = "../plugins/cgroups/oar" }
 plugin-raw-cgroups = { path = "../plugins/cgroups/raw" }
 plugin-slurm = { path = "../plugins/cgroups/slurm" }
+plugin-temperature = { path = "../plugins/temperature" }
 
 [[bin]]
 name = "alumet-agent"
