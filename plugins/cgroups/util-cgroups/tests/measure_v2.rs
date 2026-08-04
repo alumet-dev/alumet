@@ -3,7 +3,10 @@ use std::{fs::File, io::Write};
 use tempfile::tempdir;
 use util_cgroups::{
     Cgroup, CgroupHierarchy, CgroupVersion,
-    measure::v2::{V2Collector, cpu::CpuStatCollectorSettings, memory::MemoryStatCollectorSettings},
+    measure::v2::{
+        V2Collector, cpu::CpuStatCollectorSettings, io::IoPressureCollectorSettings,
+        memory::MemoryStatCollectorSettings,
+    },
 };
 
 #[test]
@@ -43,6 +46,7 @@ pub fn test_new_and_measure() -> anyhow::Result<()> {
         cgroup,
         MemoryStatCollectorSettings::default(),
         CpuStatCollectorSettings::default(),
+        IoPressureCollectorSettings::default(),
         &mut io_buf,
     )?;
     let v2stat_res = collector.measure(&mut io_buf);
@@ -98,6 +102,7 @@ pub fn test_new_and_measure_bad_file_content_key() -> anyhow::Result<()> {
         cgroup,
         MemoryStatCollectorSettings::default(),
         CpuStatCollectorSettings::default(),
+        IoPressureCollectorSettings::default(),
         &mut io_buf,
     )?;
     let v2stat_res = collector.measure(&mut io_buf);
@@ -129,6 +134,7 @@ pub fn test_new_files_dont_exist() -> anyhow::Result<()> {
         cgroup,
         MemoryStatCollectorSettings::default(),
         CpuStatCollectorSettings::default(),
+        IoPressureCollectorSettings::default(),
         &mut io_buf,
     )?;
 
@@ -171,6 +177,7 @@ pub fn test_new_missing_lines() -> anyhow::Result<()> {
         cgroup,
         MemoryStatCollectorSettings::default(),
         CpuStatCollectorSettings::default(),
+        IoPressureCollectorSettings::default(),
         &mut io_buf,
     )?;
     let v2stat_res = collector.measure(&mut io_buf);
@@ -234,6 +241,7 @@ pub fn test_new_and_measure_bad_file_content_value() -> anyhow::Result<()> {
         cgroup,
         MemoryStatCollectorSettings::default(),
         CpuStatCollectorSettings::default(),
+        IoPressureCollectorSettings::default(),
         &mut io_buf,
     );
 

@@ -6,7 +6,10 @@ use std::{
 
 use rustc_hash::{FxBuildHasher, FxHashMap};
 
-use crate::measure::bitset::BitSet128;
+use crate::measure::{
+    bitset::BitSet128,
+    v2::io::{IoPressureCollectorSettings, IoPressureStats},
+};
 
 /// Reads `file` from the beginning to the end into `io_buf`.
 ///
@@ -246,6 +249,75 @@ impl SelectiveStatMapping {
     }
 }
 
+/// Parser for io.pressure files, which use a different format than standard stat files.
+///
+/// io.pressure format:
+/// ```text
+/// some avg10=0.00 avg60=0.00 avg300=0.00 total=91487491
+/// full avg10=0.00 avg60=0.00 avg300=0.00 total=84675542
+/// ```
+///
+/// Unlike standard stat files (space-separated key-value pairs),
+/// io.pressure uses lines containing multiple space-separated key=value pairs,
+/// and the line prefix (some/full) indicates the pressure type.
+
+pub struct IoPressureFile {
+    file: File,
+    settings: IoPressureCollectorSettings,
+}
+
+impl IoPressureFile {
+    pub fn new(file: File, settings: IoPressureCollectorSettings) -> Self {
+        Self { file, settings }
+    }
+    // pub fn open(path: impl AsRef<Path>) -> io::Result<Self> {
+    //     let f = File::open(path)?;
+    //     Ok(Self::new(f))
+    // }
+
+    /// Reads the io.pressure file and extracts the total values ​​for 'some' and 'full'
+    pub unsafe fn read(&mut self, io_buf: &mut Vec<u8>) -> io::Result<IoPressureStats> {
+        read_fully(&mut self.file, io_buf)?;
+        unsafe { parse_io_pressure(io_buf, self.settings) }
+    }
+}
+
+unsafe fn parse_io_pressure(io_buf: &[u8], settings: IoPressureCollectorSettings) -> io::Result<IoPressureStats> {
+    let mut res = IoPressureStats::default();
+    let content = unsafe { std::str::from_utf8_unchecked(io_buf) };
+
+    for line in content.lines() {
+        let mut fields = line.split_whitespace();
+
+        let pressure_type = match fields.next() {
+            Some(kind) => kind,
+            None => continue,
+        };
+
+        if (pressure_type == "some" && !settings.some_total) || (pressure_type == "full" && !settings.full_total) {
+            continue;
+        }
+
+        for field in fields {
+            if let Some(("total", value)) = field.split_once('=') {
+                let total = value
+                    .parse::<u64>()
+                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid total value"))?;
+
+                match pressure_type {
+                    "some" => res.some_total = Some(total),
+                    "full" => res.full_total = Some(total),
+                    _ => {}
+                }
+
+                break;
+            }
+        }
+    }
+
+    Ok(res)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -343,5 +415,119 @@ burst_usec 0
             })
         }?;
         Ok(())
+    }
+
+    mod io_pressure {
+        use super::*;
+        use pretty_assertions::assert_eq;
+
+        fn settings() -> IoPressureCollectorSettings {
+            IoPressureCollectorSettings::default()
+        }
+
+        #[test]
+        fn parses_some_and_full_totals() {
+            let input = br#"some avg10=0.00 avg60=0.00 avg300=0.00 total=91487491
+            full avg10=0.00 avg60=0.00 avg300=0.00 total=84675542"#;
+
+            let stats = unsafe { parse_io_pressure(input, settings()).unwrap() };
+
+            assert_eq!(stats.some_total, Some(91_487_491));
+            assert_eq!(stats.full_total, Some(84_675_542));
+        }
+
+        #[test]
+        fn parses_only_some() {
+            let input = br#"some avg10=0.00 avg60=0.00 avg300=0.00 total=12345"#;
+
+            let stats = unsafe { parse_io_pressure(input, settings()).unwrap() };
+
+            assert_eq!(stats.some_total, Some(12_345));
+            assert_eq!(stats.full_total, None);
+        }
+
+        #[test]
+        fn parses_only_full() {
+            let input = br#"full avg10=0.00 avg60=0.00 avg300=0.00 total=67890"#;
+
+            let stats = unsafe { parse_io_pressure(input, settings()).unwrap() };
+            assert_eq!(stats.some_total, None);
+            assert_eq!(stats.full_total, Some(67_890));
+        }
+
+        #[test]
+        fn parses_only_some_configured() {
+            let input = br#"some avg10=0.00 avg60=0.00 avg300=0.00 total=12345
+            full avg10=0.00 avg60=0.00 avg300=0.00 total=84675542"#;
+
+            let conf = IoPressureCollectorSettings {
+                some_total: true,
+                full_total: false,
+            };
+            let stats = unsafe { parse_io_pressure(input, conf).unwrap() };
+            assert_eq!(stats.some_total, Some(12_345));
+            assert_eq!(stats.full_total, None);
+        }
+
+        #[test]
+        fn parses_only_full_configured() {
+            let input = br#"full avg10=0.00 avg60=0.00 avg300=0.00 total=67890
+            some avg10=0.00 avg60=0.00 avg300=0.00 total=12345"#;
+
+            let conf = IoPressureCollectorSettings {
+                some_total: false,
+                full_total: true,
+            };
+            let stats = unsafe { parse_io_pressure(input, conf).unwrap() };
+            assert_eq!(stats.some_total, None);
+            assert_eq!(stats.full_total, Some(67_890));
+        }
+
+        #[test]
+        fn parses_only_full_configured_messy() {
+            let input = br#"full avg10=0.00 avg60=0.00 total=67890 avg300=0.00
+            some total=12345 avg10=0.00 avg60=0.00 avg300=0.00"#;
+
+            let conf = IoPressureCollectorSettings {
+                some_total: false,
+                full_total: true,
+            };
+            let stats = unsafe { parse_io_pressure(input, conf).unwrap() };
+            assert_eq!(stats.some_total, None);
+        }
+
+        #[test]
+        fn ignores_unknown_pressure_type() {
+            let input = br#"invalid avg10=0.00 avg60=0.00 avg300=0.00 total=999"#;
+
+            let stats = unsafe { parse_io_pressure(input, settings()).unwrap() };
+            assert_eq!(stats.some_total, None);
+            assert_eq!(stats.full_total, None);
+        }
+
+        #[test]
+        fn returns_error_on_invalid_total() {
+            let input = br#"some avg10=0.00 avg60=0.00 avg300=0.00 total=not_a_number"#;
+
+            assert!(unsafe { parse_io_pressure(input, settings()) }.is_err());
+        }
+
+        #[test]
+        fn handles_empty_input() {
+            let stats = unsafe { parse_io_pressure(b"", settings()).unwrap() };
+
+            assert_eq!(stats.some_total, None);
+            assert_eq!(stats.full_total, None);
+        }
+
+        #[test]
+        fn ignores_lines_without_total() {
+            let input = br#"some avg10=0.00 avg60=0.00 avg300=0.00
+            full avg10=0.00 avg60=0.00 avg300=0.00"#;
+
+            let stats = unsafe { parse_io_pressure(input, settings()).unwrap() };
+            assert_eq!(stats.some_total, None);
+            assert_eq!(stats.full_total, None);
+        }
     }
 }
