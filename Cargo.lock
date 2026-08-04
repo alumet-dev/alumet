@@ -3256,8 +3256,10 @@ dependencies = [
  "humantime-serde",
  "itertools 0.13.0",
  "log",
+ "perf-event-open-sys2",
  "perf-event2",
  "serde",
+ "toml 0.9.12+spec-1.1.0",
 ]
 
 [[package]]
