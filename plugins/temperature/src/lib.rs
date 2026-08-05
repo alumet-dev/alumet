@@ -28,6 +28,7 @@ pub struct TemperaturePlugin {
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[serde(default)]
 pub struct Config {
     // TODO: consider adding an option to use Fahrenheit degrees instead of Celsius
     
@@ -38,6 +39,9 @@ pub struct Config {
     /// Initial interval between two flushing of measurements.
     #[serde(with = "humantime_serde")]
     pub flush_interval: Duration,
+
+    /// Get CPU Package temperature only.
+    pub package_only: bool,
 }
 
 impl Default for Config {
@@ -45,6 +49,7 @@ impl Default for Config {
         Self {
             poll_interval: Duration::from_secs(1), // 1Hz
             flush_interval: Duration::from_secs(5),
+            package_only: false,
         }
     }
 }
@@ -79,6 +84,7 @@ impl AlumetPlugin for TemperaturePlugin {
 
         // Get the config parameters out of 'self', to be used in the thread
         let poll_interval = self.config.poll_interval;
+        let package_only = self.config.package_only;
 
         // A flush of the measurement buffer will be done after `flush_rounds` measurements
         let flush_rounds = ((self.config.flush_interval.as_nanos() / poll_interval.as_nanos()) as usize).max(1);
@@ -94,8 +100,9 @@ impl AlumetPlugin for TemperaturePlugin {
                 // This plugin only works for Intel processors for the moment
                 // TODO: check the CPU vendor and stop if it is not Intel
                 // TODO: consider adding support for AMD processors
+
                 // Only getting temperature sensors from coretemp.
-                let sensors_feature_list: Vec<SensorsFeature> = temperature_sensors::get_coretemp_feature_list(&lmsensors);
+                let sensors_feature_list: Vec<SensorsFeature> = temperature_sensors::get_coretemp_feature_list(&lmsensors, package_only);
                 log::info!("Got {} temperature sensor features", sensors_feature_list.len());
                 
                 let mut buf = MeasurementBuffer::new();
