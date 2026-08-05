@@ -55,7 +55,7 @@ fn resource_from_string(name: &String, coretemp_id: u32) -> anyhow::Result<Resou
     Err(anyhow!("Failed to parse the sensor feature name"))
 }
 
-pub fn get_coretemp_feature_list<'a>(lmsensors: &'a LMSensors) -> Vec<SensorsFeature<'a>> {
+pub fn get_coretemp_feature_list<'a>(lmsensors: &'a LMSensors, package_only: bool) -> Vec<SensorsFeature<'a>> {
     let mut sensors_feature_list: Vec<SensorsFeature> = vec![];
     for chip in lmsensors.chip_iter(None)
                          .filter(|x| x.name()
@@ -78,6 +78,8 @@ pub fn get_coretemp_feature_list<'a>(lmsensors: &'a LMSensors) -> Vec<SensorsFea
             chip.feature_iter()
                 // Filter by feature::Kind::Temperature just to be sure
                 .filter(|x| x.kind() == Some(lm_sensors::feature::Kind::Temperature))
+                // If package_only is set, keep the feature if it corresponds to a Package temperature
+                .filter(|x| !package_only || x.label().expect("Component name is not a valid UTF-8 string.").starts_with("Package"))
                 .map(|x| SensorsFeature::new(x, coretemp_id)
                                          .expect("Could not create LMSensors feature."))
         );
