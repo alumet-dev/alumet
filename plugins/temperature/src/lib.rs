@@ -91,8 +91,7 @@ impl AlumetPlugin for TemperaturePlugin {
             // are not Sync nor Send
             let handle = thread::spawn(move || {
                 // Initialise all the things related to lm_sensors
-                // TODO: fail gracefully instead of calling 'unwrap'
-                let lmsensors: LMSensors = Initializer::default().initialize().unwrap();
+                let lmsensors: LMSensors = Initializer::default().initialize().expect("Could not initialise LMSensors.");
                 
                 // Only getting temperature sensors from coretemp.
                 let sensors_feature_list: Vec<SensorsFeature> = temperature_sensors::get_coretemp_feature_list(&lmsensors);
@@ -105,16 +104,21 @@ impl AlumetPlugin for TemperaturePlugin {
                 while !cancel_token.is_cancelled() {
                     // Get measurement from all temperature sensors
                     for feature in &sensors_feature_list {
-                        //TODO: fail gracefully instead of calling 'unwrap'
-                        let temperature = feature.read_temperature_value().unwrap();
-
-                        buf.push(MeasurementPoint::new(
-                            Timestamp::now(),
-                            lm_metric,
-                            feature.get_resource(),
-                            ResourceConsumer::LocalMachine,
-                            temperature
-                        ));
+                        let temperature = feature.read_temperature_value();
+                        match temperature {
+                            Ok(value) => {
+                                buf.push(MeasurementPoint::new(
+                                    Timestamp::now(),
+                                    lm_metric,
+                                    feature.resource.clone(),
+                                    ResourceConsumer::LocalMachine,
+                                    value
+                                ));
+                            }
+                            Err(e) => {
+                                log::warn!("Failed to get temperature from {}: {e}", &feature.label);
+                            }
+                        }
                     }
                     
                     round += 1;
@@ -125,7 +129,7 @@ impl AlumetPlugin for TemperaturePlugin {
                         round = 0;
                     }
 
-                    thread::sleep(next_poll_time - Instant::now());
+                    thread::sleep(next_poll_time.saturating_duration_since(Instant::now()));
                     next_poll_time += poll_interval;
                 }
 
@@ -136,12 +140,11 @@ impl AlumetPlugin for TemperaturePlugin {
 
             let source = Box::pin(async move {
                 // Just wait for the thread to terminate
-                handle.join().unwrap();
-
+                handle.join().expect("Could not join on the temperature plugin thread");
                 Ok(())
             });
             Ok(source)
-        }).expect("source names should be unique (in the same plugin)");
+        })?;
 
         Ok(())
     }

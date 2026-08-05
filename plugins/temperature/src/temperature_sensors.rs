@@ -1,3 +1,5 @@
+use anyhow::{anyhow};
+
 use lm_sensors::{
     FeatureRef,
     LMSensors,
@@ -7,19 +9,19 @@ use lm_sensors::{
 use alumet::{resources::{Resource}};
 
 pub struct SensorsFeature<'a> {
-    //coretemp_id: u32,
-    resource: Resource,
+    pub label: String,
+    pub resource: Resource,
     input_temperature_subfeature: SubFeatureRef<'a>, // Consider using SubFeature directly
 }
 
 impl SensorsFeature<'_> {
     pub fn new(lm_feature: FeatureRef, coretemp_id: u32) -> anyhow::Result<SensorsFeature> {
-        let feature_label = lm_feature.label().expect("Component name is not a valid UTF-8 string.");
-        let resource = resource_from_string(&feature_label, coretemp_id)?; //TODO handle failure
-        let subfeature = lm_feature.sub_feature_by_kind(lm_sensors::value::Kind::TemperatureInput)?; //TODO handle failure
+        let label = lm_feature.label().expect("Sensor feature name is not a valid UTF-8 string.");
+        let resource = resource_from_string(&label, coretemp_id)?; // Error handled by the caller
+        let subfeature = lm_feature.sub_feature_by_kind(lm_sensors::value::Kind::TemperatureInput)?; // Error handled by the caller
 
         Ok(SensorsFeature {
-            //coretemp_id,
+            label,
             resource,
             input_temperature_subfeature: subfeature
         })
@@ -27,10 +29,6 @@ impl SensorsFeature<'_> {
 
     pub fn read_temperature_value(&self) -> anyhow::Result<f64> {
         Ok(self.input_temperature_subfeature.raw_value()?)
-    }
-
-    pub fn get_resource(&self) -> Resource {
-        self.resource.clone()
     }
 }
 
@@ -53,10 +51,8 @@ fn resource_from_string(name: &String, coretemp_id: u32) -> anyhow::Result<Resou
         _ => {}
     }
 
-    // If we reach this line we could not parse the feature name,
-    // so fallback to generic Resource
-    // TODO: Raise an error?
-    Ok(Resource::LocalMachine)
+    // If we reach this line we could not parse the feature name
+    Err(anyhow!("Failed to parse the sensor feature name"))
 }
 
 pub fn get_coretemp_feature_list<'a>(lmsensors: &'a LMSensors) -> Vec<SensorsFeature<'a>> {
@@ -74,9 +70,9 @@ pub fn get_coretemp_feature_list<'a>(lmsensors: &'a LMSensors) -> Vec<SensorsFea
                                    .unwrap() // Unwrap is safe because of the expect call few lines above
                                    .split("-")
                                    .last()
-                                   .expect("Unusual coretemp chip name")
+                                   .expect("Coretemp chip name expected to be of the form 'coretemp-isa-XXXX'.")
                                    .parse()
-                                   .expect("Coretemp chip name should be suffied by the coretemp id.");
+                                   .expect("Coretemp chip name should be suffixed by the coretemp id.");
 
         sensors_feature_list.extend(
             chip.feature_iter()
