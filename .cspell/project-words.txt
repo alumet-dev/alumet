@@ -21,6 +21,7 @@ crio
 d'Ivoire
 Damerau
 desugars
+DFMA
 doctests
 DTLB
 evalexpr
@@ -28,9 +29,11 @@ Eviden
 FSCREDS
 giga
 hipcc
+HMMA
 humantime
 hwinfo
 hwmon
+IMMMA
 indice
 inotify
 ITLB
@@ -51,8 +54,12 @@ neowise
 niced
 nohup
 noninteractive
+NVDEC
+nvdec
 nvme
 NVML
+nvjpg
+nvofa
 oarstat
 oarsub
 Opensearch

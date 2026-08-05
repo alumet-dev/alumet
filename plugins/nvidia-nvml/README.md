@@ -38,7 +38,7 @@ One source will be created per GPU device.
 |`nvml_gpm_dram_utilization`|Gauge|Percentage|Percentage of DRAM bandwidth used|GPU|LocalMachine||
 |`nvml_gpm_pcie_throughput`|Gauge|byte|PCIe bytes transmitted or received per second|GPU|LocalMachine|[Direction](#direction)|
 |`nvml_gpm_nvdec_utilization`|Gauge|Percent|NVDEC utilization|GPU|LocalMachine|[Instance](#instance)|
-|`nvml_gpm_nvjpg_utilization`|Gauge|Percent|NGJPG utilization|GPU|LocalMachine|[Instance](#instance)|
+|`nvml_gpm_nvjpg_utilization`|Gauge|Percent|NVJPG utilization|GPU|LocalMachine|[Instance](#instance)|
 |`nvml_gpm_nvofa_utilization`|Gauge|Percent|NVOFA utilization|GPU|LocalMachine|[Instance](#instance)|
 |`nvml_gpm_nvlink_throughput`|Gauge|bytes|NVLink received and transmitted bytes per second across all links.|GPU|LocalMachine|[Instance](#instance), [Direction](#direction)|
 

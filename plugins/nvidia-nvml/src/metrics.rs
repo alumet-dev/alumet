@@ -310,7 +310,7 @@ fn create_gpm_metrics(
     })
 }
 
-/// Maps a [GpmMetricId] to a vector of attribtues that should be added to the corresponding MeasurementPoint
+/// Maps a [GpmMetricId] to a vector of attributes that should be added to the corresponding MeasurementPoint
 pub fn match_gpm_id_to_attributes(gpm_metric: &GpmMetricId) -> Vec<(&'static str, AttributeValue)> {
     match gpm_metric {
         GpmMetricId::AnyTensorUtil => vec![("operation_type", AttributeValue::Str("any"))],
