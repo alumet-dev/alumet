@@ -19,6 +19,9 @@ Here are the metrics collected by the plugin's sources.
 |`cgroup_memory_file`|Gauge|Bytes|memory used to cache filesystem data|`LocalMachine`|`Cgroup`|see below|
 |`cgroup_memory_kernel_stack`|Gauge|Bytes|memory allocated to kernel stacks|`LocalMachine`|`Cgroup`|see below|
 |`cgroup_memory_pagetables`|Gauge|Bytes|memory reserved for the page tables|`LocalMachine`|`Cgroup`|see below|
+|`cgroup_slab_reclaimable`|Gauge|Bytes|Amount of reclaimable kernel slab memory used by the cgroup.|`LocalMachine`|`Cgroup`|see below|
+|`cgroup_pswpin`|Counter|Pages|Total number of pages swapped into memory by the cgroup.|`LocalMachine`|`Cgroup`|see below|
+|`cgroup_pswpout`|Counter|Pages|Total number of pages swapped out of memory by the cgroup.|`LocalMachine`|`Cgroup`|see below|
 |`io_pressure_some_total`|CounterDiff|microseconds|IO pressure some total delta (at least one task stalled)|`LocalMachine`|`Cgroup`|none|
 |`io_pressure_full_total`|CounterDiff|microseconds|IO pressure full total delta (all tasks stalled)|`LocalMachine`|`Cgroup`|none|
 

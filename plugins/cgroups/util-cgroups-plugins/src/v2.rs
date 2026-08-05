@@ -176,6 +176,15 @@ impl Source for CgroupV2Probe {
             if let Some(value) = mem_stat.page_tables {
                 measurements.push(self.new_point(&self.metrics.memory_pagetables, t, &resource, value));
             }
+            if let Some(value) = mem_stat.slab_reclaimable {
+                measurements.push(self.new_point(&self.metrics.slab_reclaimable, t, &resource, value));
+            }
+            if let Some(value) = mem_stat.pswpin {
+                measurements.push(self.new_point(&self.metrics.pswpin, t, &resource, value));
+            }
+            if let Some(value) = mem_stat.pswpout {
+                measurements.push(self.new_point(&self.metrics.pswpout, t, &resource, value));
+            }
         }
 
         // IO statistics

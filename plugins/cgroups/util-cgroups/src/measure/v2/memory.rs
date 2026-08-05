@@ -33,6 +33,9 @@ pub struct MemoryStats {
     pub file: Option<u64>,
     pub kernel_stack: Option<u64>,
     pub page_tables: Option<u64>,
+    pub slab_reclaimable: Option<u64>,
+    pub pswpin: Option<u64>,
+    pub pswpout: Option<u64>,
     // could be extended to manage other memory.stat measurements
 }
 
@@ -42,6 +45,9 @@ struct MemoryStatMapping {
     file: LineIndex,
     kernel_stack: LineIndex,
     page_tables: LineIndex,
+    slab_reclaimable: LineIndex,
+    pswpin: LineIndex,
+    pswpout: LineIndex,
 }
 
 #[derive(Debug, Serialize)]
@@ -51,6 +57,9 @@ pub struct MemoryStatCollectorSettings {
     pub kernel_stack: bool,
     #[serde(rename = "pagetables")]
     pub page_tables: bool,
+    pub slab_reclaimable: bool,
+    pub pswpin: bool,
+    pub pswpout: bool,
 }
 
 impl EnabledKeys for MemoryStatCollectorSettings {}
@@ -62,6 +71,9 @@ impl Default for MemoryStatCollectorSettings {
             file: true,
             kernel_stack: true,
             page_tables: true,
+            slab_reclaimable: true,
+            pswpin: true,
+            pswpout: true,
         }
     }
 }
@@ -114,6 +126,15 @@ impl MemoryStatCollector {
         if let Some(i) = stat_mapping.line_index("pagetables") {
             mapping.page_tables = i.into();
         }
+        if let Some(i) = stat_mapping.line_index("slab_reclaimable") {
+            mapping.slab_reclaimable = i.into();
+        }
+        if let Some(i) = stat_mapping.line_index("pswpin") {
+            mapping.pswpin = i.into();
+        }
+        if let Some(i) = stat_mapping.line_index("pswpout") {
+            mapping.pswpout = i.into();
+        }
 
         if !stat_mapping.keys_not_found().is_empty() {
             log::warn!(
@@ -143,6 +164,15 @@ impl MemoryStatCollector {
                 i if i == self.mapping.page_tables.0 => {
                     res.page_tables = Some(v);
                 }
+                i if i == self.mapping.slab_reclaimable.0 => {
+                    res.slab_reclaimable = Some(v);
+                }
+                i if i == self.mapping.pswpin.0 => {
+                    res.pswpin = Some(v);
+                }
+                i if i == self.mapping.pswpout.0 => {
+                    res.pswpout = Some(v);
+                }
                 _ => (),
             })
         }?;
@@ -168,6 +198,9 @@ mod tests {
             file: 12,
             kernel_stack: 123,
             pagetables: 42,
+            slab_reclaimable: 77,
+            pswpin: 79,
+            pswpout: 81,
             ..Default::default()
         };
         mock.write_to_file(tmp.as_file_mut())?;
@@ -180,6 +213,9 @@ mod tests {
                 file: false,
                 kernel_stack: true,
                 page_tables: true,
+                slab_reclaimable: true,
+                pswpin: true,
+                pswpout: true,
             },
             io_buf.as_mut(),
         )?;
@@ -189,6 +225,9 @@ mod tests {
         assert_eq!(memory_stats.file, None);
         assert_eq!(memory_stats.kernel_stack, Some(123));
         assert_eq!(memory_stats.page_tables, Some(42));
+        assert_eq!(memory_stats.slab_reclaimable, Some(77));
+        assert_eq!(memory_stats.pswpin, Some(79));
+        assert_eq!(memory_stats.pswpout, Some(81));
         Ok(())
     }
 
@@ -206,6 +245,9 @@ mod tests {
                 file: true,
                 kernel_stack: true,
                 page_tables: true,
+                slab_reclaimable: true,
+                pswpin: true,
+                pswpout: true,
             },
             io_buf.as_mut(),
         )?;
@@ -215,6 +257,9 @@ mod tests {
         assert_eq!(memory_stats.file, None);
         assert_eq!(memory_stats.kernel_stack, None);
         assert_eq!(memory_stats.page_tables, None);
+        assert_eq!(memory_stats.slab_reclaimable, None);
+        assert_eq!(memory_stats.pswpin, None);
+        assert_eq!(memory_stats.pswpout, None);
 
         // empty lines
         std::fs::write(tmp.path(), "\n\n\n")?;
@@ -223,6 +268,9 @@ mod tests {
         assert_eq!(memory_stats.file, None);
         assert_eq!(memory_stats.kernel_stack, None);
         assert_eq!(memory_stats.page_tables, None);
+        assert_eq!(memory_stats.slab_reclaimable, None);
+        assert_eq!(memory_stats.pswpin, None);
+        assert_eq!(memory_stats.pswpout, None);
         Ok(())
     }
 
