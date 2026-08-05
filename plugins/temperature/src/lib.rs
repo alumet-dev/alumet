@@ -85,14 +85,15 @@ impl AlumetPlugin for TemperaturePlugin {
         
         // Create an autonomous source and add the source to the measurement pipeline
         alumet.add_autonomous_source_builder("temperature_autonomous_source", move |_ctx, cancel_token, tx| {
-            let out_tx = tx.clone();
-
             // An new thread is needed because LMSensors and internal objects
             // are not Sync nor Send
             let handle = thread::spawn(move || {
                 // Initialise all the things related to lm_sensors
                 let lmsensors: LMSensors = Initializer::default().initialize().expect("Could not initialise LMSensors.");
                 
+                // This plugin only works for Intel processors for the moment
+                // TODO: check the CPU vendor and stop if it is not Intel
+                // TODO: consider adding support for AMD processors
                 // Only getting temperature sensors from coretemp.
                 let sensors_feature_list: Vec<SensorsFeature> = temperature_sensors::get_coretemp_feature_list(&lmsensors);
                 log::info!("Got {} temperature sensor features", sensors_feature_list.len());
@@ -124,7 +125,7 @@ impl AlumetPlugin for TemperaturePlugin {
                     round += 1;
                     if round == flush_rounds {
                         // Push and clear the buffer after at most the flush_interval period
-                        let _ = out_tx.blocking_send(buf.clone());
+                        let _ = tx.blocking_send(buf.clone());
                         buf.clear();
                         round = 0;
                     }
@@ -134,7 +135,7 @@ impl AlumetPlugin for TemperaturePlugin {
                 }
 
                 // Flush one last time the buffer
-                let _ = out_tx.blocking_send(buf.clone());
+                let _ = tx.blocking_send(buf.clone());
                 buf.clear();
             });
 

@@ -12,7 +12,6 @@ humantime-serde.workspace = true
 serde = { workspace = true, features = ["derive"] }
 sensors-sys = "0.2.18"
 lm-sensors = "0.5.1"
-#tokio = { version = "1"}
 
 [lints]
 workspace = true
