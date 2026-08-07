@@ -22,6 +22,12 @@ pub struct Metrics {
     pub memory_kernel_stack: TypedMetricId<u64>,
     /// Memory used to manage correspondence between virtual and physical addresses.
     pub memory_pagetables: TypedMetricId<u64>,
+    /// Reclaimable kernel slab memory used by the cgroup.
+    pub slab_reclaimable: TypedMetricId<u64>,
+    /// Number of pages swapped into memory by the cgroup.
+    pub pswpin: TypedMetricId<u64>,
+    /// Number of pages swapped out of memory by the cgroup.
+    pub pswpout: TypedMetricId<u64>,
     /// IO pressure: some total delta (at least one task stalled)
     pub io_pressure_some_total: TypedMetricId<u64>,
     /// IO pressure: full total delta (all tasks stalled)
@@ -65,6 +71,12 @@ pub struct AugmentedMetrics {
     pub memory_kernel_stack: AugmentedMetric<u64>,
     /// Memory used to manage correspondence between virtual and physical addresses.
     pub memory_pagetables: AugmentedMetric<u64>,
+    /// Reclaimable kernel slab memory used by the cgroup.
+    pub slab_reclaimable: AugmentedMetric<u64>,
+    /// Number of pages swapped into memory by the cgroup.
+    pub pswpin: AugmentedMetric<u64>,
+    /// Number of pages swapped out of memory by the cgroup.
+    pub pswpout: AugmentedMetric<u64>,
     /// IO pressure: some total delta (at least one task stalled)
     pub io_pressure_some_total: AugmentedMetric<u64>,
     /// IO pressure: full total delta (all tasks stalled)
@@ -112,6 +124,22 @@ impl Metrics {
             Unit::Byte,
             "Amount of memory allocated for page tables (which map virtual addresses to physical addresses).",
         )?;
+        let slab_reclaimable = alumet.create_metric::<u64>(
+            "cgroup_slab_reclaimable",
+            Unit::Byte,
+            "Amount of reclaimable kernel slab memory used by the cgroup.",
+        )?;
+        let pswpin = alumet.create_metric::<u64>(
+            "cgroup_pswpin",
+            Unit::Unity,
+            "Number of pages swapped into memory by the cgroup.",
+        )?;
+
+        let pswpout = alumet.create_metric::<u64>(
+            "cgroup_pswpout",
+            Unit::Unity,
+            "Number of pages swapped out of memory by the cgroup.",
+        )?;
         let io_pressure_some_total = alumet.create_metric::<u64>(
             "io_pressure_some_total",
             PrefixedUnit::micro(Unit::Second),
@@ -130,6 +158,9 @@ impl Metrics {
             memory_file,
             memory_kernel_stack,
             memory_pagetables,
+            slab_reclaimable,
+            pswpin,
+            pswpout,
             io_pressure_some_total,
             io_pressure_full_total,
         })
@@ -146,6 +177,9 @@ impl AugmentedMetrics {
             memory_file: AugmentedMetric::simple(metrics.memory_file),
             memory_kernel_stack: AugmentedMetric::simple(metrics.memory_kernel_stack),
             memory_pagetables: AugmentedMetric::simple(metrics.memory_pagetables),
+            slab_reclaimable: AugmentedMetric::simple(metrics.slab_reclaimable),
+            pswpin: AugmentedMetric::simple(metrics.pswpin),
+            pswpout: AugmentedMetric::simple(metrics.pswpout),
             io_pressure_full_total: AugmentedMetric::simple(metrics.io_pressure_full_total),
             io_pressure_some_total: AugmentedMetric::simple(metrics.io_pressure_some_total),
             common_attrs: Vec::new(),
@@ -174,6 +208,9 @@ impl AugmentedMetrics {
             memory_file: AugmentedMetric::simple(metrics.memory_file),
             memory_kernel_stack: AugmentedMetric::simple(metrics.memory_kernel_stack),
             memory_pagetables: AugmentedMetric::simple(metrics.memory_pagetables),
+            slab_reclaimable: AugmentedMetric::simple(metrics.slab_reclaimable),
+            pswpin: AugmentedMetric::simple(metrics.pswpin),
+            pswpout: AugmentedMetric::simple(metrics.pswpout),
             io_pressure_full_total: AugmentedMetric::simple(metrics.io_pressure_full_total),
             io_pressure_some_total: AugmentedMetric::simple(metrics.io_pressure_some_total),
             common_attrs,

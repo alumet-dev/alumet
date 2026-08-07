@@ -29,7 +29,10 @@ pub fn test_new_and_measure() -> anyhow::Result<()> {
     let data_mem = "anon 321\n\
             file 654\n\
             kernel_stack 987\n\
-            pagetables 741\n";
+            pagetables 741\n\
+            slab_reclaimable 139419168\n\
+            pswpin 179988\n\
+            pswpout 549088\n";
     let mut file2 = File::create(file_path)?;
     file2.write_all(data_mem.as_bytes())?;
     // file 3
@@ -67,6 +70,9 @@ pub fn test_new_and_measure() -> anyhow::Result<()> {
     assert_eq!(mem_stat.file.unwrap_or(0), 654);
     assert_eq!(mem_stat.kernel_stack.unwrap_or(0), 987);
     assert_eq!(mem_stat.page_tables.unwrap_or(0), 741);
+    assert_eq!(mem_stat.slab_reclaimable.unwrap_or(0), 139419168);
+    assert_eq!(mem_stat.pswpin.unwrap_or(0), 179988);
+    assert_eq!(mem_stat.pswpout.unwrap_or(0), 549088);
 
     assert_eq!(mem_cur, 852);
 
@@ -224,7 +230,10 @@ pub fn test_new_and_measure_bad_file_content_value() -> anyhow::Result<()> {
     let data_mem = "anon ghj\n\
             file hh\n\
             kernel_stack rez\n\
-            pagetables 741\n";
+            pagetables 741\n\
+            slab_reclaimable 139419168\n\
+            pswpin 179988\n\
+            pswpout 549088\n";
     let mut file2 = File::create(file_path)?;
     file2.write_all(data_mem.as_bytes())?;
     // file 3
