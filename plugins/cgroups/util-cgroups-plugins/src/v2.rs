@@ -5,8 +5,15 @@ use alumet::{
 };
 use util_cgroups::{
     Cgroup,
-    measure::v2::{V2Collector, cpu::CpuStatCollectorSettings, memory::MemoryStatCollectorSettings},
+    measure::v2::{
+        V2Collector,
+        cpu::CpuStatCollectorSettings,
+        io::{IoPressureCollectorSettings, IoPressureStats},
+        memory::MemoryStatCollectorSettings,
+    },
 };
+
+use crate::delta::IoDeltaCounters;
 
 use super::{
     delta::CpuDeltaCounters, metrics::AugmentedMetric, metrics::AugmentedMetrics, self_stop::analyze_io_result,
@@ -14,7 +21,8 @@ use super::{
 
 pub struct CgroupV2Probe {
     consumer: ResourceConsumer,
-    delta_counters: CpuDeltaCounters,
+    cpu_delta_counters: CpuDeltaCounters,
+    io_delta_counters: IoDeltaCounters,
     metrics: AugmentedMetrics,
     collector: V2Collector,
     io_buf: Vec<u8>,
@@ -32,6 +40,7 @@ impl CgroupV2Probe {
             cgroup,
             MemoryStatCollectorSettings::default(),
             CpuStatCollectorSettings::default(),
+            IoPressureCollectorSettings::default(),
             &mut io_buf,
         )?;
 
@@ -41,7 +50,8 @@ impl CgroupV2Probe {
 
         Ok(Self {
             consumer,
-            delta_counters: Default::default(),
+            cpu_delta_counters: Default::default(),
+            io_delta_counters: Default::default(),
             metrics,
             collector,
             io_buf,
@@ -84,7 +94,7 @@ impl Source for CgroupV2Probe {
         if let Some(cpu_stat) = data.cpu_stat {
             if let Some(value) = cpu_stat
                 .usage
-                .map(|v| self.delta_counters.usage.update(v).difference())
+                .map(|v| self.cpu_delta_counters.usage.update(v).difference())
                 .flatten()
             {
                 measurements.push(
@@ -106,7 +116,7 @@ impl Source for CgroupV2Probe {
 
             if let Some(value) = cpu_stat
                 .system
-                .map(|v| self.delta_counters.system.update(v).difference())
+                .map(|v| self.cpu_delta_counters.system.update(v).difference())
                 .flatten()
             {
                 measurements.push(
@@ -128,7 +138,7 @@ impl Source for CgroupV2Probe {
 
             if let Some(value) = cpu_stat
                 .user
-                .map(|v| self.delta_counters.user.update(v).difference())
+                .map(|v| self.cpu_delta_counters.user.update(v).difference())
                 .flatten()
             {
                 measurements.push(
@@ -167,11 +177,32 @@ impl Source for CgroupV2Probe {
                 measurements.push(self.new_point(&self.metrics.memory_pagetables, t, &resource, value));
             }
         }
+
+        // IO statistics
+        if let Some(io_pressure) = data.io_pressure {
+            if let Some(value) = io_pressure
+                .some_total
+                .map(|v| self.io_delta_counters.some.update(v).difference())
+                .flatten()
+            {
+                measurements.push(self.new_point(&self.metrics.io_pressure_some_total, t, &resource, value));
+            }
+
+            if let Some(value) = io_pressure
+                .full_total
+                .map(|v| self.io_delta_counters.full.update(v).difference())
+                .flatten()
+            {
+                measurements.push(self.new_point(&self.metrics.io_pressure_full_total, t, &resource, value));
+            }
+        }
+
         Ok(())
     }
 
     fn reset(&mut self) -> anyhow::Result<()> {
-        self.delta_counters.reset();
+        self.cpu_delta_counters.reset();
+        self.io_delta_counters.reset();
         self.last_timestamp = None;
         Ok(())
     }

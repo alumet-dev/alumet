@@ -22,6 +22,10 @@ pub struct Metrics {
     pub memory_kernel_stack: TypedMetricId<u64>,
     /// Memory used to manage correspondence between virtual and physical addresses.
     pub memory_pagetables: TypedMetricId<u64>,
+    /// IO pressure: some total delta (at least one task stalled)
+    pub io_pressure_some_total: TypedMetricId<u64>,
+    /// IO pressure: full total delta (all tasks stalled)
+    pub io_pressure_full_total: TypedMetricId<u64>,
 }
 
 /// Used by probes to configure how cgroup measurements will be mapped to Alumet measurement points.
@@ -61,6 +65,10 @@ pub struct AugmentedMetrics {
     pub memory_kernel_stack: AugmentedMetric<u64>,
     /// Memory used to manage correspondence between virtual and physical addresses.
     pub memory_pagetables: AugmentedMetric<u64>,
+    /// IO pressure: some total delta (at least one task stalled)
+    pub io_pressure_some_total: AugmentedMetric<u64>,
+    /// IO pressure: full total delta (all tasks stalled)
+    pub io_pressure_full_total: AugmentedMetric<u64>,
 
     /// Common attributes, added to the points of all metrics.
     pub common_attrs: Vec<(String, AttributeValue)>,
@@ -104,6 +112,16 @@ impl Metrics {
             Unit::Byte,
             "Amount of memory allocated for page tables (which map virtual addresses to physical addresses).",
         )?;
+        let io_pressure_some_total = alumet.create_metric::<u64>(
+            "io_pressure_some_total",
+            PrefixedUnit::micro(Unit::Second),
+            "IO pressure some total delta: time with at least one task stalled since previous measurement",
+        )?;
+        let io_pressure_full_total = alumet.create_metric::<u64>(
+            "io_pressure_full_total",
+            PrefixedUnit::micro(Unit::Second),
+            "IO pressure full total delta: time with all tasks stalled since previous measurement",
+        )?;
         Ok(Self {
             cpu_time_delta,
             cpu_percent,
@@ -112,6 +130,8 @@ impl Metrics {
             memory_file,
             memory_kernel_stack,
             memory_pagetables,
+            io_pressure_some_total,
+            io_pressure_full_total,
         })
     }
 }
@@ -126,6 +146,8 @@ impl AugmentedMetrics {
             memory_file: AugmentedMetric::simple(metrics.memory_file),
             memory_kernel_stack: AugmentedMetric::simple(metrics.memory_kernel_stack),
             memory_pagetables: AugmentedMetric::simple(metrics.memory_pagetables),
+            io_pressure_full_total: AugmentedMetric::simple(metrics.io_pressure_full_total),
+            io_pressure_some_total: AugmentedMetric::simple(metrics.io_pressure_some_total),
             common_attrs: Vec::new(),
         }
     }
@@ -152,6 +174,8 @@ impl AugmentedMetrics {
             memory_file: AugmentedMetric::simple(metrics.memory_file),
             memory_kernel_stack: AugmentedMetric::simple(metrics.memory_kernel_stack),
             memory_pagetables: AugmentedMetric::simple(metrics.memory_pagetables),
+            io_pressure_full_total: AugmentedMetric::simple(metrics.io_pressure_full_total),
+            io_pressure_some_total: AugmentedMetric::simple(metrics.io_pressure_some_total),
             common_attrs,
         }
     }
