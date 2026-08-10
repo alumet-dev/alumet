@@ -16,6 +16,7 @@ members = [
     "plugins/influxdb",
     "plugins/kwollect-input",
     "plugins/kwollect-output",
+    "plugins/lm-sensors",
     "plugins/mongodb",
     "plugins/nvidia-jetson",
     "plugins/nvidia-nvml",
@@ -28,7 +29,6 @@ members = [
     "plugins/rapl",
     "plugins/relay",
     "plugins/socket-control",
-    "plugins/lm-sensors",
 
     "separate-tests/test-dynamic-plugins",
 ]
