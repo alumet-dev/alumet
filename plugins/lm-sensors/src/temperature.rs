@@ -44,7 +44,7 @@ fn resource_from_string(name: &str, coretemp_id: u32) -> anyhow::Result<Resource
                 // Need to attach the package id to the CPU core id
                 let custom_id = format!("{}_{}", coretemp_id, id);
                 return Ok(Resource::Custom {
-                    kind: std::borrow::Cow::Borrowed("CpuCore"),
+                    kind: std::borrow::Cow::Borrowed("cpu_core"),
                     id: custom_id.into(),
                 });
             }
@@ -56,8 +56,8 @@ fn resource_from_string(name: &str, coretemp_id: u32) -> anyhow::Result<Resource
     Err(anyhow!("Failed to parse the sensor feature name"))
 }
 
-pub fn get_coretemp_feature_list<'a>(lmsensors: &'a LMSensors, package_only: bool) -> Vec<SensorsFeature<'a>> {
-    let mut sensors_feature_list: Vec<SensorsFeature> = vec![];
+pub fn get_coretemp_sensors_list<'a>(lmsensors: &'a LMSensors, package_only: bool) -> Vec<SensorsFeature<'a>> {
+    let mut temperature_sensors_list: Vec<SensorsFeature> = vec![];
     for chip in lmsensors.chip_iter(None).filter(|x| {
         x.name()
             .expect("Chip name from LMSensors is not a valid UTF-8 string.")
@@ -77,7 +77,7 @@ pub fn get_coretemp_feature_list<'a>(lmsensors: &'a LMSensors, package_only: boo
             .parse()
             .expect("Coretemp chip name should be suffixed by the coretemp id.");
 
-        sensors_feature_list.extend(
+        temperature_sensors_list.extend(
             chip.feature_iter()
                 // Filter by feature::Kind::Temperature just to be sure
                 .filter(|x| x.kind() == Some(lm_sensors::feature::Kind::Temperature))
@@ -92,5 +92,5 @@ pub fn get_coretemp_feature_list<'a>(lmsensors: &'a LMSensors, package_only: boo
         );
     }
 
-    sensors_feature_list
+    temperature_sensors_list
 }

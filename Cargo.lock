@@ -95,6 +95,7 @@ dependencies = [
  "plugin-k8s",
  "plugin-kwollect-input",
  "plugin-kwollect-output",
+ "plugin-lm-sensors",
  "plugin-mongodb",
  "plugin-nvidia-jetson",
  "plugin-nvidia-nvml",
@@ -110,7 +111,6 @@ dependencies = [
  "plugin-relay",
  "plugin-slurm",
  "plugin-socket-control",
- "plugin-temperature",
  "pretty_assertions",
  "serde",
  "tempfile",
@@ -3224,6 +3224,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "plugin-lm-sensors"
+version = "0.1.0"
+dependencies = [
+ "alumet",
+ "anyhow",
+ "humantime-serde",
+ "lm-sensors",
+ "log",
+ "sensors-sys",
+ "serde",
+]
+
+[[package]]
 name = "plugin-mongodb"
 version = "0.1.0"
 dependencies = [
@@ -3465,19 +3478,6 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-util",
-]
-
-[[package]]
-name = "plugin-temperature"
-version = "0.1.0"
-dependencies = [
- "alumet",
- "anyhow",
- "humantime-serde",
- "lm-sensors",
- "log",
- "sensors-sys",
- "serde",
 ]
 
 [[package]]
