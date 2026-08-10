@@ -39,6 +39,7 @@ plugin-amd-gpu = { path = "../plugins/amd-gpu" }
 # Linux-only dependencies
 [target.'cfg(target_os = "linux")'.dependencies]
 plugin-grace-hopper = { path = "../plugins/grace-hopper" }
+plugin-lm-sensors = { path = "../plugins/lm-sensors" }
 plugin-nvidia-jetson = { path = "../plugins/nvidia-jetson" }
 plugin-nvidia-nvml = { path = "../plugins/nvidia-nvml" }
 plugin-process-to-cgroup-bridge = { path = "../plugins/process-to-cgroup-bridge" }
@@ -52,7 +53,6 @@ plugin-k8s = { path = "../plugins/cgroups/k8s" }
 plugin-oar = { path = "../plugins/cgroups/oar" }
 plugin-raw-cgroups = { path = "../plugins/cgroups/raw" }
 plugin-slurm = { path = "../plugins/cgroups/slurm" }
-plugin-lm-sensors = { path = "../plugins/lm-sensors" }
 
 [[bin]]
 name = "alumet-agent"
