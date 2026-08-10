@@ -59,7 +59,7 @@ fn load_plugins_metadata() -> Vec<PluginMetadata> {
             plugin_nvidia_jetson::JetsonPlugin,
             plugin_amd_gpu::AmdGpuPlugin<plugin_amd_gpu::AmdSmiProvider>,
             plugin_quarch::QuarchPlugin,
-            plugin_temperature::TemperaturePlugin,
+            plugin_lm_sensors::LMSensorsPlugin,
         ]);
     }
 
