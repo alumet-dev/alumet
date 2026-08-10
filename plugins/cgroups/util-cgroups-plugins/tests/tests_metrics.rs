@@ -68,6 +68,7 @@ fn test_metrics_sets() {
         .expect_metric::<u64>("cpu_time_delta", PrefixedUnit::nano(Unit::Second))
         .expect_metric::<f64>("cpu_percent", Unit::Percent)
         .expect_metric::<u64>("memory_usage", Unit::Byte)
+        .expect_metric::<u64>("memory_max", Unit::Byte)
         .expect_metric::<u64>("cgroup_memory_anonymous", Unit::Byte)
         .expect_metric::<u64>("cgroup_memory_file", Unit::Byte)
         .expect_metric::<u64>("cgroup_memory_kernel_stack", Unit::Byte)
@@ -88,6 +89,7 @@ fn test_metrics_sets() {
             let cpu_time_delta = ctx.metrics().by_name("cpu_time_delta").unwrap().0;
             let cpu_percent = ctx.metrics().by_name("cpu_percent").unwrap().0;
             let memory_usage = ctx.metrics().by_name("memory_usage").unwrap().0;
+            let memory_max = ctx.metrics().by_name("memory_max").unwrap().0;
             let cgroup_memory_anonymous = ctx.metrics().by_name("cgroup_memory_anonymous").unwrap().0;
             let cgroup_memory_file = ctx.metrics().by_name("cgroup_memory_file").unwrap().0;
             let cgroup_memory_kernel_stack = ctx.metrics().by_name("cgroup_memory_kernel_stack").unwrap().0;
@@ -101,6 +103,7 @@ fn test_metrics_sets() {
             assert!(m.iter().any(|p| p.metric == cpu_time_delta));
             assert!(m.iter().any(|p| p.metric == cpu_percent));
             assert!(m.iter().any(|p| p.metric == memory_usage));
+            assert!(m.iter().any(|p| p.metric == memory_max));
             assert!(m.iter().any(|p| p.metric == cgroup_memory_anonymous));
             assert!(m.iter().any(|p| p.metric == cgroup_memory_file));
             assert!(m.iter().any(|p| p.metric == cgroup_memory_kernel_stack));

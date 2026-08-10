@@ -14,6 +14,8 @@ pub struct Metrics {
     pub cpu_percent: TypedMetricId<f64>,
     /// Memory currently used by the cgroup.
     pub memory_usage: TypedMetricId<u64>,
+    /// Maximum memory available for the cgroup.
+    pub memory_max: TypedMetricId<u64>,
     /// Anonymous used memory, corresponding to running process and various allocated memory.
     pub memory_anonymous: TypedMetricId<u64>,
     /// Files memory, corresponding to open files and descriptors.
@@ -63,6 +65,8 @@ pub struct AugmentedMetrics {
     pub cpu_percent: AugmentedMetric<f64>,
     /// Memory currently used by the cgroup.
     pub memory_usage: AugmentedMetric<u64>,
+    /// Maximum memory available for the cgroup.
+    pub memory_max: AugmentedMetric<u64>,
     /// Anonymous used memory, corresponding to running process and various allocated memory.
     pub memory_anonymous: AugmentedMetric<u64>,
     /// Files memory, corresponding to open files and descriptors.
@@ -104,6 +108,8 @@ impl Metrics {
             Unit::Byte,
             "The total amount of memory currently being used by the cgroup and its descendants (at least in cgroupv2).",
         )?;
+        let memory_max =
+            alumet.create_metric::<u64>("memory_max", Unit::Byte, "Maximum memory available for the cgroup")?;
         let memory_anonymous = alumet.create_metric::<u64>(
             "cgroup_memory_anonymous",
             Unit::Byte,
@@ -154,6 +160,7 @@ impl Metrics {
             cpu_time_delta,
             cpu_percent,
             memory_usage,
+            memory_max,
             memory_anonymous,
             memory_file,
             memory_kernel_stack,
@@ -173,6 +180,7 @@ impl AugmentedMetrics {
             cpu_time_delta: AugmentedMetric::simple(metrics.cpu_time_delta),
             cpu_percent: AugmentedMetric::simple(metrics.cpu_percent),
             memory_usage: AugmentedMetric::simple(metrics.memory_usage),
+            memory_max: AugmentedMetric::simple(metrics.memory_max),
             memory_anonymous: AugmentedMetric::simple(metrics.memory_anonymous),
             memory_file: AugmentedMetric::simple(metrics.memory_file),
             memory_kernel_stack: AugmentedMetric::simple(metrics.memory_kernel_stack),
@@ -204,6 +212,7 @@ impl AugmentedMetrics {
             cpu_time_delta: AugmentedMetric::simple(metrics.cpu_time_delta),
             cpu_percent: AugmentedMetric::simple(metrics.cpu_percent),
             memory_usage: AugmentedMetric::simple(metrics.memory_usage),
+            memory_max: AugmentedMetric::simple(metrics.memory_max),
             memory_anonymous: AugmentedMetric::simple(metrics.memory_anonymous),
             memory_file: AugmentedMetric::simple(metrics.memory_file),
             memory_kernel_stack: AugmentedMetric::simple(metrics.memory_kernel_stack),

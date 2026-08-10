@@ -41,12 +41,13 @@ mod common {
     use super::{
         cpu::{CpuStatCollector, CpuStats},
         io::IoPressureStats,
-        memory::{MemoryCurrentCollector, MemoryStatCollector, MemoryStats},
+        memory::{MemoryCurrentCollector, MemoryMaxCollector, MemoryStatCollector, MemoryStats},
     };
 
     /// Collects cgroup v2 measurements.
     pub struct V2Collector {
         memory_current: Option<MemoryCurrentCollector>,
+        memory_max: Option<MemoryMaxCollector>,
         memory_stat: Option<MemoryStatCollector>,
         cpu_stat: Option<CpuStatCollector>,
         io_pressure: Option<IoPressureCollector>,
@@ -54,6 +55,7 @@ mod common {
 
     pub struct V2Stats {
         pub memory_current: Option<u64>,
+        pub memory_max: Option<u64>,
         pub memory_stat: Option<MemoryStats>,
         pub cpu_stat: Option<CpuStats>,
         pub io_pressure: Option<IoPressureStats>,
@@ -77,6 +79,7 @@ mod common {
         ) -> anyhow::Result<Self> {
             let cgroup_path = cgroup.fs_path();
             let memory_current_file = cgroup_path.join("memory.current");
+            let memory_max_file = cgroup_path.join("memory.max");
             let memory_stat_file = cgroup_path.join("memory.stat");
             let cpu_stat_file = cgroup_path.join("cpu.stat");
             let io_pressure_file = cgroup_path.join("io.pressure");
@@ -89,6 +92,21 @@ mod common {
                         log::warn!(
                             "{} does not exist, some metrics will not be available",
                             memory_current_file.display()
+                        );
+                        Ok(None)
+                    }
+                    Err(e) => Err(e.into()),
+                }
+            };
+
+            let prepare_memory_max = || -> anyhow::Result<Option<MemoryMaxCollector>> {
+                match MemoryMaxCollector::new(&memory_max_file) {
+                    Ok(res) => Ok(Some(res)),
+                    Err(e) if e.kind() == ErrorKind::NotFound => {
+                        // the file does not exist, ignore
+                        log::warn!(
+                            "{} does not exist, some metrics will not be available",
+                            memory_max_file.display()
                         );
                         Ok(None)
                     }
@@ -145,6 +163,7 @@ mod common {
 
             Ok(Self {
                 memory_current: prepare_memory_current().with_context(error_msg)?,
+                memory_max: prepare_memory_max().with_context(error_msg)?,
                 memory_stat: prepare_memory_stat(io_buf).with_context(error_msg)?,
                 cpu_stat: prepare_cpu_stat(io_buf).with_context(error_msg)?,
                 io_pressure: prepare_io_pressure(io_buf).with_context(error_msg)?,
@@ -156,12 +175,14 @@ mod common {
             // TODO take &mut V2Stats as a parameter to reduce allocations? Profile.
 
             let memory_current = self.memory_current.as_mut().map(|c| c.measure(io_buf)).transpose()?;
+            let memory_max = self.memory_max.as_mut().map(|c| c.measure(io_buf)).transpose()?;
             let memory_stat = self.memory_stat.as_mut().map(|c| c.measure(io_buf)).transpose()?;
             let cpu_stat = self.cpu_stat.as_mut().map(|c| c.measure(io_buf)).transpose()?;
             let io_pressure = self.io_pressure.as_mut().map(|c| c.measure(io_buf)).transpose()?;
 
             Ok(V2Stats {
                 memory_current,
+                memory_max,
                 memory_stat,
                 cpu_stat,
                 io_pressure,
