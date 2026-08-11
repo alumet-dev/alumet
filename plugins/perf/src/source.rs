@@ -11,6 +11,7 @@ use anyhow::Context;
 use itertools::Itertools;
 
 use crate::cpu;
+use crate::spec::ConfiguredEvent;
 
 #[derive(Debug)]
 pub enum Observable {
@@ -89,11 +90,7 @@ impl PerfEventSourceBuilder {
         })
     }
 
-    pub fn add<E: perf_event::events::Event + Clone>(
-        &mut self,
-        event: E,
-        alumet_metric: TypedMetricId<u64>,
-    ) -> anyhow::Result<&mut Self> {
+    pub fn add(&mut self, event: &ConfiguredEvent, alumet_metric: TypedMetricId<u64>) -> anyhow::Result<&mut Self> {
         // Returns a new [`perf_event::Builder`] configured to build a group of perf events.
         fn new_group_builder<'a>() -> perf_event::Builder<'a> {
             use perf_event::ReadFormat;
@@ -120,8 +117,11 @@ impl PerfEventSourceBuilder {
                         .with_context(|| format!("build_group with observe_pid({pid}).any_cpu()"))?;
 
                     // add event (the params must be the same)
+                    let mut event_builder = perf_event::Builder::new(event.clone());
+                    event_builder.observe_pid(*pid).any_cpu();
+                    event.configure(&mut event_builder);
                     let counter = perf_group
-                        .add(perf_event::Builder::new(event).observe_pid(*pid).any_cpu())
+                        .add(&event_builder)
                         .with_context(|| format!("perf_group.add with observe_pid({pid}).any_cpu()"))?;
 
                     // add metadata
@@ -154,12 +154,11 @@ impl PerfEventSourceBuilder {
                             .with_context(|| format!("build_group with observe_cgroup({path}).one_cpu({cpu_id})"))?;
 
                         // add event (the params must be the same)
+                        let mut event_builder = perf_event::Builder::new(event.clone());
+                        event_builder.observe_cgroup(fd).one_cpu(cpu_id);
+                        event.configure(&mut event_builder);
                         let counter = perf_group
-                            .add(
-                                perf_event::Builder::new(event.clone())
-                                    .observe_cgroup(fd)
-                                    .one_cpu(cpu_id),
-                            )
+                            .add(&event_builder)
                             .with_context(|| format!("perf_group.add with observe_cgroup({path}).one_cpu({cpu_id})"))?;
 
                         let group_with_info = EventGroup {
@@ -190,6 +189,7 @@ impl PerfEventSourceBuilder {
                         event_builder.observe_cgroup(fd).one_cpu(group.cpu_id.unwrap() as usize);
                     }
                 }
+                event.configure(&mut event_builder);
 
                 let counter = group.perf_group.add(&event_builder).with_context(|| {
                     format!(

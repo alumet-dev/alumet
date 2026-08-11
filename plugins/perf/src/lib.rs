@@ -14,9 +14,7 @@ use alumet::{
     units::Unit,
 };
 use anyhow::Context;
-use events::NamedPerfEvent;
 use itertools::Itertools;
-use perf_event::events::{Cache, Hardware, Software};
 use serde::{Deserialize, Serialize};
 
 use crate::source::{Observable, PerfEventSourceBuilder};
@@ -27,6 +25,7 @@ compile_error!("This plugin only works on Linux.");
 mod cpu;
 mod events;
 mod source;
+mod spec;
 
 pub struct PerfPlugin {
     config: Arc<Mutex<ParsedConfig>>,
@@ -51,29 +50,15 @@ impl AlumetPlugin for PerfPlugin {
             // Store the source settings.
             poll_interval: config.poll_interval,
             flush_interval: config.flush_interval,
-            // Parse the perf events.
-            hardware_events: config
-                .hardware_events
-                .into_iter()
-                .map(|e| events::parse_hardware(&e))
+            // Parse the perf events with the unified syntax.
+            events: config
+                .events
+                .iter()
+                .map(spec::parse)
                 .try_collect()
-                .context("invalid hardware event in config")?,
-            software_events: config
-                .software_events
-                .into_iter()
-                .map(|e| events::parse_software(&e))
-                .try_collect()
-                .context("invalid software event in config")?,
-            cache_events: config
-                .cache_events
-                .into_iter()
-                .map(|e| events::parse_cache(&e))
-                .try_collect()
-                .context("invalid cache event in config")?,
+                .context("invalid event in config")?,
             // The metrics are initialized in start()
-            hardware_metrics: Vec::new(),
-            software_metrics: Vec::new(),
-            cache_metrics: Vec::new(),
+            metrics: Vec::new(),
         };
         Ok(Box::new(PerfPlugin {
             config: Arc::new(Mutex::new(config)),
@@ -83,28 +68,13 @@ impl AlumetPlugin for PerfPlugin {
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
         let mut config = self.config.lock().unwrap();
 
-        let mut hardware_metrics = Vec::with_capacity(config.hardware_events.len());
-        let mut software_metrics = Vec::with_capacity(config.software_events.len());
-        let mut cache_metrics = Vec::with_capacity(config.cache_events.len());
-
-        for e in &config.hardware_events {
-            let metric_name = format!("perf_hardware_{}", e.name);
+        let mut metrics = Vec::with_capacity(config.events.len());
+        for e in &config.events {
+            let metric_name = format!("perf_{}", e.metric_suffix);
             let metric = alumet.create_metric::<u64>(metric_name, Unit::Unity, e.description.clone())?;
-            hardware_metrics.push(metric);
+            metrics.push(metric);
         }
-        for e in &config.software_events {
-            let metric_name = format!("perf_software_{}", e.name);
-            let metric = alumet.create_metric::<u64>(metric_name, Unit::Unity, e.description.clone())?;
-            software_metrics.push(metric);
-        }
-        for e in &config.cache_events {
-            let metric_name = format!("perf_cache_{}", e.name);
-            let metric = alumet.create_metric::<u64>(metric_name, Unit::Unity, e.description.clone())?;
-            cache_metrics.push(metric);
-        }
-        config.hardware_metrics = hardware_metrics;
-        config.software_metrics = software_metrics;
-        config.cache_metrics = cache_metrics;
+        config.metrics = metrics;
         Ok(())
     }
 
@@ -137,26 +107,10 @@ impl AlumetPlugin for PerfPlugin {
                     log::info!("Starting to observe {o:?}...");
                     let config = config_cloned.lock().unwrap();
                     let mut builder = PerfEventSourceBuilder::observe(o)?;
-                    for (event, metric) in config.hardware_events.iter().zip(&config.hardware_metrics) {
-                        builder.add(event.event, *metric).with_context(|| {
-                            format!(
-                                "could not configure hardware event {} (code {})",
-                                event.name, event.event.0
-                            )
-                        })?;
-                    }
-                    for (event, metric) in config.software_events.iter().zip(&config.software_metrics) {
-                        builder.add(event.event, *metric).with_context(|| {
-                            format!(
-                                "could not configure software event {} (code {})",
-                                event.name, event.event.0
-                            )
-                        })?;
-                    }
-                    for (event, metric) in config.cache_events.iter().zip(&config.cache_metrics) {
+                    for (event, metric) in config.events.iter().zip(&config.metrics) {
                         builder
-                            .add(event.event.clone(), *metric)
-                            .with_context(|| format!("could not configure cache event {}", event.name))?;
+                            .add(&event.event, *metric)
+                            .with_context(|| format!("could not configure event {}", event.metric_suffix))?;
                     }
                     let poll_interval = config.poll_interval;
                     let flush_interval = config.flush_interval;
@@ -190,9 +144,11 @@ struct Config {
     #[serde(with = "humantime_serde")]
     flush_interval: Duration,
 
-    hardware_events: Vec<String>,
-    software_events: Vec<String>,
-    cache_events: Vec<String>,
+    /// The events to measure, described with the unified syntax (see [`spec`]).
+    ///
+    /// Each entry is either a bare string (`"REF_CPU_CYCLES"`, `"INSTRUCTIONS:u"`) or an inline
+    /// table with an optional metric `rename` (`{ event = "LL_READ_MISS", rename = "llc_miss" }`).
+    events: Vec<spec::EventEntry>,
 }
 
 impl Default for Config {
@@ -201,13 +157,12 @@ impl Default for Config {
             poll_interval: Duration::from_secs(1), // 1Hz
             flush_interval: Duration::from_secs(5),
 
-            hardware_events: vec![
-                "REF_CPU_CYCLES".to_owned(),
-                "CACHE_MISSES".to_owned(),
-                "BRANCH_MISSES".to_owned(),
+            events: vec![
+                spec::EventEntry::Simple("REF_CPU_CYCLES".to_owned()),
+                spec::EventEntry::Simple("CACHE_MISSES".to_owned()),
+                spec::EventEntry::Simple("BRANCH_MISSES".to_owned()),
+                spec::EventEntry::Simple("LL_READ_MISS".to_owned()),
             ],
-            software_events: vec![],
-            cache_events: vec!["LL_READ_MISS".to_owned()],
         }
     }
 }
@@ -217,10 +172,6 @@ struct ParsedConfig {
     poll_interval: Duration,
     flush_interval: Duration,
 
-    hardware_events: Vec<NamedPerfEvent<Hardware>>,
-    software_events: Vec<NamedPerfEvent<Software>>,
-    cache_events: Vec<NamedPerfEvent<Cache>>,
-    hardware_metrics: Vec<TypedMetricId<u64>>,
-    software_metrics: Vec<TypedMetricId<u64>>,
-    cache_metrics: Vec<TypedMetricId<u64>>,
+    events: Vec<spec::ParsedEvent>,
+    metrics: Vec<TypedMetricId<u64>>,
 }
