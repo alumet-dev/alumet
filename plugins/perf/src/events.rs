@@ -36,13 +36,30 @@ impl Display for UnknownEventError {
 
 impl Error for UnknownEventError {}
 
-/// Returns a hardware perf event from its name.
+/// Resolve a native event name against the built-in kernel tables.
 ///
 /// ## Example
 /// ```ignore
-/// let event = parse_hardware("REF_CPU_CYCLES").unwrap();
+/// let event = parse("REF_CPU_CYCLES").unwrap();
+/// let event = parse("LL_READ_MISS").unwrap();
 /// ```
-pub fn parse_hardware(event_name: &str) -> Result<NamedPerfEvent<events::Hardware>, UnknownEventError> {
+pub fn parse(name: &str) -> anyhow::Result<NamedPerfEvent> {
+    if let Ok(e) = parse_hardware(name) {
+        return Ok(e);
+    }
+    if let Ok(e) = parse_software(name) {
+        return Ok(e);
+    }
+    parse_cache(name)
+}
+
+/// Returns an hardware perf event from its name.
+///
+/// ## Example
+/// ```ignore
+/// let event = parse_hardware("INSTRUCTIONS").unwrap();
+/// ```
+fn parse_hardware(event_name: &str) -> Result<NamedPerfEvent, UnknownEventError> {
     let uppercase_name = event_name.to_ascii_uppercase();
     let (event, description) = match uppercase_name.as_ref() {
         "CPU_CYCLES" => Ok((events::Hardware::CPU_CYCLES, "Total cycles.")),
@@ -76,7 +93,7 @@ pub fn parse_hardware(event_name: &str) -> Result<NamedPerfEvent<events::Hardwar
 /// ```ignore
 /// let event = parse_software("CONTEXT_SWITCHES").unwrap();
 /// ```
-pub fn parse_software(event_name: &str) -> Result<NamedPerfEvent<events::Software>, UnknownEventError> {
+fn parse_software(event_name: &str) -> Result<NamedPerfEvent, UnknownEventError> {
     let uppercase_name = event_name.to_ascii_uppercase();
     // CPU_CLOCK and TASK_CLOCK are not supported here, because they require an additional parameter
     // (frequency or period) and because we don't need them for monitoring and profiling purposes.
@@ -119,7 +136,7 @@ pub fn parse_software(event_name: &str) -> Result<NamedPerfEvent<events::Softwar
 /// let event = parse_cache("L1D_READ_ACCESS").unwrap();
 /// let event = parse_cache("LL_WRITE_MISS").unwrap();
 /// ```
-pub fn parse_cache(cache_spec: &str) -> anyhow::Result<NamedPerfEvent<events::Cache>> {
+fn parse_cache(cache_spec: &str) -> anyhow::Result<NamedPerfEvent> {
     let (name, op, result) = cache_spec
         .splitn(3, '_')
         .map(|s| s.to_ascii_uppercase())

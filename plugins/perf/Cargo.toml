@@ -14,6 +14,7 @@ itertools = "0.13.0"
 log.workspace = true
 perf-event2 = "0.7.4"
 perf-event-open-sys2 = "5.0.6"
+libloading = "0.8"
 serde = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
