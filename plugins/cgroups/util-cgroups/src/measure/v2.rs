@@ -129,6 +129,36 @@ mod common {
                 }
             };
 
+            let prepare_memory_swap_current = || -> anyhow::Result<Option<MemorySwapCurrentCollector>> {
+                match MemorySwapCurrentCollector::new(&memory_current_file) {
+                    Ok(res) => Ok(Some(res)),
+                    Err(e) if e.kind() == ErrorKind::NotFound => {
+                        // the file does not exist, ignore
+                        log::warn!(
+                            "{} does not exist, some metrics will not be available",
+                            memory_current_file.display()
+                        );
+                        Ok(None)
+                    }
+                    Err(e) => Err(e.into()),
+                }
+            };
+
+            let prepare_memory_swap_max = |io_buf: &mut Vec<u8>| -> anyhow::Result<Option<MemorySwapMaxCollector>> {
+                match MemorySwapMaxCollector::new(&memory_stat_file, memory_stat_settings, io_buf) {
+                    Ok(res) => Ok(Some(res)),
+                    Err(memory::CollectorCreationError::Io(e, _)) if e.kind() == ErrorKind::NotFound => {
+                        // the file does not exist, ignore
+                        log::warn!(
+                            "{} does not exist, some metrics will not be available",
+                            memory_stat_file.display()
+                        );
+                        Ok(None)
+                    }
+                    Err(e) => Err(e.into()),
+                }
+            };
+
             let prepare_cpu_stat = |io_buf: &mut Vec<u8>| -> anyhow::Result<Option<CpuStatCollector>> {
                 match CpuStatCollector::new(&cpu_stat_file, cpu_stat_settings, io_buf) {
                     Ok(res) => Ok(Some(res)),
