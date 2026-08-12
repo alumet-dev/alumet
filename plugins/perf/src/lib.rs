@@ -25,6 +25,7 @@ compile_error!("This plugin only works on Linux.");
 mod cpu;
 mod native;
 mod pfm;
+mod raw;
 mod source;
 mod spec;
 

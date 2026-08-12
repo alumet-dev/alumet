@@ -10,13 +10,8 @@
 //! - **libpfm** : any other name, optionally with unit masks (e.g. `RESOURCE_STALLS:ANY`), resolved
 //!   through libpfm (per-CPU encoding tables). This is the fallback when the native tables don't
 //!   know the name. **Supported**.
-//! - **raw-hex** : a raw code `rN`, where `N` is a hexadecimal register encoding (layout from
-//!   `/sys/bus/event_source/devices/cpu/format/*`). **Not yet supported** (planned).
-//! - **pmu-named** : `pmu/event=M,umask=N,…/`, using named fields from
-//!   `/sys/bus/event_source/devices/<pmu>/format/*` (also the uncore/`percore` qualifiers).
-//!   **Not yet supported** (planned).
-//! - **pmu-raw** : `pmu/config=M,config1=N,config2=K/`, the raw config registers given directly.
-//!   **Not yet supported** (planned).
+//! - **raw-hex** : a raw code `rN` (hex register encoding) on the default raw PMU. Layout from
+//!   `/sys/bus/event_source/devices/<pmu>/format/*`. **Supported**.
 //!
 //! A not-yet-supported form is rejected there with an explicit "planned for a future release" error.
 
@@ -27,6 +22,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::native;
 use crate::pfm;
+use crate::raw;
 
 /// One entry of the `events` config list: a bare string, or a table with a metric `rename`.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -237,16 +233,12 @@ pub fn parse(entry: &EventEntry) -> anyhow::Result<ParsedEvent> {
 /// Resolve an event name (no modifiers) into a [`NamedPerfEvent`]. Each encoder builds the `NamedPerfEvent`
 /// in its own module; this only dispatches to them. See the module docs for the recognised forms.
 fn resolve_event(name: &str) -> anyhow::Result<NamedPerfEvent> {
-    // raw-hex route (`rN`, hex register encoding): recognised, but not encoded yet.
-    let looks_raw = name
-        .strip_prefix('r')
-        .map(|d| d.trim_start_matches("0x").trim_start_matches("0X"))
-        .is_some_and(|d| !d.is_empty() && d.chars().all(|c| c.is_ascii_hexdigit()));
-    if looks_raw {
-        anyhow::bail!("raw-hex events (`{name}`) are not supported yet; this is planned for a future release");
+    // raw-hex route: `rN`, a raw code on the default raw PMU.
+    if let Some(result) = raw::parse(name) {
+        return result;
     }
-    // pmu-named (`pmu/event=,umask=/`) and pmu-raw (`pmu/config=,config1=/`) routes: recognised,
-    // but not encoded yet.
+    // any `pmu/…/` form (native-on-PMU, raw-on-PMU, pmu-named, pmu-raw): recognised, but not
+    // encoded yet. The whole PMU machinery is planned for a future release.
     if name.contains('/') {
         anyhow::bail!(
             "pmu-named / pmu-raw events (`{name}`) are not supported yet; this is planned for a future release"
@@ -403,10 +395,21 @@ mod tests {
     }
 
     #[test]
-    fn raw_code_rejected_for_now() {
-        // `rNNNN` is recognised by the syntax but not encoded yet.
-        let err = parse(&EventEntry::Simple("r0x412e".to_owned())).unwrap_err();
-        assert!(format!("{err:#}").contains("future release"), "got: {err:#}");
+    fn raw_hex_event() {
+        use perf_event_open_sys::bindings::PERF_TYPE_RAW;
+        // `rN` encodes a raw code on the default raw PMU, and modifiers still apply.
+        let e = parse_simple("r0x412e#u:k");
+        assert_eq!(e.metric_suffix, "r0x412e");
+        assert_eq!(
+            e.event.encoding(),
+            EventEncoding {
+                type_: PERF_TYPE_RAW,
+                config: 0x412e,
+                config1: 0,
+                config2: 0,
+            }
+        );
+        assert!(!e.event.modifiers.excludes().kernel);
     }
 
     #[test]
