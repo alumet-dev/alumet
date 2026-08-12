@@ -241,3 +241,197 @@ impl<'a> fmt::Display for LazyDisplayable<'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(test)]
+    mod resource {
+        use super::*;
+
+        #[test]
+        fn test_kind() {
+            assert_eq!(Resource::LocalMachine.kind(), "local_machine");
+            assert_eq!(Resource::CpuPackage { id: 123 }.kind(), "cpu_package");
+            assert_eq!(Resource::CpuCore { id: 123 }.kind(), "cpu_core");
+            assert_eq!(Resource::Dram { pkg_id: 123 }.kind(), "dram");
+            assert_eq!(
+                Resource::Gpu {
+                    bus_id: Cow::Owned("abc".to_string())
+                }
+                .kind(),
+                "gpu"
+            );
+            assert_eq!(
+                Resource::GpuPartition {
+                    partition_id: 123,
+                    parent_id: Cow::Owned("abc".to_string())
+                }
+                .kind(),
+                "gpu_partition"
+            );
+            assert_eq!(Resource::custom("custom", "abc").kind(), "custom");
+        }
+
+        #[test]
+        fn test_id_string() {
+            assert!(Resource::LocalMachine.id_string().is_none());
+            assert!(Resource::CpuPackage { id: 123 }.id_string().is_some());
+        }
+
+        #[test]
+        fn test_id_display() {
+            assert_eq!(format!("{}", Resource::LocalMachine.id_display()), "");
+            assert_eq!(format!("{}", Resource::CpuPackage { id: 123 }.id_display()), "123");
+            assert_eq!(format!("{}", Resource::CpuCore { id: 123 }.id_display()), "123");
+            assert_eq!(format!("{}", Resource::Dram { pkg_id: 123 }.id_display()), "123");
+            assert_eq!(
+                format!(
+                    "{}",
+                    Resource::Gpu {
+                        bus_id: Cow::Owned("abc".to_string())
+                    }
+                    .id_display()
+                ),
+                "abc"
+            );
+            assert_eq!(
+                format!(
+                    "{}",
+                    Resource::GpuPartition {
+                        partition_id: 123,
+                        parent_id: Cow::Owned("abc".to_string())
+                    }
+                    .id_display()
+                ),
+                "abc/123"
+            );
+            assert_eq!(format!("{}", Resource::custom("custom", "abc").id_display()), "abc");
+        }
+
+        #[test]
+        fn test_parse() {
+            assert_eq!(Resource::parse("local_machine", "").unwrap(), Resource::LocalMachine);
+        }
+
+        #[test]
+        fn test_normalize() {
+            assert_eq!(
+                Resource::CpuPackage { id: 123 }.normalize().unwrap(),
+                Resource::CpuPackage { id: 123 }
+            );
+
+            assert_eq!(
+                Resource::custom("local_machine", "").normalize().unwrap(),
+                Resource::LocalMachine
+            );
+            assert!(Resource::custom("local_machine", "abc").normalize().is_err());
+
+            assert_eq!(
+                Resource::custom("cpu_package", "123").normalize().unwrap(),
+                Resource::CpuPackage { id: 123 }
+            );
+            assert_eq!(
+                Resource::custom("cpu_core", "123").normalize().unwrap(),
+                Resource::CpuCore { id: 123 }
+            );
+            assert_eq!(
+                Resource::custom("dram", "123").normalize().unwrap(),
+                Resource::Dram { pkg_id: 123 }
+            );
+            assert_eq!(
+                Resource::custom("gpu", "abc").normalize().unwrap(),
+                Resource::Gpu {
+                    bus_id: Cow::Owned("abc".to_string())
+                }
+            );
+            assert_eq!(
+                Resource::custom("alumet", "abc").normalize().unwrap(),
+                Resource::Custom {
+                    kind: Cow::Owned("alumet".to_string()),
+                    id: Cow::Owned("abc".to_string())
+                }
+            );
+        }
+    }
+
+    #[cfg(test)]
+    mod resource_consumer {
+        use super::*;
+
+        #[test]
+        fn test_kind() {
+            assert_eq!(ResourceConsumer::LocalMachine.kind(), "local_machine");
+            assert_eq!(
+                ResourceConsumer::ControlGroup {
+                    path: Cow::Owned("abc".to_string())
+                }
+                .kind(),
+                "cgroup"
+            );
+            assert_eq!(ResourceConsumer::Process { pid: 123 }.kind(), "process");
+            assert_eq!(ResourceConsumer::custom("abc", "123").kind(), "abc");
+        }
+
+        #[test]
+        fn test_id_string() {
+            assert!(ResourceConsumer::LocalMachine.id_string().is_none());
+            assert_eq!(ResourceConsumer::Process { pid: 123 }.id_string().unwrap(), "123");
+        }
+
+        #[test]
+        fn test_id_display() {
+            assert_eq!(format!("{}", ResourceConsumer::LocalMachine.id_display()), "");
+            assert_eq!(
+                format!(
+                    "{}",
+                    ResourceConsumer::ControlGroup {
+                        path: Cow::Owned("abc".to_string())
+                    }
+                    .id_display()
+                ),
+                "abc"
+            );
+            assert_eq!(
+                format!("{}", ResourceConsumer::Process { pid: 123 }.id_display()),
+                "123"
+            );
+            assert_eq!(
+                format!("{}", ResourceConsumer::custom("abc", "123").id_display()),
+                "123"
+            );
+        }
+
+        #[test]
+        fn test_parse() {
+            assert_eq!(
+                ResourceConsumer::parse("process", "123").unwrap(),
+                ResourceConsumer::Process { pid: 123 }
+            );
+        }
+
+        #[test]
+        fn test_normalize() {
+            assert_eq!(
+                ResourceConsumer::Process { pid: 123 }.normalize().unwrap(),
+                ResourceConsumer::Process { pid: 123 }
+            );
+
+            assert_eq!(
+                ResourceConsumer::custom("process", "123").normalize().unwrap(),
+                ResourceConsumer::Process { pid: 123 }
+            );
+            assert_eq!(
+                ResourceConsumer::custom("cgroup", "abc").normalize().unwrap(),
+                ResourceConsumer::ControlGroup {
+                    path: Cow::Owned("abc".to_string())
+                }
+            );
+            assert_eq!(
+                ResourceConsumer::custom("alumet", "123").normalize().unwrap(),
+                ResourceConsumer::custom("alumet", "123")
+            );
+        }
+    }
+}
