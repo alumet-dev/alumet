@@ -40,3 +40,33 @@ impl<T, E: Into<anyhow::Error>> WriteRetry<T> for Result<T, E> {
         self.map_err(|e| WriteError::CanRetry(e.into()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::anyhow;
+
+    #[test]
+    fn test_fmt() {
+        assert_eq!(
+            format!("{}", WriteError::Fatal(anyhow!("I am an error"))),
+            "fatal error in Output::write: I am an error"
+        );
+        assert_eq!(
+            format!("{}", WriteError::CanRetry(anyhow!("I am an error"))),
+            "writing failed (but could work later): I am an error"
+        );
+    }
+
+    #[test]
+    fn test_from() {
+        let error = WriteError::from(anyhow!("I am an error"));
+        assert!(matches!(error, WriteError::Fatal(_)));
+    }
+
+    #[test]
+    fn test_retry_write() {
+        let error: Result<u64, anyhow::Error> = Err(anyhow!("I am an error"));
+        assert!(matches!(error.retry_write().err().unwrap(), WriteError::CanRetry(_)));
+    }
+}

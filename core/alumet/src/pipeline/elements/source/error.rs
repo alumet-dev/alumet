@@ -48,3 +48,37 @@ impl<T, E: Into<anyhow::Error>> PollRetry<T> for Result<T, E> {
         self.map_err(|e| PollError::CanRetry(e.into()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::anyhow;
+
+    #[test]
+    fn test_fmt() {
+        assert_eq!(
+            format!("{}", PollError::Fatal(anyhow!("I am an error"))),
+            "fatal error in Source::poll: I am an error"
+        );
+        assert_eq!(
+            format!("{}", PollError::CanRetry(anyhow!("I am an error"))),
+            "polling failed (but could work later): I am an error"
+        );
+        assert_eq!(
+            format!("{}", PollError::NormalStop),
+            "the source stopped in an expected way (it's fine)"
+        );
+    }
+
+    #[test]
+    fn test_from() {
+        let error = PollError::from(anyhow!("I am an error"));
+        assert!(matches!(error, PollError::Fatal(_)));
+    }
+
+    #[test]
+    fn test_retry_poll() {
+        let error: Result<u64, anyhow::Error> = Err(anyhow!("I am an error"));
+        assert!(matches!(error.retry_poll().err().unwrap(), PollError::CanRetry(_)));
+    }
+}
