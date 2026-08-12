@@ -117,7 +117,7 @@ impl PerfEventSourceBuilder {
                         .with_context(|| format!("build_group with observe_pid({pid}).any_cpu()"))?;
 
                     // add event (the params must be the same)
-                    let mut event_builder = perf_event::Builder::new(event.clone());
+                    let mut event_builder = perf_event::Builder::new(event.encoding());
                     event_builder.observe_pid(*pid).any_cpu();
                     event.configure(&mut event_builder);
                     let counter = perf_group
@@ -154,7 +154,7 @@ impl PerfEventSourceBuilder {
                             .with_context(|| format!("build_group with observe_cgroup({path}).one_cpu({cpu_id})"))?;
 
                         // add event (the params must be the same)
-                        let mut event_builder = perf_event::Builder::new(event.clone());
+                        let mut event_builder = perf_event::Builder::new(event.encoding());
                         event_builder.observe_cgroup(fd).one_cpu(cpu_id);
                         event.configure(&mut event_builder);
                         let counter = perf_group
@@ -178,7 +178,7 @@ impl PerfEventSourceBuilder {
         } else {
             // add to the group(s)
             for group in &mut self.groups {
-                let mut event_builder = perf_event::Builder::new(event.clone());
+                let mut event_builder = perf_event::Builder::new(event.encoding());
 
                 // Compute the event params to be the same as the group's params.
                 match &self.observable {

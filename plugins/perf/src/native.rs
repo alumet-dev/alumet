@@ -1,4 +1,7 @@
-//! Names of performance events and utilities.
+//! Native perf events: the built-in kernel tables (hardware, software, cache).
+//!
+//! This is one of the plugin's encoders: [`parse`] turns a symbolic name into a [`NamedPerfEvent`],
+//! trying the hardware table, then the software table, then the compositional cache form.
 
 use std::{error::Error, fmt::Display};
 
@@ -6,24 +9,7 @@ use anyhow::Context;
 use itertools::Itertools;
 use perf_event::events::{self, CacheId, CacheOp, CacheResult};
 
-#[derive(Clone)]
-pub struct NamedPerfEvent<E: events::Event + Clone> {
-    pub name: String,
-    pub description: String,
-    pub event: E,
-}
-
-impl<E: events::Event + Clone + From<u64>> NamedPerfEvent<E> {
-    /// An event with a custom user-supplied id to pass to `perf_event_open`.
-    #[allow(dead_code)]
-    pub fn custom(id: u64) -> Self {
-        Self {
-            name: format!("custom-{id}"),
-            description: "?".to_owned(),
-            event: E::from(id),
-        }
-    }
-}
+use crate::spec::{EventEncoding, NamedPerfEvent};
 
 #[derive(Debug)]
 pub struct UnknownEventError;
@@ -83,7 +69,7 @@ fn parse_hardware(event_name: &str) -> Result<NamedPerfEvent, UnknownEventError>
     Ok(NamedPerfEvent {
         name: uppercase_name,
         description: description.to_owned(),
-        event,
+        encoding: EventEncoding::from_event(event),
     })
 }
 
@@ -125,7 +111,7 @@ fn parse_software(event_name: &str) -> Result<NamedPerfEvent, UnknownEventError>
     Ok(NamedPerfEvent {
         name: uppercase_name,
         description: description.to_owned(),
-        event,
+        encoding: EventEncoding::from_event(event),
     })
 }
 
@@ -182,10 +168,10 @@ fn parse_cache(cache_spec: &str) -> anyhow::Result<NamedPerfEvent> {
     Ok(NamedPerfEvent {
         name: format!("{name}_{op}_{result}"),
         description: format!("{cache_id_desc}, {cache_op_desc}, {cache_result_desc}."),
-        event: events::Cache {
+        encoding: EventEncoding::from_event(events::Cache {
             which: cache_id,
             operation: cache_op,
             result: cache_result,
-        },
+        }),
     })
 }

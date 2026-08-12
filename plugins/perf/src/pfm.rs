@@ -3,7 +3,7 @@
 //! The native events exposed by the kernel are a small, vendor-neutral subset.
 //! CPUs also expose hundreds of PMU events whose encodings differ per microarchitecture.
 //! [libpfm4](https://perfmon2.sourceforge.net/) holds those encoding tables.
-//! Given a human-readable name (e.g. `RESOURCE_STALLS:ANY`) it fills a [`perf_event_attr`], 
+//! Given a human-readable name (e.g. `RESOURCE_STALLS:ANY`) it fills a [`perf_event_attr`],
 //! which we then feed into the existing perf source.
 //!
 //! libpfm is **loaded at runtime** with `dlopen` (via the `libloading` crate), not linked
@@ -22,8 +22,9 @@ use std::sync::OnceLock;
 
 use anyhow::{Context, anyhow};
 use libloading::Library;
-use perf_event::events::Event;
 use perf_event_open_sys::bindings::perf_event_attr;
+
+use crate::spec::{EventEncoding, NamedPerfEvent, sanitize};
 
 // Privilege level requested from libpfm.
 //
@@ -35,7 +36,7 @@ const PFM_SUCCESS: c_int = 0;
 /// `pfm_os_t` value selecting the perf_events encoding (from `pfmlib.h`).
 ///
 /// We use the base `PFM_OS_PERF_EVENT`, not `PFM_OS_PERF_EVENT_EXT`. Both produce the same event
-/// encoding (`type`/`config`/`config1`/`config2`). `_EXT` also lets the event *string* carry perf 
+/// encoding (`type`/`config`/`config1`/`config2`). `_EXT` also lets the event *string* carry perf
 /// sampling attributes (`:period=`, `:freq=`, `:precise=`, etc...) that it writes into other `perf_event_attr`
 /// fields. This plugin is a counter (not a sampler) and owns the domain modifiers itself, so those attributes bring nothing.
 const PFM_OS_PERF_EVENT: c_int = 1;
@@ -68,9 +69,8 @@ struct PfmPerfEncodeArg {
 
 // libpfm validates `arg.size` against its `PFM_PERF_ENCODE_ABI0` (40 on 64-bit, 28 on 32-bit), so
 // our mirror must have exactly that size.
-const _: () = assert!(
-    std::mem::size_of::<PfmPerfEncodeArg>() == if cfg!(target_pointer_width = "64") { 40 } else { 28 }
-);
+const _: () =
+    assert!(std::mem::size_of::<PfmPerfEncodeArg>() == if cfg!(target_pointer_width = "64") { 40 } else { 28 });
 
 /// A handle to the dynamically-loaded libpfm, holding the function pointers we need.
 struct LibPfm {
@@ -128,13 +128,13 @@ fn libpfm() -> anyhow::Result<&'static LibPfm> {
         unsafe {
             let initialize: PfmInitializeFn = *lib
                 .get::<PfmInitializeFn>(b"pfm_initialize\0")
-                .with_context(|| format!("symbol pfm_initialize not found"))?;
+                .with_context(|| "symbol pfm_initialize not found")?;
             let strerror: PfmStrerrorFn = *lib
                 .get::<PfmStrerrorFn>(b"pfm_strerror\0")
-                .with_context(|| format!("symbol pfm_strerror not found"))?;
+                .with_context(|| "symbol pfm_strerror not found")?;
             let get_encoding: PfmGetOsEncodingFn = *lib
                 .get::<PfmGetOsEncodingFn>(b"pfm_get_os_event_encoding\0")
-                .with_context(|| format!("symbol pfm_get_os_event_encoding not found"))?;
+                .with_context(|| "symbol pfm_get_os_event_encoding not found")?;
 
             let ret = initialize();
             if ret != PFM_SUCCESS {
@@ -151,30 +151,7 @@ fn libpfm() -> anyhow::Result<&'static LibPfm> {
     result.as_ref().map_err(|e| anyhow!("{e}"))
 }
 
-/// A perf event whose encoding was resolved by libpfm.
-///
-/// Implements [`Event`] by copying the fields libpfm computed into the
-/// `perf_event_attr`, so it plugs into the generic perf source builder like any
-/// other event. Unlike [`perf_event::events::Raw`], it preserves `type` (libpfm may
-/// return a dynamic PMU type rather than `PERF_TYPE_RAW`, e.g. for uncore events).
-#[derive(Debug, Clone, Copy)]
-pub struct PfmEvent {
-    type_: u32,
-    config: u64,
-    config1: u64,
-    config2: u64,
-}
-
-impl Event for PfmEvent {
-    fn update_attrs(self, attr: &mut perf_event_attr) {
-        attr.type_ = self.type_;
-        attr.config = self.config;
-        attr.config1 = self.config1;
-        attr.config2 = self.config2;
-    }
-}
-
-/// Resolve an event name (libpfm syntax, e.g. `RESOURCE_STALLS:ANY`) into a [`PfmEvent`].
+/// Resolve an event name (libpfm syntax, e.g. `RESOURCE_STALLS:ANY`) into a [`NamedPerfEvent`].
 /// Also validates that the event exists on the current CPU.
 /// A libpfm event name is structured like this (parsing is case-insensitive):
 ///
@@ -185,7 +162,20 @@ impl Event for PfmEvent {
 ///- **`event_name`** *(required)* : the full event name, e.g. `RESOURCE_STALLS`.
 ///- **`:unit_mask`** *(optional, repeatable)* : a sub-event that refines the event, e.g. `:ANY` or
 ///  `:L3_MISS`. Some events require one; some accept several.
-pub fn encode(name: &str) -> anyhow::Result<PfmEvent> {
+pub fn encode(name: &str) -> anyhow::Result<NamedPerfEvent> {
+    let encoding = encode_raw(name)?;
+    Ok(NamedPerfEvent {
+        name: sanitize(name),
+        description: format!("{name} (encoded via libpfm)"),
+        encoding,
+    })
+}
+
+/// Ask libpfm for the raw encoding of `name`, as an [`EventEncoding`].
+///
+/// Unlike [`perf_event::events::Raw`], this preserves `type` (libpfm may return a dynamic PMU type
+/// rather than `PERF_TYPE_RAW`, e.g. for uncore events).
+fn encode_raw(name: &str) -> anyhow::Result<EventEncoding> {
     let lib = libpfm()?;
 
     let cname = CString::new(name).context("event name contains an interior null byte")?;
@@ -223,16 +213,13 @@ pub fn encode(name: &str) -> anyhow::Result<PfmEvent> {
         ));
     }
 
-    Ok(PfmEvent {
-        type_: attr.type_,
-        config: attr.config,
-        config1: attr.config1,
-        config2: attr.config2,
-    })
+    Ok(EventEncoding::from_attr(&attr))
 }
 
 #[cfg(test)]
 mod tests {
+    use perf_event::events::Event;
+
     use super::*;
 
     #[test]
@@ -263,7 +250,7 @@ mod tests {
 
     #[test]
     fn encode_unknown_event_errors() {
-        // Errors whether libpfm is missing (load failure) or present (unknown event). 
+        // Errors whether libpfm is missing (load failure) or present (unknown event).
         assert!(encode("DEFINITELY_NOT_A_REAL_EVENT_XYZ").is_err());
     }
 }

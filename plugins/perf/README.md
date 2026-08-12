@@ -17,7 +17,7 @@ Events to measure are described with a single unified syntax. The **event name**
 
 Each event is a string of the form:
 
-```
+```bash
 <event>[#<modifiers>]
 ```
 
@@ -114,10 +114,14 @@ at least one of them, the domains you *don't* list are excluded, so `#u` means "
 
 ### Metric naming
 
-By default the metric is named `perf_{name}` (e.g. `INSTRUCTIONS` → `perf_INSTRUCTIONS`). The
-modifiers do not change the metric name, so if you measure the same event with different modifiers,
-give at least one of them a `rename` to avoid a name clash. A `rename` replaces the whole suffix;
-the metric then becomes `perf_{rename}`.
+By default the metric is named `perf_{name}` (e.g. `INSTRUCTIONS` → `perf_instructions`). The name
+is always normalized: letters are lowercased, and any character that is not a letter or digit
+becomes `_` (leading/trailing `_` are trimmed). So `LL_READ_MISS` → `perf_ll_read_miss` and
+`RESOURCE_STALLS:ANY` → `perf_resource_stalls_any`.
+
+The modifiers do not change the metric name, so if you measure the same event with different
+modifiers, give at least one of them a `rename` to avoid a name clash. A `rename` replaces the whole
+suffix (and is normalized the same way); the metric then becomes `perf_{rename}`.
 
 ## Configuration
 
@@ -143,16 +147,15 @@ events = [
 
 ### perf_event_paranoid and capabilities
 
-| `perf_event_paranoid` value     | Description                                            | Required capabilities (binary)                       | `perf` plugin works (unprivileged) |
 Below is a summary of how different perf_event_paranoid values affect perf plugin functionality when running as an unprivileged user:
 
-| `perf_event_paranoid` value     | Description                                            | Required capabilities (binary)                       | RAPL plugin works (unprivileged) |
-| ------------------------------- | ------------------------------------------------------ | ---------------------------------------------------- | -------------------------------- |
-| 4 *(Debian-based systems only)* | Disables all perf event usage for unprivileged users   | −                                                    | ❌ Not supported                 |
-| 2                               | Allows only user-space measurements                    | `cap_perfmon` *(or `cap_sys_admin` for Linux < 5.8)* | ✅ Supported                     |
-| 1                               | Allows user-space and kernel-space measurements        | `cap_perfmon` *(or `cap_sys_admin` for Linux < 5.8)* | ✅ Supported                     |
-| 0                               | Allows user-space, kernel-space, and CPU-specific data | `cap_perfmon` *(or `cap_sys_admin` for Linux < 5.8)* | ✅ Supported                     |
-| -1                              | Full access, including raw tracepoints                 | −                                                    | ✅ Supported                     |
+| `perf_event_paranoid` value     | Description                                            | Required capabilities (binary)                       | `perf` plugin works (unprivileged) |
+| ------------------------------- | ------------------------------------------------------ | ---------------------------------------------------- | ---------------------------------- |
+| 4 *(Debian-based systems only)* | Disables all perf event usage for unprivileged users   | −                                                    | ❌ Not supported                   |
+| 2                               | Allows only user-space measurements                    | `cap_perfmon` *(or `cap_sys_admin` for Linux < 5.8)* | ✅ Supported                       |
+| 1                               | Allows user-space and kernel-space measurements        | `cap_perfmon` *(or `cap_sys_admin` for Linux < 5.8)* | ✅ Supported                       |
+| 0                               | Allows user-space, kernel-space, and CPU-specific data | `cap_perfmon` *(or `cap_sys_admin` for Linux < 5.8)* | ✅ Supported                       |
+| -1                              | Full access, including raw tracepoints                 | −                                                    | ✅ Supported                       |
 
 Example for setting `perf_event_paranoid`: `sudo sysctl -w kernel.perf_event_paranoid=2` will set the value to **2**.
 

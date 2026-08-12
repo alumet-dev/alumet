@@ -23,7 +23,7 @@ use crate::source::{Observable, PerfEventSourceBuilder};
 compile_error!("This plugin only works on Linux.");
 
 mod cpu;
-mod events;
+mod native;
 mod pfm;
 mod source;
 mod spec;
