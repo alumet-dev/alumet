@@ -34,7 +34,7 @@ mod common {
         measure::v2::{
             cpu::{self, CpuStatCollectorSettings},
             io::{IoPressureCollector, IoPressureCollectorSettings},
-            memory::{self, MemoryStatCollectorSettings},
+            memory::{self, MemoryStatCollectorSettings, MemorySwapCurrentCollector, MemorySwapMaxCollector},
         },
     };
 
@@ -49,6 +49,8 @@ mod common {
         memory_current: Option<MemoryCurrentCollector>,
         memory_max: Option<MemoryMaxCollector>,
         memory_stat: Option<MemoryStatCollector>,
+        memory_swap_current: Option<MemorySwapCurrentCollector>,
+        memory_swap_max: Option<MemorySwapMaxCollector>,
         cpu_stat: Option<CpuStatCollector>,
         io_pressure: Option<IoPressureCollector>,
     }
@@ -57,6 +59,8 @@ mod common {
         pub memory_current: Option<u64>,
         pub memory_max: Option<u64>,
         pub memory_stat: Option<MemoryStats>,
+        pub memory_swap_current: Option<u64>,
+        pub memory_swap_max: Option<u64>,
         pub cpu_stat: Option<CpuStats>,
         pub io_pressure: Option<IoPressureStats>,
     }
@@ -81,6 +85,8 @@ mod common {
             let memory_current_file = cgroup_path.join("memory.current");
             let memory_max_file = cgroup_path.join("memory.max");
             let memory_stat_file = cgroup_path.join("memory.stat");
+            let memory_swap_current_file = cgroup_path.join("memory.swap.current");
+            let memory_swap_max_file = cgroup_path.join("memory.swap.max");
             let cpu_stat_file = cgroup_path.join("cpu.stat");
             let io_pressure_file = cgroup_path.join("io.pressure");
 
@@ -130,7 +136,7 @@ mod common {
             };
 
             let prepare_memory_swap_current = || -> anyhow::Result<Option<MemorySwapCurrentCollector>> {
-                match MemorySwapCurrentCollector::new(&memory_current_file) {
+                match MemorySwapCurrentCollector::new(&memory_swap_current_file) {
                     Ok(res) => Ok(Some(res)),
                     Err(e) if e.kind() == ErrorKind::NotFound => {
                         // the file does not exist, ignore
@@ -144,14 +150,14 @@ mod common {
                 }
             };
 
-            let prepare_memory_swap_max = |io_buf: &mut Vec<u8>| -> anyhow::Result<Option<MemorySwapMaxCollector>> {
-                match MemorySwapMaxCollector::new(&memory_stat_file, memory_stat_settings, io_buf) {
+            let prepare_memory_swap_max = || -> anyhow::Result<Option<MemorySwapMaxCollector>> {
+                match MemorySwapMaxCollector::new(&memory_swap_max_file) {
                     Ok(res) => Ok(Some(res)),
-                    Err(memory::CollectorCreationError::Io(e, _)) if e.kind() == ErrorKind::NotFound => {
+                    Err(e) if e.kind() == ErrorKind::NotFound => {
                         // the file does not exist, ignore
                         log::warn!(
                             "{} does not exist, some metrics will not be available",
-                            memory_stat_file.display()
+                            memory_max_file.display()
                         );
                         Ok(None)
                     }
@@ -195,6 +201,8 @@ mod common {
                 memory_current: prepare_memory_current().with_context(error_msg)?,
                 memory_max: prepare_memory_max().with_context(error_msg)?,
                 memory_stat: prepare_memory_stat(io_buf).with_context(error_msg)?,
+                memory_swap_current: prepare_memory_swap_current().with_context(error_msg)?,
+                memory_swap_max: prepare_memory_swap_max().with_context(error_msg)?,
                 cpu_stat: prepare_cpu_stat(io_buf).with_context(error_msg)?,
                 io_pressure: prepare_io_pressure(io_buf).with_context(error_msg)?,
             })
@@ -207,6 +215,12 @@ mod common {
             let memory_current = self.memory_current.as_mut().map(|c| c.measure(io_buf)).transpose()?;
             let memory_max = self.memory_max.as_mut().map(|c| c.measure(io_buf)).transpose()?;
             let memory_stat = self.memory_stat.as_mut().map(|c| c.measure(io_buf)).transpose()?;
+            let memory_swap_current = self
+                .memory_swap_current
+                .as_mut()
+                .map(|c| c.measure(io_buf))
+                .transpose()?;
+            let memory_swap_max = self.memory_swap_max.as_mut().map(|c| c.measure(io_buf)).transpose()?;
             let cpu_stat = self.cpu_stat.as_mut().map(|c| c.measure(io_buf)).transpose()?;
             let io_pressure = self.io_pressure.as_mut().map(|c| c.measure(io_buf)).transpose()?;
 
@@ -214,6 +228,8 @@ mod common {
                 memory_current,
                 memory_max,
                 memory_stat,
+                memory_swap_current,
+                memory_swap_max,
                 cpu_stat,
                 io_pressure,
             })

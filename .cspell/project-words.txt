@@ -93,6 +93,7 @@ subtrait
 subtraits
 superchip
 superchips
+swaptotal
 SYSFS
 sysio
 Thinkpad
