@@ -40,15 +40,16 @@ Put the following in the configuration file of the Alumet agent (usually `alumet
 
 ```toml
 [plugins.lm-sensors]
-# Interval between two measurements (default value 1s).
+# Interval between two measurements.
 poll_interval = "1s"
-# Interval between two flushing of measurements (default value 5s).
+# Interval between two flushing of measurements.
 flush_interval = "5s"
-# To enable temperature measurements (default value false).
+# To enable temperature measurements.
 enable_temperature = true
-# Temperature-only configuration (default value false).
+# Temperature-only configuration.
 # Enable to get measurements from the CPU packages only.
 coretemp_package_only = false
 ```
 
 Note that all configuration fields of this plugin are optional and take default values if the field is missing in the Alumet configuration file.
+The values shown in this example are the default values of each field.

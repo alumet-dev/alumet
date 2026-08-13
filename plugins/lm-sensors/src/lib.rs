@@ -54,7 +54,7 @@ impl Default for Config {
             flush_interval: Duration::from_secs(5),
 
             // Temperature default configuration
-            enable_temperature: false,
+            enable_temperature: true,
             coretemp_package_only: false,
         }
     }
