@@ -1,5 +1,5 @@
 use std::{
-    fs::File,
+    fs::{self, File},
     io::{self, BufRead, Read, Seek},
     path::Path,
 };
@@ -32,6 +32,87 @@ pub unsafe fn parse_single_u64(io_buf: &[u8]) -> io::Result<u64> {
         .parse()
         .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
     Ok(value)
+}
+
+/// Parses the MemTotal value from `/proc/meminfo` content.
+///
+/// This function searches through the provided meminfo content for a line starting
+/// with "MemTotal:" and extracts the memory value in kilobytes, then converts it to bytes.
+///
+/// # Arguments
+///
+/// * `meminfo` - A string slice containing the contents of `/proc/meminfo`
+///
+/// # Returns
+///
+/// * `Ok(u64)` - The total memory in bytes if MemTotal is found and successfully parsed
+/// * `Err(io::Error)` - Else:
+/// # Errors
+///
+/// This function will return an error in the following cases:
+/// - No line starting with "MemTotal:" is found
+/// - The line "MemTotal:" exists but has no numeric value
+/// - The value after "MemTotal:" cannot be parsed as a u64
+fn parse_memtotal(meminfo: &str) -> io::Result<u64> {
+    for line in meminfo.lines() {
+        if let Some(rest) = line.strip_prefix("MemTotal:") {
+            let kb: u64 = rest
+                .split_whitespace()
+                .next()
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Missing value"))?
+                .parse()
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Invalid number"))?;
+
+            return Ok(kb * 1024);
+        }
+    }
+
+    Err(io::Error::new(io::ErrorKind::InvalidData, "MemTotal not found"))
+}
+
+/// Reads and parses the total system memory from `/proc/meminfo`.
+///
+/// This function reads the entire `/proc/meminfo` file and extracts the MemTotal value,
+/// which represents the total amount of physical RAM available in the system.
+///
+/// # Returns
+///
+/// The total system memory in bytes.
+///
+/// # Errors
+///
+/// Returns an error if /proc/meminfo cannot be read, if its contents
+/// cannot be parsed, or if the MemTotal entry is not found.
+///
+/// # Notes
+///
+/// - The returned value is in bytes, while `/proc/meminfo` reports values in kilobytes
+/// - This function performs I/O operations and should be used carefully in performance-critical code
+/// - The value represents the total physical RAM, not available memory (use MemAvailable for that)
+fn total_memory() -> io::Result<u64> {
+    let meminfo = fs::read_to_string("/proc/meminfo")?;
+    parse_memtotal(&meminfo)
+}
+
+/// Parses a single `u64` value or the string "max" from `io_buf`.
+///
+/// Returns total available if the content is "max", otherwise parses as u64.
+///
+/// # Safety
+/// The bytes passed in must be valid UTF-8.
+pub unsafe fn parse_single_u64_or_max(io_buf: &[u8], maximum_value: &mut Option<u64>) -> io::Result<u64> {
+    let content = unsafe { std::str::from_utf8_unchecked(io_buf.trim_ascii()) };
+
+    if content == "max" {
+        let value = maximum_value.unwrap_or(total_memory()?);
+        *maximum_value = Some(value);
+        Ok(value)
+    } else {
+        let value: u64 = content
+            .parse()
+            .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
+        Ok(value)
+    }
 }
 
 /// Parses a list of key-values from `io_buf`.
@@ -114,6 +195,38 @@ impl U64File {
     pub unsafe fn read(&mut self, io_buf: &mut Vec<u8>) -> io::Result<u64> {
         read_fully(&mut self.file, io_buf)?;
         unsafe { parse_single_u64(io_buf) }
+    }
+}
+
+/// Helper for reading a file that contains a single `u64` value.
+pub struct ValueFile {
+    file: File,
+    maximum_value: Option<u64>,
+}
+
+impl ValueFile {
+    pub fn new(file: File) -> Self {
+        Self {
+            file,
+            maximum_value: None,
+        }
+    }
+
+    pub fn open(path: impl AsRef<Path>) -> io::Result<Self> {
+        let f = File::open(path)?;
+        Ok(Self::new(f))
+    }
+
+    /// Reads the file into `io_buf` and parses its content.
+    ///
+    /// # Safety
+    /// The content of the file must be valid UTF-8.
+    ///
+    /// If this file comes from the kernel's cgroupfs, then its content is always valid ASCII, hence valid UTF-8.
+    pub unsafe fn read(&mut self, io_buf: &mut Vec<u8>) -> io::Result<u64> {
+        read_fully(&mut self.file, io_buf)?;
+        let value = unsafe { parse_single_u64_or_max(io_buf, &mut self.maximum_value) };
+        value
     }
 }
 
@@ -528,6 +641,416 @@ burst_usec 0
             let stats = unsafe { parse_io_pressure(input, settings()).unwrap() };
             assert_eq!(stats.some_total, None);
             assert_eq!(stats.full_total, None);
+        }
+    }
+
+    mod total_memory {
+        use super::*;
+        use pretty_assertions::assert_eq;
+        use std::io::ErrorKind;
+
+        #[test]
+        fn parse_memtotal_with_valid_meminfo() {
+            let meminfo_content = r#"MemTotal:       16384000 kB
+MemFree:         8192000 kB
+MemAvailable:   12288000 kB
+Buffers:          409600 kB
+Cached:          6144000 kB
+SwapCached:            0 kB
+Active:          4096000 kB
+Inactive:        4096000 kB
+Active(anon):     2048000 kB
+Inactive(anon):   2048000 kB
+Active(file):     2048000 kB
+Inactive(file):   2048000 kB
+Unevictable:           0 kB
+Mlocked:               0 kB
+SwapTotal:       8192000 kB
+SwapFree:        8192000 kB"#;
+
+            let result = parse_memtotal(meminfo_content).unwrap();
+            // Expected: 16384000 kB * 1024 = 16777216000 bytes
+            assert_eq!(result, 16384000 * 1024);
+        }
+
+        #[test]
+        fn parse_memtotal_missing_memtotal() {
+            let meminfo_content = r#"MemFree:         8192000 kB
+MemAvailable:   12288000 kB
+Buffers:          409600 kB"#;
+
+            let result = parse_memtotal(meminfo_content);
+            assert!(result.is_err());
+            assert_eq!(result.unwrap_err().kind(), ErrorKind::InvalidData);
+        }
+
+        #[test]
+        fn parse_memtotal_with_large_values() {
+            // Test with very large memory values (e.g., 1TB)
+            let meminfo_content = "MemTotal:       1073741824 kB\n"; // 1TB in KB
+
+            let result = parse_memtotal(meminfo_content).unwrap();
+            // 1TB = 1073741824 KB = 1099511627776 bytes
+            assert_eq!(result, 1099511627776);
+        }
+
+        #[test]
+        fn parse_memtotal_with_zero_value() {
+            let meminfo_content = "MemTotal:       0 kB\n";
+
+            let result = parse_memtotal(meminfo_content).unwrap();
+            assert_eq!(result, 0);
+        }
+
+        #[test]
+        fn parse_memtotal_parsing_edge_cases() {
+            // Test with extra whitespace and different formatting
+            let test_cases = vec![
+                ("MemTotal:    4096    kB\n", 4096 * 1024),
+                ("MemTotal:\t4096\tkB\n", 4096 * 1024), // Tab separators
+                ("MemTotal: 4096 kB  \n", 4096 * 1024), // Trailing spaces
+            ];
+
+            for (meminfo_content, expected_bytes) in test_cases {
+                let result = parse_memtotal(meminfo_content).unwrap();
+                assert_eq!(result, expected_bytes, "Failed for: {:?}", meminfo_content);
+            }
+        }
+
+        #[test]
+        fn parse_memtotal_invalid_number() {
+            let meminfo_content = "MemTotal:       not_a_number kB\n";
+
+            let result = parse_memtotal(meminfo_content);
+            assert!(result.is_err());
+            assert_eq!(result.unwrap_err().kind(), ErrorKind::InvalidData);
+        }
+
+        #[test]
+        fn parse_memtotal_missing_value() {
+            let meminfo_content = "MemTotal:       kB\n";
+
+            let result = parse_memtotal(meminfo_content);
+            assert!(result.is_err());
+            assert_eq!(result.unwrap_err().kind(), ErrorKind::InvalidData);
+        }
+
+        #[test]
+        fn parse_memtotal_empty_content() {
+            let meminfo_content = "";
+
+            let result = parse_memtotal(meminfo_content);
+            assert!(result.is_err());
+            assert_eq!(result.unwrap_err().kind(), ErrorKind::InvalidData);
+        }
+
+        #[test]
+        fn parse_memtotal_only_whitespace() {
+            let meminfo_content = "   \n   \n";
+
+            let result = parse_memtotal(meminfo_content);
+            assert!(result.is_err());
+            assert_eq!(result.unwrap_err().kind(), ErrorKind::InvalidData);
+        }
+
+        #[test]
+        fn parse_memtotal_case_sensitive() {
+            // MemTotal should be case-sensitive
+            let meminfo_content = "memtotal:       8192 kB\n";
+
+            let result = parse_memtotal(meminfo_content);
+            assert!(result.is_err());
+            assert_eq!(result.unwrap_err().kind(), ErrorKind::InvalidData);
+        }
+
+        #[test]
+        fn parse_memtotal_with_other_mem_fields() {
+            // Test that it correctly finds MemTotal among other memory fields
+            let meminfo_content = r#"MemFree:         8192000 kB
+MemTotal:       16384 kB
+MemAvailable:   12288000 kB
+Buffers:          409600 kB"#;
+
+            let result = parse_memtotal(meminfo_content).unwrap();
+            assert_eq!(result, 16384 * 1024);
+        }
+
+        #[test]
+        fn parse_memtotal_multiple_lines() {
+            // Test with multiple MemTotal lines (should use first one)
+            let meminfo_content = r#"MemTotal:       8192 kB
+MemTotal:       16384 kB
+MemFree:         4096 kB"#;
+
+            let result = parse_memtotal(meminfo_content).unwrap();
+            // Should return the first one found
+            assert_eq!(result, 8192 * 1024);
+        }
+
+        #[test]
+        fn parse_memtotal_with_comments() {
+            // Test that it handles lines that might look like comments
+            let meminfo_content = r#"# This is a comment
+MemTotal:       8192 kB
+# Another comment
+MemFree:         4096 kB"#;
+
+            let result = parse_memtotal(meminfo_content).unwrap();
+            assert_eq!(result, 8192 * 1024);
+        }
+
+        #[test]
+        fn parse_memtotal_very_long_line() {
+            // Test with a very long line (edge case)
+            let long_value = "9".repeat(20); // Very large number
+            let meminfo_content = format!("MemTotal:       {} kB\n", long_value);
+
+            let result = parse_memtotal(&meminfo_content);
+            // This might fail due to overflow, but should not panic
+            assert!(result.is_err() || result.unwrap() > 0);
+        }
+
+        #[test]
+        fn parse_memtotal_unicode_whitespace() {
+            // Test with various unicode whitespace characters
+            let meminfo_content = "MemTotal:\u{2003}8192\u{2003}kB\n"; // em-space
+
+            let result = parse_memtotal(meminfo_content).unwrap();
+            assert_eq!(result, 8192 * 1024);
+        }
+
+        // Note: We cannot easily test total_memory() function that reads from /proc/meminfo
+        // in unit tests without mocking the filesystem. The parse_memtotal tests above
+        // cover the parsing logic comprehensively.
+    }
+
+    mod parse_single_u64_or_max {
+        use super::*;
+        use pretty_assertions::assert_eq;
+        use std::io::ErrorKind;
+
+        #[test]
+        fn parse_valid_numeric_values() {
+            let test_cases: Vec<(&[u8], Option<u64>)> = vec![
+                (b"0", Some(0)),
+                (b"19", Some(19)),
+                (b"85858585", Some(85858585)),
+                (b"18446744073709551615", Some(u64::MAX)), // Maximum u64 value
+            ];
+
+            for (input, expected) in test_cases {
+                let result = unsafe { parse_single_u64_or_max(input, &mut None) };
+                assert_eq!(
+                    result.unwrap(),
+                    expected.unwrap(),
+                    "Failed for input: {:?}",
+                    String::from_utf8_lossy(input)
+                );
+            }
+            let max_value = 150 as u64;
+            let result = unsafe { parse_single_u64_or_max(b"max", &mut Some(max_value)) };
+            assert_eq!(result.unwrap(), max_value)
+        }
+
+        #[test]
+        fn parse_with_whitespace() {
+            let test_cases: Vec<(&[u8], u64)> = vec![
+                (b"42\n", 42),
+                (b"  42  ", 42),
+                (b"\t42\t", 42),
+                (b"42  \n", 42),
+                (b"  42  \n", 42),
+            ];
+
+            for (input, expected) in test_cases {
+                let result = unsafe { parse_single_u64_or_max(input, &mut None) };
+                self::assert_eq!(
+                    result.unwrap(),
+                    expected,
+                    "Failed for input: {:?}",
+                    String::from_utf8_lossy(input)
+                );
+            }
+        }
+
+        #[test]
+        fn parse_max_with_provided_maximum() {
+            let test_cases: Vec<(&[u8], Option<u64>, u64)> = vec![
+                (b"max", Some(444444), 444444),   // 8GB
+                (b"max", Some(4757885), 4757885), // 10GB
+                (b"max", Some(0), 0),
+                (b"max", Some(u64::MAX), u64::MAX),
+            ];
+
+            for (input, mut maximum_value, expected) in test_cases {
+                let result = unsafe { parse_single_u64_or_max(input, &mut maximum_value) };
+                self::assert_eq!(
+                    result.unwrap(),
+                    expected,
+                    "Failed for input: {:?} with max: {:?}",
+                    String::from_utf8_lossy(input),
+                    maximum_value
+                );
+            }
+        }
+
+        #[test]
+        fn parse_max_with_whitespace() {
+            let test_cases: Vec<(&[u8], Option<u64>, u64)> = vec![
+                (b"max\n", Some(55552222), 55552222),
+                (b"  max  ", Some(55552222), 55552222),
+                (b"\tmax\t", Some(55552222), 55552222),
+                (b"max  \n", Some(55552222), 55552222),
+            ];
+
+            for (input, mut maximum_value, expected) in test_cases {
+                let result = unsafe { parse_single_u64_or_max(input, &mut maximum_value) };
+                self::assert_eq!(
+                    result.unwrap(),
+                    expected,
+                    "Failed for input: {:?}",
+                    String::from_utf8_lossy(input)
+                );
+            }
+        }
+
+        #[test]
+        fn parse_max_without_maximum_value() {
+            // When maximum_value is None and content is "max", it should call total_memory()
+            // This test verifies that it doesn't panic and returns a valid result
+            let result = unsafe { parse_single_u64_or_max(b"max", &mut None) };
+            // We can't predict the exact value since it depends on the system's total memory
+            // but we can verify it returns a valid u64 value
+            assert!(result.is_ok());
+            let value = result.unwrap();
+            assert!(value > 0, "total_memory() should return a positive value");
+        }
+
+        #[test]
+        fn parse_invalid_numeric_values() {
+            let test_cases: Vec<&[u8]> = vec![
+                b"",
+                b"not_a_number",
+                b"abc",
+                b"42.5",                           // Decimal not allowed
+                b"-1",                             // Negative not allowed
+                b"  ",                             // Only whitespace
+                b"\n\n",                           // Only newlines
+                b"999999999999999999999999999999", // Overflow
+            ];
+
+            for input in test_cases {
+                let result = unsafe { parse_single_u64_or_max(input, &mut None) };
+                assert!(
+                    result.is_err(),
+                    "Should fail for input: {:?}",
+                    String::from_utf8_lossy(input)
+                );
+                assert_eq!(result.unwrap_err().kind(), ErrorKind::InvalidData);
+            }
+        }
+
+        #[test]
+        fn parse_mixed_case_max() {
+            // "max" should be case-sensitive
+            let test_cases: Vec<(&[u8], Option<u64>)> = vec![
+                (b"MAX", None), // Should fail - uppercase
+                (b"Max", None), // Should fail - mixed case
+                (b"mAx", None), // Should fail - mixed case
+                (b"max", None), // Should succeed - lowercase
+            ];
+
+            for (input, mut maximum_value) in test_cases {
+                let result = unsafe { parse_single_u64_or_max(input, &mut maximum_value) };
+                if input == b"max" {
+                    assert!(result.is_ok(), "Should succeed for 'max'");
+                } else {
+                    assert!(result.is_err(), "Should fail for: {:?}", String::from_utf8_lossy(input));
+                }
+            }
+        }
+
+        #[test]
+        fn parse_edge_cases() {
+            // Test various edge cases
+            let test_cases: Vec<(&[u8], Option<u64>)> = vec![
+                (b"1", Some(1)),                           // Minimum positive value
+                (b"18446744073709551615", Some(u64::MAX)), // Maximum u64 value
+                (b"00000000000000000042", Some(42)),       // Leading zeros
+                (b"0x2A", None),                           // Hexadecimal should fail
+                (b"0o52", None),                           // Octal should fail
+                (b"0b101010", None),                       // Binary should fail
+            ];
+
+            for (input, expected) in test_cases {
+                let result = unsafe { parse_single_u64_or_max(input, &mut None) };
+                match expected {
+                    Some(exp) => {
+                        assert_eq!(
+                            result.unwrap(),
+                            exp,
+                            "Failed for input: {:?}",
+                            String::from_utf8_lossy(input)
+                        );
+                    }
+                    None => {
+                        assert!(
+                            result.is_err(),
+                            "Should fail for input: {:?}",
+                            String::from_utf8_lossy(input)
+                        );
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn parse_with_special_characters() {
+            // Test that special characters are handled correctly
+            let test_cases: Vec<(&[u8], Option<u64>)> = vec![
+                (b"42!", None),      // Exclamation mark should fail
+                (b"42$", None),      // Dollar sign should fail
+                (b"42%", None),      // Percent sign should fail
+                (b" 42 ", Some(42)), // Spaces should be trimmed
+            ];
+
+            for (input, expected) in test_cases {
+                let result = unsafe { parse_single_u64_or_max(input, &mut None) };
+                match expected {
+                    Some(exp) => {
+                        assert_eq!(
+                            result.unwrap(),
+                            exp,
+                            "Failed for input: {:?}",
+                            String::from_utf8_lossy(input)
+                        );
+                    }
+                    None => {
+                        assert!(
+                            result.is_err(),
+                            "Should fail for input: {:?}",
+                            String::from_utf8_lossy(input)
+                        );
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn parse_empty_buffer() {
+            let result = unsafe { parse_single_u64_or_max(b"", &mut None) };
+            assert!(result.is_err());
+            assert_eq!(result.unwrap_err().kind(), ErrorKind::InvalidData);
+        }
+
+        #[test]
+        fn parse_very_long_number() {
+            // Test with a number that has many digits
+            let long_number = b"123456789012345678901234567890";
+            let result = unsafe { parse_single_u64_or_max(long_number, &mut None) };
+            // This should fail due to overflow
+            assert!(result.is_err());
+            assert_eq!(result.unwrap_err().kind(), ErrorKind::InvalidData);
         }
     }
 }

@@ -6,9 +6,7 @@ use alumet::{
 use util_cgroups::{
     Cgroup,
     measure::v2::{
-        V2Collector,
-        cpu::CpuStatCollectorSettings,
-        io::{IoPressureCollectorSettings, IoPressureStats},
+        V2Collector, cpu::CpuStatCollectorSettings, io::IoPressureCollectorSettings,
         memory::MemoryStatCollectorSettings,
     },
 };
@@ -162,6 +160,9 @@ impl Source for CgroupV2Probe {
         // Memory statistics
         if let Some(mem) = data.memory_current {
             measurements.push(self.new_point(&self.metrics.memory_usage, t, &resource, mem));
+        }
+        if let Some(mem_max) = data.memory_max {
+            measurements.push(self.new_point(&self.metrics.memory_max, t, &resource, mem_max));
         }
         if let Some(mem_stat) = data.memory_stat {
             if let Some(value) = mem_stat.anon {
