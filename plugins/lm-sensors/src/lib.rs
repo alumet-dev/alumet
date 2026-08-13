@@ -16,9 +16,9 @@ use serde::{Deserialize, Serialize};
 
 use lm_sensors::{Initializer, LMSensors};
 
-use crate::temperature::SensorsFeature;
+use crate::coretemp::CoretempSensor;
 
-mod temperature;
+mod coretemp;
 
 pub struct LMSensorsPlugin {
     config: Config,
@@ -115,30 +115,30 @@ impl AlumetPlugin for LMSensorsPlugin {
                 // TODO: add support for AMD processors
 
                 // Only getting temperature sensors from coretemp.
-                let temperature_sensors_list: Vec<SensorsFeature> =
-                    temperature::get_coretemp_sensors_list(&lmsensors, coretemp_package_only);
-                log::info!("Got {} temperature sensor features", temperature_sensors_list.len());
+                let coretemp_sensors_list: Vec<CoretempSensor> =
+                    coretemp::get_coretemp_sensors_list(&lmsensors, coretemp_package_only);
+                log::info!("Got {} coretemp sensors", coretemp_sensors_list.len());
 
                 let mut buf = MeasurementBuffer::new();
                 let mut next_poll_time = Instant::now() + poll_interval;
                 let mut round = 0;
 
                 while !cancel_token.is_cancelled() {
-                    // Get measurement from all temperature sensors
-                    for feature in &temperature_sensors_list {
-                        let temperature = feature.read_temperature_value();
+                    // Get measurement from all coretemp sensors
+                    for coretemp_sensor in &coretemp_sensors_list {
+                        let temperature = coretemp_sensor.read_temperature_value();
                         match temperature {
                             Ok(value) => {
                                 buf.push(MeasurementPoint::new(
                                     Timestamp::now(),
                                     temperature_metric,
-                                    feature.resource.clone(),
+                                    coretemp_sensor.resource.clone(),
                                     ResourceConsumer::LocalMachine,
                                     value,
                                 ));
                             }
                             Err(e) => {
-                                log::warn!("Failed to get temperature from {}: {e}", &feature.label);
+                                log::warn!("Failed to get temperature from {}: {e}", &coretemp_sensor.label);
                             }
                         }
                     }

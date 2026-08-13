@@ -4,21 +4,21 @@ use lm_sensors::{FeatureRef, LMSensors, SubFeatureRef};
 
 use alumet::resources::Resource;
 
-pub struct SensorsFeature<'a> {
+pub struct CoretempSensor<'a> {
     pub label: String,
     pub resource: Resource,
-    input_temperature_subfeature: SubFeatureRef<'a>, // Consider using SubFeature directly
+    input_temperature_subfeature: SubFeatureRef<'a>,
 }
 
-impl SensorsFeature<'_> {
-    pub fn new(lm_feature: FeatureRef, coretemp_id: u32) -> anyhow::Result<SensorsFeature> {
+impl CoretempSensor<'_> {
+    pub fn new(lm_feature: FeatureRef, coretemp_id: u32) -> anyhow::Result<CoretempSensor> {
         let label = lm_feature
             .label()
             .expect("Sensor feature name is not a valid UTF-8 string.");
         let resource = resource_from_string(&label, coretemp_id)?; // Error handled by the caller
         let subfeature = lm_feature.sub_feature_by_kind(lm_sensors::value::Kind::TemperatureInput)?; // Error handled by the caller
 
-        Ok(SensorsFeature {
+        Ok(CoretempSensor {
             label,
             resource,
             input_temperature_subfeature: subfeature,
@@ -56,8 +56,8 @@ fn resource_from_string(name: &str, coretemp_id: u32) -> anyhow::Result<Resource
     Err(anyhow!("Failed to parse the sensor feature name"))
 }
 
-pub fn get_coretemp_sensors_list<'a>(lmsensors: &'a LMSensors, package_only: bool) -> Vec<SensorsFeature<'a>> {
-    let mut temperature_sensors_list: Vec<SensorsFeature> = vec![];
+pub fn get_coretemp_sensors_list<'a>(lmsensors: &'a LMSensors, package_only: bool) -> Vec<CoretempSensor<'a>> {
+    let mut coretemp_sensors_list: Vec<CoretempSensor> = vec![];
     for chip in lmsensors.chip_iter(None).filter(|x| {
         x.name()
             .expect("Chip name from LMSensors is not a valid UTF-8 string.")
@@ -77,7 +77,7 @@ pub fn get_coretemp_sensors_list<'a>(lmsensors: &'a LMSensors, package_only: boo
             .parse()
             .expect("Coretemp chip name should be suffixed by the coretemp id.");
 
-        temperature_sensors_list.extend(
+        coretemp_sensors_list.extend(
             chip.feature_iter()
                 // Filter by feature::Kind::Temperature just to be sure
                 .filter(|x| x.kind() == Some(lm_sensors::feature::Kind::Temperature))
@@ -88,9 +88,9 @@ pub fn get_coretemp_sensors_list<'a>(lmsensors: &'a LMSensors, package_only: boo
                             .expect("Component name is not a valid UTF-8 string.")
                             .starts_with("Package")
                 })
-                .map(|x| SensorsFeature::new(x, coretemp_id).expect("Could not create LMSensors feature.")),
+                .map(|x| CoretempSensor::new(x, coretemp_id).expect("Could not create LMSensors feature.")),
         );
     }
 
-    temperature_sensors_list
+    coretemp_sensors_list
 }
