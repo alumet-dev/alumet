@@ -34,6 +34,12 @@ pub unsafe fn parse_single_u64(io_buf: &[u8]) -> io::Result<u64> {
     Ok(value)
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum U64MaxResult {
+    U64(u64),
+    Max,
+}
+
 /// Parses the MemTotal value from `/proc/meminfo` content.
 ///
 /// This function searches through the provided meminfo content for a line starting
@@ -157,20 +163,20 @@ pub fn total_swap() -> io::Result<u64> {
 
 /// Parses a single `u64` value or the string "max" from `io_buf`.
 ///
-/// Returns total available if the content is "max", otherwise parses as u64.
+/// Returns U64MaxResult::Max if the content is "max", otherwise parses as u64 and returns U64MaxResult::U64(value).
 ///
 /// # Safety
 /// The bytes passed in must be valid UTF-8.
-pub unsafe fn parse_single_u64_or_max(io_buf: &[u8]) -> io::Result<Option<u64>> {
+pub unsafe fn parse_single_u64_or_max(io_buf: &[u8]) -> io::Result<U64MaxResult> {
     let content = unsafe { std::str::from_utf8_unchecked(io_buf.trim_ascii()) };
 
     if content == "max" {
-        Ok(None)
+        Ok(U64MaxResult::Max)
     } else {
         let value: u64 = content
             .parse()
             .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
-        Ok(Some(value))
+        Ok(U64MaxResult::U64(value))
     }
 }
 
@@ -282,7 +288,7 @@ impl ValueFile {
     /// The content of the file must be valid UTF-8.
     ///
     /// If this file comes from the kernel's cgroupfs, then its content is always valid ASCII, hence valid UTF-8.
-    pub unsafe fn read(&mut self, io_buf: &mut Vec<u8>) -> io::Result<Option<u64>> {
+    pub unsafe fn read(&mut self, io_buf: &mut Vec<u8>) -> io::Result<U64MaxResult> {
         read_fully(&mut self.file, io_buf)?;
         unsafe { parse_single_u64_or_max(io_buf) }
     }
@@ -1070,24 +1076,24 @@ SwapFree:         4096 kB"#;
 
         #[test]
         fn parse_valid_numeric_values() {
-            let test_cases: Vec<(&[u8], Option<u64>)> = vec![
-                (b"0", Some(0)),
-                (b"19", Some(19)),
-                (b"85858585", Some(85858585)),
-                (b"18446744073709551615", Some(u64::MAX)), // Maximum u64 value
+            let test_cases: Vec<(&[u8], u64)> = vec![
+                (b"0", 0),
+                (b"19", 19),
+                (b"85858585", 85858585),
+                (b"18446744073709551615", u64::MAX),
             ];
 
             for (input, expected) in test_cases {
                 let result = unsafe { parse_single_u64_or_max(input) };
                 assert_eq!(
-                    result.unwrap().unwrap(),
-                    expected.unwrap(),
+                    result.unwrap(),
+                    U64MaxResult::U64(expected),
                     "Failed for input: {:?}",
                     String::from_utf8_lossy(input)
                 );
             }
             let result = unsafe { parse_single_u64_or_max(b"max") };
-            assert_eq!(result.unwrap(), None)
+            assert_eq!(result.unwrap(), U64MaxResult::Max)
         }
 
         #[test]
@@ -1103,8 +1109,8 @@ SwapFree:         4096 kB"#;
             for (input, expected) in test_cases {
                 let result = unsafe { parse_single_u64_or_max(input) };
                 self::assert_eq!(
-                    result.unwrap().unwrap(),
-                    expected,
+                    result.unwrap(),
+                    U64MaxResult::U64(expected),
                     "Failed for input: {:?}",
                     String::from_utf8_lossy(input)
                 );
@@ -1118,8 +1124,8 @@ SwapFree:         4096 kB"#;
             for input in test_cases {
                 let result = unsafe { parse_single_u64_or_max(input) };
                 self::assert!(
-                    result.unwrap().is_none(),
-                    "Failed for input: {:?} with max. Should be None",
+                    matches!(result.unwrap(), U64MaxResult::Max),
+                    "Failed for input: {:?}. Expected Max",
                     String::from_utf8_lossy(input),
                 );
             }
@@ -1132,9 +1138,9 @@ SwapFree:         4096 kB"#;
             for input in test_cases {
                 let result = unsafe { parse_single_u64_or_max(input) };
                 self::assert!(
-                    result.unwrap().is_none(),
-                    "Failed for input: {:?} with max. Should be None",
-                    String::from_utf8_lossy(input)
+                    matches!(result.unwrap(), U64MaxResult::Max),
+                    "Failed for input: {:?}. Expected Max",
+                    String::from_utf8_lossy(input),
                 );
             }
         }
@@ -1165,13 +1171,8 @@ SwapFree:         4096 kB"#;
 
         #[test]
         fn parse_mixed_case_max() {
-            // "max" should be case-sensitive
-            let test_cases: Vec<&[u8]> = vec![
-                b"MAX", // Should fail - uppercase
-                b"Max", // Should fail - mixed case
-                b"mAx", // Should fail - mixed case
-                b"max", // Should succeed - lowercase
-            ];
+            // "max" should be case-sensitive, all except last below should fail
+            let test_cases: Vec<&[u8]> = vec![b"MAX", b"Max", b"mAx", b"max"];
 
             for input in test_cases {
                 let result = unsafe { parse_single_u64_or_max(input) };
@@ -1200,8 +1201,8 @@ SwapFree:         4096 kB"#;
                 match expected {
                     Some(exp) => {
                         assert_eq!(
-                            result.unwrap().unwrap(),
-                            exp,
+                            result.unwrap(),
+                            U64MaxResult::U64(exp),
                             "Failed for input: {:?}",
                             String::from_utf8_lossy(input)
                         );
@@ -1232,8 +1233,8 @@ SwapFree:         4096 kB"#;
                 match expected {
                     Some(exp) => {
                         assert_eq!(
-                            result.unwrap().unwrap(),
-                            exp,
+                            result.unwrap(),
+                            U64MaxResult::U64(exp),
                             "Failed for input: {:?}",
                             String::from_utf8_lossy(input)
                         );
