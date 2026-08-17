@@ -24,6 +24,10 @@ pub struct Metrics {
     pub memory_kernel_stack: TypedMetricId<u64>,
     /// Memory used to manage correspondence between virtual and physical addresses.
     pub memory_pagetables: TypedMetricId<u64>,
+    /// Current amount of swap used by the cgroup.
+    pub memory_swap_current: TypedMetricId<u64>,
+    /// Maximum amount of swap that the cgroup can use.
+    pub memory_swap_max: TypedMetricId<u64>,
     /// Reclaimable kernel slab memory used by the cgroup.
     pub slab_reclaimable: TypedMetricId<u64>,
     /// Number of pages swapped into memory by the cgroup.
@@ -75,6 +79,10 @@ pub struct AugmentedMetrics {
     pub memory_kernel_stack: AugmentedMetric<u64>,
     /// Memory used to manage correspondence between virtual and physical addresses.
     pub memory_pagetables: AugmentedMetric<u64>,
+    /// Current amount of swap used by the cgroup.
+    pub memory_swap_current: AugmentedMetric<u64>,
+    /// Maximum amount of swap that the cgroup can use.
+    pub memory_swap_max: AugmentedMetric<u64>,
     /// Reclaimable kernel slab memory used by the cgroup.
     pub slab_reclaimable: AugmentedMetric<u64>,
     /// Number of pages swapped into memory by the cgroup.
@@ -130,6 +138,16 @@ impl Metrics {
             Unit::Byte,
             "Amount of memory allocated for page tables (which map virtual addresses to physical addresses).",
         )?;
+        let memory_swap_current = alumet.create_metric::<u64>(
+            "cgroup_memory_swap_current",
+            Unit::Byte,
+            "Current swap usage of the cgroup.",
+        )?;
+        let memory_swap_max = alumet.create_metric::<u64>(
+            "cgroup_memory_swap_max",
+            Unit::Byte,
+            "Maximum allowed swap usage for the cgroup.",
+        )?;
         let slab_reclaimable = alumet.create_metric::<u64>(
             "cgroup_slab_reclaimable",
             Unit::Byte,
@@ -164,6 +182,8 @@ impl Metrics {
             memory_anonymous,
             memory_file,
             memory_kernel_stack,
+            memory_swap_current,
+            memory_swap_max,
             memory_pagetables,
             slab_reclaimable,
             pswpin,
@@ -185,6 +205,8 @@ impl AugmentedMetrics {
             memory_file: AugmentedMetric::simple(metrics.memory_file),
             memory_kernel_stack: AugmentedMetric::simple(metrics.memory_kernel_stack),
             memory_pagetables: AugmentedMetric::simple(metrics.memory_pagetables),
+            memory_swap_current: AugmentedMetric::simple(metrics.memory_swap_current),
+            memory_swap_max: AugmentedMetric::simple(metrics.memory_swap_max),
             slab_reclaimable: AugmentedMetric::simple(metrics.slab_reclaimable),
             pswpin: AugmentedMetric::simple(metrics.pswpin),
             pswpout: AugmentedMetric::simple(metrics.pswpout),
@@ -217,6 +239,8 @@ impl AugmentedMetrics {
             memory_file: AugmentedMetric::simple(metrics.memory_file),
             memory_kernel_stack: AugmentedMetric::simple(metrics.memory_kernel_stack),
             memory_pagetables: AugmentedMetric::simple(metrics.memory_pagetables),
+            memory_swap_current: AugmentedMetric::simple(metrics.memory_swap_current),
+            memory_swap_max: AugmentedMetric::simple(metrics.memory_swap_max),
             slab_reclaimable: AugmentedMetric::simple(metrics.slab_reclaimable),
             pswpin: AugmentedMetric::simple(metrics.pswpin),
             pswpout: AugmentedMetric::simple(metrics.pswpout),

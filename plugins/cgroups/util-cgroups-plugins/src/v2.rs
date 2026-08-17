@@ -164,6 +164,12 @@ impl Source for CgroupV2Probe {
         if let Some(mem_max) = data.memory_max {
             measurements.push(self.new_point(&self.metrics.memory_max, t, &resource, mem_max));
         }
+        if let Some(swap_current) = data.memory_swap_current {
+            measurements.push(self.new_point(&self.metrics.memory_swap_current, t, &resource, swap_current));
+        }
+        if let Some(swap_max) = data.memory_swap_max {
+            measurements.push(self.new_point(&self.metrics.memory_swap_max, t, &resource, swap_max));
+        }
         if let Some(mem_stat) = data.memory_stat {
             if let Some(value) = mem_stat.anon {
                 measurements.push(self.new_point(&self.metrics.memory_anonymous, t, &resource, value));
