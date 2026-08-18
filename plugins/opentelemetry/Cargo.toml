@@ -11,7 +11,6 @@ serde = { workspace = true, features = ["derive"] }
 opentelemetry-proto = { version = "0.7", features = ["gen-tonic", "metrics"] }
 tonic = { version = "0.12" }
 tokio = { workspace = true }
-log = "0.4"
 
 [dev-dependencies]
 pretty_assertions.workspace = true
