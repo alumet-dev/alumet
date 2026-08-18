@@ -30,10 +30,11 @@ impl ContainerRegistry {
     pub fn refresh(&mut self) -> anyhow::Result<()> {
         log::debug!("Refreshing container list for {}", self.client.runtime());
         
-        let all_containers = self.client.list_containers()
+        let all_containers = self.client.list_containers_blocking()
             .context("failed to list containers")?;
         
         self.containers = all_containers
+            .into_iter()
             .map(|c| (c.id.clone(), c))
             .collect();
         
@@ -157,7 +158,7 @@ mod tests {
 
     #[test]
     fn test_registry_get_existing() {
-        let (registry, _) = create_test_registry();
+        let (mut registry, _) = create_test_registry();
         
         let result = registry.get("a1b2c3d4e5f6").unwrap();
         assert!(result.is_some());
@@ -167,7 +168,7 @@ mod tests {
 
     #[test]
     fn test_registry_get_nonexistent() {
-        let (registry, _) = create_test_registry();
+        let (mut registry, _) = create_test_registry();
         
         let result = registry.get("nonexistent").unwrap();
         assert!(result.is_none());
