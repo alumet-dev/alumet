@@ -12,10 +12,14 @@ util-cgroups-plugins = { path = "../util-cgroups-plugins" }
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 reqwest = { version = "0.11", features = ["blocking", "json"] }
+serde_json = "1.0"
 rustc-hash = "2.0"
 humantime-serde = "1.1"
 hostname = "0.4"
 log = "0.4"
+http = "0.2"
+bollard = "0.16"
+tokio = { version = "1.0", features = ["rt"] }
 
 [dev-dependencies]
 pretty_assertions = "1.4"

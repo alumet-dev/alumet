@@ -64,11 +64,33 @@ impl AlumetPlugin for ContainerPlugin {
         let mut shared_hierarchy = OptionalSharedHierarchy::default();
 
         // Prepare Docker/Podman API client and test it
-        let api_url = self.config.api_url();
         let runtime = self.config.runtime;
+        
+        // Determine the API URL to use
+        let api_url = {
+            if let Some(ref socket_path) = self.config.socket_path {
+                // Use explicit socket path if provided
+                log::info!("Using explicit socket path: {}", socket_path);
+                format!("unix://{}", socket_path)
+            } else if self.config.detect_wsl {
+                // Try to detect WSL2 environment and use appropriate socket
+                if let Some(wsl_socket) = crate::client::detect_wsl_socket_path(runtime) {
+                    log::info!("Using detected WSL2 socket: {}", wsl_socket);
+                    wsl_socket
+                } else {
+                    // Fallback to default URL
+                    self.config.api_url()
+                }
+            } else {
+                // Use configured URL or default
+                self.config.api_url()
+            }
+        };
+        
         let api_client = ApiClient::new(runtime, &api_url)
             .with_context(|| {
-                format!("failed to create API client for {} at {}", runtime, api_url)
+                format!("failed to create API client for {} at {}. If running in WSL2, try setting api_url to 'unix:////wsl.localhost/docker-desktop-data/data/docker-desktop-root-certs/docker.sock' or specify socket_path in configuration.", 
+                        runtime, api_url)
             })?;
         
         let mut container_registry = ContainerRegistry::new(api_client.clone(), self.config.clone());
