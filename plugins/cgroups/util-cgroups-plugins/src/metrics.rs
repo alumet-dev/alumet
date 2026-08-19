@@ -15,7 +15,7 @@ pub struct Metrics {
     /// Memory currently used by the cgroup.
     pub memory_usage: TypedMetricId<u64>,
     /// Maximum memory available for the cgroup.
-    pub memory_max: TypedMetricId<u64>,
+    pub memory_max: TypedMetricId<f64>,
     /// Anonymous used memory, corresponding to running process and various allocated memory.
     pub memory_anonymous: TypedMetricId<u64>,
     /// Files memory, corresponding to open files and descriptors.
@@ -27,7 +27,7 @@ pub struct Metrics {
     /// Current amount of swap used by the cgroup.
     pub memory_swap_current: TypedMetricId<u64>,
     /// Maximum amount of swap that the cgroup can use.
-    pub memory_swap_max: TypedMetricId<u64>,
+    pub memory_swap_max: TypedMetricId<f64>,
     /// Reclaimable kernel slab memory used by the cgroup.
     pub slab_reclaimable: TypedMetricId<u64>,
     /// Number of pages swapped into memory by the cgroup.
@@ -70,7 +70,7 @@ pub struct AugmentedMetrics {
     /// Memory currently used by the cgroup.
     pub memory_usage: AugmentedMetric<u64>,
     /// Maximum memory available for the cgroup.
-    pub memory_max: AugmentedMetric<u64>,
+    pub memory_max: AugmentedMetric<f64>,
     /// Anonymous used memory, corresponding to running process and various allocated memory.
     pub memory_anonymous: AugmentedMetric<u64>,
     /// Files memory, corresponding to open files and descriptors.
@@ -82,7 +82,7 @@ pub struct AugmentedMetrics {
     /// Current amount of swap used by the cgroup.
     pub memory_swap_current: AugmentedMetric<u64>,
     /// Maximum amount of swap that the cgroup can use.
-    pub memory_swap_max: AugmentedMetric<u64>,
+    pub memory_swap_max: AugmentedMetric<f64>,
     /// Reclaimable kernel slab memory used by the cgroup.
     pub slab_reclaimable: AugmentedMetric<u64>,
     /// Number of pages swapped into memory by the cgroup.
@@ -117,7 +117,7 @@ impl Metrics {
             "The total amount of memory currently being used by the cgroup and its descendants (at least in cgroupv2).",
         )?;
         let memory_max =
-            alumet.create_metric::<u64>("memory_max", Unit::Byte, "Maximum memory available for the cgroup")?;
+            alumet.create_metric::<f64>("memory_max", Unit::Byte, "Maximum memory available for the cgroup")?;
         let memory_anonymous = alumet.create_metric::<u64>(
             "cgroup_memory_anonymous",
             Unit::Byte,
@@ -143,7 +143,7 @@ impl Metrics {
             Unit::Byte,
             "Current swap usage of the cgroup.",
         )?;
-        let memory_swap_max = alumet.create_metric::<u64>(
+        let memory_swap_max = alumet.create_metric::<f64>(
             "cgroup_memory_swap_max",
             Unit::Byte,
             "Maximum allowed swap usage for the cgroup.",

@@ -12,9 +12,10 @@ Here are the metrics collected by the plugin's sources.
 
 |Name|Type|Unit|Description|Resource|ResourceConsumer|Attributes|
 |----|----|----|-----------|--------|----------------|----------|
-|`cpu_time_delta`|CounterDiff|nanoseconds|time spent by the pod executing on the CPU|`LocalMachine`|`Cgroup`|see below|
+|`cpu_time_delta`|CounterDiff|nanoseconds|time spent by the cgroups executing on the CPU|`LocalMachine`|`Cgroup`|see below|
 |`cpu_percent`|Gauge|Percent (0 to 100)|`cpu_time_delta / delta_t / n_cores` (all cores used fully = 100%)|`LocalMachine`|`Cgroup`|see below|
-|`memory_usage`|Gauge|Bytes|total pod's memory usage|`LocalMachine`|`Cgroup`|see below|
+|`memory_usage`|Gauge|Bytes|total cgroups's memory usage|`LocalMachine`|`Cgroup`|see below|
+|`memory_max`|Gauge|Bytes|Maximum memory available for the cgroup|`LocalMachine`|`Cgroup`|see below|
 |`cgroup_memory_anonymous`|Gauge|Bytes|anonymous memory usage|`LocalMachine`|`Cgroup`|see below|
 |`cgroup_memory_file`|Gauge|Bytes|memory used to cache filesystem data|`LocalMachine`|`Cgroup`|see below|
 |`cgroup_memory_kernel_stack`|Gauge|Bytes|memory allocated to kernel stacks|`LocalMachine`|`Cgroup`|see below|
@@ -31,6 +32,14 @@ The **cpu** measurements have an additional attribute `kind`, which can be one o
 - `total`: time spent in kernel and user mode
 - `system`: time spent in kernel mode only
 - `user`: time spent in user mode only
+
+## Special Values for Maximum Metrics
+
+Some metrics that represent maximum limits (`memory_max`, `memory_swap_max`) are returned as `f64` instead of `u64` to handle a special case:
+
+- When these metrics return `-1`, it indicates that the capping is set to maximum (unlimited), meaning the actual limit value is not available or meaningful. This occurs when the cgroup has no explicit limit set and can use all available system resources.
+
+For all other values, these metrics represent the actual limit in bytes.
 
 ## Configuration
 
