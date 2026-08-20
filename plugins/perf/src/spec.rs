@@ -1,33 +1,32 @@
 //! Unified perf event descriptor.
 //!
-//! An event is written `<event>[:<modifiers>]`, following the `perf stat -e` syntax. A single
-//! parser owns the syntax: it splits off the modifiers (`:u`, `:k`, …) and applies them itself,
-//! so a modifier behaves identically whatever the event's source.
+//! An event is written `<event>[#<modifiers>]`.
 //!
-//! `<event>` can take several forms. We support a subset for now and *recognise* the rest so the
-//! syntax stays stable across releases:
+//! `<event>` can take one of five forms (a bit like `perf stat -e`). We support a subset for
+//! now and *recognise* the rest so the syntax stays stable across releases:
 //!
-//! - a **symbolic event name**, e.g. `INSTRUCTIONS` or `LL_READ_MISS` **supported**, encoded from
-//!   the native kernel tables (hardware/software/cache). Encoding arbitrary names through libpfm is
-//!   planned.
-//! - a **raw PMU event** `rN`, where `N` is a hexadecimal value representing the raw register
-//!   encoding, with the layout described by `/sys/bus/event_source/devices/cpu/format/*`
-//!   **not yet supported** (planned).
-//! - a **symbolically formed PMU event** `pmu/config=M,config1=N,config2=K/`, where `M`, `N`, `K`
-//!   are numbers whose acceptable values are defined by
-//!   `/sys/bus/event_source/devices/<pmu>/format/*` **not yet supported** (planned).
-//! - the named-parameter variant `pmu/param1=0x3,param2/` and the uncore/`percore` qualifiers
-//!   **not yet supported** (planned).
+//! - **native** : a symbolic event name (`INSTRUCTIONS`, `LL_READ_MISS`), encoded from the native
+//!   kernel tables (hardware/software/cache). **Supported**.
+//! - **libpfm** : any other name, optionally with unit masks (e.g. `RESOURCE_STALLS:ANY`), resolved
+//!   through libpfm (per-CPU encoding tables). This is the fallback when the native tables don't
+//!   know the name. **Supported**.
+//! - **raw-hex** : a raw code `rN`, where `N` is a hexadecimal register encoding (layout from
+//!   `/sys/bus/event_source/devices/cpu/format/*`). **Not yet supported** (planned).
+//! - **pmu-named** : `pmu/event=M,umask=N,…/`, using named fields from
+//!   `/sys/bus/event_source/devices/<pmu>/format/*` (also the uncore/`percore` qualifiers).
+//!   **Not yet supported** (planned).
+//! - **pmu-raw** : `pmu/config=M,config1=N,config2=K/`, the raw config registers given directly.
+//!   **Not yet supported** (planned).
 //!
-//! A not-yet-supported form is recognised by [`resolve_event`] and rejected with an explicit "planned for a
-//! future release" error.
+//! A not-yet-supported form is rejected there with an explicit "planned for a future release" error.
 
 use anyhow::Context;
-use perf_event::events::{Cache, Event, Hardware, Software};
+use perf_event::events::Event;
 use perf_event_open_sys::bindings::perf_event_attr;
 use serde::{Deserialize, Serialize};
 
-use crate::events;
+use crate::native;
+use crate::pfm;
 
 /// One entry of the `events` config list: a bare string, or a table with a metric `rename`.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -50,7 +49,7 @@ impl EventEntry {
     }
 }
 
-/// perf event domain modifiers, e.g. `INSTRUCTIONS:u:k`.
+/// perf event domain modifiers, e.g. `INSTRUCTIONS#u:k`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Modifiers {
     user: bool,
@@ -62,19 +61,23 @@ pub struct Modifiers {
 }
 
 impl Modifiers {
-    /// Parse the modifier characters that follow the first `:` (the group separators `:` in
-    /// `u:k` are ignored).
+    /// Parse the modifiers that follow the `#` delimiter, `:` separated.
+    /// They can be combined (e.g. `#u:k`).
+    /// An unknown or empty token is rejected.
     fn parse(s: &str) -> anyhow::Result<Self> {
         let mut m = Modifiers::default();
-        for c in s.chars() {
-            match c {
-                ':' => {}
-                'u' => m.user = true,
-                'k' => m.kernel = true,
-                'h' => m.hv = true,
-                'H' => m.host = true,
-                'G' => m.guest = true,
-                'I' => m.idle_only = true,
+        if s.is_empty() {
+            return Ok(m);
+        }
+        for token in s.split(':') {
+            match token {
+                "u" => m.user = true,
+                "k" => m.kernel = true,
+                "h" => m.hv = true,
+                "H" => m.host = true,
+                "G" => m.guest = true,
+                "I" => m.idle_only = true,
+                "" => anyhow::bail!("empty modifier (check the ':' separators)"),
                 other => anyhow::bail!("unknown modifier '{other}'"),
             }
         }
@@ -127,49 +130,61 @@ struct Excludes {
     idle: bool,
 }
 
-/// An encoded event, whatever its source. Future sources (`Raw`, `Pfm`) are added as new variants.
-#[derive(Debug, Clone)]
-enum AnyEvent {
-    Hardware(Hardware),
-    Software(Software),
-    Cache(Cache),
+/// A perf event reduced to the four `perf_event_attr` fields every encoder ultimately writes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct EventEncoding {
+    pub(crate) type_: u32,
+    pub(crate) config: u64,
+    pub(crate) config1: u64,
+    pub(crate) config2: u64,
 }
 
-impl AnyEvent {
-    fn update_attrs(self, attr: &mut perf_event_attr) {
-        match self {
-            AnyEvent::Hardware(e) => e.update_attrs(attr),
-            AnyEvent::Software(e) => e.update_attrs(attr),
-            AnyEvent::Cache(e) => e.update_attrs(attr),
+impl EventEncoding {
+    pub(crate) fn from_event(event: impl Event) -> Self {
+        let mut attr = perf_event_attr::default();
+        event.update_attrs(&mut attr);
+        Self::from_attr(&attr)
+    }
+
+    /// Read the four encoding fields out of an already-filled `perf_event_attr`.
+    pub(crate) fn from_attr(attr: &perf_event_attr) -> Self {
+        Self {
+            type_: attr.type_,
+            config: attr.config,
+            config1: attr.config1,
+            config2: attr.config2,
         }
     }
 }
 
-/// A fully-configured event ready to be added to a perf group: an encoding plus its modifiers.
+impl Event for EventEncoding {
+    fn update_attrs(self, attr: &mut perf_event_attr) {
+        attr.type_ = self.type_;
+        attr.config = self.config;
+        attr.config1 = self.config1;
+        attr.config2 = self.config2;
+    }
+}
+
+/// An encoded event together with its canonical name and description.
+/// This is what encoders returns.
+#[derive(Debug, Clone)]
+pub(crate) struct NamedPerfEvent {
+    pub name: String,
+    pub description: String,
+    pub encoding: EventEncoding,
+}
+
+/// A fully-configured event.
+/// This is what's added to a perf group.
 #[derive(Debug, Clone)]
 pub struct ConfiguredEvent {
-    inner: AnyEvent,
+    encoding: EventEncoding,
     modifiers: Modifiers,
 }
 
-impl Event for ConfiguredEvent {
-    fn update_attrs(self, attr: &mut perf_event_attr) {
-        // Only encode the event here. The modifiers are applied by [`Self::configure`] *after*
-        // `Builder::new`, otherwise its forced `exclude_kernel`/`exclude_hv` defaults would clobber
-        // them.
-        self.inner.update_attrs(attr);
-    }
-}
-
-impl ConfiguredEvent {
-    /// Apply this event's modifiers to a freshly-created builder. Required for the modifiers to
-    /// take effect.
-    pub fn configure(&self, builder: &mut perf_event::Builder<'_>) {
-        self.modifiers.configure(builder);
-    }
-}
-
 /// A parsed config event: the metric name suffix (after `perf_`), a description and the event.
+/// This is what's used by Alumet to setup metrics.
 #[derive(Debug)]
 pub struct ParsedEvent {
     pub metric_suffix: String,
@@ -177,80 +192,97 @@ pub struct ParsedEvent {
     pub event: ConfiguredEvent,
 }
 
+impl ConfiguredEvent {
+    /// The raw encoding to hand to [`perf_event::Builder::new`]. [`EventEncoding`] is the only
+    /// [`Event`] in the plugin; the modifiers are applied separately via [`Self::configure`].
+    pub(crate) fn encoding(&self) -> EventEncoding {
+        self.encoding
+    }
+
+    /// Apply this event's modifiers to a freshly-created builder. Must run *after*
+    /// [`perf_event::Builder::new`], which forces its own `exclude_kernel`/`exclude_hv` defaults;
+    /// this sets every bit explicitly so the result never depends on that ordering.
+    pub fn configure(&self, builder: &mut perf_event::Builder<'_>) {
+        self.modifiers.configure(builder);
+    }
+}
+
 /// Parse one config entry into a [`ParsedEvent`].
 pub fn parse(entry: &EventEntry) -> anyhow::Result<ParsedEvent> {
     let (input, rename) = entry.parts();
-    let (name, mods_str) = input.split_once(':').unwrap_or((input, ""));
+    // The `#` delimiter separates the encoder name from the plugin's modifiers.
+    let (name, mods_str) = input.split_once('#').unwrap_or((input, ""));
     if name.is_empty() {
         anyhow::bail!("empty event name in '{input}'");
     }
 
-    let ctx = || format!("invalid event '{input}'");
-    let modifiers = Modifiers::parse(mods_str).with_context(ctx)?;
-    let (event, canonical_name, description) = resolve_event(name).with_context(ctx)?;
+    let modifiers = Modifiers::parse(mods_str).with_context(|| format!("invalid event '{input}'"))?;
+    let resolved = resolve_event(name).with_context(|| format!("invalid event '{input}'"))?;
 
     let metric_suffix = match rename {
-        Some(r) => sanitize(r),
-        None => canonical_name,
+        Some(r) => r,
+        None => &resolved.name,
     };
 
     Ok(ParsedEvent {
-        metric_suffix,
-        description,
+        metric_suffix: sanitize(metric_suffix),
+        description: resolved.description,
         event: ConfiguredEvent {
-            inner: event,
+            encoding: resolved.encoding,
             modifiers,
         },
     })
 }
 
-/// Resolve an event (no modifiers) to its encoding, returning the event, its canonical name (used
-/// for the metric name) and a description. See the module docs for the recognised forms.
-fn resolve_event(name: &str) -> anyhow::Result<(AnyEvent, String, String)> {
-    // Forms we recognise but do not encode yet: reject them explicitly so the syntax stays stable
-    // and the error is actionable.
-
-    // Raw PMU event `rN` (hex register encoding).
+/// Resolve an event name (no modifiers) into a [`NamedPerfEvent`]. Each encoder builds the `NamedPerfEvent`
+/// in its own module; this only dispatches to them. See the module docs for the recognised forms.
+fn resolve_event(name: &str) -> anyhow::Result<NamedPerfEvent> {
+    // raw-hex route (`rN`, hex register encoding): recognised, but not encoded yet.
     let looks_raw = name
         .strip_prefix('r')
         .map(|d| d.trim_start_matches("0x").trim_start_matches("0X"))
         .is_some_and(|d| !d.is_empty() && d.chars().all(|c| c.is_ascii_hexdigit()));
     if looks_raw {
-        anyhow::bail!("raw PMU events (`{name}`) are not supported yet; this is planned for a future release");
+        anyhow::bail!("raw-hex events (`{name}`) are not supported yet; this is planned for a future release");
     }
-    // Symbolically formed PMU event `pmu/.../`.
+    // pmu-named (`pmu/event=,umask=/`) and pmu-raw (`pmu/config=,config1=/`) routes: recognised,
+    // but not encoded yet.
     if name.contains('/') {
-        anyhow::bail!("PMU-term events (`{name}`) are not supported yet; this is planned for a future release");
+        anyhow::bail!(
+            "pmu-named / pmu-raw events (`{name}`) are not supported yet; this is planned for a future release"
+        );
     }
 
-    // Symbolic event name: encoded from the native kernel tables.
-    if let Ok(e) = events::parse_hardware(name) {
-        return Ok((AnyEvent::Hardware(e.event), e.name, e.description));
+    // native route: try the built-in kernel tables first.
+    if let Ok(e) = native::parse(name) {
+        return Ok(e);
     }
-    if let Ok(e) = events::parse_software(name) {
-        return Ok((AnyEvent::Software(e.event), e.name, e.description));
-    }
-    if let Ok(e) = events::parse_cache(name) {
-        return Ok((AnyEvent::Cache(e.event), e.name, e.description));
-    }
-    anyhow::bail!(
-        "Unknown event '{name}': not a native hardware/software/cache event. \
-         Encoding arbitrary event names through libpfm is planned for a future release."
-    )
+
+    // Fall back to libpfm.
+    pfm::encode(name)
+        .with_context(|| format!("unknown event '{name}': not a native event, and libpfm could not encode it"))
 }
 
-/// Turn a string into a metric-name-safe suffix: non-alphanumeric characters become `_`, and
-/// leading/trailing `_` are trimmed.
-fn sanitize(s: &str) -> String {
+/// Turn a string into a metric-name-safe suffix: letters are lowercased, non-alphanumeric
+/// characters become `_`, and leading/trailing `_` are trimmed.
+pub(crate) fn sanitize(s: &str) -> String {
     let mapped: String = s
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
         .collect();
     mapped.trim_matches('_').to_owned()
 }
 
 #[cfg(test)]
 mod tests {
+    use perf_event::events::{Cache, CacheId, CacheOp, CacheResult, Hardware, Software};
+
     use super::*;
 
     fn parse_simple(s: &str) -> ParsedEvent {
@@ -260,29 +292,36 @@ mod tests {
     #[test]
     fn native_hardware() {
         let e = parse_simple("REF_CPU_CYCLES");
-        assert_eq!(e.metric_suffix, "REF_CPU_CYCLES");
-        assert!(matches!(e.event.inner, AnyEvent::Hardware(_)));
+        assert_eq!(e.metric_suffix, "ref_cpu_cycles");
+        assert_eq!(e.event.encoding, EventEncoding::from_event(Hardware::REF_CPU_CYCLES));
     }
 
     #[test]
     fn native_software() {
         let e = parse_simple("CONTEXT_SWITCHES");
-        assert_eq!(e.metric_suffix, "CONTEXT_SWITCHES");
-        assert!(matches!(e.event.inner, AnyEvent::Software(_)));
+        assert_eq!(e.metric_suffix, "context_switches");
+        assert_eq!(e.event.encoding, EventEncoding::from_event(Software::CONTEXT_SWITCHES));
     }
 
     #[test]
     fn native_cache() {
         let e = parse_simple("LL_READ_MISS");
-        assert_eq!(e.metric_suffix, "LL_READ_MISS");
-        assert!(matches!(e.event.inner, AnyEvent::Cache(_)));
+        assert_eq!(e.metric_suffix, "ll_read_miss");
+        assert_eq!(
+            e.event.encoding,
+            EventEncoding::from_event(Cache {
+                which: CacheId::LL,
+                operation: CacheOp::READ,
+                result: CacheResult::MISS,
+            })
+        );
     }
 
     #[test]
     fn no_modifier_is_user_space_only() {
         // The default must match the original plugin: user space only (kernel + hv excluded).
         let e = parse_simple("INSTRUCTIONS");
-        assert_eq!(e.metric_suffix, "INSTRUCTIONS");
+        assert_eq!(e.metric_suffix, "instructions");
         assert_eq!(
             e.event.modifiers.excludes(),
             Excludes {
@@ -298,31 +337,31 @@ mod tests {
 
     #[test]
     fn user_modifier_matches_default() {
-        let x = parse_simple("INSTRUCTIONS:u").event.modifiers.excludes();
+        let x = parse_simple("INSTRUCTIONS#u").event.modifiers.excludes();
         assert!(!x.user && x.kernel && x.hv);
     }
 
     #[test]
     fn user_and_kernel_modifier() {
-        // `:u:k` measures user and kernel, but still excludes the hypervisor.
-        let x = parse_simple("INSTRUCTIONS:u:k").event.modifiers.excludes();
+        // `#u:k` measures user and kernel, but still excludes the hypervisor.
+        let x = parse_simple("INSTRUCTIONS#u:k").event.modifiers.excludes();
         assert!(!x.user);
         assert!(!x.kernel);
         assert!(x.hv);
     }
 
     #[test]
-    fn grouped_and_chained_modifiers_are_equivalent() {
-        // `:uk` (grouped) and `:u:k` (each after its own colon) must mean the same thing.
-        let grouped = parse_simple("INSTRUCTIONS:uk").event.modifiers.excludes();
-        let chained = parse_simple("INSTRUCTIONS:u:k").event.modifiers.excludes();
-        assert_eq!(grouped, chained);
+    fn modifiers_must_be_colon_separated() {
+        // Modifiers are `:`-separated tokens; the grouped form `#uk` is rejected.
+        assert!(parse(&EventEntry::Simple("INSTRUCTIONS#uk".to_owned())).is_err());
+        let x = parse_simple("INSTRUCTIONS#u:k").event.modifiers.excludes();
+        assert!(!x.user && !x.kernel && x.hv);
     }
 
     #[test]
     fn kernel_only_modifier() {
-        // `:k` measures kernel only: user is excluded, kernel is counted.
-        let x = parse_simple("INSTRUCTIONS:k").event.modifiers.excludes();
+        // `#k` measures kernel only: user is excluded, kernel is counted.
+        let x = parse_simple("INSTRUCTIONS#k").event.modifiers.excludes();
         assert!(x.user);
         assert!(!x.kernel);
         assert!(x.hv);
@@ -330,7 +369,7 @@ mod tests {
 
     #[test]
     fn host_and_idle_modifiers() {
-        let x = parse_simple("INSTRUCTIONS:H:I").event.modifiers.excludes();
+        let x = parse_simple("INSTRUCTIONS#H:I").event.modifiers.excludes();
         assert!(x.guest); // host only -> exclude guest
         assert!(!x.host);
         assert!(x.idle); // exclude idle
@@ -338,7 +377,19 @@ mod tests {
 
     #[test]
     fn unknown_modifier_is_rejected() {
-        assert!(parse(&EventEntry::Simple("INSTRUCTIONS:z".to_owned())).is_err());
+        // After `#`, everything is strictly a modifier, so a bad letter is a clear error.
+        let err = parse(&EventEntry::Simple("INSTRUCTIONS#z".to_owned())).unwrap_err();
+        assert!(format!("{err:#}").contains("unknown modifier"), "got: {err:#}");
+    }
+
+    #[test]
+    fn hash_is_the_modifier_delimiter() {
+        // Only what follows `#` is parsed as modifiers; the name is resolved untouched. The `#` is
+        // stripped and never becomes part of the metric name.
+        let e = parse_simple("INSTRUCTIONS#u");
+        assert_eq!(e.metric_suffix, "instructions");
+        assert_eq!(e.event.encoding, EventEncoding::from_event(Hardware::INSTRUCTIONS));
+        assert!(!e.event.modifiers.excludes().user);
     }
 
     #[test]
@@ -366,8 +417,27 @@ mod tests {
 
     #[test]
     fn unknown_name_mentions_libpfm() {
-        let err = parse(&EventEntry::Simple("RESOURCE_STALLS".to_owned())).unwrap_err();
+        // A name neither native nor encodable by libpfm fails, and the error names libpfm. Uses a
+        // clearly-bogus name so it fails whether or not libpfm is installed.
+        let err = parse(&EventEntry::Simple("DEFINITELY_NOT_A_REAL_EVENT_XYZ".to_owned())).unwrap_err();
         assert!(format!("{err:#}").contains("libpfm"), "got: {err:#}");
+    }
+
+    #[test]
+    fn libpfm_event_resolves_when_available() {
+        // Needs libpfm at runtime; skip cleanly where it is not installed.
+        if pfm::encode("PERF_COUNT_HW_INSTRUCTIONS").is_err() {
+            eprintln!("skipping libpfm_event_resolves_when_available: libpfm is not available");
+            return;
+        }
+        // A generic name unknown to the native tables is resolved through libpfm, and produces the
+        // same encoding as calling libpfm directly.
+        let e = parse_simple("PERF_COUNT_HW_INSTRUCTIONS");
+        assert_eq!(e.metric_suffix, "perf_count_hw_instructions");
+        assert_eq!(
+            e.event.encoding,
+            pfm::encode("PERF_COUNT_HW_INSTRUCTIONS").unwrap().encoding
+        );
     }
 
     #[test]

@@ -1,4 +1,7 @@
-//! Names of performance events and utilities.
+//! Native perf events: the built-in kernel tables (hardware, software, cache).
+//!
+//! This is one of the plugin's encoders: [`parse`] turns a symbolic name into a [`NamedPerfEvent`],
+//! trying the hardware table, then the software table, then the compositional cache form.
 
 use std::{error::Error, fmt::Display};
 
@@ -6,24 +9,7 @@ use anyhow::Context;
 use itertools::Itertools;
 use perf_event::events::{self, CacheId, CacheOp, CacheResult};
 
-#[derive(Clone)]
-pub struct NamedPerfEvent<E: events::Event + Clone> {
-    pub name: String,
-    pub description: String,
-    pub event: E,
-}
-
-impl<E: events::Event + Clone + From<u64>> NamedPerfEvent<E> {
-    /// An event with a custom user-supplied id to pass to `perf_event_open`.
-    #[allow(dead_code)]
-    pub fn custom(id: u64) -> Self {
-        Self {
-            name: format!("custom-{id}"),
-            description: "?".to_owned(),
-            event: E::from(id),
-        }
-    }
-}
+use crate::spec::{EventEncoding, NamedPerfEvent};
 
 #[derive(Debug)]
 pub struct UnknownEventError;
@@ -36,13 +22,30 @@ impl Display for UnknownEventError {
 
 impl Error for UnknownEventError {}
 
-/// Returns a hardware perf event from its name.
+/// Resolve a native event name against the built-in kernel tables.
 ///
 /// ## Example
 /// ```ignore
-/// let event = parse_hardware("REF_CPU_CYCLES").unwrap();
+/// let event = parse("REF_CPU_CYCLES").unwrap();
+/// let event = parse("LL_READ_MISS").unwrap();
 /// ```
-pub fn parse_hardware(event_name: &str) -> Result<NamedPerfEvent<events::Hardware>, UnknownEventError> {
+pub fn parse(name: &str) -> anyhow::Result<NamedPerfEvent> {
+    if let Ok(e) = parse_hardware(name) {
+        return Ok(e);
+    }
+    if let Ok(e) = parse_software(name) {
+        return Ok(e);
+    }
+    parse_cache(name)
+}
+
+/// Returns an hardware perf event from its name.
+///
+/// ## Example
+/// ```ignore
+/// let event = parse_hardware("INSTRUCTIONS").unwrap();
+/// ```
+fn parse_hardware(event_name: &str) -> Result<NamedPerfEvent, UnknownEventError> {
     let uppercase_name = event_name.to_ascii_uppercase();
     let (event, description) = match uppercase_name.as_ref() {
         "CPU_CYCLES" => Ok((events::Hardware::CPU_CYCLES, "Total cycles.")),
@@ -66,7 +69,7 @@ pub fn parse_hardware(event_name: &str) -> Result<NamedPerfEvent<events::Hardwar
     Ok(NamedPerfEvent {
         name: uppercase_name,
         description: description.to_owned(),
-        event,
+        encoding: EventEncoding::from_event(event),
     })
 }
 
@@ -76,7 +79,7 @@ pub fn parse_hardware(event_name: &str) -> Result<NamedPerfEvent<events::Hardwar
 /// ```ignore
 /// let event = parse_software("CONTEXT_SWITCHES").unwrap();
 /// ```
-pub fn parse_software(event_name: &str) -> Result<NamedPerfEvent<events::Software>, UnknownEventError> {
+fn parse_software(event_name: &str) -> Result<NamedPerfEvent, UnknownEventError> {
     let uppercase_name = event_name.to_ascii_uppercase();
     // CPU_CLOCK and TASK_CLOCK are not supported here, because they require an additional parameter
     // (frequency or period) and because we don't need them for monitoring and profiling purposes.
@@ -108,7 +111,7 @@ pub fn parse_software(event_name: &str) -> Result<NamedPerfEvent<events::Softwar
     Ok(NamedPerfEvent {
         name: uppercase_name,
         description: description.to_owned(),
-        event,
+        encoding: EventEncoding::from_event(event),
     })
 }
 
@@ -119,7 +122,7 @@ pub fn parse_software(event_name: &str) -> Result<NamedPerfEvent<events::Softwar
 /// let event = parse_cache("L1D_READ_ACCESS").unwrap();
 /// let event = parse_cache("LL_WRITE_MISS").unwrap();
 /// ```
-pub fn parse_cache(cache_spec: &str) -> anyhow::Result<NamedPerfEvent<events::Cache>> {
+fn parse_cache(cache_spec: &str) -> anyhow::Result<NamedPerfEvent> {
     let (name, op, result) = cache_spec
         .splitn(3, '_')
         .map(|s| s.to_ascii_uppercase())
@@ -165,10 +168,10 @@ pub fn parse_cache(cache_spec: &str) -> anyhow::Result<NamedPerfEvent<events::Ca
     Ok(NamedPerfEvent {
         name: format!("{name}_{op}_{result}"),
         description: format!("{cache_id_desc}, {cache_op_desc}, {cache_result_desc}."),
-        event: events::Cache {
+        encoding: EventEncoding::from_event(events::Cache {
             which: cache_id,
             operation: cache_op,
             result: cache_result,
-        },
+        }),
     })
 }
