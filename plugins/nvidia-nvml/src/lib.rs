@@ -1,4 +1,5 @@
 use anyhow::{Context, anyhow};
+use nvml_wrapper::enums::gpm::GpmMetricId;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -83,7 +84,7 @@ impl<P: NvmlProvider + 'static> AlumetPlugin for NvmlPlugin<P> {
             );
         }
         let source_provider = match self.config.mode {
-            Mode::Full => SourceProvider::Full(FullMetrics::new(alumet)?),
+            Mode::Full => SourceProvider::Full(FullMetrics::new(alumet, &self.config.gpm_metrics)?),
             Mode::Minimal => SourceProvider::Minimal(MinimalMetrics::new(alumet)?),
         };
 
@@ -136,6 +137,8 @@ struct Config {
     ///
     /// On some GPUs, the "full" mode is too slow for high frequencies (100 Hz can be hard to reach in full mode).
     mode: Mode,
+
+    gpm_metrics: Vec<GpmMetricId>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -158,6 +161,7 @@ impl Default for Config {
             flush_interval: Duration::from_secs(5),
             skip_failed_devices: true,
             mode: Mode::Full,
+            gpm_metrics: vec![],
         }
     }
 }
@@ -183,10 +187,14 @@ mod tests {
     use indexmap::IndexMap;
     use nvml_wrapper::{
         enum_wrappers::device::Clock,
-        enums::device::UsedGpuMemory,
-        struct_wrappers::device::{MemoryInfo, ProcessInfo, ProcessUtilizationSample, Utilization},
+        enums::{device::UsedGpuMemory, gpm::GpmMetricId},
+        struct_wrappers::{
+            device::{MemoryInfo, ProcessInfo, ProcessUtilizationSample, Utilization},
+            gpm::{GpmMetricInfo, GpmMetricResult},
+        },
         structs::device::UtilizationInfo,
     };
+    use nvml_wrapper_sys::bindings::nvmlGpmSample_t;
 
     use crate::nvml::{MockNvmlDevice, MockNvmlLib};
 
@@ -433,6 +441,32 @@ mod tests {
                 Clock::Memory => Ok(3),
                 Clock::Graphics => Ok(4),
             });
+            device.expect_gpm_support().returning(|| Ok(true));
+            device
+                .expect_gpm_handle()
+                .returning(|| std::ptr::null::<()>() as nvmlGpmSample_t);
+            device.expect_gpm_metrics_get().returning(|_, _, _| {
+                Ok(vec![
+                    Ok(GpmMetricResult {
+                        metric_id: GpmMetricId::SmOccupancy,
+                        value: 60.0,
+                        metric_info: GpmMetricInfo {
+                            short_name: "".to_string(),
+                            long_name: "".to_string(),
+                            unit: "".to_string(),
+                        },
+                    }),
+                    Ok(GpmMetricResult {
+                        metric_id: GpmMetricId::NvlinkL1TxPerSec,
+                        value: 32_000.0,
+                        metric_info: GpmMetricInfo {
+                            short_name: "".to_string(),
+                            long_name: "".to_string(),
+                            unit: "".to_string(),
+                        },
+                    }),
+                ])
+            });
             Ok(device)
         });
         ret
@@ -540,6 +574,7 @@ mod tests {
 
         let config = serialize_config(super::Config {
             mode: Mode::Full,
+            gpm_metrics: vec![GpmMetricId::SmOccupancy, GpmMetricId::NvlinkL1TxPerSec],
             ..Default::default()
         })
         .unwrap();
@@ -567,7 +602,9 @@ mod tests {
             .expect_metric::<u64>("nvml_decoder_utilization", Unit::Percent)
             .expect_metric::<u64>("nvml_encoder_utilization", Unit::Percent)
             .expect_metric::<u64>("nvml_sm_utilization", Unit::Percent)
-            .expect_metric::<u64>("nvml_clock_info", Unit::Hertz);
+            .expect_metric::<u64>("nvml_clock_info", Unit::Hertz)
+            .expect_metric::<u64>("nvml_gpm_sm_occupancy", Unit::Percent)
+            .expect_metric::<u64>("nvml_gpm_nvlink_throughput", Unit::Byte);
 
         let source_name = SourceName::from_str("nvml", &format!("device_{MOCK_BUS_ID}"));
         let runtime_checks = RuntimeExpectations::new()
@@ -584,9 +621,18 @@ mod tests {
                     // two attributes are fetched:
                     //  - kind for "memory_info"
                     //  - clock_type for "clock_info"
-                    let points =
-                        points_by_metric_and_consumer(out, &["kind", "clock_type", "context", "compute_instance_id"]);
-                    assert_eq!(points.len(), 20, "wrong number of points, got {points:?}");
+                    let points = points_by_metric_and_consumer(
+                        out,
+                        &[
+                            "kind",
+                            "clock_type",
+                            "context",
+                            "compute_instance_id",
+                            "direction",
+                            "instance",
+                        ],
+                    );
+                    assert_eq!(points.len(), 22, "wrong number of points, got {points:?}");
 
                     assert_eq!(
                         points[&("nvml_encoder_utilization", ResourceConsumer::LocalMachine, vec![])]
@@ -779,6 +825,25 @@ mod tests {
                             .as_u64(),
                         4_000_000
                     );
+                    assert_eq!(
+                        points[&("nvml_gpm_sm_occupancy", ResourceConsumer::LocalMachine, vec![])]
+                            .value
+                            .as_u64(),
+                        60
+                    );
+                    assert_eq!(
+                        points[&(
+                            "nvml_gpm_nvlink_throughput",
+                            ResourceConsumer::LocalMachine,
+                            vec![
+                                ("direction", &AttributeValue::Str("transmitted")),
+                                ("instance", &AttributeValue::Str("1")),
+                            ]
+                        )]
+                            .value
+                            .as_u64(),
+                        32_000
+                    );
                 },
             )
             .test_source(
@@ -787,7 +852,7 @@ mod tests {
                 |out| {
                     // second trigger
                     let points = points_by_metric_and_consumer(out, &["kind", "clock_type"]);
-                    assert_eq!(points.len(), 25, "wrong number of points, got {points:?}");
+                    assert_eq!(points.len(), 27, "wrong number of points, got {points:?}");
 
                     // new power value
                     assert_eq!(
@@ -877,7 +942,7 @@ mod tests {
                 let points = points_by_metric_and_consumer(out, &[]);
 
                 // metrics with attributes only appear once
-                assert_eq!(points.len(), 12, "wrong number of points, got {points:?}");
+                assert_eq!(points.len(), 14, "wrong number of points, got {points:?}");
 
                 let expected_key_clock = ("nvml_clock_info", ResourceConsumer::LocalMachine, vec![]);
                 let expected_key_memory = ("nvml_gpu_memory_info", ResourceConsumer::LocalMachine, vec![]);

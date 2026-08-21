@@ -1,6 +1,9 @@
 use std::fmt::Display;
 
-use nvml_wrapper::enum_wrappers::device::Clock;
+use nvml_wrapper::{
+    enum_wrappers::device::Clock, enums::gpm::GpmMetricId, error::NvmlError, struct_wrappers::gpm::GpmMetricResult,
+};
+use nvml_wrapper_sys::bindings::nvmlGpmSample_t;
 
 pub mod detect;
 pub mod features;
@@ -106,6 +109,23 @@ pub trait NvmlDevice: Display + Send {
     /// Current clock frequency.
     /// See [`nvml_wrapper::Device::clock_info`].
     fn clock_info(&self, clock_type: Clock) -> NvmlResult<u32>;
+
+    /// Checks whether the device supports GPM metrics.
+    /// See [`nvml_wrapper::Device::gpm_support`]
+    fn gpm_support(&self) -> Result<bool, nvml_wrapper::error::NvmlError>;
+
+    /// Returns a raw GPM sample handle, which can be stored between calls.
+    /// See [`nvml_wrapper::Device::from_handle`]
+    fn gpm_handle(&self) -> nvmlGpmSample_t;
+
+    /// Returns GPM metrics between two timestamps, defined by [previous_handle] and [current_handle].
+    /// The metrics requested are given by [metric_ids].
+    fn gpm_metrics_get(
+        &self,
+        previous_handle: nvmlGpmSample_t,
+        current_handle: nvmlGpmSample_t,
+        metric_ids: &[GpmMetricId],
+    ) -> Result<Vec<Result<GpmMetricResult, NvmlError>>, NvmlError>;
 }
 
 #[cfg(test)]
