@@ -175,3 +175,20 @@ fn parse_cache(cache_spec: &str) -> anyhow::Result<NamedPerfEvent> {
         }),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hardware_software_and_cache_parse() {
+        assert_eq!(parse("INSTRUCTIONS").unwrap().name, "INSTRUCTIONS");
+        assert_eq!(parse("CONTEXT_SWITCHES").unwrap().name, "CONTEXT_SWITCHES");
+        assert_eq!(parse("LL_READ_MISS").unwrap().name, "LL_READ_MISS");
+    }
+
+    #[test]
+    fn unknown_name_is_rejected() {
+        assert!(parse("DEFINITELY_NOT_A_REAL_EVENT_XYZ").is_err());
+    }
+}

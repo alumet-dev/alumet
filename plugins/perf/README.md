@@ -30,12 +30,8 @@ The `<event>` part can be one of five forms:
 - **libpfm** : any other name, optionally with unit masks (e.g. `RESOURCE_STALLS:ANY`,
   `MEM_LOAD_RETIRED:L3_MISS`), resolved through [libpfm](#libpfm-events). (**Supported**, requires libpfm)
 - **raw-hex** : a raw code `rN`, where `N` is a hexadecimal value representing the raw register
-  encoding, with the layout described by `/sys/bus/event_source/devices/cpu/format/*`. (**Not yet supported**)
-- **pmu-named** : `pmu/event=M,umask=N,…/`, using named fields defined in
-  `/sys/bus/event_source/devices/<pmu>/format/*` (perf packs the bits for you); also the uncore /
-  `percore` qualifiers. (**Not yet supported**)
-- **pmu-raw** : `pmu/config=M,config1=N,config2=K/`, giving the raw config registers directly
-  (numbers in decimal, hex or octal). (**Not yet supported**)
+  encoding, with the layout described by `/sys/bus/event_source/devices/<pmu>/format/*`. It targets
+  the default raw PMU. (**Supported**, see [Raw events](#raw-events))
 
 Any event may be followed by `#` and a list of [modifiers](#modifiers), e.g.
 `INSTRUCTIONS#u` or `CACHE_MISSES#u:k`.
@@ -90,6 +86,20 @@ libpfm is **loaded at runtime** (via `dlopen`), not linked at build time:
   error . A configuration with no libpfm event starts fine.
 - Install it from your distribution (e.g. `libpfm4` on Debian/Ubuntu). By default the plugin looks
   for `libpfm.so.4` and `libpfm.so`. Set `ALUMET_LIBPFM_LIB` to a `.so` name or full path to override.
+
+### Raw events
+
+When a symbolic name is not enough, you can give the raw event code directly, just like `perf`:
+
+- **`rN`** — the hexadecimal code `N` goes into the counter's `config` on the default raw PMU
+  (`PERF_TYPE_RAW`). Both `r3c` and `r0x412e` are accepted (a `0x` prefix is optional).
+
+The meaning of the bits in `N` is CPU-specific; the layout is described by
+`/sys/bus/event_source/devices/<pmu>/format/*`. The plugin does not interpret it, it forwards the
+value as-is.
+
+Modifiers work here too: `r0x412e#u:k`. The metric is named after the sanitized event string, so
+`r0x412e` → `perf_r0x412e` (use a `rename` for something friendlier).
 
 ### Modifiers
 
