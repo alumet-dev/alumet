@@ -2,47 +2,44 @@
 Documentation       Alumet test plugin perf
 
 Library             OperatingSystem
+Library             Process
 Library             String
 Library             SSHLibrary
 Resource            ../resources/alumet_keywords.resource
 
 Test Timeout        60 seconds
 
-Test Tags           baremetal    input_plugin    perf_plugin
+Test Tags           container    input_plugin    perf_plugin
 
 
 *** Test Cases ***
-Test connection on target node
-    [Documentation]    Verify SSH connection to the target node
-
-    ${output}    ${stderr}=    Execute Command Target Node    hostname
-    Log    Output Result of SSH : ${output}
-    Log    stderr Result of SSH : ${stderr}
-
 Run cpu_load
     [Documentation]    Execute cpu_load script in the background
 
-    ${output}    ${stderr}=    Execute Command Target Node    nohup ./cpu_load.sh 20 > /dev/null 2>&1 &
+    Copy Tools File
+
+    VAR    ${command}=    nohup ./cpu_load.sh 20 > /dev/null 2>&1 &
+    ${output}    ${stderr}=    Execute Command Target Node    ${command}
     Sleep    3s
     Log    Output Result of SSH : ${output}
     Log    stderr Result of SSH : ${stderr}
 
-Run plugin csv perf
+Run plugins csv perf
     [Documentation]    Run alumet-agent with csv and perf plugins
 
-    ${output}    ${stderr}=    Execute Command Target Node
-    ...    alumet-agent --plugins csv,perf watch "$(cat cpu_load.sh.pid)" > /tmp/alumet.log 2>&1 &
-    Sleep    3s
-    Log    Output Result of SSH : ${output}
-    Log    stderr Result of SSH : ${stderr}
+    Install Alumet As Container    csv,perf
+    ${result}    ${stderr}=    Execute Command Target Node    sudo podman logs ${ALUMET_CONTAINER_NAME}
+    Log    result: ${result}
+    Log    stderr: ${stderr}
 
-    ${output_alumet}    ${stderr}=    Execute Command Target Node    cat /tmp/alumet.log
-    Log    Result stdout : ${output_alumet}
-    Log    stderr Result : ${stderr}
+    Should Contain    ${stderr}    Starting Alumet
+    Should Contain    ${stderr}    ${ALUMET_VERSION}
+
+    Should Contain    ${stderr}    4 metrics registered
 
     # check that csv and perf plugins are started
     ${started_section}=    Get Regexp Matches
-    ...    ${output_alumet}
+    ...    ${stderr}
     ...    plugins started:(.*?)plugins disabled:
     ...    1
     ...    flags=DOTALL
@@ -52,17 +49,25 @@ Run plugin csv perf
 Check alumet running
     [Documentation]    Verify that alumet-agent is running with the correct plugins
 
-    ${output}    ${stderr}=    Execute Command Target Node    ps -f -u ${USERNAME}
+    ${output}    ${stderr}=    Execute Command Target Node    sudo podman exec ${ALUMET_CONTAINER_NAME} ps -f
     Log    Result stdout : ${output}
     Log    stderr Result : ${stderr}
 
-    Should Contain    ${output}    /usr/lib/alumet-agent --plugins csv,perf
+    Should Contain    ${output}    /usr/bin/alumet-agent
+    Should Contain    ${output}    --plugins csv,perf
+
+Copy csv File
+    [Documentation]    Copy alumet csv file
+
+    # wait several seconds to get some metrics in csv file
+    Sleep    10s
+    Copy Csv File
 
 Check Perf Metric perf_hardware_REF_CPU_CYCLES
     [Documentation]    Check perf_hardware_REF_CPU_CYCLES metric
     [Template]    Check Metric
     # ${metric}    ${resource_kind}    ${domain}
-    perf_hardware_REF_CPU_CYCLES    local_machine
+    perf_hardware_REF_CPU_CYCLES    local_machine    ${EMPTY}
 
 Check Perf Metric perf_hardware_CACHE_MISSES
     [Documentation]    Check perf_hardware_CACHE_MISSES metric
@@ -77,6 +82,19 @@ Check Perf Metric perf_hardware_BRANCH_MISSES
 
     # ${metric}    ${resource_kind}    ${domain}
     perf_hardware_BRANCH_MISSES    local_machine
+
+Check Perf Metric perf_cache_LL_READ_MISS
+    [Documentation]    Check perf_cache_LL_READ_MISS metric
+    [Template]    Check Metric
+
+    # ${metric}    ${resource_kind}    ${domain}
+    perf_cache_LL_READ_MISS    local_machine
+
+Stop alumet
+    [Documentation]    Stop alumet-agent delete alumet container
+
+    UnInstall Alumet As Container
+    Log    Stop alumet
 
 Check alumet not running
     [Documentation]    Verify that alumet-agent is not running
