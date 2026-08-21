@@ -30,10 +30,7 @@ const TIMEOUT: Duration = Duration::from_secs(5);
 // Create a fake plugin structure for slurm_cgroupv2 plugin
 fn create_mock_plugin() -> SlurmPlugin {
     SlurmPlugin {
-        config: Some(Config {
-            poll_interval: Duration::from_secs(1),
-            ..Default::default()
-        }),
+        config: Some(Config::default()),
         starting_state: None,
         reactor: None,
     }
@@ -48,7 +45,8 @@ fn test_default_config() {
     let config: Config = deserialize_config(config_table).expect("ERROR : Failed to deserialize config");
 
     assert_eq!(config.ignore_non_jobs, true);
-    assert_eq!(config.poll_interval, Duration::from_secs(1));
+    assert_eq!(config.common.poll_interval, Duration::from_secs(5));
+    assert_eq!(config.common.disable_sources, false);
 }
 
 // Test `init` function to initialize slurm_cgroupv2 plugin configuration
@@ -78,7 +76,6 @@ fn test_correct_run_with_no_jobs() {
 
     let mut plugins = PluginSet::new();
     let config = Config {
-        poll_interval: Duration::from_secs(1),
         ignore_non_jobs: true,
         ..Default::default()
     };
@@ -114,10 +111,7 @@ fn test_correct_run_with_one_job() {
     cgroupv2::create_cgroupv2_tree_slurm_job(&root).unwrap();
 
     let mut plugins = PluginSet::new();
-    let config = Config {
-        poll_interval: Duration::from_secs(1),
-        ..Default::default()
-    };
+    let config = Config::default();
     plugins.add_plugin(PluginInfo {
         metadata: PluginMetadata::from_static::<SlurmPlugin>(),
         enabled: true,
@@ -192,7 +186,7 @@ fn test_correct_run_with_one_job() {
         .build_and_start()
         .unwrap();
 
-    agent.wait_for_shutdown(TIMEOUT).unwrap();
+    agent.wait_for_shutdown(TIMEOUT).unwrap()
 }
 
 #[test]
@@ -203,10 +197,7 @@ fn test_correct_run_with_two_jobs() {
     cgroupv2::create_cgroupv2_tree_slurm_jobs(&root).unwrap();
 
     let mut plugins = PluginSet::new();
-    let config = Config {
-        poll_interval: Duration::from_secs(1),
-        ..Default::default()
-    };
+    let config = Config::default();
     plugins.add_plugin(PluginInfo {
         metadata: PluginMetadata::from_static::<SlurmPlugin>(),
         enabled: true,
@@ -346,10 +337,7 @@ fn test_correct_run_with_one_job_coming_later() {
     cgroupv2::create_cgroupv2_tree_slurm_empty(&root).unwrap();
 
     let mut plugins = PluginSet::new();
-    let config = Config {
-        poll_interval: Duration::from_secs(1),
-        ..Default::default()
-    };
+    let config = Config::default();
     plugins.add_plugin(PluginInfo {
         metadata: PluginMetadata::from_static::<SlurmPlugin>(),
         enabled: true,
@@ -413,10 +401,7 @@ fn test_cgroupv1_two_jobs() {
     cgroupv1::fake_cgroupv1_hierarchies(&root, "1000", "2", 56, 78).unwrap();
 
     let mut plugins = PluginSet::new();
-    let config = Config {
-        poll_interval: Duration::from_secs(1),
-        ..Default::default()
-    };
+    let config = Config::default();
     plugins.add_plugin(PluginInfo {
         metadata: PluginMetadata::from_static::<SlurmPlugin>(),
         enabled: true,

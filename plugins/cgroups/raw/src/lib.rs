@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use alumet::{
     pipeline::elements::source::trigger::TriggerSpec,
     plugin::rust::{AlumetPlugin, deserialize_config, serialize_config},
@@ -10,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use source::SourceSetup;
 use util_cgroups_plugins::{
     cgroup_events::{CgroupReactor, NoCallback, ReactorCallbacks, ReactorConfig},
+    config::CommonConfig,
     metrics::Metrics,
 };
 
@@ -61,7 +60,8 @@ impl AlumetPlugin for RawCgroupPlugin {
     fn post_pipeline_start(&mut self, alumet: &mut alumet::plugin::AlumetPostStart) -> anyhow::Result<()> {
         let s = self.starting_state.take().unwrap();
         let probe_setup = SourceSetup {
-            trigger: TriggerSpec::at_interval(self.config.poll_interval),
+            start_sources: !self.config.common.disable_sources,
+            trigger: TriggerSpec::at_interval(self.config.common.poll_interval),
         };
         let reactor = CgroupReactor::new(
             s.reactor_config,
@@ -91,15 +91,15 @@ struct StartingState {
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
-    #[serde(with = "humantime_serde")]
-    pub poll_interval: Duration,
+    #[serde(flatten)]
+    pub common: CommonConfig,
 }
 
 impl Default for Config {
     #[cfg_attr(tarpaulin, ignore)]
     fn default() -> Self {
         Self {
-            poll_interval: Duration::from_secs(5),
+            common: CommonConfig::default(),
         }
     }
 }

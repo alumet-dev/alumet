@@ -7,6 +7,7 @@ use util_cgroups_plugins::{
 
 #[derive(Clone)]
 pub struct SourceSetup {
+    pub start_sources: bool,
     pub trigger: TriggerSpec,
 }
 
@@ -16,6 +17,9 @@ impl CgroupSetupCallback for SourceSetup {
         cgroup: &util_cgroups::Cgroup,
         metrics: &Metrics,
     ) -> Option<util_cgroups_plugins::cgroup_events::ProbeSetup> {
+        if !self.start_sources {
+            return None;
+        }
         // no custom attributes, this is the "raw" cgroup plugin :)
         let metrics = AugmentedMetrics::no_additional_attribute(metrics);
 

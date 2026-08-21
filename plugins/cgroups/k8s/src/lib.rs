@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use alumet::{
     pipeline::elements::source::trigger::TriggerSpec,
     plugin::rust::{AlumetPlugin, deserialize_config, serialize_config},
@@ -14,6 +12,7 @@ use crate::{
 use source::SourceSetup;
 use util_cgroups_plugins::{
     cgroup_events::{CgroupReactor, NoCallback, ReactorCallbacks, ReactorConfig},
+    config::CommonConfig,
     job_annotation_transform::{
         CachedCgroupHierarchy, JobAnnotationTransform, OptionalSharedHierarchy, SharedCgroupHierarchy,
     },
@@ -96,8 +95,9 @@ impl AlumetPlugin for K8sPlugin {
         // continue from the state that has been prepared in `start`
         let s = self.starting_state.take().unwrap();
 
-        let trigger = TriggerSpec::at_interval(self.config.poll_interval);
+        let trigger = TriggerSpec::at_interval(self.config.common.poll_interval);
         let probe_setup = SourceSetup {
+            start_sources: !self.config.common.disable_sources,
             trigger,
             k8s_pods: s.pod_registry,
         };
@@ -133,15 +133,14 @@ struct StartingState {
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
+    #[serde(flatten)]
+    pub common: CommonConfig,
     /// Name of the curent K8S node, defaults to the hostname.
     pub k8s_node: Option<String>,
     /// URL to the K8S API.
     #[serde(default = "default_k8s_api_url")]
     pub k8s_api_url: String,
     pub token_retrieval: TokenRetrievalConfig,
-
-    #[serde(with = "humantime_serde")]
-    pub poll_interval: Duration,
 
     /// If `true`, adds attributes like `uid`, `name`, `namespace`, `node` to the cgroup measurements produced by other plugins.
     #[serde(default)]
@@ -159,10 +158,10 @@ fn default_k8s_api_url() -> String {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            common: CommonConfig::default(),
             k8s_node: None,
             k8s_api_url: default_k8s_api_url(),
             token_retrieval: TokenRetrievalConfig::Simple(token::SimpleRetrievalMethod::Auto),
-            poll_interval: Duration::from_secs(5),
             annotate_foreign_measurements: false,
             annotate_containers: false,
         }
