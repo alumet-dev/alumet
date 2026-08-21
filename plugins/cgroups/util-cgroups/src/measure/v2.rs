@@ -57,10 +57,10 @@ mod common {
 
     pub struct V2Stats {
         pub memory_current: Option<u64>,
-        pub memory_max: Option<u64>,
+        pub memory_max: Option<f64>,
         pub memory_stat: Option<MemoryStats>,
         pub memory_swap_current: Option<u64>,
-        pub memory_swap_max: Option<u64>,
+        pub memory_swap_max: Option<f64>,
         pub cpu_stat: Option<CpuStats>,
         pub io_pressure: Option<IoPressureStats>,
     }
