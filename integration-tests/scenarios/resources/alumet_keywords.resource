@@ -11,7 +11,8 @@ Library             SSHLibrary
 
 
 *** Variables ***
-${ALUMET_CONTAINER_NAME}    alumet_robot_fm
+${ALUMET_CONTAINER_NAME}            alumet_robot_fm
+${ALUMET_CHART_INSTANCE_NAME}       alumet-robot-fm
 
 
 *** Keywords ***
@@ -222,6 +223,33 @@ UnInstall Alumet As Container
     Log    stderr: ${stderr}
 
     Should Contain    ${stderr}    cannot access
+
+Install Alumet As Helm Chart
+    [Documentation]    Launch Alumet as helm chart
+    ...     input parameters:
+    ...         list of input plugins
+    ...     Return parameters:
+    ...         none
+    [Arguments]    ${list_plugins}=${EMPTY}
+
+    VAR    ${command}=      export https_proxy=http://10.197.209.6:3128; export export no_proxy=127.0.0.1,localhost,192.168.0.10,.seed,10.1.0.104,172.16.118.53,.local ; helm install ${ALUMET_CHART_INSTANCE_NAME} alumet/alumet
+    ${result}=    Execute Command Target Node    ${command}
+    Log    result: ${result}
+
+    RETURN  ${result}
+
+UnInstall Alumet As Helm Chart
+    [Documentation]    Uninstall Alumet with helm chart
+    ...     input parameters:
+    ...         none
+    ...     Return parameters:
+    ...         none
+
+    VAR    ${command}=      export https_proxy=http://10.197.209.6:3128; export export no_proxy=127.0.0.1,localhost,192.168.0.10,.seed,10.1.0.104,172.16.118.53,.local ; helm uninstall ${ALUMET_CHART_INSTANCE_NAME}
+    ${result}=    Execute Command Target Node    ${command}
+    Log    result: ${result}
+
+    RETURN  ${result}
 
 Copy Tools File
     [Documentation]    Copy tools file from Alumet container to local directory
