@@ -1,23 +1,4 @@
 //! Wait for the cgroupfs to be mounted.
-//!
-//! # WSL2 Compatibility
-//! 
-//! In WSL2 environments, this module may encounter parsing errors from the underlying
-//! `mount_watcher` library when it reads `/proc/mounts` and finds Windows-specific mount
-//! entries. These entries contain escape sequences and Windows paths that the library's
-//! Linux-focused parser cannot handle.
-//!
-//! Example problematic entries:
-//! ```text
-//! C:\\134Program\\040Files\\134Docker\\134Docker\\resources /Docker/host 9p rw,noatime,...
-//! ```
-//!
-//! These errors are logged by the external library but do not affect cgroup functionality.
-//! To reduce log noise, configure your logging to filter mount_watcher errors:
-//! ```toml
-//! [env]
-//! RUST_LOG = "mount_watcher=warn,info"
-//! ```
 
 use mount_watcher::{MountWatcher, WatchControl, mount::LinuxMount};
 use std::{any::Any, ops::ControlFlow, time::Duration};
@@ -134,15 +115,7 @@ fn prepare_watcher(
             event.initial,
             event.coalesced
         );
-        
-        // WSL2 workaround: The mount_watcher library may encounter unparseable mount entries
-        // (e.g., Windows paths with escape sequences in Docker Desktop mounts). These errors
-        // don't affect cgroup functionality, so we catch them early and continue.
-        if event.mounted.is_empty() && event.unmounted.is_empty() {
-            log::debug!("No changes in mounts, continuing monitoring");
-            return WatchControl::Continue;
-        }
-        
+
         // find the cgroup filesystems, if any
         let new_cgroupfs = extract_cgroup_hierarchies(&event.mounted);
 
