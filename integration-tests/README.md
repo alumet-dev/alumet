@@ -9,6 +9,7 @@ Below, the structure of this folder.
 │   ├── log.html
 │   ├── output.xml
 │   └── report.html
+├── poetry.lock
 ├── pyproject.toml
 ├── README.md
 └── scenarios
@@ -21,8 +22,10 @@ Below, the structure of this folder.
     │   ├── installation.robot
     │   ├── plugin-perf.robot
     │   └── plugin-rapl.robot
+    ├── k8s
+    │   ├── installation.robot
+    │   └── plugin-rapl.robot
     ├── resources
-    │   ├── alumet-config.toml
     │   ├── alumet_keywords.resource
     │   ├── help-config-option.txt
     │   ├── help-exec-option.txt
@@ -61,24 +64,27 @@ make init
 ## Run the tests
 
 The \_\_init\_\_.robot file contains the Suite Setup (Install Alumet) and Teardown (UnInstall Alumet). When this file is present,  robot framework executes at the beginning of the tests the keyword `Install Alumet` and at the end of test execution the keyword `UnInstall alumet`.
-Each test can have one or several tags allowing the exclusion of tests from being run by robot framework. For example, use the tag `baremetal` to exclude tests with alumet installation on baremetal. You need to edit the `Makefile` and modify the target test to add the tag you want to exclude (see line 81 below). You can also modify the path of scenarios to be executed to restric to a folder/sub folder or a file (see line 82 below):
+Each test can have one or several tags allowing the exclusion of tests from being run by robot framework. For example, use the tag `baremetal` to exclude tests with alumet installation on baremetal. You need to edit the `Makefile` and modify the target test to add the tag you want to exclude (see line 88/89 below). You can also modify the path of scenarios to be executed to restric to a folder/sub folder or a file (see line 90 below):
 
 ```text
- 68         poetry run robot \
- 69                 --outputdir ./output \
- 70                 -v "NODE:$(NODE)"       \
- 71         -v "GATEWAY:$(GATEWAY)" \
- 72         -v "USERNAME:$(USERNAME)" \
- 73         -v "KEY:$(KEY)" \
- 74         -v "ALUMET_VERSION:$(ALUMET_VERSION)" \
- 75         -v "ALUMET_DISTRIBUTION:$(ALUMET_DISTRIBUTION)" \
- 76                 -v "ALUMET_ARCHITECTURE:$(ALUMET_ARCHITECTURE)" \
- 77         --metadata "Alumet version":$(ALUMET_VERSION) \
- 78                 --metadata "Alumet distribution":$(ALUMET_DISTRIBUTION) \
- 79                 --metadata "Alumet architecture":$(ALUMET_ARCHITECTURE) \
- 80                 --metadata "Environnement target node":$(NODE) \
- 81                 --exclude baremetal \
- 82                 ./scenarios/
+ 73         poetry run robot \
+ 74                 --outputdir ./output \
+ 75                 -v "NODE:$(NODE)"       \
+ 76         -v "GATEWAY:$(GATEWAY)" \
+ 77         -v "USERNAME:$(USERNAME)" \
+ 78         -v "KEY:$(KEY)" \
+ 79         -v "ALUMET_VERSION:$(ALUMET_VERSION)" \
+ 80         -v "ALUMET_DISTRIBUTION:$(ALUMET_DISTRIBUTION)" \
+ 81         -v "ALUMET_ARCHITECTURE:$(ALUMET_ARCHITECTURE)" \
+ 82         -v "ALUMET_CHART_VERSION:$(ALUMET_CHART_VERSION)" \
+ 83         --metadata "Alumet version":$(ALUMET_VERSION) \
+ 84         --metadata "Alumet distribution":$(ALUMET_DISTRIBUTION) \
+ 85         --metadata "Alumet architecture":$(ALUMET_ARCHITECTURE) \
+ 86         --metadata "Alumet chart version":$(ALUMET_CHART_VERSION) \
+ 87         --metadata "Environnement target node":$(NODE) \
+ 88         --exclude baremetal \
+ 89         --exclude container \
+ 90         ./scenarios/
 ```
 
 To run the robot framework test scenarios execute the command:
