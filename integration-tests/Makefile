@@ -11,6 +11,9 @@ ALUMET_VERSION=0.9.4
 ALUMET_DISTRIBUTION=ubuntu_24.04
 ALUMET_ARCHITECTURE=amd64
 
+# For k8s tests
+ALUMET_CHART_VERSION=0.8.2
+
 REQUIRED_VARS := NODE GATEWAY USERNAME KEY 
 
 all: init test
@@ -20,6 +23,7 @@ help:
 	@echo "  ALUMET_VERSION         	$(ALUMET_VERSION)"
 	@echo "  ALUMET_DISTRIBUTION    	$(ALUMET_DISTRIBUTION)"
 	@echo "  ALUMET_ARCHITECTECTURE    	$(ALUMET_ARCHITECTECTURE)"
+	@echo "  ALUMET_CHART_VERSION    	$(ALUMET_CHART_VERSION)"
 	@echo "  Target node            	$(NODE)"
 	@echo "  Modify the variables ALUMET_VERSION, ALUMET_DISTRIBUTION, ALUMET_ARCHITECTURE in this Makefile if you want to modify the set-up"
 	@echo "  Modify the variables NODE, GATEWAY, USERNAME, KEY in the .env file if you want to modify the set-up"
@@ -57,6 +61,7 @@ test: check-required-vars
 	@echo "  ALUMET_VERSION         	$(ALUMET_VERSION)"
 	@echo "  ALUMET_DISTRIBUTION    	$(ALUMET_DISTRIBUTION)"	
 	@echo "  ALUMET_ARCHITECTECTURE    	$(ALUMET_ARCHITECTECTURE)"	
+	@echo "  ALUMET_CHART_VERSION    	$(ALUMET_CHART_VERSION)"	
 	@echo "  Target node            	$(NODE)"
 	@echo "  Modify the variables ALUMET_VERSION, ALUMET_DISTRIBUTION, ALUMET_ARCHITECTURE in this Makefile if you want to modify the set-up"
 	@echo "  Modify the variables NODE, GATEWAY, USERNAME, KEY in the .env file if you want to modify the set-up"
@@ -74,13 +79,16 @@ test: check-required-vars
         -v "ALUMET_VERSION:$(ALUMET_VERSION)" \
         -v "ALUMET_DISTRIBUTION:$(ALUMET_DISTRIBUTION)" \
 		-v "ALUMET_ARCHITECTURE:$(ALUMET_ARCHITECTURE)" \
+		-v "ALUMET_CHART_VERSION:$(ALUMET_CHART_VERSION)" \
         --metadata "Alumet version":$(ALUMET_VERSION) \
 		--metadata "Alumet distribution":$(ALUMET_DISTRIBUTION) \
 		--metadata "Alumet architecture":$(ALUMET_ARCHITECTURE) \
+		--metadata "Alumet chart version":$(ALUMET_CHART_VERSION) \
 		--metadata "Environnement target node":$(NODE) \
 		./scenarios/
 
 unused:
 	for type in arguments files keywords returns variables; do \
+		echo "Checking presence of unused $$type" ;\
 		poetry run robotunused $$type -v; \
 	done
