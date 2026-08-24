@@ -86,4 +86,6 @@ skip_failed_devices = true
 
 ## More information
 
-Due to the not truly thread safely behavior of `amdsmi` library for all software version, all GPUs are collected and polled by the same source.
+To avoid an issue in `amdsmi` library where retrieving a specific energy counter from multiple threads gives unexpected results (see https://github.com/ROCm/amdsmi/issues/115) all GPUs are collected and polled by the same source.
+
+This issue is fixed in a more recent version of ROCm: 7.1.1.
