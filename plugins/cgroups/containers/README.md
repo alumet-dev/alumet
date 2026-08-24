@@ -1,153 +1,56 @@
 # Containers Plugin
 
-A plugin for Alumet that provides annotations for Docker and Podman container cgroups.
-
-## Overview
-
-The `containers` plugin measures resources consumed by Docker and Podman containers by annotating cgroup measurements with container metadata. It can annotate both its own cgroup measurements and measurements from other plugins (like the raw cgroup plugin).
-
-## Features
-
-- **Multi-Runtime Support**: Works with both Docker and Podman (configured via TOML)
-- **Automatic Detection**: Automatically detects containers from cgroup paths
-- **Flexible Annotation**: Can annotate measurements from any cgroup source
-- **Container Labels**: Optional support for including container labels as attributes
-- **Efficient Caching**: Implements caching to minimize API calls
-
-## Annotations Provided
-
-When enabled, the plugin adds the following attributes to cgroup measurements:
-
-| Attribute | Type | Description |
-|-----------|------|-------------|
-| `container_id` | string | Container unique identifier |
-| `container_name` | string | Container name |
-| `container_image` | string | Image name used to create the container |
-| `runtime` | string | Either "docker" or "podman" |
-| `container_created` | i64 | Container creation timestamp (optional) |
-| `label.{key}` | string | Container labels (if `include_container_labels` is enabled) |
-
-## Configuration
-
-Add the plugin to your Alumet configuration file (`alumet.toml`):
-
-```toml
-[[plugins]]
-name = "containers"
-
-[plugins.containers]
-# Container runtime to use: "docker" or "podman"
-runtime = "docker"
-
-# URL to the container API (default depends on runtime)
-# Docker: unix:///var/run/docker.sock
-# Podman: unix:///run/podman/podman.sock
-# You can also use HTTP endpoints like: http://localhost:2375
-api_url = null
-
-# How often to refresh the container list
-poll_interval = "5s"
-
-# Whether to annotate measurements from other plugins
-# When true, the plugin will add container attributes to all cgroup measurements
-annotate_foreign_measurements = true
-
-# Whether to include container labels as attributes
-# Labels will be prefixed with "label." (e.g., "label.com.example.key")
-include_container_labels = false
-```
-
-### Example Configuration for Docker
-
-```toml
-[[plugins]]
-name = "containers"
-
-[plugins.containers]
-runtime = "docker"
-annotate_foreign_measurements = true
-include_container_labels = true
-```
-
-### Example Configuration for Podman
-
-```toml
-[[plugins]]
-name = "containers"
-
-[plugins.containers]
-runtime = "podman"
-api_url = "unix:///run/podman/podman.sock"
-annotate_foreign_measurements = true
-```
-
-## Usage
-
-The plugin automatically detects containers from their cgroup paths and annotates measurements. Supported cgroup path patterns include:
-
-### Docker
-- `/sys/fs/cgroup/docker/<container_id>/`
-- `/sys/fs/cgroup/buildkit/<container_id>/`
-- `/sys/fs/cgroup/system.slice/docker-<container_id>.scope`
-
-### Podman
-- `/sys/fs/cgroup/libpod_parent/<container_id>/`
-- `/sys/fs/cgroup/user.slice/libpod_parent/<container_id>/`
-- `/sys/fs/cgroup/user.slice/libpod-<container_id>.scope`
-
-## Integration with Other Plugins
-
-The plugin is designed to work seamlessly with other cgroup plugins:
-
-1. **Raw Cgroup Plugin**: The containers plugin can annotate measurements from the raw cgroup plugin
-2. **Kubernetes Plugin**: Can be used alongside K8S monitoring for workloads not managed by Kubernetes
-3. **HPC Plugins**: Can complement OAR and SLURM plugins for containerized HPC workloads
+The `containers` plugin provides cgroup measurements with container annotations using OCI-compliant runtimes APIs (docker and podman for now) which are automatically detected via the bollard library.
 
 ## Requirements
 
-- Linux cgroups v2 (recommended) or v1
-- Docker or Podman running and accessible via their API
-- Appropriate permissions to access the container API socket
+You need:
+1. Docker or Podman running and accessible via their API
 
-## Troubleshooting
+See the OCI Runtime Specification for more information: https://github.com/opencontainers/runtime-spec
 
-### "failed to list containers" Error
+## Metrics
 
-This error typically occurs when the plugin cannot connect to the container API. Check:
+Those from ../util-cgroups-plugins/src/metrics.rs
 
-1. **API URL**: Ensure the `api_url` configuration is correct for your setup
-2. **Permissions**: Ensure the user running Alumet has permission to access the container socket
-3. **Runtime**: Ensure Docker or Podman is running
+### Attributes
 
-### No Containers Found
+The measurements produced by the `containers` plugin have the following attributes:
+- `uid`: the container's unique identifier
+- `name`: the container's name
 
-If the plugin starts successfully but doesn't find containers:
+## Annotation of the Measurements Provided by Other Plugins
 
-1. **Check Running Containers**: Verify that containers are actually running (`docker ps` or `podman ps`)
-2. **Cgroup Path**: Check that containers are being placed in the expected cgroup paths
-3. **Runtime Version**: Ensure you're using a supported version of Docker or Podman
+Other plugins, such as the [`process-to-cgroup-bridge`](../../process-to-cgroup-bridge/README.md), can produce measurements related to the cgroups of containers.
+However, they cannot add container-specific information (such as the container UID or name) to the measurements.
 
-### Missing Annotations
+To do that, use the annotation feature of the `containers` plugin by enabling the following configuration option.
 
-If measurements don't have container annotations:
+```toml
+annotate_foreign_measurements = true
+```
 
-1. **Check Configuration**: Ensure `annotate_foreign_measurements` is set to `true`
-2. **Cgroup Version**: Annotation transforms require cgroup v2 (cgroup v1 is not currently supported)
-3. **Path Matching**: Verify that your containers use the expected cgroup path patterns
+Be sure to enable the `containers` plugin **after** the plugins that produce the measurements that you want to annotate.
+For instance, the `containers` configuration section should be after the `process-to-cgroup-bridge` section.
 
-## Architecture
+```toml
+[plugins.process-to-cgroup-bridge]
+…
 
-The plugin follows the same architecture as other cgroup plugins in Alumet:
+[plugins.containers]
+…
+```
 
-- **API Client**: Handles communication with Docker/Podman APIs
-- **Container Registry**: Maintains a cache of container information
-- **ID Extraction**: Parses cgroup paths to extract container IDs
-- **JobTagger**: Implements the trait for adding container attributes
+## Configuration
 
-## Contributing
+```toml
+[[plugins]]
+name = "containers"
 
-This plugin is part of the Alumet project. Contributions are welcome!
+[plugins.containers]
+# Interval between each measurement
+poll_interval = "5s"
 
-## License
-
-This plugin follows the same license as the main Alumet project.
+# If `true`, adds attributes like `uid`, `name` to the cgroup measurements produced by other plugins
+annotate_foreign_measurements = false
+```
