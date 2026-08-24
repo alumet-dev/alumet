@@ -6,13 +6,13 @@ use util_cgroups_plugins::{
     metrics::{AugmentedMetrics, Metrics},
 };
 
-use crate::registry::ContainerRegistry;
+use crate::containers::AutoContainerRegistry;
 
 /// Setup for container cgroup probes
 #[derive(Clone)]
 pub struct SourceSetup {
     pub trigger: TriggerSpec,
-    pub container_registry: ContainerRegistry,
+    pub container_registry: AutoContainerRegistry,
 }
 
 impl CgroupSetupCallback for SourceSetup {
@@ -35,14 +35,7 @@ impl CgroupSetupCallback for SourceSetup {
         let trigger = self.trigger.clone();
 
         // Use the container ID from the path as the source name
-        // Extract container ID from the cgroup path
-        let name = extract_container_name_from_path(cgroup.fs_path()).unwrap_or_else(|| {
-            cgroup.fs_path()
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("unknown_container")
-                .to_string()
-        });
+        let name = cgroup.fs_path().file_stem().unwrap().to_str().unwrap().to_string();
 
         // Ready!
         let source_settings = SourceSettings { name, trigger };
@@ -51,25 +44,4 @@ impl CgroupSetupCallback for SourceSetup {
             source_settings,
         })
     }
-}
-
-/// Extracts a descriptive name from a container cgroup path
-fn extract_container_name_from_path(path: &std::path::Path) -> Option<String> {
-    use crate::extraction::extract_container_id;
-    use crate::config::ContainerRuntime;
-    
-    // Try to extract container ID from the path
-    // We'll use it as a fallback name
-    if let Some(container_id) = extract_container_id(path, ContainerRuntime::Docker) {
-        return Some(container_id);
-    }
-    
-    if let Some(container_id) = extract_container_id(path, ContainerRuntime::Podman) {
-        return Some(container_id);
-    }
-    
-    // If that fails, use the last path component
-    path.file_name()
-        .and_then(|n| n.to_str())
-        .map(|s| s.to_string())
 }
