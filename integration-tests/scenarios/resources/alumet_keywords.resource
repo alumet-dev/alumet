@@ -37,6 +37,7 @@ Execute Command Target Node
     ...         Command:     the command to execute on remote host
     ...     Return parameters:
     ...         stdout    of the command executed
+    ...         stderr    of the command executed
     ...     Note that to connect to login, the following variables must be set as global:
     ...     ${NODE}         : Node where alumet is installed
     ...     ${USERNAME}     : username to open the ssh connection
@@ -69,17 +70,27 @@ Read Resource Kind
     ...     input parameters:
     ...         metric:    metric name to parse
     ...         domain: domain name
+    ...         installation_type: valid value is k8s or empty
     ...     Return parameters:
     ...         stdout    of the command executed
     ...     Note that to connect to login, the following variables must be set as global:
     ...         ${NODE}                     : Node where alumet is installed
     ...         ${USERNAME}                 : username to open the ssh connection
     ...         ${KEY}                      : ssh key to open the ssh connection
-    [Arguments]    ${metric}    ${domain}=${EMPTY}
+    [Arguments]    ${metric}    ${domain}=${EMPTY}    ${installation_type}={EMPTY}
 
     # the metric resource_kind is on 4th column
+    # The position of domain attribute in csv file differs according alumet set-up:
+    # k8s or other (container or baremetal)
+    # refer to bug https://github.com/alumet-dev/alumet/issues/460
     IF    '${domain}' != ''
-        VAR    ${command}=    grep ${metric} alumet-output.csv | awk -F ';' ' $8 == "${domain}" { OFS="|"; print $4 }'
+        IF    '${installation_type}' == 'k8s'
+            VAR    ${command}=    grep ${metric} alumet-output.csv |
+            ...    awk -F ';' ' $12 == "domain=${domain}" { OFS="|"; print $4 }'
+        ELSE
+            VAR    ${command}=    grep ${metric} alumet-output.csv |
+            ...    awk -F ';' ' $8 == "${domain}" { OFS="|"; print $4 }'
+        END
     ELSE
         VAR    ${command}=    grep ${metric} alumet-output.csv
     END
@@ -96,21 +107,31 @@ Read Value
     ...         metric:    metric name to parse
     ...         resource_kind: resource kind name
     ...         domain: domain name
+    ...         installation_type: valid value is k8s or empty
     ...     Return parameters:
     ...         stdout    metric value
     ...     Note that to connect to login, the following variables must be set as global:
     ...         ${NODE}                     : Node where alumet is installed
     ...         ${USERNAME}                 : username to open the ssh connection
     ...         ${KEY}                      : ssh key to open the ssh connection
-    [Arguments]    ${metric}    ${resource_kind}    ${domain}=${EMPTY}
+    [Arguments]    ${metric}    ${resource_kind}    ${domain}=${EMPTY}    ${installation_type}={EMPTY}
 
     # sed -n 'Np' command below means that we read the N first metric value found in the csv file
     # it is better not to read the first value but second or higher
     # the metric value is on 3rd column (print $3)
+    # The position of domain attribute in csv file differs according alumet set-up:
+    # k8s or other (container or baremetal)
+    # refer to bug https://github.com/alumet-dev/alumet/issues/460
     IF    '${domain}' != ''
-        VAR    ${command}=
-        ...    grep ${metric} alumet-output.csv | awk -F ';' ' $8 == "${domain}" &&
-        ...    $4 == "${resource_kind}" { OFS="|"; print $3 }' | sed -n '2p'
+        IF    '${installation_type}' == 'k8s'
+            VAR    ${command}=
+            ...    grep ${metric} alumet-output.csv | awk -F ';' ' $12 == "domain=${domain}" &&
+            ...    $4 == "${resource_kind}" { OFS="|"; print $3 }' | sed -n '2p'
+        ELSE
+            VAR    ${command}=
+            ...    grep ${metric} alumet-output.csv | awk -F ';' ' $8 == "${domain}" &&
+            ...    $4 == "${resource_kind}" { OFS="|"; print $3 }' | sed -n '2p'
+        END
     ELSE
         VAR    ${command}=
         ...    grep ${metric} alumet-output.csv | awk -F ';' '
@@ -137,12 +158,12 @@ Check Metric
     ...         ${NODE}                     : Node where alumet is installed
     ...         ${USERNAME}                 : username to open the ssh connection
     ...         ${KEY}                      : ssh key to open the ssh connection
-    [Arguments]    ${metric}    ${resource_kind}    ${domain}=${EMPTY}
+    [Arguments]    ${metric}    ${resource_kind}    ${domain}=${EMPTY}    ${installation_type}={EMPTY}
 
-    ${output}=    Read Resource Kind    ${metric}    ${domain}
+    ${output}=    Read Resource Kind    ${metric}    ${domain}    ${installation_type}
     Should Contain    ${output}    ${resource_kind}
 
-    ${output}=    Read Value    ${metric}    ${resource_kind}    ${domain}
+    ${output}=    Read Value    ${metric}    ${resource_kind}    ${domain}    ${installation_type}
     Should Be True    ${output} !=0.0
 
 Install Alumet As Container
@@ -227,16 +248,17 @@ UnInstall Alumet As Container
 Install Alumet As Helm Chart
     [Documentation]    Launch Alumet as helm chart
     ...     input parameters:
-    ...         list of input plugins
+    ...         helm_Values
     ...     Return parameters:
-    ...         none
-    [Arguments]    ${list_plugins}=${EMPTY}
+    ...         result
+    [Arguments]    ${helm_Values}=${EMPTY}
 
-    VAR    ${command}=      export https_proxy=http://10.197.209.6:3128; export export no_proxy=127.0.0.1,localhost,192.168.0.10,.seed,10.1.0.104,172.16.118.53,.local ; helm install ${ALUMET_CHART_INSTANCE_NAME} alumet/alumet
+    Log    helm values: ${helm_Values}
+    Log    alumet instance name: ${ALUMET_CHART_INSTANCE_NAME}
+    VAR    ${command}=
+    ...    export https_proxy=http://10.197.209.6:3128; export export no_proxy=127.0.0.1,localhost,192.168.0.10,.seed,10.1.0.104,172.16.118.53,.local ; helm install ${ALUMET_CHART_INSTANCE_NAME} alumet/alumet ${helm_Values} --version ${ALUMET_CHART_VERSION}
     ${result}=    Execute Command Target Node    ${command}
     Log    result: ${result}
-
-    RETURN  ${result}
 
 UnInstall Alumet As Helm Chart
     [Documentation]    Uninstall Alumet with helm chart
@@ -245,11 +267,19 @@ UnInstall Alumet As Helm Chart
     ...     Return parameters:
     ...         none
 
-    VAR    ${command}=      export https_proxy=http://10.197.209.6:3128; export export no_proxy=127.0.0.1,localhost,192.168.0.10,.seed,10.1.0.104,172.16.118.53,.local ; helm uninstall ${ALUMET_CHART_INSTANCE_NAME}
+    VAR    ${command}=
+    ...    export https_proxy=http://10.197.209.6:3128; export export no_proxy=127.0.0.1,localhost,192.168.0.10,.seed,10.1.0.104,172.16.118.53,.local ; helm uninstall ${ALUMET_CHART_INSTANCE_NAME}
     ${result}=    Execute Command Target Node    ${command}
     Log    result: ${result}
 
-    RETURN  ${result}
+    # remove alumet-output.csv file
+    ${result}    ${stderr}=    Execute Command Target Node    rm alumet-output.csv
+    Log    result: ${result}
+    Log    stderr: ${stderr}
+
+    ${result}    ${stderr}=    Execute Command Target Node    ls -l alumet-output.csv
+    Log    result: ${result}
+    Log    stderr: ${stderr}
 
 Copy Tools File
     [Documentation]    Copy tools file from Alumet container to local directory
@@ -277,6 +307,22 @@ Copy Csv File
 
     # check if alumet-output.csv file exists
     ${result}    ${stderr}=    Execute Command Target Node    ls -l alumet-output.csv
+    Log    result: ${result}
+    Log    stderr: ${stderr}
+    Should Contain    ${result}    alumet-output.csv
+
+Copy Csv File From Pod
+    [Documentation]    Copy csv file from Alumet Pod to local directory
+    [Arguments]    ${pod_Name}
+
+    Log    pod name: ${pod_Name}
+    VAR    ${command}=    kubectl exec ${pod_Name} -- tar cf - -C /app alumet-output.csv 2>/dev/null    | tar xf - -C .
+    ${result}    ${stderr}=    Execute Command Target Node    ${command}
+    Log    result: ${result}
+    Log    stderr: ${stderr}
+
+    # check if alumet-output.csv file exists
+    ${result}    ${stderr}=    Execute Command Target Node    ls -lh alumet-output.csv
     Log    result: ${result}
     Log    stderr: ${stderr}
     Should Contain    ${result}    alumet-output.csv
