@@ -22,7 +22,7 @@ Test connection on target node
 Run plugins csv rapl
     [Documentation]    Run alumet-agent with csv and rapl plugins
 
-    Install Alumet As Container    csv,rapl
+    Run Alumet Container With    csv,rapl
 
     ${result}    ${stderr}=    Execute Command Target Node    sudo podman logs ${ALUMET_CONTAINER_NAME}
     Log    result: ${result}
@@ -82,7 +82,7 @@ Check Rapl Metric dram_total
 Stop alumet
     [Documentation]    Stop alumet-agent delete alumet container
 
-    UnInstall Alumet As Container
+    Stop Alumet Container
     Log    Stop alumet
 
 Check alumet not running

@@ -22,7 +22,6 @@ Below, the structure of this folder.
     │   ├── plugin-perf.robot
     │   └── plugin-rapl.robot
     ├── resources
-    │   ├── alumet-config.toml
     │   ├── alumet_keywords.resource
     │   ├── help-config-option.txt
     │   ├── help-exec-option.txt

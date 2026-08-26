@@ -27,7 +27,7 @@ Run cpu_load
 Run plugins csv perf
     [Documentation]    Run alumet-agent with csv and perf plugins
 
-    Install Alumet As Container    csv,perf
+    Run Alumet Container With    csv,perf
     ${result}    ${stderr}=    Execute Command Target Node    sudo podman logs ${ALUMET_CONTAINER_NAME}
     Log    result: ${result}
     Log    stderr: ${stderr}
@@ -74,26 +74,26 @@ Check Perf Metric perf_hardware_CACHE_MISSES
     [Template]    Check Metric
 
     # ${metric}    ${resource_kind}    ${domain}
-    perf_hardware_CACHE_MISSES    local_machine
+    perf_hardware_CACHE_MISSES    local_machine    ${EMPTY}
 
 Check Perf Metric perf_hardware_BRANCH_MISSES
     [Documentation]    Check perf_hardware_BRANCH_MISSES metric
     [Template]    Check Metric
 
     # ${metric}    ${resource_kind}    ${domain}
-    perf_hardware_BRANCH_MISSES    local_machine
+    perf_hardware_BRANCH_MISSES    local_machine    ${EMPTY}
 
 Check Perf Metric perf_cache_LL_READ_MISS
     [Documentation]    Check perf_cache_LL_READ_MISS metric
     [Template]    Check Metric
 
     # ${metric}    ${resource_kind}    ${domain}
-    perf_cache_LL_READ_MISS    local_machine
+    perf_cache_LL_READ_MISS    local_machine    ${EMPTY}
 
 Stop alumet
     [Documentation]    Stop alumet-agent delete alumet container
 
-    UnInstall Alumet As Container
+    Stop Alumet Container
     Log    Stop alumet
 
 Check alumet not running

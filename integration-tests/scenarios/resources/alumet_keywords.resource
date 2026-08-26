@@ -144,8 +144,8 @@ Check Metric
     ${output}=    Read Value    ${metric}    ${resource_kind}    ${domain}
     Should Be True    ${output} !=0.0
 
-Install Alumet As Container
-    [Documentation]    Launch Alumet as container
+Run Alumet Container With
+    [Documentation]    Run Alumet as container
     ...     input parameters:
     ...         list of input plugins
     ...     Return parameters:
@@ -190,7 +190,7 @@ Install Alumet As Container
     ${result}=    Execute Command Target Node    ${command}
     Log    result: ${result}
 
-UnInstall Alumet As Container
+Stop Alumet Container
     [Documentation]    Stop and delete Alumet Container, remove temporary files used for testing
 
     ${result}=    Execute Command Target Node    sudo podman rm -f ${ALUMET_CONTAINER_NAME}

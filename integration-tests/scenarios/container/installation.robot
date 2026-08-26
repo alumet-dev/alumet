@@ -15,10 +15,9 @@ Test Tags           container    installation
 Launch Alumet Container
     [Documentation]    Launch Alumet as container
 
-    Install Alumet As Container    csv
+    Run Alumet Container With    csv
 
 Stop Alumet Container
     [Documentation]    Stop and delete Alumet Container
 
-    UnInstall Alumet As Container
-    Log    Hello
+    Stop Alumet Container

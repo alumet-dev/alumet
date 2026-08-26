@@ -61,21 +61,19 @@ Check alumet running
 Check Perf Metric perf_hardware_REF_CPU_CYCLES
     [Documentation]    Check perf_hardware_REF_CPU_CYCLES metric
     [Template]    Check Metric
-    # ${metric}    ${resource_kind}    ${domain}
+
     perf_hardware_REF_CPU_CYCLES    local_machine
 
 Check Perf Metric perf_hardware_CACHE_MISSES
     [Documentation]    Check perf_hardware_CACHE_MISSES metric
     [Template]    Check Metric
 
-    # ${metric}    ${resource_kind}    ${domain}
     perf_hardware_CACHE_MISSES    local_machine
 
 Check Perf Metric perf_hardware_BRANCH_MISSES
     [Documentation]    Check perf_hardware_BRANCH_MISSES metric
     [Template]    Check Metric
 
-    # ${metric}    ${resource_kind}    ${domain}
     perf_hardware_BRANCH_MISSES    local_machine
 
 Check alumet not running
