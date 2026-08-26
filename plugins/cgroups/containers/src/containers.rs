@@ -160,10 +160,70 @@ impl ApiClient {
             }
         }
 
+        // Try additional Podman socket locations manually
+        log::debug!("Attempting to connect to Podman via additional socket locations...");
+        
+        let socket_paths = vec![
+            "/run/user/1094/podman/podman.sock",  // User ID 1094 (from your podman info)
+            "/run/user/1000/podman/podman.sock",   // Common user ID
+            "/run/podman/podman.sock",              // System-wide
+            "/var/run/podman/podman.sock",          // Alternative system-wide
+        ];
+
+        for socket_path in socket_paths {
+            if Path::new(socket_path).exists() {
+                log::debug!("Found Podman socket at: {}", socket_path);
+                match bollard::Docker::connect_with_unix(
+                    socket_path,
+                    60, // timeout in seconds
+                    bollard::API_DEFAULT_VERSION
+                ) {
+                    Ok(docker) => {
+                        if rt.block_on(Self::test_connection(&docker)) {
+                            log::info!("Successfully connected to Podman via {} (ping successful)", socket_path);
+                            return Ok(docker);
+                        } else {
+                            log::debug!("Podman socket at {} found but ping failed", socket_path);
+                        }
+                    }
+                    Err(e) => {
+                        log::debug!("Failed to connect to Podman socket {}: {}", socket_path, e);
+                    }
+                }
+            } else {
+                log::debug!("Podman socket not found at: {}", socket_path);
+            }
+        }
+
+        // Try connecting to Podman via environment variable if set
+        if let Ok(socket_path) = std::env::var("PODMAN_SOCKET") {
+            log::debug!("Trying Podman socket from PODMAN_SOCKET environment variable: {}", socket_path);
+            if Path::new(&socket_path).exists() {
+                match bollard::Docker::connect_with_unix(
+                    &socket_path,
+                    60,
+                    bollard::API_DEFAULT_VERSION
+                ) {
+                    Ok(docker) => {
+                        if rt.block_on(Self::test_connection(&docker)) {
+                            log::info!("Successfully connected to Podman via PODMAN_SOCKET (ping successful)");
+                            return Ok(docker);
+                        }
+                    }
+                    Err(e) => {
+                        log::debug!("Failed to connect via PODMAN_SOCKET: {}", e);
+                    }
+                }
+            }
+        }
+
         // Both failed, return comprehensive error
         Err(anyhow::anyhow!(
             "Could not connect to any container runtime. \
-             Adapt DEFAULT_SOCKET environmental variable if needed."
+             Tried Docker (unix defaults) and Podman at multiple locations. \
+             Please ensure either Docker daemon or Podman service is running. \
+             For Podman, you may need to: 1) Start the service: 'systemctl --user start podman.socket' \
+             2) Set the PODMAN_SOCKET environment variable to the correct socket path."
         ))
     }
 
