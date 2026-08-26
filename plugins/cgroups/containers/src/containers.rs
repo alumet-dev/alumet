@@ -8,14 +8,12 @@ use serde::{Deserialize, Serialize};
 use util_cgroups::Cgroup;
 use util_cgroups_plugins::job_annotation_transform::JobTagger;
 
-/// Plugin configuration
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Config {
     #[serde(with = "humantime_serde")]
     pub poll_interval: Duration,
 
-    /// If `true`, adds attributes like `uid`, `name` to the cgroup measurements
-    /// produced by other plugins.
+    /// If `true`, adds attributes like `uid`, `name`, `namespace`, `node` to the cgroup measurements produced by other plugins.
     #[serde(default)]
     pub annotate_foreign_measurements: bool,
 }
@@ -56,12 +54,16 @@ pub fn extract_container_uid(cgroup_fs_path: &Path) -> Option<String> {
 /// - `/sys/fs/cgroup/buildkit/<container_uid>/...` (buildkit containers)
 /// - `/sys/fs/cgroup/system.slice/docker-<container_uid>.scope` (systemd cgroups)
 fn extract_docker_container_uid(path_str: &str) -> Option<String> {
-    if let Some(uid) = extract_between(path_str, "/docker/", "/") {
-        return Some(uid);
+    if let Some(after_docker) = path_str.split("/docker/").nth(1) {
+        if let Some(uid) = after_docker.split('/').next() {
+            return Some(uid.to_string());
+        }
     }
 
-    if let Some(uid) = extract_between(path_str, "/buildkit/", "/") {
-        return Some(uid);
+    if let Some(after_buildkit) = path_str.split("/buildkit/").nth(1) {
+        if let Some(uid) = after_buildkit.split('/').next() {
+            return Some(uid.to_string());
+        }
     }
 
     for component in path_str.split('/') {
@@ -79,10 +81,6 @@ fn extract_docker_container_uid(path_str: &str) -> Option<String> {
 /// - `/sys/fs/cgroup/user.slice/libpod_parent/<container_uid>/...`
 /// - `/sys/fs/cgroup/user.slice/user-<uid>.slice/user-<uid>@.service/libpod-<container_uid>.scope` (systemd)
 fn extract_podman_container_uid(path_str: &str) -> Option<String> {
-    if let Some(uid) = extract_between(path_str, "/libpod_parent/", "/") {
-        return Some(uid);
-    }
-
     if let Some(after_libpod) = path_str.split("/libpod_parent/").nth(1) {
         if let Some(uid) = after_libpod.split('/').next() {
             return Some(uid.to_string());
@@ -95,28 +93,7 @@ fn extract_podman_container_uid(path_str: &str) -> Option<String> {
             return Some(uid.to_string());
         }
     }
-
-    for component in path_str.split('/') {
-        if component.starts_with("libpod-") {
-            let parts: Vec<&str> = component
-                .strip_prefix("libpod-")?
-                .strip_suffix(".scope")?
-                .split('-')
-                .collect();
-
-            return Some(parts.last()?.to_string());
-        }
-    }
-
     None
-}
-
-/// Helper function to extract text between two patterns
-fn extract_between(text: &str, start: &str, end: &str) -> Option<String> {
-    let start_idx = text.find(start)?;
-    let after_start = &text[start_idx + start.len()..];
-    let end_idx = after_start.find(end)?;
-    Some(after_start[..end_idx].to_string())
 }
 
 /// HTTP client for OCI APIs using bollard
@@ -127,15 +104,62 @@ pub struct ApiClient {
 
 impl ApiClient {
     pub fn new() -> anyhow::Result<Self> {
-        let docker =
-            bollard::Docker::connect_with_local_defaults().context("failed to connect to Docker/Podman API")?;
-
+        let docker = Self::try_connect_with_fallback()
+            .context("failed to connect to any container runtime (Docker or Podman)")?;
         Ok(Self { docker })
+    }
+
+    fn try_connect_with_fallback() -> anyhow::Result<bollard::Docker> {
+        let rt = tokio::runtime::Runtime::new().context("failed to create async runtime for connection testing")?;
+
+        log::debug!("Attempting to connect to Docker...");
+        if let Ok(docker) = bollard::Docker::connect_with_unix_defaults() {
+            // Ping to verify the connection is actually working
+            if rt.block_on(Self::test_connection(&docker)) {
+                log::info!(
+                    "Successfully connected to Docker at {} (ping successful)",
+                    format!("{docker:?}")
+                );
+                return Ok(docker);
+            } else {
+                log::error!("Docker socket found but ping failed");
+            }
+        }
+
+        log::debug!("Attempting to connect to Podman...");
+        if let Ok(docker) = bollard::Docker::connect_with_podman_defaults() {
+            // Ping to verify the connection is actually working
+            if rt.block_on(Self::test_connection(&docker)) {
+                log::info!(
+                    "Successfully connected to Podman at {} (ping successful)",
+                    format!("{docker:?}")
+                );
+                return Ok(docker);
+            } else {
+                log::error!("Podman socket found but ping failed");
+            }
+        }
+
+        // Both failed, return comprehensive error
+        Err(anyhow::anyhow!(
+            "Could not connect to any container runtime. \
+             Adapt DEFAULT_SOCKET environmental variable if needed."
+        ))
+    }
+
+    async fn test_connection(docker: &bollard::Docker) -> bool {
+        match docker.ping().await {
+            Ok(_) => true,
+            Err(e) => {
+                log::debug!("Connection ping failed: {}", e);
+                false
+            }
+        }
     }
 
     /// Lists all containers (including stopped ones)
     pub async fn list_containers(&self) -> anyhow::Result<Vec<ContainerInfos>> {
-        let options = Some(bollard::container::ListContainersOptions::<String> {
+        let options = Some(bollard::query_parameters::ListContainersOptions {
             all: true,
             ..Default::default()
         });
@@ -158,7 +182,6 @@ impl ApiClient {
     /// Lists all containers (blocking wrapper for async)
     pub fn list_containers_blocking(&self) -> anyhow::Result<Vec<ContainerInfos>> {
         let rt = tokio::runtime::Runtime::new().context("failed to create async runtime")?;
-
         rt.block_on(self.list_containers())
     }
 }
@@ -181,8 +204,7 @@ impl From<bollard::models::ContainerSummary> for ContainerInfos {
     }
 }
 
-/// Automatically-refreshed container registry.
-/// Keeps track of containers and their metadata.
+/// Automatically-refreshed container registry. Keeps track of containers and their metadata.
 #[derive(Clone)]
 pub struct AutoContainerRegistry {
     client: ApiClient,

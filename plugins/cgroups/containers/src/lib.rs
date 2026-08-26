@@ -59,7 +59,7 @@ impl AlumetPlugin for ContainerPlugin {
             .refresh()
             .context("failed to refresh containers registry?")?;
 
-        log::debug!(
+        log::info!(
             "Successfully connected to runtime API and loaded {} containers",
             container_registry.containers.len()
         );
