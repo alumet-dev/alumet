@@ -127,15 +127,59 @@ pub struct ApiClient {
 
 impl ApiClient {
     pub fn new() -> anyhow::Result<Self> {
-        let docker =
-            bollard::Docker::connect_with_local_defaults().context("failed to connect to Docker/Podman API")?;
-
+        let docker = Self::try_connect_with_fallback()
+            .context("failed to connect to any container runtime (Docker or Podman)")?;
         Ok(Self { docker })
+    }
+
+    fn try_connect_with_fallback() -> anyhow::Result<bollard::Docker> {
+        let rt = tokio::runtime::Runtime::new()
+            .context("failed to create async runtime for connection testing")?;
+
+        // Try Docker first
+        log::debug!("Attempting to connect to Docker...");
+        if let Ok(docker) = bollard::Docker::connect_with_unix_defaults() {
+            // Ping to verify the connection is actually working
+            if rt.block_on(Self::test_connection(&docker)) {
+                log::info!("Successfully connected to Docker (ping successful)");
+                return Ok(docker);
+            } else {
+                log::debug!("Docker socket found but ping failed");
+            }
+        }
+
+        // Docker failed, try Podman
+        log::debug!("Attempting to connect to Podman...");
+        if let Ok(docker) = bollard::Docker::connect_with_podman_defaults() {
+            // Ping to verify the connection is actually working
+            if rt.block_on(Self::test_connection(&docker)) {
+                log::info!("Successfully connected to Podman (ping successful)");
+                return Ok(docker);
+            } else {
+                log::debug!("Podman socket found but ping failed");
+            }
+        }
+
+        // Both failed, return comprehensive error
+        Err(anyhow::anyhow!(
+            "Could not connect to any container runtime. \
+             Adapt DEFAULT_SOCKET environmental variable if needed."
+        ))
+    }
+
+    async fn test_connection(docker: &bollard::Docker) -> bool {
+        match docker.ping().await {
+            Ok(_) => true,
+            Err(e) => {
+                log::debug!("Connection ping failed: {}", e);
+                false
+            }
+        }
     }
 
     /// Lists all containers (including stopped ones)
     pub async fn list_containers(&self) -> anyhow::Result<Vec<ContainerInfos>> {
-        let options = Some(bollard::container::ListContainersOptions::<String> {
+        let options = Some(bollard::query_parameters::ListContainersOptions {
             all: true,
             ..Default::default()
         });
