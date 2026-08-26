@@ -18,13 +18,13 @@ mod containers;
 mod source;
 
 /// OCI Container runtimes <https://github.com/opencontainers/runtime-spec> plugin: Docker and Podman for now.
-pub struct ContainerPlugin {
+pub struct ContainersPlugin {
     config: Config,
     starting_state: Option<StartingState>,
     reactor: Option<CgroupReactor>,
 }
 
-impl AlumetPlugin for ContainerPlugin {
+impl AlumetPlugin for ContainersPlugin {
     fn name() -> &'static str {
         "containers"
     }
@@ -54,12 +54,13 @@ impl AlumetPlugin for ContainerPlugin {
         // Prepare OCI container API client and test it
         let api_client = crate::containers::ApiClient::new().context("failed to create API client")?;
 
-        let mut container_registry = AutoContainerRegistry::new(api_client.clone());
+        let mut container_registry =
+            AutoContainerRegistry::new(api_client.clone()).context("failed to create container registry")?;
         container_registry
             .refresh()
             .context("failed to refresh containers registry?")?;
 
-        log::debug!(
+        log::info!(
             "Successfully connected to runtime API and loaded {} containers",
             container_registry.containers.len()
         );
@@ -133,12 +134,12 @@ mod tests {
 
     #[test]
     fn test_plugin_name() {
-        assert_eq!(ContainerPlugin::name(), "containers");
+        assert_eq!(ContainersPlugin::name(), "containers");
     }
 
     #[test]
     fn test_plugin_version() {
-        let version = ContainerPlugin::version();
+        let version = ContainersPlugin::version();
         assert!(!version.is_empty());
         assert!(version.contains('.'));
     }

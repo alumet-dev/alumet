@@ -6,8 +6,9 @@ The `containers` plugin provides cgroup measurements with container annotations 
 
 You need:
 1. Docker or Podman running and accessible via their API
+2. In the case of Podman, system service API needs to be enabled for the appropiate user: <https://www.redhat.com/en/blog/podman-rest-api>.
 
-See the OCI Runtime Specification for more information: https://github.com/opencontainers/runtime-spec
+See the OCI Runtime Specification for more information: <https://github.com/opencontainers/runtime-spec>
 
 ## Metrics
 
