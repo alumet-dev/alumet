@@ -21,4 +21,3 @@ Stop Alumet Container
     [Documentation]    Stop and delete Alumet Container
 
     UnInstall Alumet As Container
-    Log    Hello

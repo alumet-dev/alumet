@@ -74,21 +74,21 @@ Check Perf Metric perf_hardware_CACHE_MISSES
     [Template]    Check Metric
 
     # ${metric}    ${resource_kind}    ${domain}
-    perf_hardware_CACHE_MISSES    local_machine
+    perf_hardware_CACHE_MISSES    local_machine    ${EMPTY}
 
 Check Perf Metric perf_hardware_BRANCH_MISSES
     [Documentation]    Check perf_hardware_BRANCH_MISSES metric
     [Template]    Check Metric
 
     # ${metric}    ${resource_kind}    ${domain}
-    perf_hardware_BRANCH_MISSES    local_machine
+    perf_hardware_BRANCH_MISSES    local_machine    ${EMPTY}
 
 Check Perf Metric perf_cache_LL_READ_MISS
     [Documentation]    Check perf_cache_LL_READ_MISS metric
     [Template]    Check Metric
 
     # ${metric}    ${resource_kind}    ${domain}
-    perf_cache_LL_READ_MISS    local_machine
+    perf_cache_LL_READ_MISS    local_machine    ${EMPTY}
 
 Stop alumet
     [Documentation]    Stop alumet-agent delete alumet container
