@@ -6,7 +6,6 @@
         "*.csv",
         "*.c",
         "*.txt",
-        "Makefile",
         "tmp/*",
         "*.toml",
         "*.proto",

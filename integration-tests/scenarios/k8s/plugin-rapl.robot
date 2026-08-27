@@ -49,11 +49,13 @@ Copy csv File
 Check Rapl Metric package
     [Documentation]    Check rapl_consumed_energy_J metric for cpu_package
     [Template]    Check Metric
+    # ${metric}    ${resource_kind}    ${domain}    ${installation_type}
     rapl_consumed_energy_J    cpu_package    package    k8s
 
 Check Rapl Metric package_total
     [Documentation]    Check rapl_consumed_energy_J metric for package_total
     [Template]    Check Metric
+    # ${metric}    ${resource_kind}    ${domain}    ${installation_type}
     rapl_consumed_energy_J    local_machine    package_total    k8s
 
 Uninstall Alumet Helm Chart
