@@ -22,7 +22,7 @@ help:
 	@echo "Current test set-up:"
 	@echo "  ALUMET_VERSION         	$(ALUMET_VERSION)"
 	@echo "  ALUMET_DISTRIBUTION    	$(ALUMET_DISTRIBUTION)"
-	@echo "  ALUMET_ARCHITECTECTURE    	$(ALUMET_ARCHITECTECTURE)"
+	@echo "  ALUMET_ARCHITECTURE    	$(ALUMET_ARCHITECTURE)"
 	@echo "  ALUMET_CHART_VERSION    	$(ALUMET_CHART_VERSION)"
 	@echo "  Target node            	$(NODE)"
 	@echo "  Modify the variables ALUMET_VERSION, ALUMET_DISTRIBUTION, ALUMET_ARCHITECTURE in this Makefile if you want to modify the set-up"
@@ -60,14 +60,14 @@ test: check-required-vars
 	@echo "Current test set-up:"
 	@echo "  ALUMET_VERSION         	$(ALUMET_VERSION)"
 	@echo "  ALUMET_DISTRIBUTION    	$(ALUMET_DISTRIBUTION)"	
-	@echo "  ALUMET_ARCHITECTECTURE    	$(ALUMET_ARCHITECTECTURE)"	
+	@echo "  ALUMET_ARCHITECTURE    	$(ALUMET_ARCHITECTURE)"	
 	@echo "  ALUMET_CHART_VERSION    	$(ALUMET_CHART_VERSION)"	
 	@echo "  Target node            	$(NODE)"
 	@echo "  Modify the variables ALUMET_VERSION, ALUMET_DISTRIBUTION, ALUMET_ARCHITECTURE in this Makefile if you want to modify the set-up"
 	@echo "  Modify the variables NODE, GATEWAY, USERNAME, KEY in the .env file if you want to modify the set-up"
 
 	# Note: to exclude some tests you can:
-	# scpecify a path to a file or a directory /subdirectory (./scenario/container for example)
+	# specify a path to a file or a directory /subdirectory (./scenario/container for example)
 	# or add the option --exclude {tag name} to robot command
 
 	poetry run robot \

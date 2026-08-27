@@ -152,6 +152,7 @@ Check Metric
     ...         metric:             metric name to parse
     ...         resource_kind:      resource kind
     ...         domain:             domain name
+    ...         installation_type: valid value is k8s or empty
     ...     Return parameters:
     ...         stdout    metric value
     ...     Note that to connect to login, the following variables must be set as global:
@@ -256,7 +257,7 @@ Install Alumet As Helm Chart
     Log    helm values: ${helm_Values}
     Log    alumet instance name: ${ALUMET_CHART_INSTANCE_NAME}
     VAR    ${command}=
-    ...    export https_proxy=http://10.197.209.6:3128; export export no_proxy=127.0.0.1,localhost,192.168.0.10,.seed,10.1.0.104,172.16.118.53,.local ; helm install ${ALUMET_CHART_INSTANCE_NAME} alumet/alumet ${helm_Values} --version ${ALUMET_CHART_VERSION}
+    ...    export https_proxy=http://10.197.209.6:3128; export no_proxy=127.0.0.1,localhost,192.168.0.10,.seed,10.1.0.104,172.16.118.53,.local ; helm install ${ALUMET_CHART_INSTANCE_NAME} alumet/alumet ${helm_Values} --version ${ALUMET_CHART_VERSION}
     ${result}=    Execute Command Target Node    ${command}
     Log    result: ${result}
 
@@ -268,7 +269,7 @@ UnInstall Alumet As Helm Chart
     ...         none
 
     VAR    ${command}=
-    ...    export https_proxy=http://10.197.209.6:3128; export export no_proxy=127.0.0.1,localhost,192.168.0.10,.seed,10.1.0.104,172.16.118.53,.local ; helm uninstall ${ALUMET_CHART_INSTANCE_NAME}
+    ...    export https_proxy=http://10.197.209.6:3128; export no_proxy=127.0.0.1,localhost,192.168.0.10,.seed,10.1.0.104,172.16.118.53,.local ; helm uninstall ${ALUMET_CHART_INSTANCE_NAME}
     ${result}=    Execute Command Target Node    ${command}
     Log    result: ${result}
 

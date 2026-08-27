@@ -62,21 +62,25 @@ Copy csv File
 Check Rapl Metric package
     [Documentation]    Check rapl_consumed_energy_J metric for cpu_package
     [Template]    Check Metric
+    # ${metric}    ${resource_kind}    ${domain}
     rapl_consumed_energy_J    cpu_package    package
 
 Check Rapl Metric package_total
     [Documentation]    Check rapl_consumed_energy_J metric for package_total
     [Template]    Check Metric
+    # ${metric}    ${resource_kind}    ${domain}
     rapl_consumed_energy_J    local_machine    package_total
 
 Check Rapl Metric dram
     [Documentation]    Check rapl_consumed_energy_J metric for dram
     [Template]    Check Metric
+    # ${metric}    ${resource_kind}    ${domain}
     rapl_consumed_energy_J    dram    dram
 
 Check Rapl Metric dram_total
     [Documentation]    Check rapl_consumed_energy_J metric for dram_total
     [Template]    Check Metric
+    # ${metric}    ${resource_kind}    ${domain}
     rapl_consumed_energy_J    local_machine    dram_total
 
 Stop alumet
