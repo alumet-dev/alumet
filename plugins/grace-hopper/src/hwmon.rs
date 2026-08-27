@@ -18,13 +18,28 @@ compile_error!("only Linux is supported");
 ///
 /// ## Expected file layout on node {x}
 ///
-/// ```txt
-/// /sys/class/hwmon/hwmon{x}/device/
-/// |
-/// |−− power1_oem_info
-/// |−− power1_average
-/// |−− power1_average_interval
-/// ```
+/// Depending on the kernel version, the driver that exposes the telemetry
+/// may register the hwmon device in one of two ways, which results in two different sysfs layouts:
+///
+/// - "legacy" layout (older kernels, using the deprecated `hwmon_device_register`):
+///   ```txt
+///   /sys/class/hwmon/hwmon{x}/device/
+///   |
+///   |−− power1_oem_info
+///   |−− power1_average
+///   |−− power1_average_interval
+///   ```
+/// - "modern" layout (newer kernels, using `hwmon_device_register_with_info`):
+///   ```txt
+///   /sys/class/hwmon/hwmon{x}/
+///   |
+///   |−− power1_oem_info
+///   |−− power1_average
+///   |−− power1_average_interval
+///   ```
+///
+/// See https://lkml.iu.edu/hypermail/linux/kernel/2503.2/04362.html for more information
+/// about the change that bring this new layout
 #[derive(Debug)]
 pub struct Device {
     pub path: PathBuf,
@@ -74,12 +89,32 @@ impl Device {
     }
 }
 
+/// Tries to build a [`Device`] from a candidate directory, if it contains a `power1_oem_info` file.
+///
+/// Returns `Ok(None)` if `dir` does not look like a Grace/GraceHopper telemetry sensor
+fn try_device_at(dir: &Path) -> anyhow::Result<Option<Device>> {
+    if !std::fs::exists(dir.join("power1_oem_info"))? {
+        return Ok(None);
+    }
+    log::trace!("inspecting {dir:?}");
+    match Device::at_sysfs(dir) {
+        Ok(device) => Ok(Some(device)),
+        Err(err) => {
+            log::error!(
+                "dir {dir:?} looks like a Grace/GraceHopper telemetry sensor but we failed to analyze it: {err:?}"
+            );
+            Ok(None)
+        }
+    }
+}
+
 /// Explore a tree of hwmon devices.
 ///
 /// ## Expected file layout
 ///
 /// Example of `hwmon_path`: `/sys/fs/hwmon`
-/// Example of layout:
+///
+/// Example of the "legacy" layout (see [`Device`]):
 /// ```txt
 /// /sys/class/hwmon/
 /// |
@@ -90,26 +125,41 @@ impl Device {
 ///         |− …
 /// |− hwmon2
 /// ```
+///
+/// Example of the "modern" layout (see [`Device`]):
+/// ```txt
+/// /sys/class/hwmon/
+/// |
+/// |− hwmon1
+///     |− power1_oem_info
+///     |− power1_average
+///     |− …
+/// |− hwmon2
+/// ```
 pub fn explore(hwmon_path: &Path) -> anyhow::Result<Vec<Device>> {
     let mut devices = Vec::with_capacity(6); // we expect 4 or 6 items
     for entry in std::fs::read_dir(hwmon_path).with_context(|| format!("failed to read dir {hwmon_path:?}"))? {
         let entry = entry?;
-        let path = entry.path();
-        for entry in std::fs::read_dir(&path).with_context(|| format!("failed to read dir {hwmon_path:?}"))? {
+        let hwmon_dev_path = entry.path(); // e.g. /sys/class/hwmon/hwmonX
+
+        // "Modern" layout: the attributes are in hwmonX/.
+        if let Some(device) = try_device_at(&hwmon_dev_path)? {
+            devices.push(device);
+            continue; // no need to also look at hwmonX/device/, it would be the same sensor
+        }
+
+        // "Legacy" layout: the attributes are in hwmonX/device/.
+        for entry in
+            std::fs::read_dir(&hwmon_dev_path).with_context(|| format!("failed to read dir {hwmon_dev_path:?}"))?
+        {
             let entry = entry?;
             let path = entry.path();
             let file_type = std::fs::metadata(&path)?.file_type(); // traverses symlinks
             let file_name = path.file_name().unwrap().to_string_lossy();
             if file_name == "device" && file_type.is_dir() {
-                log::trace!("inspecting {path:?}");
-                // entry is /sys/class/hwmon/hwmonX/device and has a file power1_oem_info
-                if std::fs::exists(path.join("power1_oem_info"))? {
-                    match Device::at_sysfs(&path) {
-                        Ok(device) => devices.push(device),
-                        Err(err) => log::error!(
-                            "dir {path:?} looks like a Grace/GraceHopper telemetry sensor but we failed to analyze it: {err:?}"
-                        ),
-                    };
+                // entry is /sys/class/hwmon/hwmonX/device and may have a file power1_oem_info
+                if let Some(device) = try_device_at(&path)? {
+                    devices.push(device);
                 }
             }
         }
@@ -281,7 +331,7 @@ mod tests {
     }
 
     #[test]
-    fn explore_should_find_devices() -> anyhow::Result<()> {
+    fn explore_should_find_devices_legacy_layout() -> anyhow::Result<()> {
         let root = tempdir()?;
         let root_path = root.path();
         // device 1
@@ -324,6 +374,53 @@ mod tests {
         );
         let mut buf = String::new();
         assert_eq!(devices[0].read_power_value(&mut buf)?, 123456789);
+        assert_eq!(devices[1].read_power_value(&mut buf)?, 5);
+        Ok(())
+    }
+
+    #[test]
+    fn explore_should_find_devices_modern_layout() -> anyhow::Result<()> {
+        let root = tempdir()?;
+        let root_path = root.path();
+
+        // device 1
+        let file_path_info = root_path.join("hwmon1/power1_oem_info");
+        let file_path_power = root_path.join("hwmon1/power1_average");
+        std::fs::create_dir_all(file_path_info.parent().unwrap())?;
+        std::fs::write(file_path_info, "Cpu Power Socket 1")?;
+        std::fs::write(file_path_power, "42")?;
+
+        // device 2
+        let file_path_info = root_path.join("hwmon2/power1_oem_info");
+        let file_path_power = root_path.join("hwmon2/power1_average");
+        std::fs::create_dir_all(file_path_info.parent().unwrap())?;
+        std::fs::write(file_path_info, "Grace Power Socket 7")?;
+        std::fs::write(file_path_power, "5")?;
+
+        // not a grace telemetry device (should not be included in the list of devices)
+        let file_path_info = root_path.join("hwmon3/name");
+        std::fs::create_dir_all(file_path_info.parent().unwrap())?;
+        std::fs::write(file_path_info, "power_meter")?;
+
+        let mut devices = explore(root_path)?;
+        devices.sort_by_key(|d| d.info.socket);
+        assert_eq!(devices.len(), 2);
+        assert_eq!(
+            devices[0].info,
+            SensorInfo {
+                kind: TelemetryKind::Cpu,
+                socket: 1
+            }
+        );
+        assert_eq!(
+            devices[1].info,
+            SensorInfo {
+                kind: TelemetryKind::Grace,
+                socket: 7
+            }
+        );
+        let mut buf = String::new();
+        assert_eq!(devices[0].read_power_value(&mut buf)?, 42);
         assert_eq!(devices[1].read_power_value(&mut buf)?, 5);
         Ok(())
     }
