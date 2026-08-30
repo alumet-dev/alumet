@@ -115,6 +115,7 @@ fn prepare_watcher(
             event.initial,
             event.coalesced
         );
+
         // find the cgroup filesystems, if any
         let new_cgroupfs = extract_cgroup_hierarchies(&event.mounted);
 

@@ -50,6 +50,7 @@ fn load_plugins_metadata() -> Vec<PluginMetadata> {
             plugin_slurm::SlurmPlugin,
             plugin_oar::OarPlugin,
             plugin_raw_cgroups::RawCgroupPlugin,
+            plugin_containers::ContainerPlugin,
             plugin_grace_hopper::GraceHopperPlugin,
             plugin_rapl::RaplPlugin,
             plugin_perf::PerfPlugin,
