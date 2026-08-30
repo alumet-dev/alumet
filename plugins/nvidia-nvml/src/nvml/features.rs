@@ -50,6 +50,8 @@ pub struct OptionalFeatures {
     pub clock_info: bool,
     // Amount of used GPU memory.
     pub used_gpu_memory: bool,
+
+    pub gpm_metrics: bool,
 }
 
 impl OptionalFeatures {
@@ -69,6 +71,7 @@ impl OptionalFeatures {
             clock_info: check_clock_info(device)?,
             used_gpu_memory: check_running_compute_processes(device)? != AvailableVersion::None
                 || check_running_graphics_processes(device)? != AvailableVersion::None,
+            gpm_metrics: is_supported(device.gpm_support())?,
         })
     }
 
@@ -84,6 +87,7 @@ impl OptionalFeatures {
             || self.running_graphics_processes != AvailableVersion::None
             || self.clock_info
             || self.used_gpu_memory
+            || self.gpm_metrics
     }
 }
 
@@ -214,6 +218,7 @@ mod tests {
             running_graphics_processes: AvailableVersion::Latest,
             clock_info: true,
             used_gpu_memory: true,
+            gpm_metrics: true,
         };
         assert_eq!(
             format!("{}", features),
@@ -236,6 +241,7 @@ mod tests {
             running_graphics_processes: AvailableVersion::None,
             clock_info: false,
             used_gpu_memory: true,
+            gpm_metrics: true,
         };
         assert_eq!(
             format!("{}", features),
@@ -259,6 +265,7 @@ mod tests {
             running_graphics_processes: AvailableVersion::None,
             clock_info: false,
             used_gpu_memory: false,
+            gpm_metrics: false,
         };
         assert!(!features.has_any());
     }
@@ -311,6 +318,7 @@ mod tests {
             })
             .times(1);
         device.expect_clock_info().returning(|_| Err(NvmlError::NotSupported));
+        device.expect_gpm_support().returning(|| Err(NvmlError::NotSupported));
 
         let features = OptionalFeatures::detect_on(&device).expect("detection failed");
         assert_eq!(
@@ -328,6 +336,7 @@ mod tests {
                 running_graphics_processes: AvailableVersion::None,
                 clock_info: false,
                 used_gpu_memory: true,
+                gpm_metrics: false
             }
         );
 
@@ -353,6 +362,7 @@ mod tests {
                 running_graphics_processes: AvailableVersion::Latest,
                 clock_info: false,
                 used_gpu_memory: true,
+                gpm_metrics: false
             }
         );
 

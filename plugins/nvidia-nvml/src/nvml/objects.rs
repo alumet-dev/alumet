@@ -5,11 +5,13 @@ use crate::nvml::NvmlProvider;
 use super::{NvmlDevice, NvmlLib, NvmlResult};
 use anyhow::Context;
 use nvml_wrapper::{
-    Device, Nvml,
+    Device, GpmSample, Nvml,
     enum_wrappers::device::{Clock, TemperatureSensor},
-    struct_wrappers::device::ProcessInfo,
+    enums::gpm::GpmMetricId,
+    error::NvmlError,
+    struct_wrappers::{device::ProcessInfo, gpm::GpmMetricResult},
 };
-use nvml_wrapper_sys::bindings::nvmlDevice_t;
+use nvml_wrapper_sys::bindings::{nvmlDevice_t, nvmlGpmSample_t};
 use std::{fmt::Display, sync::Arc};
 
 pub struct NvmlLoader;
@@ -202,6 +204,32 @@ impl NvmlDevice for ManagedDevice {
     /// See [`nvml_wrapper::Device::clock_info`].
     fn clock_info(&self, clock_type: Clock) -> NvmlResult<u32> {
         self.as_underlying_device().clock_info(clock_type)
+    }
+
+    /// Checks whether the device supports GPM metrics.
+    /// See [`nvml_wrapper::Device::gpm_support`]
+    fn gpm_support(&self) -> Result<bool, nvml_wrapper::error::NvmlError> {
+        self.as_underlying_device().gpm_support()
+    }
+
+    /// Returns a raw GPM sample handle, which can be stored between calls.
+    /// See [`nvml_wrapper::Device::from_handle`]
+    fn gpm_handle(&self) -> nvmlGpmSample_t {
+        unsafe { self.as_underlying_device().gpm_sample().unwrap().handle() }
+    }
+
+    /// Returns GPM metrics between two timestamps, defined by [previous_handle] and [current_handle].
+    /// The metrics requested are given by [metric_ids].
+    fn gpm_metrics_get<'nvml>(
+        &self,
+        previous_handle: nvmlGpmSample_t,
+        current_handle: nvmlGpmSample_t,
+        metric_ids: &[GpmMetricId],
+    ) -> Result<Vec<Result<GpmMetricResult, NvmlError>>, NvmlError> {
+        let previous_sample = unsafe { GpmSample::<'_>::from_handle(&self.lib.0, previous_handle) };
+        let current_sample = unsafe { GpmSample::<'_>::from_handle(&self.lib.0, current_handle) };
+
+        nvml_wrapper::gpm::gpm_metrics_get(&self.lib.0, &previous_sample, &current_sample, metric_ids)
     }
 }
 

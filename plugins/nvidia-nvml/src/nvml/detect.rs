@@ -156,6 +156,10 @@ mod tests {
                 .expect_clock_info()
                 .returning(|_| Err(NvmlError::NotSupported))
                 .times(1);
+            device
+                .expect_gpm_support()
+                .returning(|| Err(NvmlError::NotSupported))
+                .times(1);
             Ok(device)
         });
 

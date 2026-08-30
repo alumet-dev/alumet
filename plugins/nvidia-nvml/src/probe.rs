@@ -1,10 +1,11 @@
 use anyhow::{Context, anyhow};
 use nvml_wrapper::{
     enum_wrappers::device::{Clock, TemperatureSensor},
-    enums::device::UsedGpuMemory,
+    enums::{device::UsedGpuMemory, gpm::GpmMetricId},
     error::NvmlError,
     struct_wrappers::device::ProcessInfo,
 };
+use nvml_wrapper_sys::bindings::nvmlGpmSample_t;
 use std::{borrow::Cow, time::SystemTime};
 
 use alumet::{
@@ -15,7 +16,7 @@ use alumet::{
 };
 
 use crate::{
-    metrics::{FullMetrics, MinimalMetrics},
+    metrics::{FullMetrics, MinimalMetrics, match_gpm_id_to_attributes},
     nvml::{
         NvmlDevice,
         features::{AvailableVersion, DetectedDevice},
@@ -37,6 +38,11 @@ pub struct FullSource<D: NvmlDevice> {
     metrics: FullMetrics,
     /// Alumet resource ID.
     resource: Resource,
+
+    /// Last GPM sample handle.
+    previous_gpm_handle: nvmlGpmSample_t,
+    /// List of GPM metrics to monitor.
+    gpm_keys: Vec<GpmMetricId>,
 
     /// Last poll timestamp
     last_poll_timestamp: Option<Timestamp>,
@@ -111,12 +117,16 @@ fn push_mem_usage_per_process<D: NvmlDevice>(
 impl<D: NvmlDevice> FullSource<D> {
     pub fn new(device: DetectedDevice<D>, metrics: FullMetrics) -> Result<Self, NvmlError> {
         let bus_id = Cow::Owned(device.inner.bus_id().to_owned());
+        let gpm_handle = device.inner.gpm_handle();
+        let gpm_keys = metrics.gpm_metrics_ids();
         Ok(FullSource {
             energy_counter: CounterDiff::with_max_value(u64::MAX),
             device,
             metrics,
             resource: Resource::Gpu { bus_id },
             last_poll_timestamp: None,
+            previous_gpm_handle: gpm_handle,
+            gpm_keys,
         })
     }
 }
@@ -399,6 +409,40 @@ impl<D: NvmlDevice> Source for FullSource<D> {
                     .with_attr("clock_type", clock_type_to_str(clock_type)?),
                 );
             }
+        }
+
+        // Push requested GPM metrics
+        if features.gpm_metrics {
+            // getting a handle to a new sample
+            let new_handle = device.gpm_handle();
+            // computing metrics between previous and current sample
+            let gpm_metrics = device.gpm_metrics_get(self.previous_gpm_handle, new_handle, self.gpm_keys.as_slice())?;
+
+            for gpm_metric in gpm_metrics {
+                let Ok(gpm_metric_result) = gpm_metric else { continue };
+                let gpm_id = gpm_metric_result.clone().metric_id;
+                let gpm_value = gpm_metric_result.value;
+
+                if let Some(&alumet_metric) = {
+                    let metrics = &self.metrics;
+                    metrics.gpm_metrics.get(&gpm_id)
+                } {
+                    // pushing the gpm metric, with the corresponding alumet metric id and attributes
+                    measurements.push(
+                        MeasurementPoint::new(
+                            timestamp,
+                            alumet_metric,
+                            self.resource.clone(),
+                            consumer.clone(),
+                            gpm_value as u64,
+                        )
+                        .with_attr_vec(match_gpm_id_to_attributes(&gpm_id)),
+                    )
+                }
+            }
+
+            // replacing previous sample handle by the new one
+            self.previous_gpm_handle = new_handle;
         }
 
         Ok(())
