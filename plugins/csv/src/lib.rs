@@ -42,7 +42,7 @@ impl AlumetPlugin for CsvPlugin {
             use_unit_display_name: self.config.use_unit_display_name,
             params: CsvParams {
                 delimiter: self.config.csv_delimiter,
-                late_delimiter: self.config.csv_late_delimiter,
+                late_delimiter: ',',
             },
         };
         let output = Box::new(CsvOutput::new(&self.config.output_path, settings)?);
@@ -68,8 +68,6 @@ pub struct Config {
     pub use_unit_display_name: bool,
     /// The CSV delimiter, such as `;`
     pub csv_delimiter: char,
-    /// The delimiter between the entries in `__late_attributes`.
-    pub csv_late_delimiter: char,
 }
 
 impl Default for Config {
@@ -80,7 +78,6 @@ impl Default for Config {
             use_unit_display_name: true,
             append_unit_to_metric_name: true,
             csv_delimiter: ';',
-            csv_late_delimiter: ',',
         }
     }
 }

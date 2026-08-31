@@ -137,7 +137,7 @@ impl Output for CsvOutput {
     }
 }
 
-fn escape_late_attribute(s: &str) -> String {
+pub fn escape_late_attribute(s: &str) -> String {
     s.replace('=', "\\=")
 }
 
