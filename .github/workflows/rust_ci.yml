@@ -30,15 +30,44 @@ jobs:
         - uses: dtolnay/rust-toolchain@master
           with:
             toolchain: $CI_RUST_VERSION
-            components: rustfmt
-
         - uses: cargo-bins/cargo-binstall@main
 
         - name: Check dependencies
           run: |
            cargo binstall --no-confirm cargo-machete
            cargo machete
+  check_semver:
+      runs-on: ubuntu-latest
+      permissions:
+        issues: write
+        pull-requests: write
+      steps:
+        - uses: actions/checkout@v7
+          with:
+            fetch-depth: 0
+        - uses: dtolnay/rust-toolchain@master
+          with:
+            toolchain: $CI_RUST_VERSION
+        - uses: cargo-bins/cargo-binstall@main
 
+        - name: Check semver
+          id: check_semver
+          continue-on-error: true
+          run: |
+           cargo binstall --no-confirm cargo-semver-checks@0.45.0
+           # TODO remove -p plugin-csv after testing
+           cargo semver-checks -p plugin-csv --baseline-rev origin/${{ github.base_ref }}
+        - name: Add comment PR
+          if:  steps.check_semver.outcome == 'failure'
+          uses: actions/github-script@v9
+          with:
+            script: |
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: 'You have some breaking changes ! Please check the log of the check_semver job in the step check_semver before merging'
+              })
   build_and_test:
     runs-on: ubuntu-latest
     needs: [check_format, check_dependencies]
