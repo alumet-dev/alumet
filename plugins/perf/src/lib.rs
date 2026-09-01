@@ -28,6 +28,7 @@ use crate::source::{Observable, PerfEventSourceBuilder};
 compile_error!("This plugin only works on Linux.");
 
 mod cpu;
+mod multiplexing;
 mod native;
 mod pfm;
 mod raw;
@@ -64,6 +65,7 @@ impl AlumetPlugin for PerfPlugin {
                 .map(spec::parse)
                 .try_collect()
                 .context("invalid event in config")?,
+            multiplexing_auto_scale: config.multiplexing_auto_scale,
             // The metrics are initialized in start()
             metrics: Vec::new(),
             add_source_in_pause_state: config.add_source_in_pause_state,
@@ -129,7 +131,7 @@ impl AlumetPlugin for PerfPlugin {
                 if let Some((o, source_name)) = observable {
                     log::info!("Starting to observe {o:?}...");
                     let config = config_cloned.lock().unwrap();
-                    let mut builder = PerfEventSourceBuilder::observe(o)?;
+                    let mut builder = PerfEventSourceBuilder::observe(o, config.multiplexing_auto_scale)?;
                     for (event, metric) in config.events.iter().zip(&config.metrics) {
                         builder
                             .add(&event.event, *metric)
@@ -230,6 +232,17 @@ struct Config {
     /// !! It's essentially needed for advanced Alumet setup with a control plugin that manage the state of sources.
     #[serde(default)]
     pub add_source_in_pause_state: bool,
+
+    /// Whether to compensate for the multiplexing of the perf events.
+    ///
+    /// A CPU only has a few hardware counters. When more events are requested than it can hold, the
+    /// kernel only counts them part of the time, and the raw values are underestimated. When this is
+    /// enabled (the default), the plugin extrapolates the missing part, like the `perf` tool does.
+    /// When disabled, the raw values are reported as they are.
+    ///
+    /// Either way, every measurement carries an `accuracy` attribute telling whether its value is
+    /// exact, extrapolated or underestimated.
+    multiplexing_auto_scale: bool,
 }
 
 impl Default for Config {
@@ -246,6 +259,8 @@ impl Default for Config {
             ],
 
             add_source_in_pause_state: false,
+
+            multiplexing_auto_scale: true,
         }
     }
 }
@@ -259,4 +274,6 @@ struct ParsedConfig {
     metrics: Vec<TypedMetricId<u64>>,
 
     add_source_in_pause_state: bool,
+
+    multiplexing_auto_scale: bool,
 }

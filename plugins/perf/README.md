@@ -10,7 +10,106 @@ This plugin works in a similar way to the [`perf` command-line tool](https://man
 - [Required capabilities](#perf_event_paranoid-and-capabilities).
 - [libpfm4](#libpfm-events). **Optional**. Only required to read libpfm-encoded events.
 
-## Events
+## Metrics
+
+### Metric naming
+
+By default the metric is named `perf_{name}` (e.g. `INSTRUCTIONS` → `perf_instructions`). The name
+is always normalized: letters are lowercased, and any character that is not a letter or digit
+becomes `_` (leading/trailing `_` are trimmed). So `LL_READ_MISS` → `perf_ll_read_miss` and
+`RESOURCE_STALLS:ANY` → `perf_resource_stalls_any`.
+
+The modifiers do not change the metric name, so if you measure the same event with different
+modifiers, give at least one of them a `rename` to avoid a name clash. A `rename` replaces the whole
+suffix (and is normalized the same way); the metric then becomes `perf_{rename}`.
+
+### Attributes
+
+Every measurement carries an `accuracy` attribute describing how faithful its value is (see
+[Counter multiplexing](#counter-multiplexing) below):
+
+- `exact`: an exact count.
+- `extrapolated`: the value includes at least one multiplexed interval that was extrapolated (only
+  happens when `multiplexing_auto_scale` is on). It is an estimate, which may be slightly above or
+  below the truth.
+- `underestimated`: the value is known to be too low, either because multiplexed intervals were
+  reported raw (`multiplexing_auto_scale` off) or because the counter was starved for some intervals
+  (the events could not be counted at all).
+
+Because the reported values are cumulative counters, the accuracy only ever degrades from `exact` to
+`extrapolated` to `underestimated`, and never improves: a single imperfect interval affects every
+value reported afterwards.
+
+## Configuration
+
+Here is a configuration example of the plugin. It's part of the Alumet configuration file (eg: `alumet-config.toml`).
+
+```toml
+[plugins.perf]
+# Description.
+poll_interval = "1s"
+flush_interval = "1s"
+events = [
+    "REF_CPU_CYCLES",
+    "CACHE_MISSES",
+    "BRANCH_MISSES",
+    "INSTRUCTIONS#u:k",                              # user-space and kernel instructions only
+    "RESOURCE_STALLS:ANY",                           # libpfm event with a unit mask
+    { event = "CONTEXT_SWITCHES", rename = "ctxsw" }, # -> metric perf_ctxsw
+    { event = "LL_READ_MISS#h", rename = "LL_READ_MISS_HYPERVISOR"}, # hypervisor only
+]
+
+# If true, start the sources in "paused" state.
+# This is useful in combination with other plugins that will resume the sources.
+add_source_in_pause_state = false
+# Compensate for counter multiplexing (optional, true by default).
+# See the "Counter multiplexing" section below.
+multiplexing_auto_scale = true
+```
+
+See [Event formats](#event-formats) section for more information about the supported syntax of events.
+
+## More information
+
+### Use cases
+
+The `perf` plugin can be used for multiple use cases:
+
+#### Read counters for a single process
+
+You can collect measurements for a single process using Alumet in `exec` mode.
+
+Example: `alumet --config alumet-config.toml --plugins perf,csv exec -- stress --cpu 8 --timeout 10s`
+
+In this example, Alumet will launch the `stress` process and collect measurements based on the configured counters in `alumet-config.toml`.
+
+#### Read counters for running processes
+
+Not supported. The implementation will be done in the future.
+
+#### Read counters for a single cgroup
+
+Not supported. The implementation will be done in the future.
+
+#### Read counters for running cgroups
+
+You can collect measurements for all the running cgroups using Alumet in `watch` mode combined with a `cgroups` **Observer**.
+
+Example: `alumet --config alumet-config.toml --plugins perf,cgroups,csv`
+
+Make sure that the plugin `cgroups` (or `slurm`, `k8s`, `oar`) is activated in your configuration file:
+
+Example:
+
+```toml
+[plugins.cgroups]
+poll_interval = "1s"
+sources_disable = true
+```
+
+Having the `sources_disable = true` make the **Observer** feature alive without having their own sources activated.
+
+### Events syntax
 
 Events to measure are described with a single unified syntax. The **event name** have a syntax inspired from
 `perf stat -e` [event selection syntax](https://man7.org/linux/man-pages/man1/perf-stat.1.html).
@@ -21,9 +120,9 @@ Each event is a string of the form:
 <event>[#<modifiers>]
 ```
 
-### Event formats
+#### Event formats
 
-The `<event>` part can be one of five forms:
+The `<event>` part can be one of three forms:
 
 - **native** : a symbolic event name (e.g. `INSTRUCTIONS`, `LL_READ_MISS`), resolved against the
   built-in kernel tables listed in [Native event names](#native-event-names). (**Supported**)
@@ -36,7 +135,7 @@ The `<event>` part can be one of five forms:
 Any event may be followed by `#` and a list of [modifiers](#modifiers), e.g.
 `INSTRUCTIONS#u` or `CACHE_MISSES#u:k`.
 
-### Native event names
+#### Native event names
 
 Currently the plugin resolves symbolic names against the **native** kernel tables. The name is one of:
 
@@ -57,7 +156,7 @@ To learn more about the standard events, please refer to the [`perf_event_open` 
 To list the events that are available on your machine, run the `perf list` command.
 Note that based on your kernel version, some events could be unavailable.
 
-### Libpfm events
+#### Libpfm events
 
 The native tables above are a small, vendor-neutral subset. Any name they don't recognise is passed
 to [libpfm4](https://perfmon2.sourceforge.net/), which knows the hundreds of microarchitecture-specific
@@ -87,7 +186,7 @@ libpfm is **loaded at runtime** (via `dlopen`), not linked at build time:
 - Install it from your distribution (e.g. `libpfm4` on Debian/Ubuntu). By default the plugin looks
   for `libpfm.so.4` and `libpfm.so`. Set `ALUMET_LIBPFM_LIB` to a `.so` name or full path to override.
 
-### Raw events
+#### Raw events
 
 When a symbolic name is not enough, you can give the raw event code directly, just like `perf`:
 
@@ -101,9 +200,9 @@ value as-is.
 Modifiers work here too: `r0x412e#u:k`. The metric is named after the sanitized event string, so
 `r0x412e` → `perf_r0x412e` (use a `rename` for something friendlier).
 
-### Modifiers
+#### Modifiers
 
-Modifiers are attached after a `#`, one per `:`-separated token (e.g. `INSTRUCTIONS#u:k`). Each
+Modifiers are attached after a `#`, one per `:`-separated token (e.g. `INSTRUCTIONS#u:k`).
 An unknown token (e.g. `INSTRUCTIONS#z`) is rejected.
 
 For now these modifiers are supported:
@@ -122,68 +221,24 @@ hypervisor are excluded. The domain modifiers (`u`/`k`/`h`) work as a group: as 
 at least one of them, the domains you *don't* list are excluded, so `#u` means "user space only" and
 `#u:k` means "user and kernel, but not hypervisor".
 
-### Metric naming
+### Counter multiplexing
 
-By default the metric is named `perf_{name}` (e.g. `INSTRUCTIONS` → `perf_instructions`). The name
-is always normalized: letters are lowercased, and any character that is not a letter or digit
-becomes `_` (leading/trailing `_` are trimmed). So `LL_READ_MISS` → `perf_ll_read_miss` and
-`RESOURCE_STALLS:ANY` → `perf_resource_stalls_any`.
+A CPU only has a few hardware counters. When you configure more events than it can hold, the kernel
+cannot count them all at once: it puts them on the counters in turn, so each event is only counted
+during a fraction of the time. The raw values are then underestimated by that fraction.
 
-The modifiers do not change the metric name, so if you measure the same event with different
-modifiers, give at least one of them a `rename` to avoid a name clash. A `rename` replaces the whole
-suffix (and is normalized the same way); the metric then becomes `perf_{rename}`.
+By default (`multiplexing_auto_scale = true`), the plugin compensates for this the same way the
+`perf` tool does: it extrapolates the missing part, assuming the events kept occurring at the same
+rate while they were not on a counter. This is an **estimation**, not an exact measurement, so the
+affected measurements are marked `accuracy = "extrapolated"` (see [Attributes](#attributes)).
 
-## Configuration
+Set `multiplexing_auto_scale = false` to report the raw kernel values instead, without any
+compensation. Those values are marked `accuracy = "underestimated"`, so you can still tell which
+ones are affected.
 
-Here is a configuration example of the plugin. It's part of the Alumet configuration file (eg: `alumet-config.toml`).
-
-```toml
-[plugins.perf]
-# Description.
-poll_interval = "1s"
-flush_interval = "1s"
-events = [
-    "REF_CPU_CYCLES",
-    "CACHE_MISSES",
-    "BRANCH_MISSES",
-    "INSTRUCTIONS#u:k",                              # user-space and kernel instructions only
-    "RESOURCE_STALLS:ANY",                           # libpfm event with a unit mask
-    { event = "CONTEXT_SWITCHES", rename = "ctxsw" }, # -> metric perf_ctxsw
-    { event = "LL_READ_MISS#h", rename = "LL_READ_MISS_HYPERVISOR"}, # hypervisor only
-]
-
-# If true, start the sources in "paused" state.
-# This is useful in combination with other plugins that will resume the sources.
-add_source_in_pause_state = false
-```
-
-⚠️ Note that by default, the plugin will only collect measurements when running Alumet in `exec` mode.
-
-Example: `alumet --plugins perf,csv exec -- sleep 10`
-
-In this case, the plugin will collect the measurements for that specific sleep process.
-
-Another use case would be to collect the measurements in a typical `watch` scenarios.
-
-The plugin currently supports `watch` mode only for cgroups, see how to configure the plugin for this scenario [here](#collecting-cgroups-in-watch-mode).
-
-### Collecting cgroups in watch mode
-
-To dynamically collect measurements about cgroups, the perf plugin needs another Observer plugin that can detect new cgroups and notify Alumet.
-
-All the cgroups plugins (cgroups-raw, k8s, slurm, oar) have this Observer capability.
-
-Make sure that one of this plugin is activated in your configuration file.
-
-Example:
-
-```toml
-[plugins.cgroups]
-poll_interval = "1s"
-sources_disable = true
-```
-
-## More information
+The surest way to avoid multiplexing altogether is to configure no more events than the CPU has
+hardware counters (typically 4 to 8). Note that a single event can already be multiplexed if
+something else is using the PMU, for example another `perf` process running system-wide.
 
 ### perf_event_paranoid and capabilities
 
