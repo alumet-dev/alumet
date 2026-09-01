@@ -6,7 +6,10 @@ use std::collections::HashMap;
 
 use super::features::OptionalFeatures;
 
-/// SAFETY: The amd libary is thread-safe and returns pointers to a safe global state, which we can pass to other threads.
+/// SAFETY: The amd libary SHOULD BE thread-safe and returns pointers to a safe global state, which we can pass to other threads.
+/// BUT it IS NOT always the case (for example in old versions of the library or if built with thread safety mechanisms disabled).
+/// Since all GPUs are collected and polled by the same source in Alumet
+/// We can use unsafe here
 unsafe impl<H: ProcessorHandle> Send for ManagedDevice<H> {}
 
 /// Detected AMD GPU devices via AMDSMI.
