@@ -130,7 +130,7 @@ To enable process monitoring, you need to set the metrics collect policy via a `
 enabled = true
 # Watcher refresh interval.
 refresh_interval = "2s"
-# `true` to watch for new processes, `false` to only react to ALUMET events.
+# Strategy to use: "watcher" to watch for new processes, "event" to only react to ALUMET events.
 strategy = "watcher"
 ```
 
@@ -145,6 +145,20 @@ The available filters are `pid` (process id), `ppid` (parent process id) and `ex
 exe_regex = ""
 # Interval between two measurements.
 poll_interval = "2s"
+# How frequently should the processes information be flushed to the rest of the pipeline.
+flush_interval = "4s"
+# Which method to use to obtain memory statistics.
+memory_mode = "quick"
+```
+
+### Event-based process metrics
+
+This section is only used when `strategy = "event"` (see [Process metrics](#process-metrics)). It configures how processes are monitored when they are triggered as internal ALUMET events. This mode is useful when you want to monitor specific processes that are created or managed by ALUMET itself, rather than watching all system processes.
+
+```toml
+[plugins.procfs.processes.events]
+# Interval between two measurements for event-based processes.
+poll_interval = "1s"
 # How frequently should the processes information be flushed to the rest of the pipeline.
 flush_interval = "4s"
 # Which method to use to obtain memory statistics.
