@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use super::features::OptionalFeatures;
 
-/// SAFETY: The amd libary is thread-safe and returns pointers to a safe global state, which we can pass to other threads.
+/// SAFETY: The amd libary returns pointers to a safe global state, which we can pass to other threads.
 unsafe impl<H: ProcessorHandle> Send for ManagedDevice<H> {}
 
 /// Detected AMD GPU devices via AMDSMI.
