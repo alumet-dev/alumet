@@ -58,6 +58,7 @@ oarstat
 oarsub
 Opensearch
 otpaas
+outputdir
 pagetables
 paradoxe
 PERFMON
