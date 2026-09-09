@@ -115,10 +115,11 @@ impl AlumetPlugin for LMSensorsPlugin {
                 // TODO: add support for AMD processors
 
                 // Only getting temperature sensors from coretemp.
-                let coretemp_sensors_list: Vec<CoretempSensor> = match coretemp::get_coretemp_sensors_list(&lmsensors, coretemp_package_only) {
-                    Ok(vector) => vector,
-                    Err(e) => panic!("Could not get list of coretemp sensors: {e}"),
-                };
+                let coretemp_sensors_list: Vec<CoretempSensor> =
+                    match coretemp::get_coretemp_sensors_list(&lmsensors, coretemp_package_only) {
+                        Ok(vector) => vector,
+                        Err(e) => panic!("Could not get list of coretemp sensors: {e}"),
+                    };
 
                 if coretemp_sensors_list.is_empty() {
                     panic!("Could not retrieve any coretemp sensor.");
@@ -133,8 +134,7 @@ impl AlumetPlugin for LMSensorsPlugin {
                 while !cancel_token.is_cancelled() {
                     // Get measurement from all coretemp sensors
                     for coretemp_sensor in &coretemp_sensors_list {
-                        let temperature = coretemp_sensor.read_temperature_value();
-                        match temperature {
+                        match coretemp_sensor.read_temperature_value() {
                             Ok(value) => {
                                 buf.push(MeasurementPoint::new(
                                     Timestamp::now(),
@@ -170,7 +170,7 @@ impl AlumetPlugin for LMSensorsPlugin {
             let source = Box::pin(async move {
                 // Just wait for the thread to terminate
                 match handle.join() {
-                    Ok(_)  => {}
+                    Ok(_) => {}
                     Err(_) => {
                         panic!("The internal thread for LMSensors panicked");
                     }
