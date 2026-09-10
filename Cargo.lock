@@ -3249,7 +3249,6 @@ dependencies = [
  "humantime-serde",
  "lm-sensors",
  "log",
- "sensors-sys",
  "serde",
 ]
 

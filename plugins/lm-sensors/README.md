@@ -6,7 +6,8 @@ This pugin creates an Alumet **autonomous source** that collects measurements fr
 ## Requirements
 
 - Linux (lm-sensors relies on hardware monitoring support from Linux)
-- `libsensors-dev`
+- The plugin relies on the [`sensors-sys` crate](https://crates.io/crates/sensors-sys) which links to `libsensors` and requires it to be installed.
+  On a typical Linux distribution the `clang` and `libsensors-dev` packages are required *at compile time*, while `libsensors5` is required *at runtime*.
 - For temperature measures an Intel processor is required (**for the moment** only Intel processors are supported because the plugin retrieves information from the [coretemp kernel driver](https://docs.kernel.org/hwmon/coretemp.html))
 
 ## Metrics
