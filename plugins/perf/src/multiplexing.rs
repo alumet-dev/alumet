@@ -36,22 +36,33 @@ pub(crate) enum Interval {
     Multiplexed { running: u128, enabled: u128 },
     /// The entity ran but the group never made it onto the PMU: everything that happened during the
     /// interval was missed, and there is nothing to extrapolate from.
-    /// This can happen for many reasons, such as having too many counters in a single group, or (on
-    /// hybrid CPUs) a group bound to one PMU while the entity runs on the other PMU.
+    /// This can happen for many reasons, such as having too many counters in a single group, or
+    /// tools holding the PMU system-wide.
     Starved,
+    /// The group is pinned to one cluster of a hybrid CPU and the entity spent part (or all) of the
+    /// interval on another cluster.
+    Partial,
 }
 
 /// How faithful a reported (cumulative) value is.
 ///
 /// This describes the whole value reported so far, not the last interval, because the value is a
-/// cumulative counter. It therefore only ever degrades (`exact` -> `extrapolated` -> `underestimated`)
-/// and never improves: a single imperfect interval taints every value reported afterwards. The
-/// variants are ordered from best to worst so that [`Accuracy::max`] keeps the worst seen.
+/// cumulative counter: a single imperfect interval taints every value reported afterwards, so the
+/// accuracy of a group only ever degrades and never improves.
+///
+/// There are in fact **two independent axes**, both starting from `Exact`:
+/// - real multiplexing on a single-PMU event: `Exact` -> `Extrapolated` (with `auto_scale`) or
+///   `Underestimated`;
+/// - a cluster-pinned event on a hybrid CPU: `Exact` -> `Partial` (see [`Interval::Partial`]).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Accuracy {
     /// Every interval was counted exactly.
     #[default]
     Exact,
+    /// The value is a per-cluster count from a hybrid CPU: the event is pinned to one cluster and the
+    /// entity also ran on others, so it was on the PMU only part of the time. The value is *not*
+    /// scaled.
+    Partial,
     /// At least one multiplexed interval was extrapolated (only in `auto_scale` mode). The value is
     /// an estimate, which may be slightly above or below the truth.
     Extrapolated,
@@ -65,6 +76,7 @@ impl Accuracy {
     pub fn as_str(self) -> &'static str {
         match self {
             Accuracy::Exact => "exact",
+            Accuracy::Partial => "partial",
             Accuracy::Extrapolated => "extrapolated",
             Accuracy::Underestimated => "underestimated",
         }
@@ -112,10 +124,11 @@ impl GroupCounters {
 
     /// Accounts for a new reading, updating the corrected totals, and returns what happened during
     /// the interval.
-    pub fn account(&mut self, now: Snapshot, auto_scale: bool) -> Interval {
-        let interval = correct_interval(&self.prev, &now, auto_scale, &mut self.corrected);
+    pub fn account(&mut self, now: Snapshot, auto_scale: bool, cluster_pinned: bool) -> Interval {
+        let interval = correct_interval(&self.prev, &now, auto_scale, cluster_pinned, &mut self.corrected);
         let interval_accuracy = match interval {
             Interval::Idle | Interval::Exact => Accuracy::Exact,
+            Interval::Partial => Accuracy::Partial,
             Interval::Multiplexed { .. } if auto_scale => Accuracy::Extrapolated,
             // multiplexed without auto-scaling, or a starved interval that could not be extrapolated
             Interval::Multiplexed { .. } | Interval::Starved => Accuracy::Underestimated,
@@ -128,12 +141,26 @@ impl GroupCounters {
 
 /// Adds the (possibly corrected) contribution of one polling interval to `corrected`, and reports
 /// what happened. See the [module documentation](self) for the rationale.
-fn correct_interval(prev: &Snapshot, now: &Snapshot, auto_scale: bool, corrected: &mut [u64]) -> Interval {
+fn correct_interval(
+    prev: &Snapshot,
+    now: &Snapshot,
+    auto_scale: bool,
+    cluster_pinned: bool,
+    corrected: &mut [u64],
+) -> Interval {
     let d_enabled = now.time_enabled.saturating_sub(prev.time_enabled);
     let d_running = now.time_running.saturating_sub(prev.time_running);
 
     if d_enabled == 0 {
         return Interval::Idle;
+    }
+    if cluster_pinned {
+        add_raw(prev, now, corrected);
+        return if d_running < d_enabled {
+            Interval::Partial
+        } else {
+            Interval::Exact
+        };
     }
     if d_running == 0 {
         // Nothing was counted, so there is nothing to extrapolate from.
@@ -163,6 +190,14 @@ fn correct_interval(prev: &Snapshot, now: &Snapshot, auto_scale: bool, corrected
     }
 }
 
+/// Adds each counter's raw delta to `corrected`, without any scaling.
+fn add_raw(prev: &Snapshot, now: &Snapshot, corrected: &mut [u64]) {
+    for (i, total) in corrected.iter_mut().enumerate() {
+        let delta = u128::from(now.values[i].saturating_sub(prev.values[i]));
+        *total = total.saturating_add(u64::try_from(delta).unwrap_or(u64::MAX));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Interval, Snapshot, correct_interval};
@@ -182,7 +217,13 @@ mod tests {
     #[test]
     fn first_poll_is_an_interval_like_any_other() {
         let mut corrected = vec![0];
-        let interval = correct_interval(&snap(0, 0, &[0]), &snap(SEC, SEC / 4, &[1000]), true, &mut corrected);
+        let interval = correct_interval(
+            &snap(0, 0, &[0]),
+            &snap(SEC, SEC / 4, &[1000]),
+            true,
+            false,
+            &mut corrected,
+        );
         assert_eq!(
             interval,
             Interval::Multiplexed {
@@ -197,7 +238,48 @@ mod tests {
     #[test]
     fn exact_when_running_equals_enabled() {
         let mut corrected = vec![0];
-        let interval = correct_interval(&snap(0, 0, &[0]), &snap(SEC, SEC, &[1000]), true, &mut corrected);
+        let interval = correct_interval(&snap(0, 0, &[0]), &snap(SEC, SEC, &[1000]), true, false, &mut corrected);
+        assert_eq!(interval, Interval::Exact);
+        assert_eq!(corrected, vec![1000]);
+    }
+
+    /// A cluster-pinned group only ran part of the interval (the entity was on another cluster). Its
+    /// raw delta is exact for this cluster, so it is kept as-is and never scaled.
+    #[test]
+    fn cluster_pinned_group_is_partial_and_not_scaled() {
+        let mut corrected = vec![0];
+        let interval = correct_interval(
+            &snap(0, 0, &[0]),
+            &snap(SEC, SEC / 4, &[1000]),
+            true,
+            true,
+            &mut corrected,
+        );
+        assert_eq!(interval, Interval::Partial);
+        assert_eq!(corrected, vec![1000], "cluster-pinned => raw delta, no rule of three");
+    }
+
+    /// A cluster-pinned group that never ran this interval (the entity stayed on another cluster): it
+    /// counted a genuine zero, so this is partial, not starvation, and the total does not move.
+    #[test]
+    fn cluster_pinned_group_with_no_running_time_is_partial_not_starved() {
+        let mut corrected = vec![5];
+        let interval = correct_interval(
+            &snap(SEC, SEC, &[5]),
+            &snap(2 * SEC, SEC, &[5]),
+            true,
+            true,
+            &mut corrected,
+        );
+        assert_eq!(interval, Interval::Partial);
+        assert_eq!(corrected, vec![5]);
+    }
+
+    /// A cluster-pinned group on the whole interval (the entity never left this cluster) is exact.
+    #[test]
+    fn cluster_pinned_group_fully_on_cluster_is_exact() {
+        let mut corrected = vec![0];
+        let interval = correct_interval(&snap(0, 0, &[0]), &snap(SEC, SEC, &[1000]), true, true, &mut corrected);
         assert_eq!(interval, Interval::Exact);
         assert_eq!(corrected, vec![1000]);
     }
@@ -208,7 +290,7 @@ mod tests {
     fn idle_entity_changes_nothing() {
         let mut corrected = vec![1000];
         let prev = snap(SEC, SEC, &[1000]);
-        let interval = correct_interval(&prev, &prev.clone(), true, &mut corrected);
+        let interval = correct_interval(&prev, &prev.clone(), true, false, &mut corrected);
         assert_eq!(interval, Interval::Idle);
         assert_eq!(corrected, vec![1000]);
     }
@@ -220,7 +302,7 @@ mod tests {
         let mut corrected = vec![1000];
         let prev = snap(SEC, SEC / 4, &[1000]);
         let now = snap(2 * SEC, SEC / 4, &[1000]);
-        let interval = correct_interval(&prev, &now, true, &mut corrected);
+        let interval = correct_interval(&prev, &now, true, false, &mut corrected);
         assert_eq!(interval, Interval::Starved);
         assert_eq!(corrected, vec![1000], "the total must stay flat, not be made up");
     }
@@ -228,7 +310,13 @@ mod tests {
     #[test]
     fn without_auto_scale_the_raw_delta_is_kept() {
         let mut corrected = vec![0];
-        let interval = correct_interval(&snap(0, 0, &[0]), &snap(SEC, SEC / 4, &[1000]), false, &mut corrected);
+        let interval = correct_interval(
+            &snap(0, 0, &[0]),
+            &snap(SEC, SEC / 4, &[1000]),
+            false,
+            false,
+            &mut corrected,
+        );
         assert_eq!(
             interval,
             Interval::Multiplexed {
@@ -247,6 +335,7 @@ mod tests {
             &snap(0, 0, &[0, 0, 0]),
             &snap(SEC, SEC / 2, &[10, 20, 30]),
             true,
+            false,
             &mut corrected,
         );
         assert_eq!(corrected, vec![20, 40, 60]);
@@ -261,22 +350,22 @@ mod tests {
 
         // poll 1: 1000 counted over a quarter of a second of PMU time -> 4000
         let s1 = snap(SEC, SEC / 4, &[1000]);
-        correct_interval(&snap(0, 0, &[0]), &s1, true, &mut corrected);
+        correct_interval(&snap(0, 0, &[0]), &s1, true, false, &mut corrected);
         totals.push(corrected[0]);
 
         // poll 2: +500 counted over another quarter -> +2000
         let s2 = snap(2 * SEC, SEC / 2, &[1500]);
-        correct_interval(&s1, &s2, true, &mut corrected);
+        correct_interval(&s1, &s2, true, false, &mut corrected);
         totals.push(corrected[0]);
 
         // poll 3: the group is starved, nothing is added
         let s3 = snap(3 * SEC, SEC / 2, &[1500]);
-        correct_interval(&s2, &s3, true, &mut corrected);
+        correct_interval(&s2, &s3, true, false, &mut corrected);
         totals.push(corrected[0]);
 
         // poll 4: +200 counted over half a second -> +400
         let s4 = snap(4 * SEC, SEC, &[1700]);
-        correct_interval(&s3, &s4, true, &mut corrected);
+        correct_interval(&s3, &s4, true, false, &mut corrected);
         totals.push(corrected[0]);
 
         assert_eq!(totals, vec![4000, 6000, 6000, 6400]);
@@ -289,15 +378,41 @@ mod tests {
         use super::{Accuracy, GroupCounters, Interval};
         let mut scaling = GroupCounters::new(1);
 
-        assert_eq!(scaling.account(snap(SEC, SEC, &[10]), true), Interval::Exact);
+        assert_eq!(scaling.account(snap(SEC, SEC, &[10]), true, false), Interval::Exact);
         // a starved interval is reported as such every time it happens, without any streak state
-        assert_eq!(scaling.account(snap(2 * SEC, SEC, &[10]), true), Interval::Starved);
-        assert_eq!(scaling.account(snap(3 * SEC, SEC, &[10]), true), Interval::Starved);
+        assert_eq!(
+            scaling.account(snap(2 * SEC, SEC, &[10]), true, false),
+            Interval::Starved
+        );
+        assert_eq!(
+            scaling.account(snap(3 * SEC, SEC, &[10]), true, false),
+            Interval::Starved
+        );
         assert_eq!(
             scaling.accuracy(),
             Accuracy::Underestimated,
             "a starved interval misses data, so the total is underestimated"
         );
+    }
+
+    /// A cluster-pinned group is reported `partial`, never `exact`-degraded-to-underestimated: its
+    /// values stay raw and its accuracy stays `partial` no matter how the entity bounces clusters.
+    #[test]
+    fn cluster_pinned_accuracy_is_partial() {
+        use super::{Accuracy, GroupCounters, Interval};
+        let mut scaling = GroupCounters::new(1);
+
+        assert_eq!(
+            scaling.account(snap(SEC, SEC / 2, &[1000]), true, true),
+            Interval::Partial
+        );
+        // next interval the entity stayed on the other cluster: running frozen, still partial
+        assert_eq!(
+            scaling.account(snap(2 * SEC, SEC / 2, &[1000]), true, true),
+            Interval::Partial
+        );
+        assert_eq!(scaling.accuracy(), Accuracy::Partial);
+        assert_eq!(scaling.corrected(), &[1000]);
     }
 
     /// The accuracy only ever degrades, and a starvation makes it worse than a mere extrapolation.
@@ -308,16 +423,16 @@ mod tests {
         let mut scaling = GroupCounters::new(1);
         assert_eq!(scaling.accuracy(), Accuracy::Exact);
 
-        scaling.account(snap(SEC, SEC, &[10]), true); // exact
+        scaling.account(snap(SEC, SEC, &[10]), true, false); // exact
         assert_eq!(scaling.accuracy(), Accuracy::Exact);
 
-        scaling.account(snap(2 * SEC, SEC + SEC / 2, &[20]), true); // multiplexed, auto-scaled
+        scaling.account(snap(2 * SEC, SEC + SEC / 2, &[20]), true, false); // multiplexed, auto-scaled
         assert_eq!(scaling.accuracy(), Accuracy::Extrapolated);
 
-        scaling.account(snap(3 * SEC, SEC + SEC / 2, &[20]), true); // starved
+        scaling.account(snap(3 * SEC, SEC + SEC / 2, &[20]), true, false); // starved
         assert_eq!(scaling.accuracy(), Accuracy::Underestimated);
 
-        scaling.account(snap(4 * SEC, 2 * SEC + SEC / 2, &[30]), true); // exact again
+        scaling.account(snap(4 * SEC, 2 * SEC + SEC / 2, &[30]), true, false); // exact again
         assert_eq!(scaling.accuracy(), Accuracy::Underestimated, "accuracy never improves");
     }
 
@@ -327,7 +442,7 @@ mod tests {
         use super::{Accuracy, GroupCounters};
 
         let mut scaling = GroupCounters::new(1);
-        scaling.account(snap(SEC, SEC / 2, &[10]), false); // multiplexed, not scaled
+        scaling.account(snap(SEC, SEC / 2, &[10]), false, false); // multiplexed, not scaled
         assert_eq!(scaling.accuracy(), Accuracy::Underestimated);
     }
 }

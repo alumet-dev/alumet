@@ -25,10 +25,16 @@ suffix (and is normalized the same way); the metric then becomes `perf_{rename}`
 
 ### Attributes
 
+A native hardware/cache measurement carries a `pmu` attribute naming the core PMU it was counted on
+(`cpu_core`, `cpu_atom`, or `cpu`).
+
 Every measurement carries an `accuracy` attribute describing how faithful its value is (see
 [Counter multiplexing](#counter-multiplexing) below):
 
 - `exact`: an exact count.
+- `partial` (**only for hybrid CPU**): a per-PMU count on a hybrid CPU (see [Native events on hybrid CPUs](#native-events-on-hybrid-cpus)).
+  The event is pinned to one PMU while the process also runs on the others, so the counter was on
+  the PMU only part of the time. The value is **not** scaled.
 - `extrapolated`: the value includes at least one multiplexed interval that was extrapolated (only
   happens when `multiplexing_auto_scale` is on). It is an estimate, which may be slightly above or
   below the truth.
@@ -36,9 +42,10 @@ Every measurement carries an `accuracy` attribute describing how faithful its va
   reported raw (`multiplexing_auto_scale` off) or because the counter was starved for some intervals
   (the events could not be counted at all).
 
-Because the reported values are cumulative counters, the accuracy only ever degrades from `exact` to
-`extrapolated` to `underestimated`, and never improves: a single imperfect interval affects every
-value reported afterwards.
+Because the reported values are cumulative counters, the accuracy only ever degrades and never
+improves: a single imperfect interval affects every value reported afterwards. `partial` applies only
+to PMU-pinned events (a hybrid-CPU artifact) and is never scaled; `extrapolated`/`underestimated`
+describe genuine multiplexing on a single-PMU event.
 
 ## Configuration
 
@@ -122,18 +129,25 @@ Each event is a string of the form:
 
 #### Event formats
 
-The `<event>` part can be one of three forms:
+The `<event>` part can be one of these forms:
 
 - **native** : a symbolic event name (e.g. `INSTRUCTIONS`, `LL_READ_MISS`), resolved against the
-  built-in kernel tables listed in [Native event names](#native-event-names). (**Supported**)
+  built-in kernel tables listed in [Native event names](#native-event-names).
+- **native on a PMU** : a native name pinned to a specific PMU, `pmu/NAME` (e.g.
+  `cpu_core/INSTRUCTIONS`, `cpu_atom/CACHE_MISSES`).
 - **libpfm** : any other name, optionally with unit masks (e.g. `RESOURCE_STALLS:ANY`,
-  `MEM_LOAD_RETIRED:L3_MISS`), resolved through [libpfm](#libpfm-events). (**Supported**, requires libpfm)
+  `MEM_LOAD_RETIRED:L3_MISS`), resolved through [libpfm](#libpfm-events). (requires libpfm)
 - **raw-hex** : a raw code `rN`, where `N` is a hexadecimal value representing the raw register
   encoding, with the layout described by `/sys/bus/event_source/devices/<pmu>/format/*`. It targets
-  the default raw PMU. (**Supported**, see [Raw events](#raw-events))
+  the default raw PMU. (see [Raw events](#raw-events))
+- **raw on a PMU** : `pmu/rN`, the same raw code but on a named PMU (addressed by its sysfs `type`),
+  e.g. `uncore_imc_0/r0x1`. This is the only way to reach a PMU that has no generic namespace, such
+  as the uncore, `power` (RAPL), or `cstate_*` PMUs. (see [Raw events](#raw-events)
+  and [System-wide events](#system-wide-events-uncore-rapl-cstate))
 
 Any event may be followed by `#` and a list of [modifiers](#modifiers), e.g.
-`INSTRUCTIONS#u` or `CACHE_MISSES#u:k`.
+`INSTRUCTIONS#u` or `CACHE_MISSES#u:k`. Modifiers do not apply to
+[system-wide events](#system-wide-events-uncore-rapl-cstate) and are rejected on them.
 
 #### Native event names
 
@@ -155,6 +169,20 @@ For example: `LL_READ_MISS`.
 To learn more about the standard events, please refer to the [`perf_event_open` manual](https://man7.org/linux/man-pages/man2/perf_event_open.2.html).
 To list the events that are available on your machine, run the `perf list` command.
 Note that based on your kernel version, some events could be unavailable.
+
+#### Native events on hybrid CPUs
+
+On hybrid CPUs (e.g. Intel P-core/E-core, exposed as the `cpu_core` and `cpu_atom` PMUs), a plain
+generic hardware/cache event is counted on **every** PMU automatically.
+They share the metric name (`perf_instructions`) and are told apart by their `pmu` attribute (`cpu_core` / `cpu_atom`);
+
+To measure one PMU only, qualify the name with the PMU: `cpu_core/INSTRUCTIONS` or
+`cpu_atom/INSTRUCTIONS`. This works for hardware and cache events; **software** events (e.g.
+`CONTEXT_SWITCHES`) are CPU-wide and have no PMU, so pinning them is rejected.
+
+These are per-process/cgroup events (the core PMUs are task-attachable), so they follow the observed
+entity like any native event. Their `resource` is the CPU package the PMU sits in
+(`cpu_package`), and the `pmu` attribute is added.
 
 #### Libpfm events
 
@@ -190,20 +218,69 @@ libpfm is **loaded at runtime** (via `dlopen`), not linked at build time:
 
 When a symbolic name is not enough, you can give the raw event code directly, just like `perf`:
 
-- **`rN`** — the hexadecimal code `N` goes into the counter's `config` on the default raw PMU
+- **`rN`**: the hexadecimal code `N` goes into the counter's `config` on the default raw PMU
   (`PERF_TYPE_RAW`). Both `r3c` and `r0x412e` are accepted (a `0x` prefix is optional).
+- **`pmu/rN`**: the same code, but on a named PMU. The PMU's numeric `type` is read from
+  `/sys/bus/event_source/devices/<pmu>/type`, so e.g. `uncore_imc_0/r0x1` counts on that memory
+  controller. The trailing slash is optional (`uncore_imc_0/r0x1/` also works). This is required to
+  reach PMUs that have no generic namespace (uncore, `power`, `cstate_*`).
 
 The meaning of the bits in `N` is CPU-specific; the layout is described by
 `/sys/bus/event_source/devices/<pmu>/format/*`. The plugin does not interpret it, it forwards the
 value as-is.
 
-Modifiers work here too: `r0x412e#u:k`. The metric is named after the sanitized event string, so
-`r0x412e` → `perf_r0x412e` (use a `rename` for something friendlier).
+Modifiers work on the default raw PMU (`r0x412e#u:k`), but **not** on a `pmu/rN` that lands on a
+system-wide PMU. The metric is named after the sanitized event string, so `r0x412e` →
+`perf_r0x412e` and `uncore_imc_0/r0x1` → `perf_uncore_imc_0_r0x1` (use a `rename` for something
+friendlier).
+
+#### System-wide events (uncore, RAPL, cstate)
+
+Some PMUs do not measure a single CPU core but a shared domain: the memory controllers
+(`uncore_imc_*`), package energy (`power`, i.e. RAPL), C-state residency (`cstate_*`), and so on.
+Their events cannot be attached to a process or cgroup, they count the whole domain regardless of
+what runs.
+
+The plugin detects this automatically: **if the event's PMU has a `cpumask`, the event is
+system-wide**. Instead of following the observed process/cgroup, it is opened once for the whole
+machine, on each CPU of that `cpumask`, and reported under the hardware resource of the domain (see
+below).
+
+```toml
+events = [
+    "INSTRUCTIONS",        # per-process/cgroup, follows the observed entity
+    "power/r0x2",          # system-wide: RAPL package energy, opened machine-wide
+    "uncore_imc_0/r0x1",   # system-wide: a memory-controller counter
+]
+```
+
+Two consequences:
+
+- **Modifiers are rejected** on system-wide events (`power/r0x2#u` is an error): the domain concepts
+  they express (user/kernel/hypervisor) do not exist for these PMUs, which also reject the underlying
+  `exclude_*` bits.
+- **They need more privilege**: opening an event with no target process requires
+  `perf_event_paranoid < 1` (`0` or `-1`) or `CAP_PERFMON`, which per-process events do not. If that
+  is missing, the plugin logs a warning and keeps working *without* the system-wide events.
+
+The **resource** of a system-wide measurement is derived from the PMU name and the
+reader CPU's package (`/sys/devices/system/cpu/cpuN/topology/physical_package_id`):
+
+| PMU | Resource |
+| --- | --- |
+| `uncore_imc*` (memory controllers) | `Dram` of the reader's package |
+| `cstate_core` (per physical core) | `CpuCore` (the reader CPU) |
+| `power` (RAPL), `cstate_pkg*` | `CpuPackage` (the reader's package) |
+| anything else (other `uncore_*`, unknown) | `Custom { kind = PMU, id = reader CPU }` |
+
+A PMU that is not specifically known maps to an explicit `Custom` resource rather than a guessed
+package, which is also collision-free since the reader CPU is unique.
 
 #### Modifiers
 
 Modifiers are attached after a `#`, one per `:`-separated token (e.g. `INSTRUCTIONS#u:k`).
-An unknown token (e.g. `INSTRUCTIONS#z`) is rejected.
+An unknown token (e.g. `INSTRUCTIONS#z`) is rejected. They do not apply to
+[system-wide events](#system-wide-events-uncore-rapl-cstate), which reject them.
 
 For now these modifiers are supported:
 
@@ -251,6 +328,11 @@ Below is a summary of how different perf_event_paranoid values affect perf plugi
 | 1                               | Allows user-space and kernel-space measurements        | `cap_perfmon` *(or `cap_sys_admin` for Linux < 5.8)* | ✅ Supported                       |
 | 0                               | Allows user-space, kernel-space, and CPU-specific data | `cap_perfmon` *(or `cap_sys_admin` for Linux < 5.8)* | ✅ Supported                       |
 | -1                              | Full access, including raw tracepoints                 | −                                                    | ✅ Supported                       |
+
+The table above is for per-process/cgroup events. [System-wide events](#system-wide-events-uncore-rapl-cstate)
+(uncore, RAPL, cstate) are stricter: they need `perf_event_paranoid < 1` (so `0` or `-1`) or
+`CAP_PERFMON`. At `paranoid = 1` the per-process events still work, but the system-wide ones are
+skipped (with a warning).
 
 Example for setting `perf_event_paranoid`: `sudo sysctl -w kernel.perf_event_paranoid=2` will set the value to **2**.
 

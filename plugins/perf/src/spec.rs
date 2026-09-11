@@ -2,26 +2,37 @@
 //!
 //! An event is written `<event>[#<modifiers>]`.
 //!
-//! `<event>` can take one of five forms (a bit like `perf stat -e`). We support a subset for
-//! now and *recognise* the rest so the syntax stays stable across releases:
+//! `<event>` can take one of these forms (a bit like `perf stat -e`):
 //!
 //! - **native** : a symbolic event name (`INSTRUCTIONS`, `LL_READ_MISS`), encoded from the native
-//!   kernel tables (hardware/software/cache). **Supported**.
+//!   kernel tables (hardware/software/cache). On a hybrid CPU, a generic
+//!   hardware/cache event is counted on *every* core PMU (`cpu_core` + `cpu_atom`), like `perf stat`
+//!   does; the resulting measurements share the metric name and carry a `pmu` attribute.
+//! - **native on a PMU** : a native name pinned to a PMU, `pmu/NAME` (e.g. `cpu_core/INSTRUCTIONS`).
 //! - **libpfm** : any other name, optionally with unit masks (e.g. `RESOURCE_STALLS:ANY`), resolved
-//!   through libpfm (per-CPU encoding tables). This is the fallback when the native tables don't
-//!   know the name. **Supported**.
-//! - **raw-hex** : a raw code `rN` (hex register encoding) on the default raw PMU. Layout from
-//!   `/sys/bus/event_source/devices/<pmu>/format/*`. **Supported**.
+//!   through libpfm (per-CPU encoding tables). The fallback when the native tables don't know the
+//!   name.
+//! - **raw-hex** : a raw code `rN` (hex register encoding) on the default raw PMU.
+//! - **raw on a PMU** : `pmu/rN`, the same code on a named PMU.
+//! - **pmu-named** : `pmu/event=M,umask=N,…/`, using the named fields from
+//!   `/sys/bus/event_source/devices/<pmu>/format/*`. **Not yet supported** (rejected with a clear
+//!   "planned for a future release" error).
 //!
-//! A not-yet-supported form is rejected there with an explicit "planned for a future release" error.
+//! An event's [`Scope`] (task-attached vs system-wide) is then derived from the PMU it targets; see
+//! [`Scope`] and [`crate::source`].
 
+use alumet::resources::Resource;
 use anyhow::Context;
 use perf_event::events::Event;
-use perf_event_open_sys::bindings::perf_event_attr;
+use perf_event_open_sys::bindings::{
+    PERF_TYPE_HARDWARE, PERF_TYPE_HW_CACHE, PERF_TYPE_RAW, PERF_TYPE_SOFTWARE, perf_event_attr,
+};
 use serde::{Deserialize, Serialize};
 
+use crate::cpu;
 use crate::native;
 use crate::pfm;
+use crate::pmu;
 use crate::raw;
 
 /// One entry of the `events` config list: a bare string, or a table with a metric `rename`.
@@ -78,6 +89,10 @@ impl Modifiers {
             }
         }
         Ok(m)
+    }
+
+    fn any(&self) -> bool {
+        self.user || self.kernel || self.hv || self.host || self.guest || self.idle_only
     }
 
     /// The `exclude_*` bits these modifiers produce.
@@ -179,12 +194,28 @@ pub struct ConfiguredEvent {
     modifiers: Modifiers,
 }
 
+/// How an event must be opened, decided by the PMU it targets.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Scope {
+    TaskAttached { binding: Option<CoreBinding> },
+    SystemWide { pmu: String, cpus: Vec<u32> },
+}
+
+/// The core PMU a task-attached event is bound to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CoreBinding {
+    pub pmu: String,
+    pub cpus: Vec<u32>,
+    pub resource: Resource,
+}
+
 /// A parsed config event: the metric name suffix (after `perf_`), a description and the event.
 /// This is what's used by Alumet to setup metrics.
 #[derive(Debug)]
 pub struct ParsedEvent {
     pub metric_suffix: String,
     pub description: String,
+    pub scope: Scope,
     pub event: ConfiguredEvent,
 }
 
@@ -195,6 +226,20 @@ impl ConfiguredEvent {
         self.encoding
     }
 
+    /// The key identifying which perf group this event may share. A perf group cannot span two
+    /// different hardware PMUs, so [`crate::source`] groups events by this key.
+    pub(crate) fn pmu_group_key(&self) -> u64 {
+        let core = u64::from(PERF_TYPE_RAW);
+        match self.encoding.type_ {
+            PERF_TYPE_HARDWARE | PERF_TYPE_HW_CACHE => {
+                let extended = self.encoding.config >> 32; // extended hardware type (hybrid pinning)
+                if extended != 0 { extended } else { core }
+            }
+            PERF_TYPE_SOFTWARE => core, // software events can share any hardware group
+            other => u64::from(other),  // RAW (== core), or a named PMU's dynamic type (raw-on-pmu)
+        }
+    }
+
     /// Apply this event's modifiers to a freshly-created builder. Must run *after*
     /// [`perf_event::Builder::new`], which forces its own `exclude_kernel`/`exclude_hv` defaults;
     /// this sets every bit explicitly so the result never depends on that ordering.
@@ -203,56 +248,176 @@ impl ConfiguredEvent {
     }
 }
 
-/// Parse one config entry into a [`ParsedEvent`].
-pub fn parse(entry: &EventEntry) -> anyhow::Result<ParsedEvent> {
+/// Parse one config entry into one or more [`ParsedEvent`]s.
+pub fn parse(entry: &EventEntry) -> anyhow::Result<Vec<ParsedEvent>> {
     let (input, rename) = entry.parts();
     // The `#` delimiter separates the encoder name from the plugin's modifiers.
     let (name, mods_str) = input.split_once('#').unwrap_or((input, ""));
     if name.is_empty() {
         anyhow::bail!("empty event name in '{input}'");
     }
-
     let modifiers = Modifiers::parse(mods_str).with_context(|| format!("invalid event '{input}'"))?;
-    let resolved = resolve_event(name).with_context(|| format!("invalid event '{input}'"))?;
 
-    let metric_suffix = match rename {
-        Some(r) => r,
-        None => &resolved.name,
-    };
+    // A named PMU exposing a `cpumask` (uncore, power, cstate) is opened system-wide.
+    if let Some((pmu_name, cpus)) = detect_system_wide(name).with_context(|| format!("invalid event '{input}'"))? {
+        if modifiers.any() {
+            anyhow::bail!(
+                "invalid event '{input}': modifiers do not apply to system-wide events (uncore/power/cstate)"
+            );
+        }
+        let (base, _) = resolve_base(name).with_context(|| format!("invalid event '{input}'"))?;
+        return Ok(vec![ParsedEvent {
+            metric_suffix: sanitize(rename.unwrap_or(&base.name)),
+            description: base.description,
+            scope: Scope::SystemWide { pmu: pmu_name, cpus },
+            event: ConfiguredEvent {
+                encoding: base.encoding,
+                modifiers,
+            },
+        }]);
+    }
 
-    Ok(ParsedEvent {
-        metric_suffix: sanitize(metric_suffix),
-        description: resolved.description,
-        event: ConfiguredEvent {
-            encoding: resolved.encoding,
-            modifiers,
-        },
-    })
+    resolve_task_attached(name, rename, modifiers).with_context(|| format!("invalid event '{input}'"))
 }
 
-/// Resolve an event name (no modifiers) into a [`NamedPerfEvent`]. Each encoder builds the `NamedPerfEvent`
-/// in its own module; this only dispatches to them. See the module docs for the recognised forms.
-fn resolve_event(name: &str) -> anyhow::Result<NamedPerfEvent> {
-    // raw-hex route: `rN`, a raw code on the default raw PMU.
-    if let Some(result) = raw::parse(name) {
-        return result;
+fn detect_system_wide(name: &str) -> anyhow::Result<Option<(String, Vec<u32>)>> {
+    match pmu::split(name) {
+        Some((pmu, _terms)) => Ok(pmu::read_cpumask(pmu)?.map(|cpus| (pmu.to_owned(), cpus))),
+        None => Ok(None),
     }
-    // any `pmu/…/` form (native-on-PMU, raw-on-PMU, pmu-named, pmu-raw): recognised, but not
-    // encoded yet. The whole PMU machinery is planned for a future release.
-    if name.contains('/') {
+}
+
+fn resolve_task_attached(name: &str, rename: Option<&str>, modifiers: Modifiers) -> anyhow::Result<Vec<ParsedEvent>> {
+    let (base, placement) = resolve_base(name)?;
+    let suffix = sanitize(rename.unwrap_or(&base.name));
+
+    let make = |encoding: EventEncoding, binding: Option<CoreBinding>| ParsedEvent {
+        metric_suffix: suffix.clone(),
+        description: base.description.clone(),
+        scope: Scope::TaskAttached { binding },
+        event: ConfiguredEvent { encoding, modifiers },
+    };
+
+    match placement {
+        // A raw code (`rN`), a software event, or a libpfm event: no specific PMU.
+        Placement::Unpinned => Ok(vec![make(base.encoding, None)]),
+        // An explicit `pmu/…`: bound to that one core PMU (its encoding is already pinned).
+        Placement::PmuPinned(pmu) => Ok(vec![make(base.encoding, Some(core_binding(&pmu)?))]),
+        // A bare generic event: counted on every core PMU (both clusters of a hybrid CPU).
+        Placement::CoreGeneric => core_targets()?
+            .into_iter()
+            .map(|t| {
+                let encoding = match t.pmu_type {
+                    Some(pmu_type) => native::pin(&base, &t.binding.pmu, pmu_type)?,
+                    None => base.encoding,
+                };
+                Ok(make(encoding, Some(t.binding)))
+            })
+            .collect(),
+    }
+}
+
+/// How a task-attached event places onto the core PMU(s).
+enum Placement {
+    /// No specific PMU (raw code, software, or libpfm).
+    Unpinned,
+    /// An explicit core PMU.
+    PmuPinned(String),
+    /// A bare native hardware/cache event, to be counted on every core PMU.
+    CoreGeneric,
+}
+
+/// Resolve an event name (no modifiers) into its encoding and how it places onto the core PMU(s).
+/// Each encoder builds the [`NamedPerfEvent`] in its own module; this dispatches to them.
+fn resolve_base(name: &str) -> anyhow::Result<(NamedPerfEvent, Placement)> {
+    // `pmu/…`: a raw code or a native event pinned to that PMU (`cpu_core/INSTRUCTIONS`).
+    if let Some((pmu_name, term)) = pmu::split(name) {
+        if let Some(result) = raw::parse(name) {
+            return Ok((result?, Placement::PmuPinned(pmu_name.to_owned())));
+        }
+        if let Ok(base) = native::parse(term) {
+            let pmu_type = pmu::read_type(pmu_name)?;
+            let encoding = native::pin(&base, pmu_name, pmu_type)?;
+            return Ok((
+                NamedPerfEvent { encoding, ..base },
+                Placement::PmuPinned(pmu_name.to_owned()),
+            ));
+        }
         anyhow::bail!(
-            "pmu-named / pmu-raw events (`{name}`) are not supported yet; this is planned for a future release"
+            "PMU events with named fields (`{name}`, i.e. `pmu/event=,umask=/`) are not supported yet; this is planned for a future release"
         );
     }
 
-    // native route: try the built-in kernel tables first.
-    if let Ok(e) = native::parse(name) {
-        return Ok(e);
+    // `rN`: a raw code on the default raw PMU.
+    if let Some(result) = raw::parse(name) {
+        return Ok((result?, Placement::Unpinned));
     }
-
+    // Built-in kernel tables. Only generic hardware/cache events fan out; software events are
+    // CPU-wide and stay unpinned.
+    if let Ok(base) = native::parse(name) {
+        use perf_event_open_sys::bindings::{PERF_TYPE_HARDWARE, PERF_TYPE_HW_CACHE};
+        let placement = match base.encoding.type_ {
+            PERF_TYPE_HARDWARE | PERF_TYPE_HW_CACHE => Placement::CoreGeneric,
+            _ => Placement::Unpinned,
+        };
+        return Ok((base, placement));
+    }
     // Fall back to libpfm.
-    pfm::encode(name)
-        .with_context(|| format!("unknown event '{name}': not a native event, and libpfm could not encode it"))
+    let base = pfm::encode(name)
+        .with_context(|| format!("unknown event '{name}': not a native event, and libpfm could not encode it"))?;
+    Ok((base, Placement::Unpinned))
+}
+
+struct CoreTarget {
+    pmu_type: Option<u32>,
+    binding: CoreBinding,
+}
+
+fn core_targets() -> anyhow::Result<Vec<CoreTarget>> {
+    let cores = pmu::core_pmus()?;
+    if cores.is_empty() {
+        let cpus = cpu::online_cpus()?;
+        let resource = package_resource(pmu::single_package(&cpus));
+        return Ok(vec![CoreTarget {
+            pmu_type: None,
+            binding: CoreBinding {
+                pmu: "cpu".to_owned(),
+                cpus,
+                resource,
+            },
+        }]);
+    }
+    Ok(cores
+        .into_iter()
+        .map(|c| CoreTarget {
+            pmu_type: Some(c.type_),
+            binding: CoreBinding {
+                pmu: c.name,
+                resource: package_resource(c.package),
+                cpus: c.cpus,
+            },
+        })
+        .collect())
+}
+
+fn core_binding(pmu: &str) -> anyhow::Result<CoreBinding> {
+    let cpus = match pmu::read_cpus(pmu)? {
+        Some(cpus) => cpus,
+        None => cpu::online_cpus()?,
+    };
+    let resource = package_resource(pmu::single_package(&cpus));
+    Ok(CoreBinding {
+        pmu: pmu.to_owned(),
+        cpus,
+        resource,
+    })
+}
+
+fn package_resource(package: Option<u32>) -> Resource {
+    match package {
+        Some(id) => Resource::CpuPackage { id },
+        None => Resource::LocalMachine,
+    }
 }
 
 /// Turn a string into a metric-name-safe suffix: letters are lowercased, non-alphanumeric
@@ -277,42 +442,70 @@ mod tests {
 
     use super::*;
 
-    fn parse_simple(s: &str) -> ParsedEvent {
+    fn parse_all(s: &str) -> Vec<ParsedEvent> {
         parse(&EventEntry::Simple(s.to_owned())).unwrap()
+    }
+
+    fn parse_one(s: &str) -> ParsedEvent {
+        let mut evs = parse_all(s);
+        assert_eq!(evs.len(), 1, "expected a single event for '{s}', got {}", evs.len());
+        evs.pop().unwrap()
+    }
+
+    fn parse_first(s: &str) -> ParsedEvent {
+        parse_all(s).into_iter().next().expect("at least one event")
+    }
+
+    fn is_hybrid() -> bool {
+        pmu::read_type("cpu_core").is_ok() && pmu::read_type("cpu_atom").is_ok()
+    }
+
+    fn assert_generic(enc: &EventEncoding, base: &EventEncoding) {
+        assert_eq!(enc.type_, base.type_);
+        assert_eq!(enc.config & 0xffff_ffff, base.config & 0xffff_ffff);
+        assert_eq!(enc.config1, base.config1);
+        assert_eq!(enc.config2, base.config2);
     }
 
     #[test]
     fn native_hardware() {
-        let e = parse_simple("REF_CPU_CYCLES");
-        assert_eq!(e.metric_suffix, "ref_cpu_cycles");
-        assert_eq!(e.event.encoding, EventEncoding::from_event(Hardware::REF_CPU_CYCLES));
+        let base = EventEncoding::from_event(Hardware::REF_CPU_CYCLES);
+        let evs = parse_all("REF_CPU_CYCLES");
+        assert!(!evs.is_empty());
+        for e in &evs {
+            assert_eq!(e.metric_suffix, "ref_cpu_cycles");
+            assert!(matches!(e.scope, Scope::TaskAttached { .. }));
+            assert_generic(&e.event.encoding, &base);
+        }
     }
 
     #[test]
     fn native_software() {
-        let e = parse_simple("CONTEXT_SWITCHES");
+        let e = parse_one("CONTEXT_SWITCHES");
         assert_eq!(e.metric_suffix, "context_switches");
         assert_eq!(e.event.encoding, EventEncoding::from_event(Software::CONTEXT_SWITCHES));
+        assert_eq!(e.scope, Scope::TaskAttached { binding: None });
     }
 
     #[test]
     fn native_cache() {
-        let e = parse_simple("LL_READ_MISS");
-        assert_eq!(e.metric_suffix, "ll_read_miss");
-        assert_eq!(
-            e.event.encoding,
-            EventEncoding::from_event(Cache {
-                which: CacheId::LL,
-                operation: CacheOp::READ,
-                result: CacheResult::MISS,
-            })
-        );
+        let base = EventEncoding::from_event(Cache {
+            which: CacheId::LL,
+            operation: CacheOp::READ,
+            result: CacheResult::MISS,
+        });
+        let evs = parse_all("LL_READ_MISS");
+        assert!(!evs.is_empty());
+        for e in &evs {
+            assert_eq!(e.metric_suffix, "ll_read_miss");
+            assert_generic(&e.event.encoding, &base);
+        }
     }
 
     #[test]
     fn no_modifier_is_user_space_only() {
         // The default must match the original plugin: user space only (kernel + hv excluded).
-        let e = parse_simple("INSTRUCTIONS");
+        let e = parse_first("INSTRUCTIONS");
         assert_eq!(e.metric_suffix, "instructions");
         assert_eq!(
             e.event.modifiers.excludes(),
@@ -329,14 +522,14 @@ mod tests {
 
     #[test]
     fn user_modifier_matches_default() {
-        let x = parse_simple("INSTRUCTIONS#u").event.modifiers.excludes();
+        let x = parse_first("INSTRUCTIONS#u").event.modifiers.excludes();
         assert!(!x.user && x.kernel && x.hv);
     }
 
     #[test]
     fn user_and_kernel_modifier() {
         // `#u:k` measures user and kernel, but still excludes the hypervisor.
-        let x = parse_simple("INSTRUCTIONS#u:k").event.modifiers.excludes();
+        let x = parse_first("INSTRUCTIONS#u:k").event.modifiers.excludes();
         assert!(!x.user);
         assert!(!x.kernel);
         assert!(x.hv);
@@ -346,14 +539,14 @@ mod tests {
     fn modifiers_must_be_colon_separated() {
         // Modifiers are `:`-separated tokens; the grouped form `#uk` is rejected.
         assert!(parse(&EventEntry::Simple("INSTRUCTIONS#uk".to_owned())).is_err());
-        let x = parse_simple("INSTRUCTIONS#u:k").event.modifiers.excludes();
+        let x = parse_first("INSTRUCTIONS#u:k").event.modifiers.excludes();
         assert!(!x.user && !x.kernel && x.hv);
     }
 
     #[test]
     fn kernel_only_modifier() {
         // `#k` measures kernel only: user is excluded, kernel is counted.
-        let x = parse_simple("INSTRUCTIONS#k").event.modifiers.excludes();
+        let x = parse_first("INSTRUCTIONS#k").event.modifiers.excludes();
         assert!(x.user);
         assert!(!x.kernel);
         assert!(x.hv);
@@ -361,7 +554,7 @@ mod tests {
 
     #[test]
     fn host_and_idle_modifiers() {
-        let x = parse_simple("INSTRUCTIONS#H:I").event.modifiers.excludes();
+        let x = parse_first("INSTRUCTIONS#H:I").event.modifiers.excludes();
         assert!(x.guest); // host only -> exclude guest
         assert!(!x.host);
         assert!(x.idle); // exclude idle
@@ -378,9 +571,10 @@ mod tests {
     fn hash_is_the_modifier_delimiter() {
         // Only what follows `#` is parsed as modifiers; the name is resolved untouched. The `#` is
         // stripped and never becomes part of the metric name.
-        let e = parse_simple("INSTRUCTIONS#u");
+        let base = EventEncoding::from_event(Hardware::INSTRUCTIONS);
+        let e = parse_first("INSTRUCTIONS#u");
         assert_eq!(e.metric_suffix, "instructions");
-        assert_eq!(e.event.encoding, EventEncoding::from_event(Hardware::INSTRUCTIONS));
+        assert_generic(&e.event.encoding, &base);
         assert!(!e.event.modifiers.excludes().user);
     }
 
@@ -391,14 +585,82 @@ mod tests {
             rename: Some("my llc miss".to_owned()),
         })
         .unwrap();
-        assert_eq!(e.metric_suffix, "my_llc_miss");
+        for parsed in &e {
+            assert_eq!(parsed.metric_suffix, "my_llc_miss");
+        }
+    }
+
+    #[test]
+    fn events_without_a_pmu_are_task_attached() {
+        assert!(
+            parse_all("INSTRUCTIONS")
+                .iter()
+                .all(|e| matches!(e.scope, Scope::TaskAttached { .. }))
+        );
+        assert_eq!(parse_one("r0x412e").scope, Scope::TaskAttached { binding: None });
+    }
+
+    #[test]
+    fn a_bare_generic_event_fans_out_on_a_hybrid_cpu() {
+        if !is_hybrid() {
+            eprintln!("skipping a_bare_generic_event_fans_out_on_a_hybrid_cpu: not a hybrid CPU");
+            return;
+        }
+        let base = EventEncoding::from_event(Hardware::INSTRUCTIONS);
+        let evs = parse_all("INSTRUCTIONS");
+        let pmus: Vec<&str> = evs
+            .iter()
+            .map(|e| match &e.scope {
+                Scope::TaskAttached { binding: Some(b) } => b.pmu.as_str(),
+                other => panic!("expected a bound task-attached event, got {other:?}"),
+            })
+            .collect();
+        assert!(pmus.contains(&"cpu_core") && pmus.contains(&"cpu_atom"), "got {pmus:?}");
+        for e in &evs {
+            assert_eq!(e.metric_suffix, "instructions");
+            assert_generic(&e.event.encoding, &base);
+            // Pinned to a specific cluster => the extended hardware type is set.
+            assert_ne!(e.event.encoding.config >> 32, 0);
+        }
+    }
+
+    #[test]
+    fn distinct_core_pmus_get_distinct_group_keys() {
+        if !is_hybrid() {
+            eprintln!("skipping distinct_core_pmus_get_distinct_group_keys: not a hybrid CPU");
+            return;
+        }
+        let core = parse_one("cpu_core/r0x1").event.pmu_group_key();
+        let atom = parse_one("cpu_atom/r0x1").event.pmu_group_key();
+        assert_ne!(core, atom);
+    }
+
+    #[test]
+    fn a_system_wide_pmu_event_is_scoped_system_wide() {
+        let Some((pmu, cpus)) = first_system_wide_pmu() else {
+            eprintln!("skipping a_system_wide_pmu_event_is_scoped_system_wide: no system-wide PMU found");
+            return;
+        };
+        let e = parse_one(&format!("{pmu}/r0x1"));
+        assert_eq!(e.scope, Scope::SystemWide { pmu, cpus });
+    }
+
+    /// Find any PMU exposing a `cpumask` in sysfs (a system-wide PMU), returning its name and cpus.
+    fn first_system_wide_pmu() -> Option<(String, Vec<u32>)> {
+        let entries = std::fs::read_dir("/sys/bus/event_source/devices").ok()?;
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if let Ok(Some(cpus)) = pmu::read_cpumask(&name) {
+                return Some((name, cpus));
+            }
+        }
+        None
     }
 
     #[test]
     fn raw_hex_event() {
         use perf_event_open_sys::bindings::PERF_TYPE_RAW;
-        // `rN` encodes a raw code on the default raw PMU, and modifiers still apply.
-        let e = parse_simple("r0x412e#u:k");
+        let e = parse_one("r0x412e#u:k");
         assert_eq!(e.metric_suffix, "r0x412e");
         assert_eq!(
             e.event.encoding(),
@@ -433,9 +695,9 @@ mod tests {
             eprintln!("skipping libpfm_event_resolves_when_available: libpfm is not available");
             return;
         }
-        // A generic name unknown to the native tables is resolved through libpfm, and produces the
-        // same encoding as calling libpfm directly.
-        let e = parse_simple("PERF_COUNT_HW_INSTRUCTIONS");
+        // A generic name unknown to the native tables is resolved through libpfm (unpinned, never
+        // fanned), and produces the same encoding as calling libpfm directly.
+        let e = parse_one("PERF_COUNT_HW_INSTRUCTIONS");
         assert_eq!(e.metric_suffix, "perf_count_hw_instructions");
         assert_eq!(
             e.event.encoding,

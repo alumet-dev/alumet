@@ -3,7 +3,7 @@ use std::num::ParseIntError;
 
 use anyhow::Context;
 
-fn parse_cpu_list(cpulist: &str) -> anyhow::Result<Vec<u32>> {
+pub(crate) fn parse_cpu_list(cpulist: &str) -> anyhow::Result<Vec<u32>> {
     // handles "n" or "start-end"
     fn parse_cpulist_item(item: &str) -> anyhow::Result<Vec<u32>> {
         let bounds: Vec<u32> = item
@@ -29,6 +29,15 @@ fn parse_cpu_list(cpulist: &str) -> anyhow::Result<Vec<u32>> {
         .collect();
 
     Ok(cpus)
+}
+
+/// Read the physical package (socket) id a CPU belongs to, from sysfs topology.
+pub(crate) fn package_of(cpu: u32) -> anyhow::Result<u32> {
+    let path = format!("/sys/devices/system/cpu/cpu{cpu}/topology/physical_package_id");
+    let raw = std::fs::read_to_string(&path).with_context(|| format!("cannot read {path}"))?;
+    raw.trim()
+        .parse::<u32>()
+        .with_context(|| format!("invalid package id in {path}: {:?}", raw.trim()))
 }
 
 pub fn online_cpus() -> anyhow::Result<Vec<u32>> {

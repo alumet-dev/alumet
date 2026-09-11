@@ -8,6 +8,7 @@ use std::{error::Error, fmt::Display};
 use anyhow::Context;
 use itertools::Itertools;
 use perf_event::events::{self, CacheId, CacheOp, CacheResult};
+use perf_event_open_sys::bindings::{PERF_TYPE_HARDWARE, PERF_TYPE_HW_CACHE, PERF_TYPE_SOFTWARE};
 
 use crate::spec::{EventEncoding, NamedPerfEvent};
 
@@ -37,6 +38,27 @@ pub fn parse(name: &str) -> anyhow::Result<NamedPerfEvent> {
         return Ok(e);
     }
     parse_cache(name)
+}
+
+/// Pin an already-resolved native event to a PMU of numeric type `pmu_type`.
+/// Only hardware and hardware-cache events can be pinned.
+pub(crate) fn pin(base: &NamedPerfEvent, pmu: &str, pmu_type: u32) -> anyhow::Result<EventEncoding> {
+    match base.encoding.type_ {
+        PERF_TYPE_HARDWARE | PERF_TYPE_HW_CACHE => Ok(EventEncoding {
+            config: extended_config(base.encoding.config, pmu_type),
+            ..base.encoding
+        }),
+        PERF_TYPE_SOFTWARE => anyhow::bail!(
+            "software event '{}' is CPU-wide and cannot be pinned to PMU '{pmu}'",
+            base.name
+        ),
+        other => anyhow::bail!("event '{}' (perf type {other}) cannot be pinned to a PMU", base.name),
+    }
+}
+
+/// Pack a PMU's numeric type into the high 32 bits of `config`.
+fn extended_config(config: u64, pmu_type: u32) -> u64 {
+    config | (u64::from(pmu_type) << 32)
 }
 
 /// Returns an hardware perf event from its name.
@@ -190,5 +212,30 @@ mod tests {
     #[test]
     fn unknown_name_is_rejected() {
         assert!(parse("DEFINITELY_NOT_A_REAL_EVENT_XYZ").is_err());
+    }
+
+    #[test]
+    fn extended_config_packs_pmu_type_high() {
+        // (pmu_type << 32) | config. e.g. cpu_core (type 4) + generic INSTRUCTIONS (1).
+        assert_eq!(extended_config(0x1, 4), 0x4_0000_0001);
+        assert_eq!(extended_config(0xc0, 10), 0xa_0000_00c0);
+    }
+
+    #[test]
+    fn software_cannot_be_pinned_to_a_pmu() {
+        // Software events are CPU-wide; the type check rejects them (no sysfs read needed).
+        let base = parse("CONTEXT_SWITCHES").unwrap();
+        let err = pin(&base, "cpu_core", 4).unwrap_err();
+        assert!(format!("{err:#}").contains("CPU-wide"), "got: {err:#}");
+    }
+
+    #[test]
+    fn hardware_pinned_to_pmu_uses_extended_type() {
+        // Pinning is pure: the generic type is preserved and the PMU's numeric type is packed into
+        // config's high bits. cpu_core is type 4 on this ABI.
+        let base = parse("INSTRUCTIONS").unwrap();
+        let e = pin(&base, "cpu_core", 4).unwrap();
+        assert_eq!(e.type_, base.encoding.type_);
+        assert_eq!(e.config, extended_config(base.encoding.config, 4));
     }
 }

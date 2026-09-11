@@ -19,10 +19,9 @@ use alumet::{
     units::Unit,
 };
 use anyhow::Context;
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
-use crate::source::{Observable, PerfEventSourceBuilder};
+use crate::source::{Observable, PerfEventSource, PerfEventSourceBuilder};
 
 #[cfg(not(target_os = "linux"))]
 compile_error!("This plugin only works on Linux.");
@@ -31,6 +30,7 @@ mod cpu;
 mod multiplexing;
 mod native;
 mod pfm;
+mod pmu;
 mod raw;
 mod source;
 mod spec;
@@ -54,17 +54,17 @@ impl AlumetPlugin for PerfPlugin {
 
     fn init(config: alumet::plugin::ConfigTable) -> anyhow::Result<Box<Self>> {
         let config: Config = deserialize_config(config)?;
+        // Parse the perf events with the unified syntax. One entry may expand to several events (a
+        // generic event fanned onto every core PMU of a hybrid CPU).
+        let mut events = Vec::with_capacity(config.events.len());
+        for entry in &config.events {
+            events.extend(spec::parse(entry).context("invalid event in config")?);
+        }
         let config = ParsedConfig {
             // Store the source settings.
             poll_interval: config.poll_interval,
             flush_interval: config.flush_interval,
-            // Parse the perf events with the unified syntax.
-            events: config
-                .events
-                .iter()
-                .map(spec::parse)
-                .try_collect()
-                .context("invalid event in config")?,
+            events,
             multiplexing_auto_scale: config.multiplexing_auto_scale,
             // The metrics are initialized in start()
             metrics: Vec::new(),
@@ -80,10 +80,20 @@ impl AlumetPlugin for PerfPlugin {
 
         let mut config = self.config.lock().unwrap();
 
+        // Events fanned onto several core PMUs share one metric (same name, told apart by their
+        // `pmu` attribute), so a metric is created once per distinct name and reused.
         let mut metrics = Vec::with_capacity(config.events.len());
+        let mut by_name: std::collections::HashMap<String, TypedMetricId<u64>> = std::collections::HashMap::new();
         for e in &config.events {
             let metric_name = format!("perf_{}", e.metric_suffix);
-            let metric = alumet.create_metric::<u64>(metric_name, Unit::Unity, e.description.clone())?;
+            let metric = match by_name.get(&metric_name) {
+                Some(metric) => *metric,
+                None => {
+                    let metric = alumet.create_metric::<u64>(&metric_name, Unit::Unity, e.description.clone())?;
+                    by_name.insert(metric_name, metric);
+                    metric
+                }
+            };
             metrics.push(metric);
         }
         config.metrics = metrics;
@@ -96,6 +106,58 @@ impl AlumetPlugin for PerfPlugin {
         let pipeline_control_end = alumet.pipeline_control();
         let runtime_start = alumet.async_runtime().clone();
         let runtime_end = alumet.async_runtime().clone();
+
+        // Start the machine-wide source for system-wide events (uncore, power, cstate…). Unlike the
+        // per-process/cgroup sources below, it is not reactive: it exists for the whole machine, so
+        // it is created once, here, rather than when a consumer appears.
+        {
+            let config = self.config.lock().unwrap();
+            let system_events: Vec<_> = config
+                .events
+                .iter()
+                .zip(&config.metrics)
+                .filter_map(|(event, metric)| match &event.scope {
+                    spec::Scope::SystemWide { pmu, cpus } => {
+                        Some((event.event.clone(), *metric, pmu.clone(), cpus.clone()))
+                    }
+                    spec::Scope::TaskAttached { .. } => None,
+                })
+                .collect();
+            if !system_events.is_empty() {
+                let n = system_events.len();
+                let poll_interval = config.poll_interval;
+                let flush_interval = config.flush_interval;
+                let auto_scale = config.multiplexing_auto_scale;
+                let add_source_in_pause_state = config.add_source_in_pause_state;
+                drop(config);
+
+                let init_source_state = match add_source_in_pause_state {
+                    false => TaskState::Run,
+                    true => TaskState::Pause,
+                };
+
+                match PerfEventSource::build_system_wide(auto_scale, system_events) {
+                    Ok(source) => {
+                        let trigger = TriggerSpec::builder(poll_interval)
+                            .flush_interval(flush_interval)
+                            .build()?;
+                        let request = request::create_one().add_source_with_state(
+                            "source-system-wide",
+                            Box::new(source),
+                            trigger,
+                            init_source_state,
+                        );
+                        runtime_start.block_on(pipeline_control_start.dispatch(request, Duration::from_secs(1)))?;
+                        log::info!("Started system-wide perf source with {n} event(s).");
+                    }
+                    // Not fatal: system-wide PMUs need CAP_PERFMON / perf_event_paranoid < 1, which
+                    // the per-process/cgroup events do not. Keep the rest of the plugin working.
+                    Err(e) => log::warn!(
+                        "could not open system-wide perf events (uncore/power/cstate): {e:#}; continuing without them"
+                    ),
+                }
+            }
+        }
 
         // Listen to start consumer events, starting sources.
         event::start_consumer_measurement().subscribe(move |e| {
@@ -133,9 +195,17 @@ impl AlumetPlugin for PerfPlugin {
                     let config = config_cloned.lock().unwrap();
                     let mut builder = PerfEventSourceBuilder::observe(o, config.multiplexing_auto_scale)?;
                     for (event, metric) in config.events.iter().zip(&config.metrics) {
-                        builder
-                            .add(&event.event, *metric)
-                            .with_context(|| format!("could not configure event {}", event.metric_suffix))?;
+                        match &event.scope {
+                            // System-wide events (uncore, power, cstate…) are not tied to a
+                            // process/cgroup; they will be opened once by a dedicated machine-wide
+                            // source. Skip them here so they don't break this entity source.
+                            spec::Scope::SystemWide { .. } => (),
+                            spec::Scope::TaskAttached { binding } => {
+                                builder
+                                    .add(&event.event, *metric, binding.as_ref())
+                                    .with_context(|| format!("could not configure event {}", event.metric_suffix))?;
+                            }
+                        }
                     }
                     let poll_interval = config.poll_interval;
                     let flush_interval = config.flush_interval;
