@@ -1,0 +1,16 @@
+[package]
+name = "plugin-lm-sensors"
+version = "0.1.0"
+edition.workspace = true
+repository.workspace = true
+
+[dependencies]
+alumet.workspace = true
+anyhow.workspace = true
+log.workspace = true
+humantime-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
+lm-sensors = "0.5.1"
+
+[lints]
+workspace = true
