@@ -9,6 +9,7 @@ Common parts can be found in two separate libraries:
 Cgroup-based plugins:
 - `cgroups` (in folder `raw`): measures basic cgroups
 - `k8s`: measures Kubernetes pods
+- `containers`: measures OCI containers (docker, podman)
 - `oar`: measures OAR HPC jobs
 - `slurm`: measures Slurm HPC jobs
 
@@ -21,6 +22,7 @@ graph BT;
     util-cgroups-plugins --> util-cgroups;
     util-cgroups-plugins --> alumet;
     k8s --> util-cgroups-plugins;
+    containers --> util-cgroups-plugins;
     cgroups["cgroups (raw)"] --> util-cgroups-plugins;
     oar --> util-cgroups-plugins;
     slurm --> util-cgroups-plugins;

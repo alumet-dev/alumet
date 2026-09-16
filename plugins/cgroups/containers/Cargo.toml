@@ -1,0 +1,23 @@
+[package]
+name = "plugin-containers"
+version = "0.1.0"
+edition.workspace = true
+repository.workspace = true
+
+[dependencies]
+alumet = { path = "../../../core/alumet" }
+util-cgroups = { path = "../util-cgroups" }
+util-cgroups-plugins = { path = "../util-cgroups-plugins" }
+
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+rustc-hash = "2.0"
+humantime-serde = "1.1"
+log = "0.4"
+bollard = {version = "0.21"}
+tokio = { version = "1.0", features = ["rt"] }
+
+[dev-dependencies]
+pretty_assertions = "1.4"
+mockito = "1.2"
+tempfile = "3.8"
