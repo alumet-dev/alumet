@@ -443,7 +443,7 @@ mod tests {
             });
             device.expect_gpm_support().returning(|| Ok(true));
             device
-                .expect_gpm_handle()
+                .expect_create_gpm_sample()
                 .returning(|| std::ptr::null::<()>() as nvmlGpmSample_t);
             device.expect_gpm_metrics_get().returning(|_, _, _| {
                 Ok(vec![

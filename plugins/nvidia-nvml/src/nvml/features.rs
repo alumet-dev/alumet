@@ -50,7 +50,7 @@ pub struct OptionalFeatures {
     pub clock_info: bool,
     // Amount of used GPU memory.
     pub used_gpu_memory: bool,
-
+    /// GPM metrics.
     pub gpm_metrics: bool,
 }
 
@@ -71,7 +71,7 @@ impl OptionalFeatures {
             clock_info: check_clock_info(device)?,
             used_gpu_memory: check_running_compute_processes(device)? != AvailableVersion::None
                 || check_running_graphics_processes(device)? != AvailableVersion::None,
-            gpm_metrics: is_supported(device.gpm_support())?,
+            gpm_metrics: is_supported_gpm(device.gpm_support())?,
         })
     }
 
@@ -134,6 +134,9 @@ impl Display for OptionalFeatures {
         if self.used_gpu_memory {
             available.push("used_gpu_memory");
         }
+        if self.gpm_metrics {
+            available.push("gpm_metrics");
+        }
         write!(f, "{}", available.join(", "))
     }
 }
@@ -195,6 +198,15 @@ fn is_supported<T>(res: Result<T, NvmlError>) -> Result<bool, NvmlError> {
     }
 }
 
+/// Checks if GPM is supported.
+fn is_supported_gpm(res: Result<bool, NvmlError>) -> Result<bool, NvmlError> {
+    match res {
+        Ok(bool) => Ok(bool),
+        Err(NvmlError::NotSupported) => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::nvml::MockNvmlDevice;
@@ -222,7 +234,7 @@ mod tests {
         };
         assert_eq!(
             format!("{}", features),
-            "total_energy_consumption, instant_power, major_utilization, memory_info, decoder_utilization, encoder_utilization, process_utilization_stats, temperature_gpu, running_compute_processes(latest), running_graphics_processes(latest), clock_info, used_gpu_memory"
+            "total_energy_consumption, instant_power, major_utilization, memory_info, decoder_utilization, encoder_utilization, process_utilization_stats, temperature_gpu, running_compute_processes(latest), running_graphics_processes(latest), clock_info, used_gpu_memory, gpm_metrics"
         );
     }
 
@@ -245,7 +257,7 @@ mod tests {
         };
         assert_eq!(
             format!("{}", features),
-            "total_energy_consumption, major_utilization, memory_info, decoder_utilization, encoder_utilization, running_compute_processes(v2), used_gpu_memory"
+            "total_energy_consumption, major_utilization, memory_info, decoder_utilization, encoder_utilization, running_compute_processes(v2), used_gpu_memory, gpm_metrics"
         );
     }
 

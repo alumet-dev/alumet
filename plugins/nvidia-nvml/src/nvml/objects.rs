@@ -12,7 +12,7 @@ use nvml_wrapper::{
     struct_wrappers::{device::ProcessInfo, gpm::GpmMetricResult},
 };
 use nvml_wrapper_sys::bindings::{nvmlDevice_t, nvmlGpmSample_t};
-use std::{fmt::Display, sync::Arc};
+use std::{fmt::Display, mem::ManuallyDrop, sync::Arc};
 
 pub struct NvmlLoader;
 
@@ -214,22 +214,28 @@ impl NvmlDevice for ManagedDevice {
 
     /// Returns a raw GPM sample handle, which can be stored between calls.
     /// See [`nvml_wrapper::Device::from_handle`]
-    fn gpm_handle(&self) -> nvmlGpmSample_t {
-        unsafe { self.as_underlying_device().gpm_sample().unwrap().handle() }
+    fn create_gpm_sample(&self) -> nvmlGpmSample_t {
+        self.as_underlying_device().gpm_sample().unwrap().into_handle()
+    }
+
+    /// This creates a [GpmSample] from a [nvmlGpmSample_t] but doesn't return it,
+    /// effectively dropping it.
+    unsafe fn drop_gpm_sample(&self, sample: nvmlGpmSample_t) {
+        unsafe { GpmSample::<'_>::from_handle(&self.lib.0, sample) };
     }
 
     /// Returns GPM metrics between two timestamps, defined by [previous_handle] and [current_handle].
     /// The metrics requested are given by [metric_ids].
     fn gpm_metrics_get<'nvml>(
         &self,
-        previous_handle: nvmlGpmSample_t,
-        current_handle: nvmlGpmSample_t,
+        previous_sample: nvmlGpmSample_t,
+        current_sample: nvmlGpmSample_t,
         metric_ids: &[GpmMetricId],
     ) -> Result<Vec<Result<GpmMetricResult, NvmlError>>, NvmlError> {
-        let previous_sample = unsafe { GpmSample::<'_>::from_handle(&self.lib.0, previous_handle) };
-        let current_sample = unsafe { GpmSample::<'_>::from_handle(&self.lib.0, current_handle) };
-
-        nvml_wrapper::gpm::gpm_metrics_get(&self.lib.0, &previous_sample, &current_sample, metric_ids)
+        // Using ManuallyDrop so that both samples are not dropped
+        let previous_handle = ManuallyDrop::new(unsafe { GpmSample::<'_>::from_handle(&self.lib.0, previous_sample) });
+        let current_handle = ManuallyDrop::new(unsafe { GpmSample::<'_>::from_handle(&self.lib.0, current_sample) });
+        nvml_wrapper::gpm::gpm_metrics_get(&self.lib.0, &previous_handle, &current_handle, metric_ids)
     }
 }
 
