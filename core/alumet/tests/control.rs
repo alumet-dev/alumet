@@ -1,4 +1,11 @@
-use std::{collections::HashSet, time::Duration};
+use std::{
+    collections::HashSet,
+    sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering},
+    },
+    time::{Duration, Instant},
+};
 
 use alumet::{
     agent::{self, plugin::PluginSet},
@@ -46,6 +53,63 @@ fn create_source() {
         list,
         vec![ElementName::from_str(ElementKind::Source, "test", "simple_source")]
     )
+}
+
+#[test]
+fn create_source_with_t0() {
+    let no_plugins = PluginSet::new();
+    let agent = agent::Builder::new(no_plugins).build_and_start().unwrap();
+    let handle = agent.pipeline.control_handle();
+
+    // attach a plugin name to the handle in order to be able to create elements
+    let handle = handle.with_plugin(PluginName(String::from("test")));
+
+    // create a source with the handle
+    let rt = current_thread_runtime();
+
+    let poll_count = Arc::new(AtomicU32::new(0));
+    let source = Box::new(ObservedSource {
+        poll_count: Arc::clone(&poll_count),
+    });
+
+    const DELTA: Duration = Duration::from_millis(500);
+    let t0 = Instant::now() + DELTA;
+    let trigger = TriggerSpec::builder(Duration::from_secs(1))
+        .starting_at(t0)
+        .build()
+        .unwrap();
+
+    let request = request::create_one().add_source("simple_source", source, trigger);
+    rt.block_on(handle.send_wait(request, TIMEOUT))
+        .expect("creation request failed");
+
+    // check that the source has been created
+    let request = request::list_elements(ElementListFilter::kind(ElementKind::Source));
+    let list = rt
+        .block_on(handle.send_wait(request, TIMEOUT))
+        .expect("list request failed");
+    assert_eq!(
+        list,
+        vec![ElementName::from_str(ElementKind::Source, "test", "simple_source")]
+    );
+
+    // check that the source has not started yet
+    assert_eq!(
+        poll_count.load(Ordering::Relaxed),
+        0,
+        "source should not have started yet"
+    );
+
+    // wait a bit
+    const MARGIN: Duration = Duration::from_millis(100);
+    std::thread::sleep(DELTA + MARGIN);
+
+    // check that the source has been polled
+    assert_eq!(
+        poll_count.load(Ordering::Relaxed),
+        1,
+        "source should have started by now"
+    );
 }
 
 #[test]
@@ -299,6 +363,9 @@ fn current_thread_runtime() -> tokio::runtime::Runtime {
 struct DummySource;
 struct DummyTransform;
 struct DummyOutput;
+struct ObservedSource {
+    pub poll_count: Arc<AtomicU32>,
+}
 struct TestPlugin;
 
 impl Source for DummySource {
@@ -307,6 +374,17 @@ impl Source for DummySource {
         _measurements: &mut alumet::measurement::MeasurementAccumulator,
         _timestamp: alumet::measurement::Timestamp,
     ) -> Result<(), alumet::pipeline::elements::error::PollError> {
+        Ok(())
+    }
+}
+
+impl Source for ObservedSource {
+    fn poll(
+        &mut self,
+        _measurements: &mut alumet::measurement::MeasurementAccumulator,
+        _timestamp: alumet::measurement::Timestamp,
+    ) -> Result<(), alumet::pipeline::elements::error::PollError> {
+        self.poll_count.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 }
