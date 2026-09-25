@@ -116,3 +116,7 @@ VERGEN
 wattmeters
 wattmetre
 zcat
+cpumask
+cstate
+imc
+pmu
