@@ -53,9 +53,10 @@ pub(crate) enum Interval {
 /// There are in fact **two independent axes**, both starting from `Exact`:
 /// - real multiplexing on a single-PMU event: `Exact` -> `Extrapolated` (with `auto_scale`) or
 ///   `Underestimated`;
-/// - a partial-pmu event on a hybrid CPU: `Exact` -> `Partial` (see [`Interval::Partial`]).
+/// - a partial-pmu event on a hybrid CPU: `Exact` -> `Partial` (see `Interval::Partial`).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Accuracy {
+#[non_exhaustive]
+pub enum Accuracy {
     /// Every interval was counted exactly.
     #[default]
     Exact,
@@ -100,7 +101,7 @@ pub(crate) struct GroupCounters {
 }
 
 impl GroupCounters {
-    pub fn new(n_counters: usize) -> Self {
+    pub(crate) fn new(n_counters: usize) -> Self {
         Self {
             prev: Snapshot {
                 time_enabled: 0,
@@ -113,18 +114,18 @@ impl GroupCounters {
     }
 
     /// Corrected cumulative value of each counter, in the same order as the group's counters.
-    pub fn corrected(&self) -> &[u64] {
+    pub(crate) fn corrected(&self) -> &[u64] {
         &self.corrected
     }
 
     /// Faithfulness of the reported values so far. See [`Accuracy`]: it only ever degrades.
-    pub fn accuracy(&self) -> Accuracy {
+    pub(crate) fn accuracy(&self) -> Accuracy {
         self.accuracy
     }
 
     /// Accounts for a new reading, updating the corrected totals, and returns what happened during
     /// the interval.
-    pub fn account(&mut self, now: Snapshot, auto_scale: bool, partial_pmu: bool) -> Interval {
+    pub(crate) fn account(&mut self, now: Snapshot, auto_scale: bool, partial_pmu: bool) -> Interval {
         let interval = correct_interval(&self.prev, &now, auto_scale, partial_pmu, &mut self.corrected);
         let interval_accuracy = match interval {
             Interval::Idle | Interval::Exact => Accuracy::Exact,

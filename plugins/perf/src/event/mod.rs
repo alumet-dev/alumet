@@ -35,7 +35,7 @@ mod raw;
 
 /// perf event domain modifiers, e.g. `INSTRUCTIONS#u:k`.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct Modifiers {
+pub(crate) struct Modifiers {
     user: bool,
     kernel: bool,
     hv: bool,
@@ -163,43 +163,63 @@ pub(crate) struct NamedPerfEvent {
     pub encoding: EventEncoding,
 }
 
-/// A fully-configured event.
-/// This is what's added to a perf group.
-#[derive(Debug, Clone)]
-pub struct ConfiguredEvent {
-    encoding: EventEncoding,
-    modifiers: Modifiers,
-}
-
 /// How an event must be opened, decided by the PMU it targets.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Scope {
-    // The event can be counted for one kernel task.
+    /// The event can be counted for one kernel task.
     TaskAttached { binding: Option<CoreBinding> },
-    // The event is not attached to a kernel task.
-    // There's one system-wide counter.
+    /// The event is not attached to a kernel task: there is one counter per cpu of the PMU's
+    /// `cpumask`.
     SystemWide { pmu: String, cpus: Vec<u32> },
 }
 
 /// The core PMU a task-attached event is bound to.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct CoreBinding {
     pub pmu: String,
     pub cpus: Vec<u32>,
     /// The package shared by every cpu of the PMU, `None` if they span several packages.
     pub package: Option<u32>,
+    /// The PMU only covers part of the online cpus (one cluster of a hybrid CPU): a process may
+    /// also run where the PMU cannot count it.
+    pub partial: bool,
 }
 
-/// A parsed event: its canonical name, a description, how it must be opened and the event itself.
+/// A perf event resolved on this machine, ready to be added to a group.
 #[derive(Debug, Clone)]
 pub struct ParsedEvent {
-    pub name: String,
-    pub description: String,
-    pub scope: Scope,
-    pub event: ConfiguredEvent,
+    name: String,
+    description: String,
+    scope: Scope,
+    encoding: EventEncoding,
+    modifiers: Modifiers,
 }
 
-impl ConfiguredEvent {
+impl ParsedEvent {
+    /// The canonical name of the event, e.g. `INSTRUCTIONS` or `RESOURCE_STALLS:ANY`.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn set_name(&mut self, name: impl Into<String>) {
+        self.name = name.into();
+    }
+
+    pub fn description(&self) -> &str {
+        &self.description
+    }
+
+    pub fn set_description(&mut self, description: impl Into<String>) {
+        self.description = description.into();
+    }
+
+    /// How the event must be opened. It follows from the encoding, hence read-only.
+    pub fn scope(&self) -> &Scope {
+        &self.scope
+    }
+
     /// The raw encoding to hand to [`perf_event::Builder::new`]. [`EventEncoding`] is the only
     /// [`Event`] in the plugin; the modifiers are applied separately via [`Self::configure`].
     pub(crate) fn encoding(&self) -> EventEncoding {
@@ -223,7 +243,7 @@ impl ConfiguredEvent {
     /// Apply this event's modifiers to a freshly-created builder. Must run *after*
     /// [`perf_event::Builder::new`], which forces its own `exclude_kernel`/`exclude_hv` defaults;
     /// this sets every bit explicitly so the result never depends on that ordering.
-    pub fn configure(&self, builder: &mut perf_event::Builder<'_>) {
+    pub(crate) fn configure(&self, builder: &mut perf_event::Builder<'_>) {
         self.modifiers.configure(builder);
     }
 }
@@ -249,10 +269,8 @@ pub fn parse(input: &str) -> anyhow::Result<Vec<ParsedEvent>> {
             name: base.name,
             description: base.description,
             scope: Scope::SystemWide { pmu: pmu_name, cpus },
-            event: ConfiguredEvent {
-                encoding: base.encoding,
-                modifiers,
-            },
+            encoding: base.encoding,
+            modifiers,
         }]);
     }
 
@@ -283,7 +301,8 @@ fn resolve_task_attached(name: &str, modifiers: Modifiers) -> anyhow::Result<Vec
         name: base.name.clone(),
         description: base.description.clone(),
         scope: Scope::TaskAttached { binding },
-        event: ConfiguredEvent { encoding, modifiers },
+        encoding,
+        modifiers,
     };
 
     match placement {
@@ -377,9 +396,11 @@ fn core_targets() -> anyhow::Result<Vec<CoreTarget>> {
                 pmu: "cpu".to_owned(),
                 cpus,
                 package,
+                partial: false,
             },
         }]);
     }
+    let online = sysfs::online_cpus()?;
     Ok(cores
         .into_iter()
         .map(|c| CoreTarget {
@@ -387,6 +408,7 @@ fn core_targets() -> anyhow::Result<Vec<CoreTarget>> {
             binding: CoreBinding {
                 pmu: c.name,
                 package: c.package,
+                partial: c.cpus.len() < online.len(),
                 cpus: c.cpus,
             },
         })
@@ -394,13 +416,12 @@ fn core_targets() -> anyhow::Result<Vec<CoreTarget>> {
 }
 
 fn core_binding(pmu: &str) -> anyhow::Result<CoreBinding> {
-    let cpus = match sysfs::read_pmu_cpus(pmu)? {
-        Some(cpus) => cpus,
-        None => sysfs::online_cpus()?,
-    };
+    let online = sysfs::online_cpus()?;
+    let cpus = sysfs::read_pmu_cpus(pmu)?.unwrap_or_else(|| online.clone());
     let package = sysfs::single_package(&cpus);
     Ok(CoreBinding {
         pmu: pmu.to_owned(),
+        partial: cpus.len() < online.len(),
         cpus,
         package,
     })
@@ -445,7 +466,7 @@ mod tests {
         for e in &evs {
             assert_eq!(e.name, "REF_CPU_CYCLES");
             assert!(matches!(e.scope, Scope::TaskAttached { .. }));
-            assert_generic(&e.event.encoding, &base);
+            assert_generic(&e.encoding, &base);
         }
     }
 
@@ -453,7 +474,7 @@ mod tests {
     fn native_software() {
         let e = parse_one("CONTEXT_SWITCHES");
         assert_eq!(e.name, "CONTEXT_SWITCHES");
-        assert_eq!(e.event.encoding, EventEncoding::from_event(Software::CONTEXT_SWITCHES));
+        assert_eq!(e.encoding, EventEncoding::from_event(Software::CONTEXT_SWITCHES));
         assert_eq!(e.scope, Scope::TaskAttached { binding: None });
     }
 
@@ -468,7 +489,7 @@ mod tests {
         assert!(!evs.is_empty());
         for e in &evs {
             assert_eq!(e.name, "LL_READ_MISS");
-            assert_generic(&e.event.encoding, &base);
+            assert_generic(&e.encoding, &base);
         }
     }
 
@@ -478,7 +499,7 @@ mod tests {
         let e = parse_first("INSTRUCTIONS");
         assert_eq!(e.name, "INSTRUCTIONS");
         assert_eq!(
-            e.event.modifiers.excludes(),
+            e.modifiers.excludes(),
             Excludes {
                 user: false,
                 kernel: true,
@@ -492,14 +513,14 @@ mod tests {
 
     #[test]
     fn user_modifier_matches_default() {
-        let x = parse_first("INSTRUCTIONS#u").event.modifiers.excludes();
+        let x = parse_first("INSTRUCTIONS#u").modifiers.excludes();
         assert!(!x.user && x.kernel && x.hv);
     }
 
     #[test]
     fn user_and_kernel_modifier() {
         // `#u:k` measures user and kernel, but still excludes the hypervisor.
-        let x = parse_first("INSTRUCTIONS#u:k").event.modifiers.excludes();
+        let x = parse_first("INSTRUCTIONS#u:k").modifiers.excludes();
         assert!(!x.user);
         assert!(!x.kernel);
         assert!(x.hv);
@@ -509,14 +530,14 @@ mod tests {
     fn modifiers_must_be_colon_separated() {
         // Modifiers are `:`-separated tokens; the grouped form `#uk` is rejected.
         assert!(parse("INSTRUCTIONS#uk").is_err());
-        let x = parse_first("INSTRUCTIONS#u:k").event.modifiers.excludes();
+        let x = parse_first("INSTRUCTIONS#u:k").modifiers.excludes();
         assert!(!x.user && !x.kernel && x.hv);
     }
 
     #[test]
     fn kernel_only_modifier() {
         // `#k` measures kernel only: user is excluded, kernel is counted.
-        let x = parse_first("INSTRUCTIONS#k").event.modifiers.excludes();
+        let x = parse_first("INSTRUCTIONS#k").modifiers.excludes();
         assert!(x.user);
         assert!(!x.kernel);
         assert!(x.hv);
@@ -524,7 +545,7 @@ mod tests {
 
     #[test]
     fn host_and_idle_modifiers() {
-        let x = parse_first("INSTRUCTIONS#H:I").event.modifiers.excludes();
+        let x = parse_first("INSTRUCTIONS#H:I").modifiers.excludes();
         assert!(x.guest); // host only -> exclude guest
         assert!(!x.host);
         assert!(x.idle); // exclude idle
@@ -544,8 +565,8 @@ mod tests {
         let base = EventEncoding::from_event(Hardware::INSTRUCTIONS);
         let e = parse_first("INSTRUCTIONS#u");
         assert_eq!(e.name, "INSTRUCTIONS");
-        assert_generic(&e.event.encoding, &base);
-        assert!(!e.event.modifiers.excludes().user);
+        assert_generic(&e.encoding, &base);
+        assert!(!e.modifiers.excludes().user);
     }
 
     #[test]
@@ -569,16 +590,20 @@ mod tests {
         let pmus: Vec<&str> = evs
             .iter()
             .map(|e| match &e.scope {
-                Scope::TaskAttached { binding: Some(b) } => b.pmu.as_str(),
+                Scope::TaskAttached { binding: Some(b) } => {
+                    // each cluster only covers part of the cpus
+                    assert!(b.partial, "{} should be partial", b.pmu);
+                    b.pmu.as_str()
+                }
                 other => panic!("expected a bound task-attached event, got {other:?}"),
             })
             .collect();
         assert!(pmus.contains(&"cpu_core") && pmus.contains(&"cpu_atom"), "got {pmus:?}");
         for e in &evs {
             assert_eq!(e.name, "INSTRUCTIONS");
-            assert_generic(&e.event.encoding, &base);
+            assert_generic(&e.encoding, &base);
             // Pinned to a specific pmu => the extended hardware type is set.
-            assert_ne!(e.event.encoding.config >> 32, 0);
+            assert_ne!(e.encoding.config >> 32, 0);
         }
     }
 
@@ -588,8 +613,8 @@ mod tests {
             eprintln!("skipping distinct_core_pmus_get_distinct_group_keys: not a hybrid CPU");
             return;
         }
-        let core = parse_one("cpu_core/r0x1").event.pmu_group_key();
-        let atom = parse_one("cpu_atom/r0x1").event.pmu_group_key();
+        let core = parse_one("cpu_core/r0x1").pmu_group_key();
+        let atom = parse_one("cpu_atom/r0x1").pmu_group_key();
         assert_ne!(core, atom);
     }
 
@@ -621,7 +646,7 @@ mod tests {
         let e = parse_one("r0x412e#u:k");
         assert_eq!(e.name, "r0x412e");
         assert_eq!(
-            e.event.encoding(),
+            e.encoding(),
             EventEncoding {
                 type_: PERF_TYPE_RAW,
                 config: 0x412e,
@@ -629,7 +654,7 @@ mod tests {
                 config2: 0,
             }
         );
-        assert!(!e.event.modifiers.excludes().kernel);
+        assert!(!e.modifiers.excludes().kernel);
     }
 
     #[test]
@@ -657,10 +682,7 @@ mod tests {
         // fanned), and produces the same encoding as calling libpfm directly.
         let e = parse_one("PERF_COUNT_HW_INSTRUCTIONS");
         assert_eq!(e.name, "PERF_COUNT_HW_INSTRUCTIONS");
-        assert_eq!(
-            e.event.encoding,
-            pfm::encode("PERF_COUNT_HW_INSTRUCTIONS").unwrap().encoding
-        );
+        assert_eq!(e.encoding, pfm::encode("PERF_COUNT_HW_INSTRUCTIONS").unwrap().encoding);
     }
 
     #[test]

@@ -13,7 +13,7 @@ use perf_event_open_sys::bindings::{PERF_TYPE_HARDWARE, PERF_TYPE_HW_CACHE, PERF
 use super::{EventEncoding, NamedPerfEvent};
 
 #[derive(Debug)]
-pub struct UnknownEventError;
+pub(crate) struct UnknownEventError;
 
 impl Display for UnknownEventError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -30,7 +30,7 @@ impl Error for UnknownEventError {}
 /// let event = parse("REF_CPU_CYCLES").unwrap();
 /// let event = parse("LL_READ_MISS").unwrap();
 /// ```
-pub fn parse(name: &str) -> anyhow::Result<NamedPerfEvent> {
+pub(crate) fn parse(name: &str) -> anyhow::Result<NamedPerfEvent> {
     if let Ok(e) = parse_hardware(name) {
         return Ok(e);
     }

@@ -17,16 +17,16 @@ use crate::resource;
 use crate::sysfs;
 
 #[derive(Debug)]
-pub enum Observable {
+pub(super) enum Observable {
     /// Observe a process.
-    Process { pid: i32 },
+    Process { pid: u32 },
     /// Observe a cgroup.
     Cgroup { path: String, fd: Arc<File> },
     /// Observe the whole machine, for the system-wide PMUs (uncore, `power`, `cstate_*`, …).
     Machine,
 }
 
-pub struct PerfEventSource {
+pub(super) struct PerfEventSource {
     groups: Vec<(EventGroup, GroupInfo)>,
 }
 
@@ -62,7 +62,7 @@ impl Source for PerfEventSource {
 }
 
 /// Builder for the perf [`Source`] of a process, a cgroup or the whole machine.
-pub struct PerfEventSourceBuilder {
+pub(super) struct PerfEventSourceBuilder {
     /// Something to observe.
     observable: Observable,
     /// The groups opened so far, one per `(cpu, pmu)`.
@@ -74,7 +74,7 @@ pub struct PerfEventSourceBuilder {
 }
 
 impl PerfEventSourceBuilder {
-    pub fn observe(observable: Observable, multiplexing_auto_scale: bool) -> anyhow::Result<Self> {
+    pub(super) fn observe(observable: Observable, multiplexing_auto_scale: bool) -> anyhow::Result<Self> {
         Ok(Self {
             observable,
             groups: Vec::new(),
@@ -83,11 +83,11 @@ impl PerfEventSourceBuilder {
         })
     }
 
-    pub fn add(&mut self, event: &ParsedEvent, alumet_metric: TypedMetricId<u64>) -> anyhow::Result<&mut Self> {
-        let key = event.event.pmu_group_key();
+    pub(super) fn add(&mut self, event: &ParsedEvent, alumet_metric: TypedMetricId<u64>) -> anyhow::Result<&mut Self> {
+        let key = event.pmu_group_key();
         let auto_scale = self.multiplexing_auto_scale;
 
-        match (&event.scope, &self.observable) {
+        match (event.scope(), &self.observable) {
             (Scope::TaskAttached { binding }, Observable::Process { pid }) => {
                 let target = Target::Process { pid: *pid };
                 let info = GroupInfo {
@@ -95,9 +95,7 @@ impl PerfEventSourceBuilder {
                     key,
                     cpu_id: None,
                     resource: resource::for_process(binding.as_ref()),
-                    consumer: ResourceConsumer::Process {
-                        pid: u32::try_from(*pid).unwrap(),
-                    },
+                    consumer: ResourceConsumer::Process { pid: *pid },
                     pmu_attr: binding.as_ref().map(|b| b.pmu.clone()),
                 };
                 self.add_to_group(target, info, event, alumet_metric)?;
@@ -141,11 +139,11 @@ impl PerfEventSourceBuilder {
             }
             (Scope::SystemWide { .. }, _) => anyhow::bail!(
                 "system-wide event {} can only be counted on the whole machine",
-                event.name
+                event.name()
             ),
             (Scope::TaskAttached { .. }, Observable::Machine) => anyhow::bail!(
                 "event {} cannot be counted on the whole machine: only system-wide events can",
-                event.name
+                event.name()
             ),
         }
         Ok(self)
@@ -178,7 +176,7 @@ impl PerfEventSourceBuilder {
         Ok(())
     }
 
-    pub fn build(self) -> io::Result<PerfEventSource> {
+    pub(super) fn build(self) -> io::Result<PerfEventSource> {
         log::debug!(
             "Built PerfEventSource with groups [{}]",
             self.groups

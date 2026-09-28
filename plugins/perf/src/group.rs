@@ -3,19 +3,21 @@ use std::{fs::File, io, sync::Arc};
 
 use anyhow::Context;
 
-use crate::event::{ParsedEvent, Scope};
-use crate::multiplexing::{Accuracy, GroupCounters, Snapshot};
-use crate::sysfs;
+use crate::event::{self, ParsedEvent, Scope};
+use crate::multiplexing::{GroupCounters, Snapshot};
+
+pub use crate::multiplexing::Accuracy;
 
 /// What a group counts, and on which cpu. Every counter of a group shares it.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum Target {
     /// A process, on any cpu.
-    Process { pid: i32 },
+    Process { pid: u32 },
     /// A cgroup, on one cpu.
     ///
     /// Unlike processes, cgroups cannot be monitored with `cpu = -1`, a specific cpu id is required
-    /// for `perf_event_open` (see https://github.com/torvalds/linux/blob/2c8159388952f530bd260e097293ccc0209240be/kernel/events/core.c#L12487)
+    /// for `perf_event_open` (see <https://github.com/torvalds/linux/blob/2c8159388952f530bd260e097293ccc0209240be/kernel/events/core.c#L12487>)
     Cgroup { fd: Arc<File>, cpu: u32 },
     /// Everything running on one cpu. Required by the system-wide PMUs (uncore, `power`, `cstate_*`, …).
     Cpu { cpu: u32 },
@@ -79,38 +81,35 @@ impl EventGroupBuilder {
     }
 
     pub fn add(&mut self, event: &ParsedEvent) -> anyhow::Result<CounterId> {
-        let key = event.event.pmu_group_key();
+        let key = event.pmu_group_key();
         if self.pmu_key.is_some_and(|k| k != key) {
             anyhow::bail!(
                 "event {} is not on the same PMU as the rest of the group (a perf group cannot span two PMUs)",
-                event.name
+                event.name()
             );
         }
 
-        let mut builder = perf_event::Builder::new(event.event.encoding());
+        let mut builder = perf_event::Builder::new(event.encoding());
         attach_to(&mut builder, &self.target);
-        match (&event.scope, &self.target) {
+        match (event.scope(), &self.target) {
             (Scope::TaskAttached { binding }, Target::Process { .. }) => {
-                event.event.configure(&mut builder);
-                if let Some(b) = binding {
-                    self.partial_pmu =
-                        b.cpus.len() < sysfs::online_cpus().context("could not detect online CPUs")?.len();
-                }
+                event.configure(&mut builder);
+                self.partial_pmu = binding.as_ref().is_some_and(|b| b.partial);
             }
             // A cgroup is opened per-cpu, one cpu per group: the pmu-coverage reasoning does not
             // apply, so keep the standard accounting.
-            (Scope::TaskAttached { .. }, _) => event.event.configure(&mut builder),
+            (Scope::TaskAttached { .. }, _) => event.configure(&mut builder),
             // System-wide PMUs (RAPL/uncore/cstate) reject the `exclude_*` domain bits, and the
             // domain modifiers (`#u`/`#k`/`#h`) are meaningless for them anyway.
             (Scope::SystemWide { .. }, Target::Cpu { .. }) => include_all_domains(&mut builder),
             (Scope::SystemWide { .. }, _) => {
-                anyhow::bail!("system-wide event {} can only be counted on a cpu target", event.name)
+                anyhow::bail!("system-wide event {} can only be counted on a cpu target", event.name())
             }
         }
         let counter = self
             .perf_group
             .add(&builder)
-            .with_context(|| format!("adding event {} to perf group ({:?})", event.name, self.target))?;
+            .with_context(|| format!("adding event {} to perf group ({:?})", event.name(), self.target))?;
 
         self.pmu_key = Some(key);
         self.counters.push(counter);
@@ -198,11 +197,37 @@ impl EventGroup {
     }
 }
 
+/// Checks that `spec` (unified syntax) can be counted on this machine: it must be encodable, and the
+/// kernel must accept to open it.
+///
+/// A task-attached event is opened on the calling process, a system-wide one on the first cpu of its
+/// PMU; nothing is counted. The error says which step failed, with the cause (e.g. a permission error
+/// when `perf_event_paranoid` is too high: the event may then exist but cannot be checked).
+pub fn check_event(spec: &str) -> anyhow::Result<()> {
+    let events = event::parse(spec).with_context(|| format!("event '{spec}' cannot be encoded"))?;
+    for e in &events {
+        let target = match e.scope() {
+            Scope::TaskAttached { .. } => Target::Process { pid: 0 },
+            Scope::SystemWide { pmu, cpus } => Target::Cpu {
+                cpu: *cpus
+                    .first()
+                    .with_context(|| format!("PMU {pmu} has an empty cpumask"))?,
+            },
+        };
+        EventGroupBuilder::open(target, false)
+            .and_then(|mut group| group.add(e))
+            .with_context(|| format!("event '{spec}' cannot be opened"))?;
+    }
+    Ok(())
+}
+
 /// Attach the counter to the group's target (leader and members must share these settings).
 fn attach_to<'t>(builder: &mut perf_event::Builder<'t>, target: &'t Target) {
     match target {
         Target::Process { pid } => {
-            builder.observe_pid(*pid).any_cpu();
+            // PID_MAX_LIMIT is 2^22 on Linux, a pid always fits.
+            let pid = i32::try_from(*pid).expect("pid should fit in an i32");
+            builder.observe_pid(pid).any_cpu();
         }
         Target::Cgroup { fd, cpu } => {
             builder.observe_cgroup(fd).one_cpu(*cpu as usize);
@@ -216,4 +241,23 @@ fn attach_to<'t>(builder: &mut perf_event::Builder<'t>, target: &'t Target) {
 /// Clear the `exclude_*` bits that [`perf_event::Builder::new`] sets by default.
 fn include_all_domains(builder: &mut perf_event::Builder<'_>) {
     builder.exclude_user(false).exclude_kernel(false).exclude_hv(false);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn check_event_rejects_an_unknown_event_at_encoding() {
+        let err = check_event("DEFINITELY_NOT_A_REAL_EVENT_XYZ").unwrap_err();
+        assert!(format!("{err:#}").contains("cannot be encoded"), "got: {err:#}");
+    }
+
+    #[test]
+    fn check_event_on_a_native_event_never_fails_at_encoding() {
+        // Opening depends on the machine (perf_event_paranoid, virtualization), encoding does not.
+        if let Err(err) = check_event("INSTRUCTIONS#u") {
+            assert!(format!("{err:#}").contains("cannot be opened"), "got: {err:#}");
+        }
+    }
 }

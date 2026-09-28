@@ -78,11 +78,11 @@ impl AlumetPlugin for PerfPlugin {
         let mut metrics = Vec::with_capacity(config.events.len());
         let mut by_name: HashMap<String, TypedMetricId<u64>> = HashMap::new();
         for e in &config.events {
-            let metric_name = format!("perf_{}", sanitize(&e.name));
+            let metric_name = format!("perf_{}", sanitize(e.name()));
             let metric = match by_name.get(&metric_name) {
                 Some(metric) => *metric,
                 None => {
-                    let metric = alumet.create_metric::<u64>(&metric_name, Unit::Unity, e.description.clone())?;
+                    let metric = alumet.create_metric::<u64>(&metric_name, Unit::Unity, e.description().to_owned())?;
                     by_name.insert(metric_name, metric);
                     metric
                 }
@@ -109,7 +109,7 @@ impl AlumetPlugin for PerfPlugin {
                 .events
                 .iter()
                 .zip(&config.metrics)
-                .filter_map(|(event, metric)| match &event.scope {
+                .filter_map(|(event, metric)| match event.scope() {
                     event::Scope::SystemWide { .. } => Some((event.clone(), *metric)),
                     event::Scope::TaskAttached { .. } => None,
                 })
@@ -161,19 +161,16 @@ impl AlumetPlugin for PerfPlugin {
         alumet_event_bus::start_consumer_measurement().subscribe(move |e| {
             for consumer in e.0 {
                 let observable = match consumer {
-                    alumet::resources::ResourceConsumer::Process { pid } => Some((
-                        Observable::Process {
-                            pid: i32::try_from(pid).unwrap(),
-                        },
-                        process_source_name(pid),
-                    )),
+                    alumet::resources::ResourceConsumer::Process { pid } => {
+                        Some((Observable::Process { pid }, process_source_name(pid)))
+                    }
                     alumet::resources::ResourceConsumer::ControlGroup { path } => {
                         // making an assumption about the cgroup mounting point here to be /sys/fs/cgroup
                         // we just have information about the canonical path here
                         // making it hard to not recompute the mounting path here
                         // note that it will only work for cgroup v2
                         // todo: make it dynamic or configurable
-                        let absolute_path = format!("/sys/fs/cgroup{}", path.to_string());
+                        let absolute_path = format!("/sys/fs/cgroup{path}");
                         let Ok(fd) = File::open(&absolute_path) else {
                             panic!("cgroup not found in filesystem: {absolute_path}")
                         };
@@ -193,7 +190,7 @@ impl AlumetPlugin for PerfPlugin {
                     let config = config_cloned.lock().unwrap();
                     let mut builder = PerfEventSourceBuilder::observe(o, config.multiplexing_auto_scale)?;
                     for (event, metric) in config.events.iter().zip(&config.metrics) {
-                        match &event.scope {
+                        match event.scope() {
                             // System-wide events (uncore, power, cstate…) are not tied to a
                             // process/cgroup; they will be opened once by a dedicated machine-wide
                             // source. Skip them here so they don't break this entity source.
@@ -201,7 +198,7 @@ impl AlumetPlugin for PerfPlugin {
                             event::Scope::TaskAttached { .. } => {
                                 builder
                                     .add(event, *metric)
-                                    .with_context(|| format!("could not configure event {}", event.name))?;
+                                    .with_context(|| format!("could not configure event {}", event.name()))?;
                             }
                         }
                     }

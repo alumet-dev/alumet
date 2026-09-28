@@ -71,6 +71,7 @@ mod tests {
             pmu: "cpu_core".to_owned(),
             cpus: vec![0, 1],
             package,
+            partial: false,
         };
         assert_eq!(for_process(Some(&binding(Some(1)))), Resource::CpuPackage { id: 1 });
         // A PMU spanning several packages, or no PMU at all: the whole machine.

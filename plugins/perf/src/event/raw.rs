@@ -17,7 +17,7 @@ use crate::sysfs;
 ///
 /// Returns `None` if `name` is neither `rN` nor `pmu/rN`.
 /// Returns `Some(Err(_))` when the form matched but the PMU `type` could not be read.
-pub fn parse(name: &str) -> Option<anyhow::Result<NamedPerfEvent>> {
+pub(crate) fn parse(name: &str) -> Option<anyhow::Result<NamedPerfEvent>> {
     // `pmu/rN`: a raw code on a specific PMU.
     if let Some((pmu, term)) = split_pmu(name) {
         let config = raw_config(term)?;
