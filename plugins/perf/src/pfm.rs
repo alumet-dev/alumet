@@ -24,7 +24,7 @@ use anyhow::{Context, anyhow};
 use libloading::Library;
 use perf_event_open_sys::bindings::perf_event_attr;
 
-use crate::spec::{EventEncoding, NamedPerfEvent, sanitize};
+use crate::spec::{EventEncoding, NamedPerfEvent};
 
 // Privilege level requested from libpfm.
 //
@@ -165,7 +165,7 @@ fn libpfm() -> anyhow::Result<&'static LibPfm> {
 pub fn encode(name: &str) -> anyhow::Result<NamedPerfEvent> {
     let encoding = encode_raw(name)?;
     Ok(NamedPerfEvent {
-        name: sanitize(name),
+        name: name.to_owned(),
         description: format!("{name} (encoded via libpfm)"),
         encoding,
     })

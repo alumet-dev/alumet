@@ -10,7 +10,7 @@
 use perf_event_open_sys::bindings::PERF_TYPE_RAW;
 
 use crate::pmu;
-use crate::spec::{EventEncoding, NamedPerfEvent, sanitize};
+use crate::spec::{EventEncoding, NamedPerfEvent};
 
 /// Try to parse `name` as a raw-hex event.
 ///
@@ -44,7 +44,7 @@ fn build(pmu: Option<&str>, config: u64, original: &str) -> anyhow::Result<Named
         None => (PERF_TYPE_RAW, format!("raw event {config:#x}")),
     };
     Ok(NamedPerfEvent {
-        name: sanitize(original),
+        name: original.to_owned(),
         description,
         encoding: EventEncoding {
             type_,
@@ -110,7 +110,7 @@ mod tests {
         let e = parse(&name).expect("recognised as raw").expect("valid");
         assert_eq!(e.encoding.type_, expected_type);
         assert_eq!(e.encoding.config, 0x1);
-        assert_eq!(e.name, sanitize(&name));
+        assert_eq!(e.name, name);
     }
 
     #[test]

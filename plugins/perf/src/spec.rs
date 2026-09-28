@@ -21,40 +21,17 @@
 //! An event's [`Scope`] (task-attached vs system-wide) is then derived from the PMU it targets; see
 //! [`Scope`] and [`crate::source`].
 
-use alumet::resources::Resource;
 use anyhow::Context;
 use perf_event::events::Event;
 use perf_event_open_sys::bindings::{
     PERF_TYPE_HARDWARE, PERF_TYPE_HW_CACHE, PERF_TYPE_RAW, PERF_TYPE_SOFTWARE, perf_event_attr,
 };
-use serde::{Deserialize, Serialize};
 
 use crate::cpu;
 use crate::native;
 use crate::pfm;
 use crate::pmu;
 use crate::raw;
-
-/// One entry of the `events` config list: a bare string, or a table with a metric `rename`.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(untagged)]
-pub enum EventEntry {
-    Simple(String),
-    Detailed {
-        event: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        rename: Option<String>,
-    },
-}
-
-impl EventEntry {
-    fn parts(&self) -> (&str, Option<&str>) {
-        match self {
-            EventEntry::Simple(s) => (s, None),
-            EventEntry::Detailed { event, rename } => (event, rename.as_deref()),
-        }
-    }
-}
 
 /// perf event domain modifiers, e.g. `INSTRUCTIONS#u:k`.
 #[derive(Debug, Clone, Copy, Default)]
@@ -209,14 +186,14 @@ pub enum Scope {
 pub struct CoreBinding {
     pub pmu: String,
     pub cpus: Vec<u32>,
-    pub resource: Resource,
+    /// The package shared by every cpu of the PMU, `None` if they span several packages.
+    pub package: Option<u32>,
 }
 
-/// A parsed config event: the metric name suffix (after `perf_`), a description and the event.
-/// This is what's used by Alumet to setup metrics.
-#[derive(Debug)]
+/// A parsed event: its canonical name, a description, how it must be opened and the event itself.
+#[derive(Debug, Clone)]
 pub struct ParsedEvent {
-    pub metric_suffix: String,
+    pub name: String,
     pub description: String,
     pub scope: Scope,
     pub event: ConfiguredEvent,
@@ -251,9 +228,8 @@ impl ConfiguredEvent {
     }
 }
 
-/// Parse one config entry into one or more [`ParsedEvent`]s.
-pub fn parse(entry: &EventEntry) -> anyhow::Result<Vec<ParsedEvent>> {
-    let (input, rename) = entry.parts();
+/// Parse one event, written with the unified syntax, into one or more [`ParsedEvent`]s.
+pub fn parse(input: &str) -> anyhow::Result<Vec<ParsedEvent>> {
     // The `#` delimiter separates the encoder name from the plugin's modifiers.
     let (name, mods_str) = input.split_once('#').unwrap_or((input, ""));
     if name.is_empty() {
@@ -270,7 +246,7 @@ pub fn parse(entry: &EventEntry) -> anyhow::Result<Vec<ParsedEvent>> {
         }
         let (base, _) = resolve_base(name).with_context(|| format!("invalid event '{input}'"))?;
         return Ok(vec![ParsedEvent {
-            metric_suffix: sanitize(rename.unwrap_or(&base.name)),
+            name: base.name,
             description: base.description,
             scope: Scope::SystemWide { pmu: pmu_name, cpus },
             event: ConfiguredEvent {
@@ -280,7 +256,7 @@ pub fn parse(entry: &EventEntry) -> anyhow::Result<Vec<ParsedEvent>> {
         }]);
     }
 
-    resolve_task_attached(name, rename, modifiers).with_context(|| format!("invalid event '{input}'"))
+    resolve_task_attached(name, modifiers).with_context(|| format!("invalid event '{input}'"))
 }
 
 fn detect_system_wide(name: &str) -> anyhow::Result<Option<(String, Vec<u32>)>> {
@@ -290,12 +266,11 @@ fn detect_system_wide(name: &str) -> anyhow::Result<Option<(String, Vec<u32>)>> 
     }
 }
 
-fn resolve_task_attached(name: &str, rename: Option<&str>, modifiers: Modifiers) -> anyhow::Result<Vec<ParsedEvent>> {
+fn resolve_task_attached(name: &str, modifiers: Modifiers) -> anyhow::Result<Vec<ParsedEvent>> {
     let (base, placement) = resolve_base(name)?;
-    let suffix = sanitize(rename.unwrap_or(&base.name));
 
     let make = |encoding: EventEncoding, binding: Option<CoreBinding>| ParsedEvent {
-        metric_suffix: suffix.clone(),
+        name: base.name.clone(),
         description: base.description.clone(),
         scope: Scope::TaskAttached { binding },
         event: ConfiguredEvent { encoding, modifiers },
@@ -385,13 +360,13 @@ fn core_targets() -> anyhow::Result<Vec<CoreTarget>> {
     let cores = pmu::core_pmus()?;
     if cores.is_empty() {
         let cpus = cpu::online_cpus()?;
-        let resource = package_resource(pmu::single_package(&cpus));
+        let package = pmu::single_package(&cpus);
         return Ok(vec![CoreTarget {
             pmu_type: None,
             binding: CoreBinding {
                 pmu: "cpu".to_owned(),
                 cpus,
-                resource,
+                package,
             },
         }]);
     }
@@ -401,7 +376,7 @@ fn core_targets() -> anyhow::Result<Vec<CoreTarget>> {
             pmu_type: Some(c.type_),
             binding: CoreBinding {
                 pmu: c.name,
-                resource: package_resource(c.package),
+                package: c.package,
                 cpus: c.cpus,
             },
         })
@@ -413,35 +388,12 @@ fn core_binding(pmu: &str) -> anyhow::Result<CoreBinding> {
         Some(cpus) => cpus,
         None => cpu::online_cpus()?,
     };
-    let resource = package_resource(pmu::single_package(&cpus));
+    let package = pmu::single_package(&cpus);
     Ok(CoreBinding {
         pmu: pmu.to_owned(),
         cpus,
-        resource,
+        package,
     })
-}
-
-fn package_resource(package: Option<u32>) -> Resource {
-    match package {
-        Some(id) => Resource::CpuPackage { id },
-        None => Resource::LocalMachine,
-    }
-}
-
-/// Turn a string into a metric-name-safe suffix: letters are lowercased, non-alphanumeric
-/// characters become `_`, and leading/trailing `_` are trimmed.
-pub(crate) fn sanitize(s: &str) -> String {
-    let mapped: String = s
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() {
-                c.to_ascii_lowercase()
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    mapped.trim_matches('_').to_owned()
 }
 
 #[cfg(test)]
@@ -451,7 +403,7 @@ mod tests {
     use super::*;
 
     fn parse_all(s: &str) -> Vec<ParsedEvent> {
-        parse(&EventEntry::Simple(s.to_owned())).unwrap()
+        parse(s).unwrap()
     }
 
     fn parse_one(s: &str) -> ParsedEvent {
@@ -481,7 +433,7 @@ mod tests {
         let evs = parse_all("REF_CPU_CYCLES");
         assert!(!evs.is_empty());
         for e in &evs {
-            assert_eq!(e.metric_suffix, "ref_cpu_cycles");
+            assert_eq!(e.name, "REF_CPU_CYCLES");
             assert!(matches!(e.scope, Scope::TaskAttached { .. }));
             assert_generic(&e.event.encoding, &base);
         }
@@ -490,7 +442,7 @@ mod tests {
     #[test]
     fn native_software() {
         let e = parse_one("CONTEXT_SWITCHES");
-        assert_eq!(e.metric_suffix, "context_switches");
+        assert_eq!(e.name, "CONTEXT_SWITCHES");
         assert_eq!(e.event.encoding, EventEncoding::from_event(Software::CONTEXT_SWITCHES));
         assert_eq!(e.scope, Scope::TaskAttached { binding: None });
     }
@@ -505,7 +457,7 @@ mod tests {
         let evs = parse_all("LL_READ_MISS");
         assert!(!evs.is_empty());
         for e in &evs {
-            assert_eq!(e.metric_suffix, "ll_read_miss");
+            assert_eq!(e.name, "LL_READ_MISS");
             assert_generic(&e.event.encoding, &base);
         }
     }
@@ -514,7 +466,7 @@ mod tests {
     fn no_modifier_is_user_space_only() {
         // The default must match the original plugin: user space only (kernel + hv excluded).
         let e = parse_first("INSTRUCTIONS");
-        assert_eq!(e.metric_suffix, "instructions");
+        assert_eq!(e.name, "INSTRUCTIONS");
         assert_eq!(
             e.event.modifiers.excludes(),
             Excludes {
@@ -546,7 +498,7 @@ mod tests {
     #[test]
     fn modifiers_must_be_colon_separated() {
         // Modifiers are `:`-separated tokens; the grouped form `#uk` is rejected.
-        assert!(parse(&EventEntry::Simple("INSTRUCTIONS#uk".to_owned())).is_err());
+        assert!(parse("INSTRUCTIONS#uk").is_err());
         let x = parse_first("INSTRUCTIONS#u:k").event.modifiers.excludes();
         assert!(!x.user && !x.kernel && x.hv);
     }
@@ -571,7 +523,7 @@ mod tests {
     #[test]
     fn unknown_modifier_is_rejected() {
         // After `#`, everything is strictly a modifier, so a bad letter is a clear error.
-        let err = parse(&EventEntry::Simple("INSTRUCTIONS#z".to_owned())).unwrap_err();
+        let err = parse("INSTRUCTIONS#z").unwrap_err();
         assert!(format!("{err:#}").contains("unknown modifier"), "got: {err:#}");
     }
 
@@ -581,21 +533,9 @@ mod tests {
         // stripped and never becomes part of the metric name.
         let base = EventEncoding::from_event(Hardware::INSTRUCTIONS);
         let e = parse_first("INSTRUCTIONS#u");
-        assert_eq!(e.metric_suffix, "instructions");
+        assert_eq!(e.name, "INSTRUCTIONS");
         assert_generic(&e.event.encoding, &base);
         assert!(!e.event.modifiers.excludes().user);
-    }
-
-    #[test]
-    fn rename_overrides_metric_name() {
-        let e = parse(&EventEntry::Detailed {
-            event: "LL_READ_MISS".to_owned(),
-            rename: Some("my llc miss".to_owned()),
-        })
-        .unwrap();
-        for parsed in &e {
-            assert_eq!(parsed.metric_suffix, "my_llc_miss");
-        }
     }
 
     #[test]
@@ -625,7 +565,7 @@ mod tests {
             .collect();
         assert!(pmus.contains(&"cpu_core") && pmus.contains(&"cpu_atom"), "got {pmus:?}");
         for e in &evs {
-            assert_eq!(e.metric_suffix, "instructions");
+            assert_eq!(e.name, "INSTRUCTIONS");
             assert_generic(&e.event.encoding, &base);
             // Pinned to a specific pmu => the extended hardware type is set.
             assert_ne!(e.event.encoding.config >> 32, 0);
@@ -669,7 +609,7 @@ mod tests {
     fn raw_hex_event() {
         use perf_event_open_sys::bindings::PERF_TYPE_RAW;
         let e = parse_one("r0x412e#u:k");
-        assert_eq!(e.metric_suffix, "r0x412e");
+        assert_eq!(e.name, "r0x412e");
         assert_eq!(
             e.event.encoding(),
             EventEncoding {
@@ -684,7 +624,7 @@ mod tests {
 
     #[test]
     fn pmu_term_rejected_for_now() {
-        let err = parse(&EventEntry::Simple("cpu/event=0x2e,umask=0x41/".to_owned())).unwrap_err();
+        let err = parse("cpu/event=0x2e,umask=0x41/").unwrap_err();
         assert!(format!("{err:#}").contains("future release"), "got: {err:#}");
     }
 
@@ -692,7 +632,7 @@ mod tests {
     fn unknown_name_mentions_libpfm() {
         // A name neither native nor encodable by libpfm fails, and the error names libpfm. Uses a
         // clearly-bogus name so it fails whether or not libpfm is installed.
-        let err = parse(&EventEntry::Simple("DEFINITELY_NOT_A_REAL_EVENT_XYZ".to_owned())).unwrap_err();
+        let err = parse("DEFINITELY_NOT_A_REAL_EVENT_XYZ").unwrap_err();
         assert!(format!("{err:#}").contains("libpfm"), "got: {err:#}");
     }
 
@@ -706,7 +646,7 @@ mod tests {
         // A generic name unknown to the native tables is resolved through libpfm (unpinned, never
         // fanned), and produces the same encoding as calling libpfm directly.
         let e = parse_one("PERF_COUNT_HW_INSTRUCTIONS");
-        assert_eq!(e.metric_suffix, "perf_count_hw_instructions");
+        assert_eq!(e.name, "PERF_COUNT_HW_INSTRUCTIONS");
         assert_eq!(
             e.event.encoding,
             pfm::encode("PERF_COUNT_HW_INSTRUCTIONS").unwrap().encoding
@@ -715,26 +655,6 @@ mod tests {
 
     #[test]
     fn empty_is_rejected() {
-        assert!(parse(&EventEntry::Simple(":u".to_owned())).is_err());
-    }
-
-    #[test]
-    fn config_list_deserializes_mixed_entries() {
-        // TOML 1.0 allows mixed-type arrays: bare strings and inline tables in the same list.
-        #[derive(serde::Deserialize)]
-        struct Wrap {
-            events: Vec<EventEntry>,
-        }
-        let toml = r#"
-            events = [
-                "INSTRUCTIONS",
-                "LL_READ_MISS",
-                { event = "CACHE_MISSES", rename = "my_event" },
-            ]
-        "#;
-        let w: Wrap = toml::from_str(toml).unwrap();
-        assert_eq!(w.events.len(), 3);
-        assert!(matches!(w.events[0], EventEntry::Simple(_)));
-        assert!(matches!(w.events[2], EventEntry::Detailed { .. }));
+        assert!(parse(":u").is_err());
     }
 }
