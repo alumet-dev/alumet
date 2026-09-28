@@ -71,7 +71,11 @@ impl OptionalFeatures {
             clock_info: check_clock_info(device)?,
             used_gpu_memory: check_running_compute_processes(device)? != AvailableVersion::None
                 || check_running_graphics_processes(device)? != AvailableVersion::None,
-            gpm_metrics: is_supported_gpm(device.gpm_support())?,
+            gpm_metrics: is_supported(
+                device
+                    .gpm_support()
+                    .and_then(|res| if res { Ok(()) } else { Err(NvmlError::NotSupported) }),
+            )?,
         })
     }
 
@@ -193,15 +197,6 @@ fn detect_biversion<D: NvmlDevice, R1, R2>(
 fn is_supported<T>(res: Result<T, NvmlError>) -> Result<bool, NvmlError> {
     match res {
         Ok(_) => Ok(true),
-        Err(NvmlError::NotSupported) => Ok(false),
-        Err(e) => Err(e),
-    }
-}
-
-/// Checks if GPM is supported.
-fn is_supported_gpm(res: Result<bool, NvmlError>) -> Result<bool, NvmlError> {
-    match res {
-        Ok(bool) => Ok(bool),
         Err(NvmlError::NotSupported) => Ok(false),
         Err(e) => Err(e),
     }

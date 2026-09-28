@@ -233,9 +233,11 @@ impl NvmlDevice for ManagedDevice {
         metric_ids: &[GpmMetricId],
     ) -> Result<Vec<Result<GpmMetricResult, NvmlError>>, NvmlError> {
         // Using ManuallyDrop so that both samples are not dropped
-        let previous_handle = ManuallyDrop::new(unsafe { GpmSample::<'_>::from_handle(&self.lib.0, previous_sample) });
-        let current_handle = ManuallyDrop::new(unsafe { GpmSample::<'_>::from_handle(&self.lib.0, current_sample) });
-        nvml_wrapper::gpm::gpm_metrics_get(&self.lib.0, &previous_handle, &current_handle, metric_ids)
+        let previous_sample_handle =
+            ManuallyDrop::new(unsafe { GpmSample::<'_>::from_handle(&self.lib.0, previous_sample) });
+        let current_sample_handle =
+            ManuallyDrop::new(unsafe { GpmSample::<'_>::from_handle(&self.lib.0, current_sample) });
+        nvml_wrapper::gpm::gpm_metrics_get(&self.lib.0, &previous_sample_handle, &current_sample_handle, metric_ids)
     }
 }
 

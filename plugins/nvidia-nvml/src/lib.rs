@@ -442,6 +442,7 @@ mod tests {
                 Clock::Graphics => Ok(4),
             });
             device.expect_gpm_support().returning(|| Ok(true));
+            device.expect_drop_gpm_sample().returning(|_sample: nvmlGpmSample_t| ());
             device
                 .expect_create_gpm_sample()
                 .returning(|| std::ptr::null::<()>() as nvmlGpmSample_t);
