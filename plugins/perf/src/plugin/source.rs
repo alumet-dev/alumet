@@ -11,10 +11,10 @@ use alumet::{
 use anyhow::Context;
 use itertools::Itertools;
 
-use crate::cpu;
+use crate::event::{ParsedEvent, Scope};
 use crate::group::{EventGroup, EventGroupBuilder, Target};
 use crate::resource;
-use crate::spec::{ParsedEvent, Scope};
+use crate::sysfs;
 
 #[derive(Debug)]
 pub enum Observable {
@@ -65,7 +65,7 @@ impl Source for PerfEventSource {
 pub struct PerfEventSourceBuilder {
     /// Something to observe.
     observable: Observable,
-    /// One or multiple groups, all containing the same events.
+    /// The groups opened so far, one per `(cpu, pmu)`.
     groups: Vec<(EventGroupBuilder, GroupInfo)>,
     /// The available CPUs to monitor.
     online_cpus: Vec<u32>,
@@ -78,7 +78,7 @@ impl PerfEventSourceBuilder {
         Ok(Self {
             observable,
             groups: Vec::new(),
-            online_cpus: cpu::online_cpus().context("could not detect online CPUs")?,
+            online_cpus: sysfs::online_cpus().context("could not detect online CPUs")?,
             multiplexing_auto_scale,
         })
     }

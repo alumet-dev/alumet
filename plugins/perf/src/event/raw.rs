@@ -9,8 +9,9 @@
 
 use perf_event_open_sys::bindings::PERF_TYPE_RAW;
 
-use crate::pmu;
-use crate::spec::{EventEncoding, NamedPerfEvent};
+use super::split_pmu;
+use super::{EventEncoding, NamedPerfEvent};
+use crate::sysfs;
 
 /// Try to parse `name` as a raw-hex event.
 ///
@@ -18,7 +19,7 @@ use crate::spec::{EventEncoding, NamedPerfEvent};
 /// Returns `Some(Err(_))` when the form matched but the PMU `type` could not be read.
 pub fn parse(name: &str) -> Option<anyhow::Result<NamedPerfEvent>> {
     // `pmu/rN`: a raw code on a specific PMU.
-    if let Some((pmu, term)) = pmu::split(name) {
+    if let Some((pmu, term)) = split_pmu(name) {
         let config = raw_config(term)?;
         return Some(build(Some(pmu), config, name));
     }
@@ -40,7 +41,10 @@ fn raw_config(token: &str) -> Option<u64> {
 
 fn build(pmu: Option<&str>, config: u64, original: &str) -> anyhow::Result<NamedPerfEvent> {
     let (type_, description) = match pmu {
-        Some(pmu) => (pmu::read_type(pmu)?, format!("raw event {config:#x} on PMU {pmu}")),
+        Some(pmu) => (
+            sysfs::read_pmu_type(pmu)?,
+            format!("raw event {config:#x} on PMU {pmu}"),
+        ),
         None => (PERF_TYPE_RAW, format!("raw event {config:#x}")),
     };
     Ok(NamedPerfEvent {
@@ -126,7 +130,7 @@ mod tests {
         let entries = std::fs::read_dir("/sys/bus/event_source/devices").ok()?;
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
-            if let Ok(t) = pmu::read_type(&name) {
+            if let Ok(t) = sysfs::read_pmu_type(&name) {
                 return Some((name, t));
             }
         }

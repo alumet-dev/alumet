@@ -88,7 +88,7 @@ impl Accuracy {
 /// The kernel schedules a group atomically: either all of its counters are on the PMU, or none of
 /// them are. Every counter of a group therefore shares the same `time_enabled`/`time_running`, and
 /// a single correction applies to all of them.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct GroupCounters {
     /// Previous read. Starts at zero: when the group is enabled it has counted nothing, during no
     /// time at all, so the first poll is an interval like any other.

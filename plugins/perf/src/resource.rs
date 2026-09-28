@@ -1,8 +1,8 @@
 //! The Alumet [`Resource`] measured by a perf counter, one function per way of opening it.
 use alumet::resources::Resource;
 
-use crate::cpu;
-use crate::spec::CoreBinding;
+use crate::event::CoreBinding;
+use crate::sysfs;
 
 /// A counter attached to a process, on any cpu: the package of the core PMU it is bound to, or the
 /// whole machine when it is unbound or its PMU spans several packages.
@@ -20,7 +20,7 @@ pub fn for_cgroup_on_cpu(cpu: u32) -> Resource {
 
 /// A counter on a system-wide PMU (uncore, `power`, `cstate_*`, …), read from `cpu`.
 pub fn for_system_wide_pmu(pmu: &str, cpu: u32) -> Resource {
-    let package = cpu::package_of(cpu).ok();
+    let package = sysfs::package_of(cpu).ok();
     match (pmu, package) {
         // per-core PMU: the reader CPU *is* the physical core.
         ("cstate_core", _) => Resource::CpuCore { id: cpu },
@@ -57,7 +57,7 @@ mod tests {
     #[test]
     fn system_wide_pmu_maps_package_pmus_when_topology_is_available() {
         // power -> package, uncore_imc -> that package's DRAM. Needs sysfs topology; skip if absent.
-        let Ok(pkg) = cpu::package_of(0) else {
+        let Ok(pkg) = sysfs::package_of(0) else {
             eprintln!("skipping system_wide_pmu_maps_package_pmus_when_topology_is_available: no topology");
             return;
         };

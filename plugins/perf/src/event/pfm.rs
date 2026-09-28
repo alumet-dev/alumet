@@ -24,7 +24,7 @@ use anyhow::{Context, anyhow};
 use libloading::Library;
 use perf_event_open_sys::bindings::perf_event_attr;
 
-use crate::spec::{EventEncoding, NamedPerfEvent};
+use super::{EventEncoding, NamedPerfEvent};
 
 // Privilege level requested from libpfm.
 //

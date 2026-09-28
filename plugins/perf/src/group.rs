@@ -3,9 +3,9 @@ use std::{fs::File, io, sync::Arc};
 
 use anyhow::Context;
 
-use crate::cpu;
+use crate::event::{ParsedEvent, Scope};
 use crate::multiplexing::{Accuracy, GroupCounters, Snapshot};
-use crate::spec::{ParsedEvent, Scope};
+use crate::sysfs;
 
 /// What a group counts, and on which cpu. Every counter of a group shares it.
 #[derive(Debug, Clone)]
@@ -93,7 +93,8 @@ impl EventGroupBuilder {
             (Scope::TaskAttached { binding }, Target::Process { .. }) => {
                 event.event.configure(&mut builder);
                 if let Some(b) = binding {
-                    self.partial_pmu = b.cpus.len() < cpu::online_cpus().context("could not detect online CPUs")?.len();
+                    self.partial_pmu =
+                        b.cpus.len() < sysfs::online_cpus().context("could not detect online CPUs")?.len();
                 }
             }
             // A cgroup is opened per-cpu, one cpu per group: the pmu-coverage reasoning does not
