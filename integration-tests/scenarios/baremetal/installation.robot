@@ -8,7 +8,7 @@ Resource            ../resources/alumet_keywords.resource
 Suite Setup         Log    Test are running on cluster: ${NODE}    level=INFO
 Test Timeout        180 seconds
 
-Test Tags           installation
+Test Tags           baremetal    installation
 
 
 *** Test Cases ***
