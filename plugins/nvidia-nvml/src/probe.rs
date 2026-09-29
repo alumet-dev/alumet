@@ -39,8 +39,8 @@ pub struct FullSource<D: NvmlDevice> {
     /// Alumet resource ID.
     resource: Resource,
 
-    /// Last GPM sample handle.
-    previous_gpm_handle: nvmlGpmSample_t,
+    /// Last GPM sample handle. None if GPM is not supported.
+    previous_gpm_sample: Option<nvmlGpmSample_t>,
     /// List of GPM metrics to monitor.
     gpm_keys: Vec<GpmMetricId>,
 
@@ -62,6 +62,15 @@ pub struct MinimalSource<D: NvmlDevice> {
 // NVML is thread-safe according to its documentation.
 unsafe impl<D: NvmlDevice> Send for FullSource<D> {}
 unsafe impl<D: NvmlDevice> Send for MinimalSource<D> {}
+
+impl<D: NvmlDevice> Drop for FullSource<D> {
+    fn drop(&mut self) {
+        if let Some(previous_handle) = self.previous_gpm_sample {
+            // SAFETY: previous_handle not used after this
+            unsafe { self.device.inner.drop_gpm_sample(previous_handle) };
+        }
+    }
+}
 
 // Converts Clock types from an enum to their str equivalent.
 fn clock_type_to_str(clock_type: Clock) -> Result<&'static str, NvmlError> {
@@ -117,7 +126,11 @@ fn push_mem_usage_per_process<D: NvmlDevice>(
 impl<D: NvmlDevice> FullSource<D> {
     pub fn new(device: DetectedDevice<D>, metrics: FullMetrics) -> Result<Self, NvmlError> {
         let bus_id = Cow::Owned(device.inner.bus_id().to_owned());
-        let gpm_handle = device.inner.gpm_handle();
+        let gpm_sample = if device.features.gpm_metrics {
+            Some(device.inner.create_gpm_sample())
+        } else {
+            None
+        };
         let gpm_keys = metrics.gpm_metrics_ids();
         Ok(FullSource {
             energy_counter: CounterDiff::with_max_value(u64::MAX),
@@ -125,7 +138,7 @@ impl<D: NvmlDevice> FullSource<D> {
             metrics,
             resource: Resource::Gpu { bus_id },
             last_poll_timestamp: None,
-            previous_gpm_handle: gpm_handle,
+            previous_gpm_sample: gpm_sample,
             gpm_keys,
         })
     }
@@ -412,12 +425,14 @@ impl<D: NvmlDevice> Source for FullSource<D> {
         }
 
         // Push requested GPM metrics
-        if features.gpm_metrics {
-            // getting a handle to a new sample
-            let new_handle = device.gpm_handle();
-            // computing metrics between previous and current sample
-            let gpm_metrics = device.gpm_metrics_get(self.previous_gpm_handle, new_handle, self.gpm_keys.as_slice())?;
-
+        if features.gpm_metrics
+            && !self.gpm_keys.is_empty()
+            && let Some(previous_sample) = self.previous_gpm_sample
+        {
+            // creating a new sample
+            let new_sample = device.create_gpm_sample();
+            // Computing metrics between previous and current sample. This will not drop the samples
+            let gpm_metrics = device.gpm_metrics_get(previous_sample, new_sample, self.gpm_keys.as_slice())?;
             for gpm_metric in gpm_metrics {
                 let Ok(gpm_metric_result) = gpm_metric else { continue };
                 let gpm_id = gpm_metric_result.clone().metric_id;
@@ -440,9 +455,11 @@ impl<D: NvmlDevice> Source for FullSource<D> {
                     )
                 }
             }
-
-            // replacing previous sample handle by the new one
-            self.previous_gpm_handle = new_handle;
+            // replace previous sample by the new one
+            self.previous_gpm_sample = Some(new_sample);
+            // we can now drop the previous sample
+            // SAFETY: previous_sample not used after this
+            unsafe { device.drop_gpm_sample(previous_sample) };
         }
 
         Ok(())
