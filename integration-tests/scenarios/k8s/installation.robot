@@ -16,21 +16,23 @@ Test Tags           k8s    installation
 Install Alumet Helm Chart
     [Documentation]    Install Alumet Helm Chart
 
-    Install Alumet As Helm Chart
+    VAR    ${helm_Values}=    --set influxdb2.persistence.enabled="false"
+
+    Install Alumet As Helm Chart    ${helm_Values}
 
     # wait few seconds installation ending
     Sleep    30s
 
-    VAR    ${command}=    kubectl get pod | grep Running
+    VAR    ${command}=    kubectl get pod | grep Running | grep ${ALUMET_CHART_INSTANCE_NAME}
     ${result}    ${stderr}=    Execute Command Target Node    ${command}
     Log    stderr: ${stderr}
 
     # check relay client is running
-    Should Contain    ${result}    alumet-robot-fm-alumet-relay-client
+    Should Contain    ${result}    alumet-relay-client
     # test relay server is running
-    Should Contain    ${result}    alumet-robot-fm-alumet-relay-server
+    Should Contain    ${result}    alumet-relay-server
     # test influxdb is running
-    Should Contain    ${result}    alumet-robot-fm-influxdb2
+    Should Contain    ${result}    influxdb2
 
 Uninstall Alumet Helm Chart
     [Documentation]    Uninstall Alumet Helm Chart
@@ -41,11 +43,11 @@ Uninstall Alumet Helm Chart
     Sleep    30s
 
     # check relay client is running
-    VAR    ${command}=    kubectl get pod
+    VAR    ${command}=    kubectl get pod | grep ${ALUMET_CHART_INSTANCE_NAME}
     ${result}    ${stderr}=    Execute Command Target Node    ${command}
     Log    stderr: ${stderr}
-    Should Not Contain    ${result}    alumet-robot-fm-alumet-relay-client
+    Should Not Contain    ${result}    alumet-relay-client
     # test relay server is running
-    Should Not Contain    ${result}    alumet-robot-fm-alumet-relay-server
+    Should Not Contain    ${result}    alumet-relay-server
     # test influxdb is running
-    Should Not Contain    ${result}    alumet-robot-fm-influxdb2
+    Should Not Contain    ${result}    influxdb2
