@@ -254,6 +254,7 @@ Install Alumet As Helm Chart
     ...         result
     [Arguments]    ${helm_Values}=${EMPTY}
 
+    Set Global Variable    ${ALUMET_CHART_INSTANCE_NAME}  
     Log    helm values: ${helm_Values}
     Log    alumet instance name: ${ALUMET_CHART_INSTANCE_NAME}
     VAR    ${command}=

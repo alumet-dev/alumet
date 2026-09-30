@@ -8,7 +8,7 @@ Resource            ../resources/alumet_keywords.resource
 Suite Setup         Log    Test are running on cluster: ${NODE}    level=INFO
 Test Timeout        180 seconds
 
-Test Tags           k8s    installation
+Test Tags           rapl    k8s
 
 
 *** Test Cases ***
@@ -20,17 +20,17 @@ Install Alumet Helm Chart with rapl plugin
     Install Alumet As Helm Chart    ${helm_Values}
 
     # wait few seconds installation ending
-    Sleep    20s
+    Sleep    30s
 
-    VAR    ${command}=    kubectl get pod | grep Running
+    VAR    ${command}=    kubectl get pod | grep Running | grep ${ALUMET_CHART_INSTANCE_NAME}
     ${result}    ${stderr}=    Execute Command Target Node    ${command}
     Log    stderr: ${stderr}
     # check relay client is running
-    Should Contain    ${result}    alumet-robot-fm-alumet-relay-client
+    Should Contain    ${result}    alumet-relay-client
     # test relay server is running
-    Should Contain    ${result}    alumet-robot-fm-alumet-relay-server
+    Should Contain    ${result}    alumet-relay-server
     # test influxdb is running
-    Should Contain    ${result}    alumet-robot-fm-influxdb2
+    Should Contain    ${result}    influxdb2
 
 Copy csv File
     [Documentation]    Copy alumet csv file
@@ -40,7 +40,7 @@ Copy csv File
 
     # get the first pod name of relay-client
     VAR    ${command}=    kubectl get pods -o custom-columns=NAME:.metadata.name --no-headers |
-    ...    grep alumet-robot-fm-alumet-relay-client | sed -n '1p'
+    ...    grep ${ALUMET_CHART_INSTANCE_NAME}-alumet-relay-client | sed -n '1p'
     ${result}    ${stderr}=    Execute Command Target Node    ${command}
     Log    stderr: ${stderr}
 
@@ -49,13 +49,11 @@ Copy csv File
 Check Rapl Metric package
     [Documentation]    Check rapl_consumed_energy_J metric for cpu_package
     [Template]    Check Metric
-    # ${metric}    ${resource_kind}    ${domain}    ${installation_type}
     rapl_consumed_energy_J    cpu_package    package    k8s
 
 Check Rapl Metric package_total
     [Documentation]    Check rapl_consumed_energy_J metric for package_total
     [Template]    Check Metric
-    # ${metric}    ${resource_kind}    ${domain}    ${installation_type}
     rapl_consumed_energy_J    local_machine    package_total    k8s
 
 Uninstall Alumet Helm Chart
@@ -66,12 +64,12 @@ Uninstall Alumet Helm Chart
     # wait few seconds installation ending
     Sleep    30s
 
-    # check relay client is running
-    VAR    ${command}=    kubectl get pod
+    # check relay client is not running
+    VAR    ${command}=    kubectl get pod | grep ${ALUMET_CHART_INSTANCE_NAME}
     ${result}    ${stderr}=    Execute Command Target Node    ${command}
     Log    stderr: ${stderr}
-    Should Not Contain    ${result}    alumet-robot-fm-alumet-relay-client
+    Should Not Contain    ${result}    alumet-relay-client
     # test relay server is running
-    Should Not Contain    ${result}    alumet-robot-fm-alumet-relay-server
+    Should Not Contain    ${result}    alumet-relay-server
     # test influxdb is running
-    Should Not Contain    ${result}    alumet-robot-fm-influxdb2
+    Should Not Contain    ${result}    influxdb2
