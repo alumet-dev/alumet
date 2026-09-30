@@ -37,7 +37,7 @@ Below, the structure of this folder.
 ```
 
 `scenarios` folder contains all robotframework files.
-One folder per type of test, for example we have `baremetal` folder regarding the test of alumet installed in native mode, `container` folder regarding the test of alumet docker images.
+One folder per type of test, for example we have `baremetal` folder regarding the test of alumet installed in native mode, `container` folder regarding the test of alumet docker images, and `k8s` folder regarding the test of alumet installed on kubernetes cluster using helm chart.
 
 `resources` folder is for keywords that are used by several test suite.
 
@@ -64,7 +64,7 @@ make init
 ## Run the tests
 
 The \_\_init\_\_.robot file contains the Suite Setup (Install Alumet) and Teardown (UnInstall Alumet). When this file is present,  robot framework executes at the beginning of the tests the keyword `Install Alumet` and at the end of test execution the keyword `UnInstall alumet`.
-Each test can have one or several tags allowing the exclusion of tests from being run by robot framework. For example, use the tag `baremetal` to exclude tests with alumet installation on baremetal. You need to edit the `Makefile` and modify the target test to add the tag you want to exclude (see line 88/89 below). You can also modify the path of scenarios to be executed to restric to a folder/sub folder or a file (see line 90 below):
+Each test can have one or several tags allowing the exclusion of tests from being run by robot framework. For example, use the tag `baremetal` to exclude tests with alumet installation on baremetal, `container` to exclude tests with alumet installation using container and `k8s` to exclude tests with alumet installation on k8s. There are also tags related to alumet plugin (`rapl_plugin`, `perf_plugin`, ...), refer to each test suite to know exactly the defined tags. You need to edit the `Makefile` and modify the target test to add the tag you want to exclude (see line 88/89 below). You can also modify the path of scenarios to be executed to restric to a folder/sub folder or a file (see line 90 below):
 
 ```text
  73         poetry run robot \
@@ -86,6 +86,9 @@ Each test can have one or several tags allowing the exclusion of tests from bein
  89         --exclude container \
  90         ./scenarios/
 ```
+
+Usually, the environment set-up does not allow to execute all the test suites. You should target one environment (`baremetal`, `container` or `k8s`).
+To set-up target environment, update your `.env` file (see `.env.example` as example file).
 
 To run the robot framework test scenarios execute the command:
 

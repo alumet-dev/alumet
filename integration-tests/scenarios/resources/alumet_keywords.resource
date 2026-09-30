@@ -11,8 +11,7 @@ Library             SSHLibrary
 
 
 *** Variables ***
-${ALUMET_CONTAINER_NAME}            alumet_robot_fm
-${ALUMET_CHART_INSTANCE_NAME}       alumet-robot-fm
+${ALUMET_CONTAINER_NAME}    alumet_robot_fm
 
 
 *** Keywords ***
@@ -254,7 +253,6 @@ Install Alumet As Helm Chart
     ...         result
     [Arguments]    ${helm_Values}=${EMPTY}
 
-    Set Global Variable    ${ALUMET_CHART_INSTANCE_NAME}  
     Log    helm values: ${helm_Values}
     Log    alumet instance name: ${ALUMET_CHART_INSTANCE_NAME}
     VAR    ${command}=

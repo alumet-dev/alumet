@@ -8,7 +8,7 @@ Resource            ../resources/alumet_keywords.resource
 Suite Setup         Log    Test are running on cluster: ${NODE}    level=INFO
 Test Timeout        180 seconds
 
-Test Tags           rapl    k8s
+Test Tags           input_plugin    rapl_plugin    k8s
 
 
 *** Test Cases ***
@@ -36,7 +36,7 @@ Copy csv File
     [Documentation]    Copy alumet csv file
 
     # wait several seconds to get some metrics in csv file
-    Sleep    10s
+    Sleep    20s
 
     # get the first pod name of relay-client
     VAR    ${command}=    kubectl get pods -o custom-columns=NAME:.metadata.name --no-headers |

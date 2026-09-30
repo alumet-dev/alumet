@@ -13,6 +13,7 @@ ALUMET_ARCHITECTURE=amd64
 
 # For k8s tests
 ALUMET_CHART_VERSION=0.8.2
+ALUMET_CHART_INSTANCE_NAME=alumet-robot-fm
 
 REQUIRED_VARS := NODE GATEWAY USERNAME KEY 
 
@@ -20,12 +21,13 @@ all: init test
 
 help:
 	@echo "Current test set-up:"
-	@echo "  ALUMET_VERSION         	$(ALUMET_VERSION)"
-	@echo "  ALUMET_DISTRIBUTION    	$(ALUMET_DISTRIBUTION)"
-	@echo "  ALUMET_ARCHITECTURE    	$(ALUMET_ARCHITECTURE)"
-	@echo "  ALUMET_CHART_VERSION    	$(ALUMET_CHART_VERSION)"
+	@echo "  ALUMET_VERSION         		$(ALUMET_VERSION)"
+	@echo "  ALUMET_DISTRIBUTION    		$(ALUMET_DISTRIBUTION)"
+	@echo "  ALUMET_ARCHITECTURE    		$(ALUMET_ARCHITECTURE)"
+	@echo "  ALUMET_CHART_VERSION    		$(ALUMET_CHART_VERSION)"
+	@echo "  ALUMET_CHART_INSTANCE_NAME    	$(ALUMET_CHART_INSTANCE_NAME)"
 	@echo "  Target node            	$(NODE)"
-	@echo "  Modify the variables ALUMET_VERSION, ALUMET_DISTRIBUTION, ALUMET_ARCHITECTURE in this Makefile if you want to modify the set-up"
+	@echo "  Modify the above variables in this Makefile if you want to modify the set-up"
 	@echo "  Modify the variables NODE, GATEWAY, USERNAME, KEY in the .env file if you want to modify the set-up"
 
 	@echo "Available commands:"
@@ -80,6 +82,7 @@ test: check-required-vars
         -v "ALUMET_DISTRIBUTION:$(ALUMET_DISTRIBUTION)" \
 		-v "ALUMET_ARCHITECTURE:$(ALUMET_ARCHITECTURE)" \
 		-v "ALUMET_CHART_VERSION:$(ALUMET_CHART_VERSION)" \
+		-v "ALUMET_CHART_INSTANCE_NAME:$(ALUMET_CHART_INSTANCE_NAME)" \
         --metadata "Alumet version":$(ALUMET_VERSION) \
 		--metadata "Alumet distribution":$(ALUMET_DISTRIBUTION) \
 		--metadata "Alumet architecture":$(ALUMET_ARCHITECTURE) \
