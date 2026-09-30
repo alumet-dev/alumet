@@ -177,8 +177,9 @@ pub struct ManualTrigger(Arc<Notify>);
 
 impl ManualTrigger {
     pub fn trigger_now(&self) {
-        log::trace!("trigger_now {:p}", self.0);
+        log::trace!("begin trigger_now on {self:?}");
         self.0.notify_one();
+        log::trace!("end trigger_now on {self:?}");
     }
 }
 
@@ -367,6 +368,12 @@ impl fmt::Debug for TriggerMechanism {
             Self::Future(ptr) => write!(f, "TriggerMechanism::Future({ptr:?})"),
             Self::Manual(notify) => write!(f, "TriggerMechanism::Manual({:p})", *notify),
         }
+    }
+}
+
+impl fmt::Debug for ManualTrigger {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ManualTrigger({:p} -> {:?})", self.0, self.0)
     }
 }
 

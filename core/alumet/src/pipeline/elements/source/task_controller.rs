@@ -23,25 +23,51 @@ pub enum SingleSourceController {
     Autonomous(CancellationToken),
 }
 
-// struct SourceConfigReader(Arc<SharedSourceConfig>);
-
 pub struct SharedSourceConfig {
+    /// Our way to wake up the source and tell it that its config has changed.
+    /// When notified in this way, the source loop will update its state and trigger.
     pub change_notifier: Notify,
+
+    /// Current state of the source.
     pub atomic_state: AtomicU8,
-    pub new_trigger: Mutex<Option<Trigger>>,
+
+    /// Info about the current or next trigger of the source.
+    pub trigger: Mutex<TriggerConfig>,
+}
+
+pub struct TriggerConfig {
+    /// The new trigger to use in [`source::run::run_managed`].
+    /// Will be taken by the source loop.
+    ///
+    /// Is `None` when the source loop has not seen the state change yet.
+    pub new_trigger: Option<Trigger>,
+
+    /// The current handle to use for manually triggering the source.
+    /// It changes every time the trigger is replaced.
+    ///
+    /// Is `None` when the current (or "new") trigger does not support manual trigger.
     pub manual_trigger: Option<ManualTrigger>,
+}
+
+impl TriggerConfig {
+    pub fn new(new_trigger: Trigger) -> Self {
+        let manual_trigger = new_trigger.manual_trigger();
+        log::trace!("new manual_trigger = {manual_trigger:?}");
+        Self {
+            new_trigger: Some(new_trigger),
+            manual_trigger,
+        }
+    }
 }
 
 pub fn new_managed(
     initial_trigger: Trigger,
     initial_state: TaskState,
 ) -> (SingleSourceController, Arc<SharedSourceConfig>) {
-    let manual_trigger = initial_trigger.manual_trigger();
     let config = Arc::new(SharedSourceConfig {
         change_notifier: Notify::new(),
         atomic_state: AtomicU8::new(initial_state as u8),
-        new_trigger: Mutex::new(Some(initial_trigger)),
-        manual_trigger,
+        trigger: Mutex::new(TriggerConfig::new(initial_trigger)),
     });
     (SingleSourceController::Managed(config.clone()), config)
 }
@@ -52,7 +78,7 @@ pub fn new_autonomous(shutdown_token: CancellationToken) -> SingleSourceControll
 
 impl SharedSourceConfig {
     pub fn take_new_trigger(&self) -> Option<Trigger> {
-        self.new_trigger.lock().unwrap().take()
+        self.trigger.lock().unwrap().new_trigger.take()
     }
 }
 
@@ -66,8 +92,12 @@ impl SingleSourceController {
                         shared.atomic_state.store(*new_state as u8, Ordering::Relaxed);
                     }
                     Reconfiguration::SetTrigger(new_spec) => {
+                        // We change both the "trigger" and the "manual trigger".
+                        // If the manual trigger is used before the source loop picks up the new trigger, it's okay:
+                        // we use `Notify::notify_one`, which will store 1 permit, and the source will be manually
+                        // triggered just after it takes the new trigger.
                         let trigger = Trigger::new(new_spec.to_owned()).unwrap();
-                        *shared.new_trigger.lock().unwrap() = Some(trigger);
+                        *shared.trigger.lock().unwrap() = TriggerConfig::new(trigger);
                     }
                 }
                 log::trace!("reconfiguring source with {:p}", *shared);
@@ -87,7 +117,7 @@ impl SingleSourceController {
     pub fn trigger_now(&mut self) {
         match self {
             SingleSourceController::Managed(shared) => {
-                if let Some(t) = &shared.manual_trigger {
+                if let Some(t) = &shared.trigger.lock().unwrap().manual_trigger {
                     t.trigger_now();
                 }
             }

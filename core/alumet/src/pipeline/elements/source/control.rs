@@ -1,23 +1,25 @@
 use std::fmt::Debug;
 use std::panic::AssertUnwindSafe;
-use std::sync::Arc;
 
 use anyhow::Context;
 use num_enum::{FromPrimitive, IntoPrimitive};
 use tokio::runtime;
-use tokio::sync::{Notify, mpsc};
+use tokio::sync::mpsc;
 use tokio::task::{JoinError, JoinSet};
 use tokio_util::sync::CancellationToken;
 
 use crate::measurement::MeasurementBuffer;
 use crate::metrics::online::{MetricReader, MetricSender};
-use crate::pipeline::control::matching::SourceMatcher;
-use crate::pipeline::elements::source::builder::SourcePace;
-use crate::pipeline::elements::source::run::{run_autonomous, run_managed};
-use crate::pipeline::error::PipelineError;
-use crate::pipeline::matching::{ElementNamePattern, SourceNamePattern};
-use crate::pipeline::naming::{ElementKind, ElementName};
-use crate::pipeline::naming::{SourceName, namespace::Namespace2};
+use crate::pipeline::{
+    control::matching::SourceMatcher,
+    elements::source::{
+        builder::SourcePace,
+        run::{run_autonomous, run_managed},
+    },
+    error::PipelineError,
+    matching::{ElementNamePattern, SourceNamePattern},
+    naming::{ElementKind, ElementName, SourceName, namespace::Namespace2},
+};
 
 use super::builder;
 use super::trigger::{Trigger, TriggerConstraints, TriggerSpec};
