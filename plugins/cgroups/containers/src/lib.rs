@@ -51,19 +51,11 @@ impl AlumetPlugin for ContainersPlugin {
         let reactor_config = ReactorConfig::default();
         let mut shared_hierarchy = OptionalSharedHierarchy::default();
 
-        // Prepare OCI container API client and test it
-        let api_client = crate::containers::ApiClient::new().context("failed to create API client")?;
-
-        let mut container_registry =
-            AutoContainerRegistry::new(api_client.clone()).context("failed to create container registry")?;
-        container_registry
-            .refresh()
-            .context("failed to refresh containers registry?")?;
-
-        log::info!(
-            "Successfully connected to runtime API and loaded {} containers",
-            container_registry.containers.len()
-        );
+        // Prepare OCI container API client.
+        // The actual connection and the first refresh happen in `post_pipeline_start`,
+        // because the container API (bollard) is asynchronous and must run on the async runtime shared by Alumet.
+        let api_client = crate::containers::ApiClient::new();
+        let container_registry = AutoContainerRegistry::new(api_client);
 
         // If enabled, create the annotation transform to annotate measurements from other plugins
         if self.config.annotate_foreign_measurements {
@@ -90,7 +82,21 @@ impl AlumetPlugin for ContainersPlugin {
 
     fn post_pipeline_start(&mut self, alumet: &mut alumet::plugin::AlumetPostStart) -> anyhow::Result<()> {
         // Continue from the state prepared in `start`
-        let s = self.starting_state.take().unwrap();
+        let mut s = self.starting_state.take().unwrap();
+
+        // Connect to the container runtime and initialize the registry, on the async runtime shared by Alumet
+        let runtime_name = s
+            .container_registry
+            .connect(alumet.async_runtime())
+            .context("failed to connect to any container runtime (Docker or Podman)")?;
+        s.container_registry
+            .refresh()
+            .context("failed to refresh containers registry?")?;
+
+        log::info!(
+            "Successfully connected to {runtime_name} API and loaded {} containers",
+            s.container_registry.containers.len()
+        );
 
         let trigger = TriggerSpec::at_interval(self.config.poll_interval);
 

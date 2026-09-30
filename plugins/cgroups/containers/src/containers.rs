@@ -1,6 +1,8 @@
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
+
+use tokio::runtime::Handle;
 
 use alumet::measurement::AttributeValue;
 use anyhow::Context;
@@ -101,18 +103,33 @@ fn extract_podman_container_uid(path_str: &str) -> Option<String> {
 /// HTTP client for OCI APIs using bollard
 #[derive(Clone)]
 pub struct ApiClient {
-    docker: bollard::Docker,
+    // Needed to sync clones due to shared runtime only available in post_pipeline_start
+    inner: Arc<ApiClientInner>,
+}
+
+struct ApiClientInner {
+    runtime: OnceLock<Handle>,
+    docker: OnceLock<bollard::Docker>,
 }
 
 impl ApiClient {
-    pub fn new() -> anyhow::Result<Self> {
-        let docker = Self::try_connect_with_fallback()
-            .context("failed to connect to any container runtime (Docker or Podman)")?;
-        Ok(Self { docker })
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(ApiClientInner {
+                runtime: OnceLock::new(),
+                docker: OnceLock::new(),
+            }),
+        }
     }
 
-    fn try_connect_with_fallback() -> anyhow::Result<bollard::Docker> {
-        let rt = tokio::runtime::Runtime::new().context("failed to create async runtime for connection testing")?;
+    /// Connects to the first available container runtime (Docker, then Podman) and tests the connection.
+    ///
+    /// `rt` must be a handle to the async runtime shared by Alumet
+    /// (`alumet::plugin::AlumetPostStart::async_runtime`),
+    /// because every request to the container API is executed on it.
+    pub fn connect(&self, rt: Handle) -> anyhow::Result<&'static str> {
+        let _ = self.inner.runtime.set(rt);
+        let rt = self.runtime_handle()?;
 
         log::debug!("Attempting to connect to Docker...");
         if let Ok(docker) = bollard::Docker::connect_with_unix_defaults() {
@@ -122,7 +139,8 @@ impl ApiClient {
                     "Successfully connected to Docker at {} (ping successful)",
                     format!("{docker:?}")
                 );
-                return Ok(docker);
+                let _ = self.inner.docker.set(docker);
+                return Ok("Docker");
             } else {
                 log::error!("Docker socket found but ping failed");
             }
@@ -136,7 +154,8 @@ impl ApiClient {
                     "Successfully connected to Podman at {} (ping successful)",
                     format!("{docker:?}")
                 );
-                return Ok(docker);
+                let _ = self.inner.docker.set(docker);
+                return Ok("Podman");
             } else {
                 log::error!("Podman socket found but ping failed");
             }
@@ -147,6 +166,14 @@ impl ApiClient {
             "Could not connect to any container runtime. \
              Adapt DEFAULT_SOCKET environmental variable if needed."
         ))
+    }
+
+    /// Returns the shared async runtime, which is only available after [`ApiClient::connect`] has been called.
+    pub(crate) fn runtime_handle(&self) -> anyhow::Result<&Handle> {
+        self.inner
+            .runtime
+            .get()
+            .context("the shared async runtime is not available yet: the API client is not connected")
     }
 
     async fn test_connection(docker: &bollard::Docker) -> bool {
@@ -161,13 +188,18 @@ impl ApiClient {
 
     /// Lists all containers (including stopped ones)
     pub async fn list_containers(&self) -> anyhow::Result<Vec<ContainerInfos>> {
+        let docker = self
+            .inner
+            .docker
+            .get()
+            .context("not connected to any container runtime")?;
+
         let options = Some(bollard::query_parameters::ListContainersOptions {
             all: true,
             ..Default::default()
         });
 
-        let bollard_containers = self
-            .docker
+        let bollard_containers = docker
             .list_containers(options)
             .await
             .context("failed to list containers from API")?;
@@ -204,7 +236,6 @@ impl From<bollard::models::ContainerSummary> for ContainerInfos {
 pub struct AutoContainerRegistry {
     client: ApiClient,
     pub(crate) containers: FxHashMap<String, ContainerInfos>,
-    runtime: Arc<tokio::runtime::Runtime>,
 }
 
 impl Clone for AutoContainerRegistry {
@@ -212,25 +243,26 @@ impl Clone for AutoContainerRegistry {
         Self {
             client: self.client.clone(),
             containers: self.containers.clone(),
-            runtime: Arc::clone(&self.runtime),
         }
     }
 }
 
 impl AutoContainerRegistry {
-    pub fn new(api_client: ApiClient) -> anyhow::Result<Self> {
-        let runtime = Arc::new(tokio::runtime::Runtime::new().context("failed to create async runtime")?);
-
-        Ok(Self {
+    pub fn new(api_client: ApiClient) -> Self {
+        Self {
             client: api_client,
             containers: Default::default(),
-            runtime,
-        })
+        }
+    }
+
+    pub fn connect(&self, rt: Handle) -> anyhow::Result<&'static str> {
+        self.client.connect(rt)
     }
 
     pub fn refresh(&mut self) -> anyhow::Result<()> {
         let all_containers = self
-            .runtime
+            .client
+            .runtime_handle()?
             .block_on(self.client.list_containers())
             .context("failed to list containers")?;
 
