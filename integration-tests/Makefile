@@ -26,9 +26,12 @@ help:
 	@echo "  ALUMET_ARCHITECTURE    		$(ALUMET_ARCHITECTURE)"
 	@echo "  ALUMET_CHART_VERSION    		$(ALUMET_CHART_VERSION)"
 	@echo "  ALUMET_CHART_INSTANCE_NAME    	$(ALUMET_CHART_INSTANCE_NAME)"
-	@echo "  Target node            	$(NODE)"
 	@echo "  Modify the above variables in this Makefile if you want to modify the set-up"
-	@echo "  Modify the variables NODE, GATEWAY, USERNAME, KEY in the .env file if you want to modify the set-up"
+	@echo "  HTTP_PROXY                     $(HTTP_PROXY)"
+	@echo "  HTTPS_PROXY                    $(HTTPS_PROXY)"
+	@echo "  NO_PROXY                       $(NO_PROXY)"
+	@echo "  Target node                    $(NODE)"
+	@echo "  Modify the variables HTTP_PROXY, HTTPS_PROXY, NO_PROXY, NODE, GATEWAY, USERNAME, KEY in the .env file if you want to modify the set-up"
 
 	@echo "Available commands:"
 	@echo "  make                		- Install dependencies and run tests"
@@ -62,11 +65,15 @@ test: check-required-vars
 	@echo "Current test set-up:"
 	@echo "  ALUMET_VERSION         	$(ALUMET_VERSION)"
 	@echo "  ALUMET_DISTRIBUTION    	$(ALUMET_DISTRIBUTION)"	
-	@echo "  ALUMET_ARCHITECTURE    	$(ALUMET_ARCHITECTURE)"	
-	@echo "  ALUMET_CHART_VERSION    	$(ALUMET_CHART_VERSION)"	
-	@echo "  Target node            	$(NODE)"
-	@echo "  Modify the variables ALUMET_VERSION, ALUMET_DISTRIBUTION, ALUMET_ARCHITECTURE in this Makefile if you want to modify the set-up"
-	@echo "  Modify the variables NODE, GATEWAY, USERNAME, KEY in the .env file if you want to modify the set-up"
+	@echo "  ALUMET_ARCHITECTURE    	$(ALUMET_ARCHITECTURE)"
+	@echo "  ALUMET_CHART_VERSION    	$(ALUMET_CHART_VERSION)"
+	@echo "  Modify the above variables in this Makefile if you want to modify the set-up"
+
+	@echo "  HTTP_PROXY                     $(HTTP_PROXY)"
+	@echo "  HTTPS_PROXY                    $(HTTPS_PROXY)"
+	@echo "  NO_PROXY                       $(NO_PROXY)"
+	@echo "  Target node                    $(NODE)"
+	@echo "  Modify the variables HTTP_PROXY, HTTPS_PROXY, NO_PROXY, NODE, GATEWAY, USERNAME, KEY in the .env file if you want to modify the set-up"
 
 	# Note: to exclude some tests you can:
 	# specify a path to a file or a directory /subdirectory (./scenario/container for example)
@@ -83,6 +90,9 @@ test: check-required-vars
 		-v "ALUMET_ARCHITECTURE:$(ALUMET_ARCHITECTURE)" \
 		-v "ALUMET_CHART_VERSION:$(ALUMET_CHART_VERSION)" \
 		-v "ALUMET_CHART_INSTANCE_NAME:$(ALUMET_CHART_INSTANCE_NAME)" \
+		-v "HTTP_PROXY:$(HTTP_PROXY)" \
+		-v "HTTPS_PROXY:$(HTTPS_PROXY)" \
+		-v "NO_PROXY:$(NO_PROXY)" \
         --metadata "Alumet version":$(ALUMET_VERSION) \
 		--metadata "Alumet distribution":$(ALUMET_DISTRIBUTION) \
 		--metadata "Alumet architecture":$(ALUMET_ARCHITECTURE) \

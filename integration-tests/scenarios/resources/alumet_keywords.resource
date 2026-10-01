@@ -242,7 +242,8 @@ Install Alumet As Helm Chart
     Log    helm values: ${helm_Values}
     Log    alumet instance name: ${ALUMET_CHART_INSTANCE_NAME}
     VAR    ${command}=
-    ...    export https_proxy=http://10.197.209.6:3128; export no_proxy=127.0.0.1,localhost,192.168.0.10,.seed,10.1.0.104,172.16.118.53,.local ; helm install ${ALUMET_CHART_INSTANCE_NAME} alumet/alumet ${helm_Values} --version ${ALUMET_CHART_VERSION}
+    ...    export https_proxy=${HTTPS_PROXY}; export http_proxy=${HTTP_PROXY}; export no_proxy=${NO_PROXY} ;
+    ...    helm install ${ALUMET_CHART_INSTANCE_NAME} alumet/alumet ${helm_Values} --version ${ALUMET_CHART_VERSION}
     ${result}=    Execute Command Target Node    ${command}
     Log    result: ${result}
 
@@ -271,8 +272,7 @@ UnInstall Alumet As Helm Chart
     ...     Return parameters:
     ...         none
 
-    VAR    ${command}=
-    ...    export https_proxy=http://10.197.209.6:3128; export no_proxy=127.0.0.1,localhost,192.168.0.10,.seed,10.1.0.104,172.16.118.53,.local ; helm uninstall ${ALUMET_CHART_INSTANCE_NAME}
+    VAR    ${command}=    helm uninstall ${ALUMET_CHART_INSTANCE_NAME}
     ${result}=    Execute Command Target Node    ${command}
     Log    result: ${result}
 
@@ -337,7 +337,7 @@ Copy Csv File From Pod
     [Arguments]    ${pod_Name}
 
     Log    pod name: ${pod_Name}
-    VAR    ${command}=    kubectl exec ${pod_Name} -- tar cf - -C /app alumet-output.csv 2>/dev/null    | tar xf - -C .
+    VAR    ${command}=    kubectl cp ${pod_Name}:/app/alumet-output.csv alumet-output.csv
     ${result}    ${stderr}=    Execute Command Target Node    ${command}
     Log    result: ${result}
     Log    stderr: ${stderr}
