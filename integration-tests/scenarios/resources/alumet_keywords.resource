@@ -246,6 +246,24 @@ Install Alumet As Helm Chart
     ${result}=    Execute Command Target Node    ${command}
     Log    result: ${result}
 
+Check Alumet Helm Chart Running
+    [Documentation]    Check that pods belong to Alumet Helm Chart are running
+    ...     input parameters:
+    ...         none
+    ...     Return parameters:
+    ...         none
+
+    VAR    ${command}=    kubectl get pod | grep Running | grep ${ALUMET_CHART_INSTANCE_NAME}
+    ${result}    ${stderr}=    Execute Command Target Node    ${command}
+    Log    stderr: ${stderr}
+
+    # check relay client is running
+    Should Contain    ${result}    alumet-relay-client
+    # test relay server is running
+    Should Contain    ${result}    alumet-relay-server
+    # test influxdb is running
+    Should Contain    ${result}    influxdb2
+
 UnInstall Alumet As Helm Chart
     [Documentation]    Uninstall Alumet with helm chart
     ...     input parameters:
@@ -266,6 +284,23 @@ UnInstall Alumet As Helm Chart
     ${result}    ${stderr}=    Execute Command Target Node    ls -l alumet-output.csv
     Log    result: ${result}
     Log    stderr: ${stderr}
+
+Check Alumet Helm Chart Not Running
+    [Documentation]    Check that pods belong to Alumet Helm Chart are not running
+    ...     input parameters:
+    ...         none
+    ...     Return parameters:
+    ...         none
+
+    # check relay client is not running
+    VAR    ${command}=    kubectl get pod | grep ${ALUMET_CHART_INSTANCE_NAME}
+    ${result}    ${stderr}=    Execute Command Target Node    ${command}
+    Log    stderr: ${stderr}
+    Should Not Contain    ${result}    alumet-relay-client
+    # check relay server is not running
+    Should Not Contain    ${result}    alumet-relay-server
+    # check influxdb is not running
+    Should Not Contain    ${result}    influxdb2
 
 Copy Tools File
     [Documentation]    Copy tools file from Alumet container to local directory

@@ -20,34 +20,13 @@ Install Alumet Helm Chart
 
     Install Alumet As Helm Chart    ${helm_Values}
 
-    # wait few seconds installation ending
-    Sleep    30s
-
-    VAR    ${command}=    kubectl get pod | grep Running | grep ${ALUMET_CHART_INSTANCE_NAME}
-    ${result}    ${stderr}=    Execute Command Target Node    ${command}
-    Log    stderr: ${stderr}
-
-    # check relay client is running
-    Should Contain    ${result}    alumet-relay-client
-    # test relay server is running
-    Should Contain    ${result}    alumet-relay-server
-    # test influxdb is running
-    Should Contain    ${result}    influxdb2
+    # wait/retry until installation ending
+    Wait Until Keyword Succeeds    1 min    10 sec    Check Alumet Helm Chart Running
 
 Uninstall Alumet Helm Chart
     [Documentation]    Uninstall Alumet Helm Chart
 
     UnInstall Alumet As Helm Chart
 
-    # wait few seconds installation ending
-    Sleep    30s
-
-    # check relay client is running
-    VAR    ${command}=    kubectl get pod | grep ${ALUMET_CHART_INSTANCE_NAME}
-    ${result}    ${stderr}=    Execute Command Target Node    ${command}
-    Log    stderr: ${stderr}
-    Should Not Contain    ${result}    alumet-relay-client
-    # test relay server is running
-    Should Not Contain    ${result}    alumet-relay-server
-    # test influxdb is running
-    Should Not Contain    ${result}    influxdb2
+    # wait/retry until uninstallation ending
+    Wait Until Keyword Succeeds    1 min    10 sec    Check Alumet Helm Chart Not Running
