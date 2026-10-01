@@ -69,27 +69,21 @@ Read Resource Kind
     ...     input parameters:
     ...         metric:    metric name to parse
     ...         domain: domain name
-    ...         installation_type: valid value is k8s or empty
     ...     Return parameters:
     ...         stdout    of the command executed
     ...     Note that to connect to login, the following variables must be set as global:
     ...         ${NODE}                     : Node where alumet is installed
     ...         ${USERNAME}                 : username to open the ssh connection
     ...         ${KEY}                      : ssh key to open the ssh connection
-    [Arguments]    ${metric}    ${domain}=${EMPTY}    ${installation_type}={EMPTY}
+    [Arguments]    ${metric}    ${domain}=${EMPTY}
 
     # the metric resource_kind is on 4th column
     # The position of domain attribute in csv file differs according alumet set-up:
     # k8s or other (container or baremetal)
     # refer to bug https://github.com/alumet-dev/alumet/issues/460
     IF    '${domain}' != ''
-        IF    '${installation_type}' == 'k8s'
-            VAR    ${command}=    grep ${metric} alumet-output.csv |
-            ...    awk -F ';' ' $12 == "domain=${domain}" { OFS="|"; print $4 }'
-        ELSE
-            VAR    ${command}=    grep ${metric} alumet-output.csv |
-            ...    awk -F ';' ' $8 == "${domain}" { OFS="|"; print $4 }'
-        END
+        VAR    ${command}=    grep ${metric} alumet-output.csv |
+        ...    awk -F ';' ' $8 == "${domain}" { OFS="|"; print $4 }'
     ELSE
         VAR    ${command}=    grep ${metric} alumet-output.csv
     END
@@ -106,14 +100,13 @@ Read Value
     ...         metric:    metric name to parse
     ...         resource_kind: resource kind name
     ...         domain: domain name
-    ...         installation_type: valid value is k8s or empty
     ...     Return parameters:
     ...         stdout    metric value
     ...     Note that to connect to login, the following variables must be set as global:
     ...         ${NODE}                     : Node where alumet is installed
     ...         ${USERNAME}                 : username to open the ssh connection
     ...         ${KEY}                      : ssh key to open the ssh connection
-    [Arguments]    ${metric}    ${resource_kind}    ${domain}=${EMPTY}    ${installation_type}={EMPTY}
+    [Arguments]    ${metric}    ${resource_kind}    ${domain}=${EMPTY}
 
     # sed -n 'Np' command below means that we read the N first metric value found in the csv file
     # it is better not to read the first value but second or higher
@@ -122,15 +115,9 @@ Read Value
     # k8s or other (container or baremetal)
     # refer to bug https://github.com/alumet-dev/alumet/issues/460
     IF    '${domain}' != ''
-        IF    '${installation_type}' == 'k8s'
-            VAR    ${command}=
-            ...    grep ${metric} alumet-output.csv | awk -F ';' ' $12 == "domain=${domain}" &&
-            ...    $4 == "${resource_kind}" { OFS="|"; print $3 }' | sed -n '2p'
-        ELSE
-            VAR    ${command}=
-            ...    grep ${metric} alumet-output.csv | awk -F ';' ' $8 == "${domain}" &&
-            ...    $4 == "${resource_kind}" { OFS="|"; print $3 }' | sed -n '2p'
-        END
+        VAR    ${command}=
+        ...    grep ${metric} alumet-output.csv | awk -F ';' ' $8 == "${domain}" &&
+        ...    $4 == "${resource_kind}" { OFS="|"; print $3 }' | sed -n '2p'
     ELSE
         VAR    ${command}=
         ...    grep ${metric} alumet-output.csv | awk -F ';' '
@@ -151,19 +138,18 @@ Check Metric
     ...         metric:             metric name to parse
     ...         resource_kind:      resource kind
     ...         domain:             domain name
-    ...         installation_type: valid value is k8s or empty
     ...     Return parameters:
     ...         stdout    metric value
     ...     Note that to connect to login, the following variables must be set as global:
     ...         ${NODE}                     : Node where alumet is installed
     ...         ${USERNAME}                 : username to open the ssh connection
     ...         ${KEY}                      : ssh key to open the ssh connection
-    [Arguments]    ${metric}    ${resource_kind}    ${domain}=${EMPTY}    ${installation_type}={EMPTY}
+    [Arguments]    ${metric}    ${resource_kind}    ${domain}=${EMPTY}
 
-    ${output}=    Read Resource Kind    ${metric}    ${domain}    ${installation_type}
+    ${output}=    Read Resource Kind    ${metric}    ${domain}
     Should Contain    ${output}    ${resource_kind}
 
-    ${output}=    Read Value    ${metric}    ${resource_kind}    ${domain}    ${installation_type}
+    ${output}=    Read Value    ${metric}    ${resource_kind}    ${domain}
     Should Be True    ${output} !=0.0
 
 Run Alumet Container With

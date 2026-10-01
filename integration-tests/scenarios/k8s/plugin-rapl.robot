@@ -17,6 +17,7 @@ Install Alumet Helm Chart with rapl plugin
 
     VAR    ${helm_Values}=    --set alumet-relay-client.plugins.rapl.enable="true"
     ...    --set alumet-relay-client.plugins.csv.enable="true" --set influxdb2.persistence.enabled="false"
+    ...    --set alumet-relay-client.plugins.k8s.enable="false"
     Install Alumet As Helm Chart    ${helm_Values}
 
     # wait few seconds installation ending
@@ -38,7 +39,8 @@ Copy csv File
     # wait several seconds to get some metrics in csv file
     Sleep    20s
 
-    # get the first pod name of relay-client
+    # get the first pod name of relay-client (sed -n '1p')
+    # if you want the second pod change number 1 by 2: sed -n '2p'
     VAR    ${command}=    kubectl get pods -o custom-columns=NAME:.metadata.name --no-headers |
     ...    grep ${ALUMET_CHART_INSTANCE_NAME}-alumet-relay-client | sed -n '1p'
     ${result}    ${stderr}=    Execute Command Target Node    ${command}
@@ -49,12 +51,12 @@ Copy csv File
 Check Rapl Metric package
     [Documentation]    Check rapl_consumed_energy_J metric for cpu_package
     [Template]    Check Metric
-    rapl_consumed_energy_J    cpu_package    package    k8s
+    rapl_consumed_energy_J    cpu_package    package
 
 Check Rapl Metric package_total
     [Documentation]    Check rapl_consumed_energy_J metric for package_total
     [Template]    Check Metric
-    rapl_consumed_energy_J    local_machine    package_total    k8s
+    rapl_consumed_energy_J    local_machine    package_total
 
 Uninstall Alumet Helm Chart
     [Documentation]    Uninstall Alumet Helm Chart
