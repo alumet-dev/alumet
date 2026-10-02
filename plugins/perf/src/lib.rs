@@ -22,17 +22,19 @@ use alumet::{
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
-use crate::source::{Observable, PerfEventSource, PerfEventSourceBuilder};
+use crate::source::{Observable, PerfEventSourceBuilder};
 
 #[cfg(not(target_os = "linux"))]
 compile_error!("This plugin only works on Linux.");
 
 mod cpu;
+mod group;
 mod multiplexing;
 mod native;
 mod pfm;
 mod pmu;
 mod raw;
+mod resource;
 mod source;
 mod spec;
 
@@ -59,7 +61,7 @@ impl AlumetPlugin for PerfPlugin {
         // generic event fanned onto every core PMU of a hybrid CPU).
         let mut events = Vec::with_capacity(config.events.len());
         for entry in &config.events {
-            events.extend(spec::parse(entry).context("invalid event in config")?);
+            events.extend(entry.parse().context("invalid event in config")?);
         }
         let config = ParsedConfig {
             // Store the source settings.
@@ -86,7 +88,7 @@ impl AlumetPlugin for PerfPlugin {
         let mut metrics = Vec::with_capacity(config.events.len());
         let mut by_name: HashMap<String, TypedMetricId<u64>> = HashMap::new();
         for e in &config.events {
-            let metric_name = format!("perf_{}", e.metric_suffix);
+            let metric_name = format!("perf_{}", sanitize(&e.name));
             let metric = match by_name.get(&metric_name) {
                 Some(metric) => *metric,
                 None => {
@@ -118,9 +120,7 @@ impl AlumetPlugin for PerfPlugin {
                 .iter()
                 .zip(&config.metrics)
                 .filter_map(|(event, metric)| match &event.scope {
-                    spec::Scope::SystemWide { pmu, cpus } => {
-                        Some((event.event.clone(), *metric, pmu.clone(), cpus.clone()))
-                    }
+                    spec::Scope::SystemWide { .. } => Some((event.clone(), *metric)),
                     spec::Scope::TaskAttached { .. } => None,
                 })
                 .collect();
@@ -137,7 +137,14 @@ impl AlumetPlugin for PerfPlugin {
                     true => TaskState::Pause,
                 };
 
-                match PerfEventSource::build_system_wide(auto_scale, system_events) {
+                let source =
+                    PerfEventSourceBuilder::observe(Observable::Machine, auto_scale).and_then(|mut builder| {
+                        for (event, metric) in &system_events {
+                            builder.add(event, *metric)?;
+                        }
+                        builder.build().context("enabling system-wide groups")
+                    });
+                match source {
                     Ok(source) => {
                         let trigger = TriggerSpec::builder(poll_interval)
                             .flush_interval(flush_interval)
@@ -183,7 +190,7 @@ impl AlumetPlugin for PerfPlugin {
                         Some((
                             Observable::Cgroup {
                                 path: absolute_path,
-                                fd,
+                                fd: Arc::new(fd),
                             },
                             cgroup_source_name(path),
                         ))
@@ -201,10 +208,10 @@ impl AlumetPlugin for PerfPlugin {
                             // process/cgroup; they will be opened once by a dedicated machine-wide
                             // source. Skip them here so they don't break this entity source.
                             spec::Scope::SystemWide { .. } => (),
-                            spec::Scope::TaskAttached { binding } => {
+                            spec::Scope::TaskAttached { .. } => {
                                 builder
-                                    .add(&event.event, *metric, binding.as_ref())
-                                    .with_context(|| format!("could not configure event {}", event.metric_suffix))?;
+                                    .add(event, *metric)
+                                    .with_context(|| format!("could not configure event {}", event.name))?;
                             }
                         }
                     }
@@ -274,6 +281,22 @@ fn increase_file_descriptors_soft_limit() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
+/// Turn a string into a metric-name-safe suffix: letters are lowercased, non-alphanumeric
+/// characters become `_`, and leading/trailing `_` are trimmed.
+fn sanitize(s: &str) -> String {
+    let mapped: String = s
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    mapped.trim_matches('_').to_owned()
+}
+
 fn process_source_name(pid: u32) -> String {
     format!("source-pid[{pid}]")
 }
@@ -294,7 +317,7 @@ struct Config {
     ///
     /// Each entry is either a bare string (`"REF_CPU_CYCLES"`, `"INSTRUCTIONS:u"`) or an inline
     /// table with an optional metric `rename` (`{ event = "LL_READ_MISS", rename = "llc_miss" }`).
-    events: Vec<spec::EventEntry>,
+    events: Vec<EventEntry>,
 
     /// If `true`, the perf sources will be started in pause state.
     /// The default value is `false`.
@@ -323,15 +346,45 @@ impl Default for Config {
             flush_interval: Duration::from_secs(5),
 
             events: vec![
-                spec::EventEntry::Simple("REF_CPU_CYCLES".to_owned()),
-                spec::EventEntry::Simple("CACHE_MISSES".to_owned()),
-                spec::EventEntry::Simple("BRANCH_MISSES".to_owned()),
-                spec::EventEntry::Simple("LL_READ_MISS".to_owned()),
+                EventEntry::Simple("REF_CPU_CYCLES".to_owned()),
+                EventEntry::Simple("CACHE_MISSES".to_owned()),
+                EventEntry::Simple("BRANCH_MISSES".to_owned()),
+                EventEntry::Simple("LL_READ_MISS".to_owned()),
             ],
 
             add_source_in_pause_state: false,
 
             multiplexing_auto_scale: true,
+        }
+    }
+}
+
+/// One entry of the `events` config list: a bare string, or a table with a metric `rename`.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+enum EventEntry {
+    Simple(String),
+    Detailed {
+        event: String,
+        rename: Option<String>,
+    },
+}
+
+impl EventEntry {
+    /// Parse the event; a `rename` replaces the name of every event it expands to, so that they all
+    /// share the renamed metric.
+    fn parse(&self) -> anyhow::Result<Vec<spec::ParsedEvent>> {
+        match self {
+            EventEntry::Simple(event) => spec::parse(event),
+            EventEntry::Detailed { event, rename } => {
+                let mut events = spec::parse(event)?;
+                if let Some(rename) = rename {
+                    for e in &mut events {
+                        e.name = rename.clone();
+                    }
+                }
+                Ok(events)
+            }
         }
     }
 }
@@ -347,4 +400,40 @@ struct ParsedConfig {
     add_source_in_pause_state: bool,
 
     multiplexing_auto_scale: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rename_overrides_metric_name() {
+        let entry = EventEntry::Detailed {
+            event: "LL_READ_MISS".to_owned(),
+            rename: Some("my llc miss".to_owned()),
+        };
+        for parsed in &entry.parse().unwrap() {
+            assert_eq!(sanitize(&parsed.name), "my_llc_miss");
+        }
+    }
+
+    #[test]
+    fn config_list_deserializes_mixed_entries() {
+        // TOML 1.0 allows mixed-type arrays: bare strings and inline tables in the same list.
+        #[derive(serde::Deserialize)]
+        struct Wrap {
+            events: Vec<EventEntry>,
+        }
+        let toml = r#"
+            events = [
+                "INSTRUCTIONS",
+                "LL_READ_MISS",
+                { event = "CACHE_MISSES", rename = "my_event" },
+            ]
+        "#;
+        let w: Wrap = toml::from_str(toml).unwrap();
+        assert_eq!(w.events.len(), 3);
+        assert!(matches!(w.events[0], EventEntry::Simple(_)));
+        assert!(matches!(w.events[2], EventEntry::Detailed { .. }));
+    }
 }
