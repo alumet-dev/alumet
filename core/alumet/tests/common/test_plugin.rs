@@ -1,14 +1,13 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
-use std::time::Duration;
 
 use alumet::measurement::{
     MeasurementAccumulator, MeasurementBuffer, MeasurementPoint, Timestamp, WrappedMeasurementValue,
 };
 use alumet::metrics::TypedMetricId;
 use alumet::pipeline::elements::output::{OutputContext, WriteError};
+use alumet::pipeline::elements::source::PollError;
 use alumet::pipeline::elements::source::trigger::TriggerSpec;
-use alumet::pipeline::elements::source::{PollError, trigger};
 use alumet::pipeline::elements::transform::{TransformContext, TransformError};
 use alumet::pipeline::{Output, Source, Transform};
 use alumet::plugin::{AlumetPluginStart, AlumetPostStart, AlumetPreStart, Plugin};
@@ -27,7 +26,8 @@ struct TestSource {
     metric_b: TypedMetricId<u64>,
     a_base: u64,
     b_counter: u64,
-    n_polled: Arc<AtomicUsize>,
+    n_poll_called: Arc<AtomicUsize>,
+    n_poll_pushed: Arc<AtomicUsize>,
 }
 struct TestTransform {
     n_transform_in: Arc<AtomicUsize>,
@@ -41,9 +41,15 @@ pub struct AtomicState(AtomicU8);
 
 #[derive(Debug, Clone, Default)]
 pub struct MeasurementCounters {
-    pub n_polled: Arc<AtomicUsize>,
+    /// How many times `poll` has been called.
+    pub n_poll_called: Arc<AtomicUsize>,
+    /// Home many points `poll` has pushed into its buffer.
+    pub n_poll_pushed: Arc<AtomicUsize>,
+    /// How many points the transform has seen in its input.
     pub n_transform_in: Arc<AtomicUsize>,
+    /// How many points the transform has sent in its output.
     pub n_transform_out: Arc<AtomicUsize>,
+    /// How many points the output has written.
     pub n_written: Arc<AtomicUsize>,
 }
 
@@ -115,7 +121,8 @@ impl Plugin for TestPlugin {
             metric_b,
             a_base: self.base_value_a,
             b_counter: 0,
-            n_polled: self.counters.n_polled.clone(),
+            n_poll_called: self.counters.n_poll_called.clone(),
+            n_poll_pushed: self.counters.n_poll_pushed.clone(),
         });
         let trigger = self.source_trigger.clone();
         alumet.add_source("test", source, trigger)?;
@@ -156,6 +163,9 @@ impl Plugin for TestPlugin {
 
 impl Source for TestSource {
     fn poll(&mut self, acc: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
+        log::trace!("polled");
+        self.n_poll_called.fetch_add(1, Ordering::Relaxed);
+
         // generate some values for testing purposes, that evolve over time
         self.b_counter += 1;
         let value_a = self.a_base + 4 * (self.b_counter % 2);
@@ -179,7 +189,7 @@ impl Source for TestSource {
             consumer.clone(),
             self.b_counter,
         ));
-        self.n_polled.fetch_add(2, Ordering::Relaxed);
+        self.n_poll_pushed.fetch_add(2, Ordering::Relaxed);
 
         Ok(())
     }

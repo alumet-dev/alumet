@@ -257,7 +257,8 @@ fn source_flush() {
 
     // check that we have been polled but not flushed
     const COUNTER_ORD: Ordering = Ordering::Relaxed;
-    assert_ne!(counters.n_polled.load(COUNTER_ORD), 0);
+    assert_ne!(counters.n_poll_called.load(COUNTER_ORD), 0);
+    assert_ne!(counters.n_poll_pushed.load(COUNTER_ORD), 0);
     assert_eq!(counters.n_transform_in.load(COUNTER_ORD), 0);
     assert_eq!(counters.n_transform_out.load(COUNTER_ORD), 0);
     assert_eq!(counters.n_written.load(COUNTER_ORD), 0);

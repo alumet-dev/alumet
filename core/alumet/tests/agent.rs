@@ -150,11 +150,11 @@ fn test_plugin_lifecycle() {
             assert_eq!(state2_pre_op.get(), State::PrePipelineStart);
 
             // check no measurements have been produced yet
-            assert_eq!(counters1_pre_op.n_polled.load(COUNTER_ORD), 0);
+            assert_eq!(counters1_pre_op.n_poll_pushed.load(COUNTER_ORD), 0);
             assert_eq!(counters1_pre_op.n_transform_in.load(COUNTER_ORD), 0);
             assert_eq!(counters1_pre_op.n_transform_out.load(COUNTER_ORD), 0);
             assert_eq!(counters1_pre_op.n_written.load(COUNTER_ORD), 0);
-            assert_eq!(counters2_pre_op.n_polled.load(COUNTER_ORD), 0);
+            assert_eq!(counters2_pre_op.n_poll_pushed.load(COUNTER_ORD), 0);
             assert_eq!(counters2_pre_op.n_transform_in.load(COUNTER_ORD), 0);
             assert_eq!(counters2_pre_op.n_transform_out.load(COUNTER_ORD), 0);
             assert_eq!(counters2_pre_op.n_written.load(COUNTER_ORD), 0);
@@ -196,7 +196,7 @@ fn test_plugin_lifecycle() {
     // check that the transforms and outputs processed every measurement
     println!("counters1: {counters1:?}");
     println!("counters2: {counters2:?}");
-    let total_polled = counters1.n_polled.load(COUNTER_ORD) + counters2.n_polled.load(COUNTER_ORD);
+    let total_polled = counters1.n_poll_pushed.load(COUNTER_ORD) + counters2.n_poll_pushed.load(COUNTER_ORD);
     let transform1_in = counters1.n_transform_in.load(COUNTER_ORD);
     let transform2_in = counters2.n_transform_in.load(COUNTER_ORD);
     let transform1_out = counters1.n_transform_out.load(COUNTER_ORD);
