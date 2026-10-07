@@ -4,71 +4,31 @@
 //! the kernel multiplexes them: a group is only on the PMU during a fraction `running / enabled` of
 //! the time we asked it to count, and its raw values are underestimated by that same fraction.
 //!
-//! The correction is applied to each polling interval, not to the whole lifetime of the group, so
-//! that an interval whose rate is overestimated cannot make the corrected value go backwards later
-//! on: the metrics are monotonic counters, they must never decrease.
+//! The correction is applied to the whole lifetime of the group (`raw * enabled / running` on the
+//! cumulative values). The estimate can go down a little between two polls: the reported values are
+//! not monotonic counters.
 
-/// One read of a group.
-///
-/// The kernel reports cumulative values, never reset, hence the need to keep the previous read
-/// around and to work on differences.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub(crate) struct Snapshot {
-    /// For how long we asked the group to count, in nanoseconds.
-    ///
-    /// Beware: this is *not* wall clock time. It only advances while the observed entity (process
-    /// or cgroup) is actually running on a CPU. A sleeping process makes both times stand still.
-    pub time_enabled: u128,
-    /// For how long the group was really on the PMU, in nanoseconds.
-    pub time_running: u128,
-    /// Raw counter values, in the same order as the group's counters.
-    pub values: Vec<u64>,
-}
-
-/// What happened to a group during one polling interval.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum Interval {
-    /// The observed entity did not run at all: nothing happened, and nothing had to be counted.
-    Idle,
-    /// The group was on the PMU for the whole interval: the values are exact.
-    Exact,
-    /// The group was only on the PMU for part of the interval.
-    Multiplexed { running: u128, enabled: u128 },
-    /// The entity ran but the group never made it onto the PMU: everything that happened during the
-    /// interval was missed, and there is nothing to extrapolate from.
-    /// This can happen for many reasons, such as having too many counters in a single group, or
-    /// tools holding the PMU system-wide.
-    Starved,
-    /// The group is pinned to one pmu of a hybrid CPU and the entity spent part (or all) of the
-    /// interval on another pmu.
-    Partial,
-}
-
-/// How faithful a reported (cumulative) value is.
-///
-/// This describes the whole value reported so far, not the last interval, because the value is a
-/// cumulative counter: a single imperfect interval taints every value reported afterwards, so the
-/// accuracy of a group only ever degrades and never improves.
+/// How faithful the values of a group are, from its cumulative times.
 ///
 /// There are in fact **two independent axes**, both starting from `Exact`:
 /// - real multiplexing on a single-PMU event: `Exact` -> `Extrapolated` (with `auto_scale`) or
 ///   `Underestimated`;
-/// - a partial-pmu event on a hybrid CPU: `Exact` -> `Partial` (see `Interval::Partial`).
+/// - a partial-pmu event on a hybrid CPU: `Exact` -> `Partial`.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum Accuracy {
-    /// Every interval was counted exactly.
+    /// The group has been on the PMU for its whole lifetime.
     #[default]
     Exact,
     /// The value is a per-pmu count from a hybrid CPU: the event is pinned to one pmu and the
     /// entity also ran on others, so it was on the PMU only part of the time. The value is *not*
     /// scaled.
     Partial,
-    /// At least one multiplexed interval was extrapolated (only in `auto_scale` mode). The value is
-    /// an estimate, which may be slightly above or below the truth.
+    /// The group was multiplexed and its values are extrapolated (only in `auto_scale` mode). The
+    /// value is an estimate, which may be slightly above or below the truth.
     Extrapolated,
-    /// The value is known to be too low: either multiplexed intervals were kept raw (no
-    /// `auto_scale`), or some intervals were missed entirely (the group was starved).
+    /// The value is known to be too low: either the group was multiplexed and its values are kept
+    /// raw (no `auto_scale`), or it has never been on the PMU (starved).
     Underestimated,
 }
 
@@ -84,366 +44,110 @@ impl Accuracy {
     }
 }
 
-/// Multiplexing correction state of one group.
-///
-/// The kernel schedules a group atomically: either all of its counters are on the PMU, or none of
-/// them are. Every counter of a group therefore shares the same `time_enabled`/`time_running`, and
-/// a single correction applies to all of them.
-#[derive(Debug)]
-pub(crate) struct GroupCounters {
-    /// Previous read. Starts at zero: when the group is enabled it has counted nothing, during no
-    /// time at all, so the first poll is an interval like any other.
-    prev: Snapshot,
-    /// Corrected cumulative value of each counter, in the same order as the group's counters.
-    corrected: Vec<u64>,
-    /// Faithfulness of the reported values so far. Only ever degrades, see [`Accuracy`].
-    accuracy: Accuracy,
-}
-
-impl GroupCounters {
-    pub(crate) fn new(n_counters: usize) -> Self {
-        Self {
-            prev: Snapshot {
-                time_enabled: 0,
-                time_running: 0,
-                values: vec![0; n_counters],
-            },
-            corrected: vec![0; n_counters],
-            accuracy: Accuracy::Exact,
-        }
-    }
-
-    /// Corrected cumulative value of each counter, in the same order as the group's counters.
-    pub(crate) fn corrected(&self) -> &[u64] {
-        &self.corrected
-    }
-
-    /// Faithfulness of the reported values so far. See [`Accuracy`]: it only ever degrades.
-    pub(crate) fn accuracy(&self) -> Accuracy {
-        self.accuracy
-    }
-
-    /// Accounts for a new reading, updating the corrected totals, and returns what happened during
-    /// the interval.
-    pub(crate) fn account(&mut self, now: Snapshot, auto_scale: bool, partial_pmu: bool) -> Interval {
-        let interval = correct_interval(&self.prev, &now, auto_scale, partial_pmu, &mut self.corrected);
-        let interval_accuracy = match interval {
-            Interval::Idle | Interval::Exact => Accuracy::Exact,
-            Interval::Partial => Accuracy::Partial,
-            Interval::Multiplexed { .. } if auto_scale => Accuracy::Extrapolated,
-            // multiplexed without auto-scaling, or a starved interval that could not be extrapolated
-            Interval::Multiplexed { .. } | Interval::Starved => Accuracy::Underestimated,
-        };
-        self.accuracy = self.accuracy.max(interval_accuracy);
-        self.prev = now;
-        interval
-    }
-}
-
-/// Adds the (possibly corrected) contribution of one polling interval to `corrected`, and reports
-/// what happened. See the [module documentation](self) for the rationale.
-fn correct_interval(
-    prev: &Snapshot,
-    now: &Snapshot,
+/// Estimates the value of each counter of a group from a read of the group (`raw`, `enabled` and
+/// `running` are cumulative, as reported by the kernel), and tells how faithful they are.
+pub(crate) fn estimate(
+    raw: &[u64],
+    enabled: u128,
+    running: u128,
     auto_scale: bool,
     partial_pmu: bool,
-    corrected: &mut [u64],
-) -> Interval {
-    let d_enabled = now.time_enabled.saturating_sub(prev.time_enabled);
-    let d_running = now.time_running.saturating_sub(prev.time_running);
-
-    if d_enabled == 0 {
-        return Interval::Idle;
-    }
-    if partial_pmu {
-        add_raw(prev, now, corrected);
-        return if d_running < d_enabled {
-            Interval::Partial
-        } else {
-            Interval::Exact
-        };
-    }
-    if d_running == 0 {
-        // Nothing was counted, so there is nothing to extrapolate from.
-        return Interval::Starved;
-    }
-
-    let multiplexed = d_running < d_enabled;
-    for (i, total) in corrected.iter_mut().enumerate() {
-        let delta = u128::from(now.values[i].saturating_sub(prev.values[i]));
-        let contribution = if multiplexed && auto_scale {
-            // Rule of three: `delta` events were counted during `d_running`, estimate how many
-            // occurred during the whole `d_enabled`.
-            delta * d_enabled / d_running
-        } else {
-            delta
-        };
-        *total = total.saturating_add(u64::try_from(contribution).unwrap_or(u64::MAX));
-    }
-
-    if multiplexed {
-        Interval::Multiplexed {
-            running: d_running,
-            enabled: d_enabled,
-        }
+) -> (Vec<u64>, Accuracy) {
+    let accuracy = if running == enabled {
+        Accuracy::Exact
+    } else if partial_pmu {
+        Accuracy::Partial
+    } else if auto_scale && running > 0 {
+        Accuracy::Extrapolated
     } else {
-        Interval::Exact
-    }
-}
-
-/// Adds each counter's raw delta to `corrected`, without any scaling.
-fn add_raw(prev: &Snapshot, now: &Snapshot, corrected: &mut [u64]) {
-    for (i, total) in corrected.iter_mut().enumerate() {
-        let delta = u128::from(now.values[i].saturating_sub(prev.values[i]));
-        *total = total.saturating_add(u64::try_from(delta).unwrap_or(u64::MAX));
-    }
+        Accuracy::Underestimated
+    };
+    let values = raw
+        .iter()
+        .map(|&raw| match accuracy {
+            // Rule of three: `raw` events were counted during `running`, estimate how many
+            // occurred during the whole `enabled`.
+            Accuracy::Extrapolated => u64::try_from(u128::from(raw) * enabled / running).unwrap_or(u64::MAX),
+            _ => raw,
+        })
+        .collect();
+    (values, accuracy)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Interval, Snapshot, correct_interval};
+    use super::{Accuracy, estimate};
 
     const SEC: u128 = 1_000_000_000;
 
-    fn snap(enabled: u128, running: u128, values: &[u64]) -> Snapshot {
-        Snapshot {
-            time_enabled: enabled,
-            time_running: running,
-            values: values.to_vec(),
-        }
+    #[test]
+    fn exact_when_always_on_the_pmu() {
+        assert_eq!(estimate(&[1000], SEC, SEC, true, false), (vec![1000], Accuracy::Exact));
     }
 
-    /// When the group is enabled, everything is zero, so the first poll is an interval like any
-    /// other and must be corrected too.
+    /// When the group is enabled, nothing has been counted, during no time at all.
     #[test]
-    fn first_poll_is_an_interval_like_any_other() {
-        let mut corrected = vec![0];
-        let interval = correct_interval(
-            &snap(0, 0, &[0]),
-            &snap(SEC, SEC / 4, &[1000]),
-            true,
-            false,
-            &mut corrected,
-        );
-        assert_eq!(
-            interval,
-            Interval::Multiplexed {
-                running: SEC / 4,
-                enabled: SEC
-            }
-        );
+    fn exact_before_anything_ran() {
+        assert_eq!(estimate(&[0], 0, 0, true, false), (vec![0], Accuracy::Exact));
+    }
+
+    #[test]
+    fn multiplexed_values_are_extrapolated() {
         // counted 1000 while on the PMU a quarter of the time
-        assert_eq!(corrected, vec![4000]);
-    }
-
-    #[test]
-    fn exact_when_running_equals_enabled() {
-        let mut corrected = vec![0];
-        let interval = correct_interval(&snap(0, 0, &[0]), &snap(SEC, SEC, &[1000]), true, false, &mut corrected);
-        assert_eq!(interval, Interval::Exact);
-        assert_eq!(corrected, vec![1000]);
-    }
-
-    /// A partial-pmu group only ran part of the interval (the entity was on another pmu). Its
-    /// raw delta is exact for this pmu, so it is kept as-is and never scaled.
-    #[test]
-    fn partial_pmu_group_is_partial_and_not_scaled() {
-        let mut corrected = vec![0];
-        let interval = correct_interval(
-            &snap(0, 0, &[0]),
-            &snap(SEC, SEC / 4, &[1000]),
-            true,
-            true,
-            &mut corrected,
-        );
-        assert_eq!(interval, Interval::Partial);
-        assert_eq!(corrected, vec![1000], "partial-pmu => raw delta, no rule of three");
-    }
-
-    /// A partial-pmu group that never ran this interval (the entity stayed on another pmu): it
-    /// counted a genuine zero, so this is partial, not starvation, and the total does not move.
-    #[test]
-    fn partial_pmu_group_with_no_running_time_is_partial_not_starved() {
-        let mut corrected = vec![5];
-        let interval = correct_interval(
-            &snap(SEC, SEC, &[5]),
-            &snap(2 * SEC, SEC, &[5]),
-            true,
-            true,
-            &mut corrected,
-        );
-        assert_eq!(interval, Interval::Partial);
-        assert_eq!(corrected, vec![5]);
-    }
-
-    /// A partial-pmu group on the whole interval (the entity never left this pmu) is exact.
-    #[test]
-    fn partial_pmu_group_fully_on_pmu_is_exact() {
-        let mut corrected = vec![0];
-        let interval = correct_interval(&snap(0, 0, &[0]), &snap(SEC, SEC, &[1000]), true, true, &mut corrected);
-        assert_eq!(interval, Interval::Exact);
-        assert_eq!(corrected, vec![1000]);
-    }
-
-    /// The observed entity did not run: both times stand still. This is the most common case and it
-    /// must not be mistaken for a starved group.
-    #[test]
-    fn idle_entity_changes_nothing() {
-        let mut corrected = vec![1000];
-        let prev = snap(SEC, SEC, &[1000]);
-        let interval = correct_interval(&prev, &prev.clone(), true, false, &mut corrected);
-        assert_eq!(interval, Interval::Idle);
-        assert_eq!(corrected, vec![1000]);
-    }
-
-    /// The entity ran but the group never made it onto the PMU. Dividing by `d_running` here would
-    /// panic, and there is nothing to extrapolate from anyway.
-    #[test]
-    fn starved_group_does_not_divide_by_zero() {
-        let mut corrected = vec![1000];
-        let prev = snap(SEC, SEC / 4, &[1000]);
-        let now = snap(2 * SEC, SEC / 4, &[1000]);
-        let interval = correct_interval(&prev, &now, true, false, &mut corrected);
-        assert_eq!(interval, Interval::Starved);
-        assert_eq!(corrected, vec![1000], "the total must stay flat, not be made up");
-    }
-
-    #[test]
-    fn without_auto_scale_the_raw_delta_is_kept() {
-        let mut corrected = vec![0];
-        let interval = correct_interval(
-            &snap(0, 0, &[0]),
-            &snap(SEC, SEC / 4, &[1000]),
-            false,
-            false,
-            &mut corrected,
-        );
         assert_eq!(
-            interval,
-            Interval::Multiplexed {
-                running: SEC / 4,
-                enabled: SEC
-            },
-            "multiplexing is still reported, it is just not compensated"
+            estimate(&[1000], SEC, SEC / 4, true, false),
+            (vec![4000], Accuracy::Extrapolated)
         );
-        assert_eq!(corrected, vec![1000]);
     }
 
     #[test]
-    fn every_counter_of_the_group_is_corrected() {
-        let mut corrected = vec![0, 0, 0];
-        correct_interval(
-            &snap(0, 0, &[0, 0, 0]),
-            &snap(SEC, SEC / 2, &[10, 20, 30]),
-            true,
-            false,
-            &mut corrected,
-        );
-        assert_eq!(corrected, vec![20, 40, 60]);
-    }
-
-    /// Each interval is corrected on its own and added to a total that only ever grows, so that a
-    /// badly extrapolated interval cannot make the counter go backwards later on.
-    #[test]
-    fn totals_accumulate_and_never_decrease() {
-        let mut corrected = vec![0];
-        let mut totals = Vec::new();
-
-        // poll 1: 1000 counted over a quarter of a second of PMU time -> 4000
-        let s1 = snap(SEC, SEC / 4, &[1000]);
-        correct_interval(&snap(0, 0, &[0]), &s1, true, false, &mut corrected);
-        totals.push(corrected[0]);
-
-        // poll 2: +500 counted over another quarter -> +2000
-        let s2 = snap(2 * SEC, SEC / 2, &[1500]);
-        correct_interval(&s1, &s2, true, false, &mut corrected);
-        totals.push(corrected[0]);
-
-        // poll 3: the group is starved, nothing is added
-        let s3 = snap(3 * SEC, SEC / 2, &[1500]);
-        correct_interval(&s2, &s3, true, false, &mut corrected);
-        totals.push(corrected[0]);
-
-        // poll 4: +200 counted over half a second -> +400
-        let s4 = snap(4 * SEC, SEC, &[1700]);
-        correct_interval(&s3, &s4, true, false, &mut corrected);
-        totals.push(corrected[0]);
-
-        assert_eq!(totals, vec![4000, 6000, 6000, 6400]);
-        assert!(totals.windows(2).all(|w| w[1] >= w[0]), "a counter must never decrease");
-    }
-
-    /// `account` reports each interval on its own; the caller is the one tracking streaks.
-    #[test]
-    fn account_reports_the_interval_and_degrades_accuracy() {
-        use super::{Accuracy, GroupCounters, Interval};
-        let mut scaling = GroupCounters::new(1);
-
-        assert_eq!(scaling.account(snap(SEC, SEC, &[10]), true, false), Interval::Exact);
-        // a starved interval is reported as such every time it happens, without any streak state
+    fn every_counter_of_the_group_is_extrapolated() {
         assert_eq!(
-            scaling.account(snap(2 * SEC, SEC, &[10]), true, false),
-            Interval::Starved
-        );
-        assert_eq!(
-            scaling.account(snap(3 * SEC, SEC, &[10]), true, false),
-            Interval::Starved
-        );
-        assert_eq!(
-            scaling.accuracy(),
-            Accuracy::Underestimated,
-            "a starved interval misses data, so the total is underestimated"
+            estimate(&[10, 20, 30], SEC, SEC / 2, true, false),
+            (vec![20, 40, 60], Accuracy::Extrapolated)
         );
     }
 
-    /// A partial-pmu group is reported `partial`, never `exact`-degraded-to-underestimated: its
-    /// values stay raw and its accuracy stays `partial` no matter how the entity bounces PMUs.
     #[test]
-    fn partial_pmu_accuracy_is_partial() {
-        use super::{Accuracy, GroupCounters, Interval};
-        let mut scaling = GroupCounters::new(1);
-
+    fn multiplexed_values_are_kept_raw_without_auto_scale() {
         assert_eq!(
-            scaling.account(snap(SEC, SEC / 2, &[1000]), true, true),
-            Interval::Partial
+            estimate(&[1000], SEC, SEC / 4, false, false),
+            (vec![1000], Accuracy::Underestimated)
         );
-        // next interval the entity stayed on the other pmu: running frozen, still partial
-        assert_eq!(
-            scaling.account(snap(2 * SEC, SEC / 2, &[1000]), true, true),
-            Interval::Partial
-        );
-        assert_eq!(scaling.accuracy(), Accuracy::Partial);
-        assert_eq!(scaling.corrected(), &[1000]);
     }
 
-    /// The accuracy only ever degrades, and a starvation makes it worse than a mere extrapolation.
+    /// The entity ran but the group has never been on the PMU: there is nothing to extrapolate
+    /// from, and dividing by `running` would panic.
     #[test]
-    fn accuracy_degrades_to_the_worst_interval() {
-        use super::{Accuracy, GroupCounters};
-
-        let mut scaling = GroupCounters::new(1);
-        assert_eq!(scaling.accuracy(), Accuracy::Exact);
-
-        scaling.account(snap(SEC, SEC, &[10]), true, false); // exact
-        assert_eq!(scaling.accuracy(), Accuracy::Exact);
-
-        scaling.account(snap(2 * SEC, SEC + SEC / 2, &[20]), true, false); // multiplexed, auto-scaled
-        assert_eq!(scaling.accuracy(), Accuracy::Extrapolated);
-
-        scaling.account(snap(3 * SEC, SEC + SEC / 2, &[20]), true, false); // starved
-        assert_eq!(scaling.accuracy(), Accuracy::Underestimated);
-
-        scaling.account(snap(4 * SEC, 2 * SEC + SEC / 2, &[30]), true, false); // exact again
-        assert_eq!(scaling.accuracy(), Accuracy::Underestimated, "accuracy never improves");
+    fn starved_group_is_underestimated() {
+        assert_eq!(estimate(&[0], SEC, 0, true, false), (vec![0], Accuracy::Underestimated));
     }
 
-    /// Without auto-scaling, a multiplexed interval is reported raw, hence underestimated.
+    /// Once a starved group makes it onto the PMU, the cumulative ratio also covers the starved time.
     #[test]
-    fn accuracy_is_underestimated_without_auto_scale() {
-        use super::{Accuracy, GroupCounters};
+    fn starved_group_is_extrapolated_once_it_ran() {
+        assert_eq!(
+            estimate(&[1000], 2 * SEC, SEC / 2, true, false),
+            (vec![4000], Accuracy::Extrapolated)
+        );
+    }
 
-        let mut scaling = GroupCounters::new(1);
-        scaling.account(snap(SEC, SEC / 2, &[10]), false, false); // multiplexed, not scaled
-        assert_eq!(scaling.accuracy(), Accuracy::Underestimated);
+    /// A partial-pmu group only ran part of the time (the entity was on another pmu): its raw value
+    /// is exact for this pmu, so it is kept as-is and never scaled.
+    #[test]
+    fn partial_pmu_values_are_not_scaled() {
+        assert_eq!(
+            estimate(&[1000], SEC, SEC / 4, true, true),
+            (vec![1000], Accuracy::Partial)
+        );
+        assert_eq!(estimate(&[1000], SEC, SEC, true, true), (vec![1000], Accuracy::Exact));
+    }
+
+    /// The rule of three is applied to the cumulative values: when the group spends more of its
+    /// time on the PMU, the estimate goes down.
+    #[test]
+    fn estimate_can_go_down() {
+        assert_eq!(estimate(&[1000], SEC, SEC / 4, true, false).0, vec![4000]);
+        assert_eq!(estimate(&[1500], 2 * SEC, SEC, true, false).0, vec![3000]);
     }
 }

@@ -20,7 +20,7 @@ use crate::sysfs;
 pub(super) enum Observable {
     /// Observe a process.
     Process { pid: u32 },
-    /// Observe a cgroup.
+    /// Observe a cgroup. `path` is the canonical cgroup path (relative to the cgroup root).
     Cgroup { path: String, fd: Arc<File> },
     /// Observe the whole machine, for the system-wide PMUs (uncore, `power`, `cstate_*`, …).
     Machine,
