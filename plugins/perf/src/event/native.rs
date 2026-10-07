@@ -10,7 +10,7 @@ use itertools::Itertools;
 use perf_event::events::{self, CacheId, CacheOp, CacheResult};
 use perf_event_open_sys::bindings::{PERF_TYPE_HARDWARE, PERF_TYPE_HW_CACHE, PERF_TYPE_SOFTWARE};
 
-use crate::spec::{EventEncoding, NamedPerfEvent};
+use super::{EventEncoding, NamedPerfEvent};
 
 #[derive(Debug)]
 pub struct UnknownEventError;

@@ -19,7 +19,7 @@
 //!   "planned for a future release" error).
 //!
 //! An event's [`Scope`] (task-attached vs system-wide) is then derived from the PMU it targets; see
-//! [`Scope`] and [`crate::source`].
+//! [`Scope`] and [`crate::group`].
 
 use anyhow::Context;
 use perf_event::events::Event;
@@ -27,11 +27,11 @@ use perf_event_open_sys::bindings::{
     PERF_TYPE_HARDWARE, PERF_TYPE_HW_CACHE, PERF_TYPE_RAW, PERF_TYPE_SOFTWARE, perf_event_attr,
 };
 
-use crate::cpu;
-use crate::native;
-use crate::pfm;
-use crate::pmu;
-use crate::raw;
+use crate::sysfs;
+
+mod native;
+mod pfm;
+mod raw;
 
 /// perf event domain modifiers, e.g. `INSTRUCTIONS#u:k`.
 #[derive(Debug, Clone, Copy, Default)]
@@ -207,7 +207,7 @@ impl ConfiguredEvent {
     }
 
     /// The key identifying which perf group this event may share. A perf group cannot span two
-    /// different hardware PMUs, so [`crate::source`] groups events by this key.
+    /// different hardware PMUs, so events are grouped by this key.
     pub(crate) fn pmu_group_key(&self) -> u64 {
         let core = u64::from(PERF_TYPE_RAW);
         match self.encoding.type_ {
@@ -259,9 +259,19 @@ pub fn parse(input: &str) -> anyhow::Result<Vec<ParsedEvent>> {
     resolve_task_attached(name, modifiers).with_context(|| format!("invalid event '{input}'"))
 }
 
+/// Split a `pmu/terms` string into its PMU name and inner term list.
+pub(crate) fn split_pmu(name: &str) -> Option<(&str, &str)> {
+    let (pmu, terms) = name.split_once('/')?;
+    let terms = terms.strip_suffix('/').unwrap_or(terms);
+    if pmu.is_empty() || terms.is_empty() || terms.contains('/') {
+        return None;
+    }
+    Some((pmu, terms))
+}
+
 fn detect_system_wide(name: &str) -> anyhow::Result<Option<(String, Vec<u32>)>> {
-    match pmu::split(name) {
-        Some((pmu, _terms)) => Ok(pmu::read_cpumask(pmu)?.map(|cpus| (pmu.to_owned(), cpus))),
+    match split_pmu(name) {
+        Some((pmu, _terms)) => Ok(sysfs::read_pmu_cpumask(pmu)?.map(|cpus| (pmu.to_owned(), cpus))),
         None => Ok(None),
     }
 }
@@ -309,12 +319,12 @@ enum Placement {
 /// Each encoder builds the [`NamedPerfEvent`] in its own module; this dispatches to them.
 fn resolve_base(name: &str) -> anyhow::Result<(NamedPerfEvent, Placement)> {
     // `pmu/…`: a raw code or a native event pinned to that PMU (`cpu_core/INSTRUCTIONS`).
-    if let Some((pmu_name, term)) = pmu::split(name) {
+    if let Some((pmu_name, term)) = split_pmu(name) {
         if let Some(result) = raw::parse(name) {
             return Ok((result?, Placement::PmuPinned(pmu_name.to_owned())));
         }
         if let Ok(base) = native::parse(term) {
-            let pmu_type = pmu::read_type(pmu_name)?;
+            let pmu_type = sysfs::read_pmu_type(pmu_name)?;
             let encoding = native::pin(&base, pmu_name, pmu_type)?;
             return Ok((
                 NamedPerfEvent { encoding, ..base },
@@ -357,10 +367,10 @@ struct CoreTarget {
 /// (`cpu_core`, `cpu_atom`, …), each pinned via its numeric type; or the single implicit `cpu` PMU
 /// on a non-hybrid machine, left unpinned. One [`CoreTarget`] per PMU.
 fn core_targets() -> anyhow::Result<Vec<CoreTarget>> {
-    let cores = pmu::core_pmus()?;
+    let cores = sysfs::core_pmus()?;
     if cores.is_empty() {
-        let cpus = cpu::online_cpus()?;
-        let package = pmu::single_package(&cpus);
+        let cpus = sysfs::online_cpus()?;
+        let package = sysfs::single_package(&cpus);
         return Ok(vec![CoreTarget {
             pmu_type: None,
             binding: CoreBinding {
@@ -384,11 +394,11 @@ fn core_targets() -> anyhow::Result<Vec<CoreTarget>> {
 }
 
 fn core_binding(pmu: &str) -> anyhow::Result<CoreBinding> {
-    let cpus = match pmu::read_cpus(pmu)? {
+    let cpus = match sysfs::read_pmu_cpus(pmu)? {
         Some(cpus) => cpus,
-        None => cpu::online_cpus()?,
+        None => sysfs::online_cpus()?,
     };
-    let package = pmu::single_package(&cpus);
+    let package = sysfs::single_package(&cpus);
     Ok(CoreBinding {
         pmu: pmu.to_owned(),
         cpus,
@@ -417,7 +427,7 @@ mod tests {
     }
 
     fn is_hybrid() -> bool {
-        pmu::read_type("cpu_core").is_ok() && pmu::read_type("cpu_atom").is_ok()
+        sysfs::read_pmu_type("cpu_core").is_ok() && sysfs::read_pmu_type("cpu_atom").is_ok()
     }
 
     fn assert_generic(enc: &EventEncoding, base: &EventEncoding) {
@@ -598,7 +608,7 @@ mod tests {
         let entries = std::fs::read_dir("/sys/bus/event_source/devices").ok()?;
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
-            if let Ok(Some(cpus)) = pmu::read_cpumask(&name) {
+            if let Ok(Some(cpus)) = sysfs::read_pmu_cpumask(&name) {
                 return Some((name, cpus));
             }
         }
@@ -656,5 +666,23 @@ mod tests {
     #[test]
     fn empty_is_rejected() {
         assert!(parse(":u").is_err());
+    }
+
+    #[test]
+    fn split_pmu_extracts_pmu_and_terms() {
+        assert_eq!(split_pmu("uncore_imc_0/r0x1/"), Some(("uncore_imc_0", "r0x1")));
+        assert_eq!(split_pmu("cpu_core/INSTRUCTIONS"), Some(("cpu_core", "INSTRUCTIONS"))); // closing / optional
+        assert_eq!(
+            split_pmu("cpu/event=0x2e,umask=0x41/"),
+            Some(("cpu", "event=0x2e,umask=0x41"))
+        );
+    }
+
+    #[test]
+    fn split_pmu_rejects_other_shapes() {
+        assert_eq!(split_pmu("r3c"), None); // no `/` at all
+        assert_eq!(split_pmu("cpu_core/"), None); // empty terms
+        assert_eq!(split_pmu("/r3c/"), None); // empty PMU
+        assert_eq!(split_pmu("a/b/c/"), None); // nested slash
     }
 }
