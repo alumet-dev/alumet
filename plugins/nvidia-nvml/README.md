@@ -29,6 +29,7 @@ One source will be created per GPU device.
 |`nvml_decoder_utilization`|Gauge|Percentage|GPU video decoder utilization by a process|GPU|Process||
 |`nvml_sm_utilization`|Gauge|Percentage|Utilization of the GPU streaming multiprocessors by a process (3D task and rendering, etc...)|GPU|Process||
 |`nvml_clock_info`|Gauge|Hertz|GPU clock frequency|GPU|LocalMachine|[Clock_type](#clock_type)|
+|`nvml_power_limit`|Gauge|milliWatt|Current power cap (power management limit) of the GPU|GPU|LocalMachine||
 |`nvml_used_gpu_memory`|Gauge|bytes|Amount of used GPU memory|GPU or GPUPartition|Process|[Context](#context), [Compute_instance_ID](#compute_instance_id)|
 |`nvml_gpm_graphics_util`|Gauge|Percentage|Percentage of time any warp was active on a multiprocessor|GPU|LocalMachine||
 |`nvml_gpm_sm_util`|Gauge|Percentage|Percentage of time each multiprocessor had at least 1 warp assigned|GPU|LocalMachine||

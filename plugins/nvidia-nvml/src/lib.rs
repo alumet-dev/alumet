@@ -441,6 +441,7 @@ mod tests {
                 Clock::Memory => Ok(3),
                 Clock::Graphics => Ok(4),
             });
+            device.expect_power_management_limit().returning(|| Ok(200_000));
             device.expect_gpm_support().returning(|| Ok(true));
             device.expect_drop_gpm_sample().returning(|_sample: nvmlGpmSample_t| ());
             device
@@ -604,6 +605,7 @@ mod tests {
             .expect_metric::<u64>("nvml_encoder_utilization", Unit::Percent)
             .expect_metric::<u64>("nvml_sm_utilization", Unit::Percent)
             .expect_metric::<u64>("nvml_clock_info", Unit::Hertz)
+            .expect_metric::<u64>("nvml_power_limit", PrefixedUnit::milli(Unit::Watt))
             .expect_metric::<u64>("nvml_gpm_sm_occupancy", Unit::Percent)
             .expect_metric::<u64>("nvml_gpm_nvlink_throughput", Unit::Byte);
 
@@ -633,7 +635,7 @@ mod tests {
                             "instance",
                         ],
                     );
-                    assert_eq!(points.len(), 22, "wrong number of points, got {points:?}");
+                    assert_eq!(points.len(), 23, "wrong number of points, got {points:?}");
 
                     assert_eq!(
                         points[&("nvml_encoder_utilization", ResourceConsumer::LocalMachine, vec![])]
@@ -775,6 +777,12 @@ mod tests {
                         100
                     );
                     assert_eq!(
+                        points[&("nvml_power_limit", ResourceConsumer::LocalMachine, vec![])]
+                            .value
+                            .as_u64(),
+                        200_000
+                    );
+                    assert_eq!(
                         points[&("nvml_encoder_sampling_period", ResourceConsumer::LocalMachine, vec![])]
                             .value
                             .as_u64(),
@@ -853,7 +861,7 @@ mod tests {
                 |out| {
                     // second trigger
                     let points = points_by_metric_and_consumer(out, &["kind", "clock_type"]);
-                    assert_eq!(points.len(), 27, "wrong number of points, got {points:?}");
+                    assert_eq!(points.len(), 28, "wrong number of points, got {points:?}");
 
                     // new power value
                     assert_eq!(
@@ -943,7 +951,7 @@ mod tests {
                 let points = points_by_metric_and_consumer(out, &[]);
 
                 // metrics with attributes only appear once
-                assert_eq!(points.len(), 14, "wrong number of points, got {points:?}");
+                assert_eq!(points.len(), 15, "wrong number of points, got {points:?}");
 
                 let expected_key_clock = ("nvml_clock_info", ResourceConsumer::LocalMachine, vec![]);
                 let expected_key_memory = ("nvml_gpu_memory_info", ResourceConsumer::LocalMachine, vec![]);
@@ -960,7 +968,7 @@ mod tests {
 
                 // metrics with attributes only appear once,
                 // except clock_speed, which has 1 point for each clock type (4 types)
-                assert_eq!(points.len(), 17, "wrong number of points, got {points:?}");
+                assert_eq!(points.len(), 18, "wrong number of points, got {points:?}");
 
                 let expected_key_clock1 = (
                     "nvml_clock_info",

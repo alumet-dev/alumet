@@ -41,6 +41,8 @@ pub struct FullMetrics {
     pub used_gpu_memory: TypedMetricId<u64>,
     /// Get the current clock frequency in Hertz
     pub clock_info: TypedMetricId<u64>,
+    /// Current power cap (power management limit) in mW.
+    pub power_limit: TypedMetricId<u64>,
 
     pub gpm_metrics: HashMap<GpmMetricId, TypedMetricId<u64>>,
 }
@@ -129,6 +131,11 @@ impl FullMetrics {
                 "Utilization of the GPU streaming multiprocessors by the process",
             )?,
             clock_info: alumet.create_metric("nvml_clock_info", Unit::Hertz, "Current clock speed for the device")?,
+            power_limit: alumet.create_metric(
+                "nvml_power_limit",
+                PrefixedUnit::milli(Unit::Watt),
+                "Current power cap (power management limit) of the GPU",
+            )?,
             gpm_metrics: add_gpm_metrics(gpm_metrics_requested, alumet),
         })
     }
