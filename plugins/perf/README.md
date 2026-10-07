@@ -35,17 +35,11 @@ Every measurement carries an `accuracy` attribute describing how faithful its va
 - `partial` (**only for hybrid CPU**): a per-PMU count on a hybrid CPU (see [Native events on hybrid CPUs](#native-events-on-hybrid-cpus)).
   The event is pinned to one PMU while the process also runs on the others, so the counter was on
   the PMU only part of the time. The value is **not** scaled.
-- `extrapolated`: the value includes at least one multiplexed interval that was extrapolated (only
-  happens when `multiplexing_auto_scale` is on). It is an estimate, which may be slightly above or
-  below the truth.
-- `underestimated`: the value is known to be too low, either because multiplexed intervals were
-  reported raw (`multiplexing_auto_scale` off) or because the counter was starved for some intervals
-  (the events could not be counted at all).
-
-Because the reported values are cumulative counters, the accuracy only ever degrades and never
-improves: a single imperfect interval affects every value reported afterwards. `partial` applies only
-to PMU-pinned events (a hybrid-CPU artifact) and is never scaled; `extrapolated`/`underestimated`
-describe genuine multiplexing on a single-PMU event.
+- `extrapolated`: the counter was multiplexed and its value is extrapolated (only happens when
+  `multiplexing_auto_scale` is on). It is an estimate, which may be slightly above or below the truth.
+- `underestimated`: the value is known to be too low, either because the counter was multiplexed and
+  its value is reported raw (`multiplexing_auto_scale` off) or because the counter has never been on
+  the PMU (the events could not be counted at all).
 
 ## Configuration
 
