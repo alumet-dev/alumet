@@ -162,7 +162,7 @@ fn libpfm() -> anyhow::Result<&'static LibPfm> {
 ///- **`event_name`** *(required)* : the full event name, e.g. `RESOURCE_STALLS`.
 ///- **`:unit_mask`** *(optional, repeatable)* : a sub-event that refines the event, e.g. `:ANY` or
 ///  `:L3_MISS`. Some events require one; some accept several.
-pub fn encode(name: &str) -> anyhow::Result<NamedPerfEvent> {
+pub(crate) fn encode(name: &str) -> anyhow::Result<NamedPerfEvent> {
     let encoding = encode_raw(name)?;
     Ok(NamedPerfEvent {
         name: name.to_owned(),

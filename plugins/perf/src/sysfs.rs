@@ -51,7 +51,7 @@ pub(crate) fn package_of(cpu: u32) -> anyhow::Result<u32> {
 }
 
 /// The online cpus.
-pub fn online_cpus() -> anyhow::Result<Vec<u32>> {
+pub(crate) fn online_cpus() -> anyhow::Result<Vec<u32>> {
     let path = "/sys/devices/system/cpu/online";
     let list = fs::read_to_string(path).with_context(|| format!("Failed to parse {path}"))?;
     parse_cpu_list(&list)
@@ -61,7 +61,7 @@ pub fn online_cpus() -> anyhow::Result<Vec<u32>> {
 // of assuming that the online CPUs never change.
 
 /// Read a PMU's numeric perf `type` from sysfs.
-pub fn read_pmu_type(pmu: &str) -> anyhow::Result<u32> {
+pub(crate) fn read_pmu_type(pmu: &str) -> anyhow::Result<u32> {
     let path = format!("/sys/bus/event_source/devices/{pmu}/type");
     let raw = fs::read_to_string(&path)
         .with_context(|| format!("cannot read {path}; is '{pmu}' a valid PMU? (see /sys/bus/event_source/devices)"))?;
@@ -71,12 +71,12 @@ pub fn read_pmu_type(pmu: &str) -> anyhow::Result<u32> {
 }
 
 /// Read a PMU's `cpumask`.
-pub fn read_pmu_cpumask(pmu: &str) -> anyhow::Result<Option<Vec<u32>>> {
+pub(crate) fn read_pmu_cpumask(pmu: &str) -> anyhow::Result<Option<Vec<u32>>> {
     read_cpu_list_file(pmu, "cpumask")
 }
 
 /// Read a PMU's `cpus`.
-pub fn read_pmu_cpus(pmu: &str) -> anyhow::Result<Option<Vec<u32>>> {
+pub(crate) fn read_pmu_cpus(pmu: &str) -> anyhow::Result<Option<Vec<u32>>> {
     read_cpu_list_file(pmu, "cpus")
 }
 
@@ -93,7 +93,7 @@ fn read_cpu_list_file(pmu: &str, file: &str) -> anyhow::Result<Option<Vec<u32>>>
 
 /// A task-attachable core PMU
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CorePmu {
+pub(crate) struct CorePmu {
     pub name: String,
     pub type_: u32,
     pub cpus: Vec<u32>,
@@ -101,7 +101,7 @@ pub struct CorePmu {
 }
 
 /// Enumerate the task-attachable core PMUs
-pub fn core_pmus() -> anyhow::Result<Vec<CorePmu>> {
+pub(crate) fn core_pmus() -> anyhow::Result<Vec<CorePmu>> {
     let mut out = Vec::new();
     let entries = match fs::read_dir("/sys/bus/event_source/devices") {
         Ok(e) => e,
@@ -126,7 +126,7 @@ pub fn core_pmus() -> anyhow::Result<Vec<CorePmu>> {
 }
 
 /// The package shared by every CPU in `cpus`, or `None` if they span several packages
-pub fn single_package(cpus: &[u32]) -> Option<u32> {
+pub(crate) fn single_package(cpus: &[u32]) -> Option<u32> {
     let mut packages = cpus.iter().map(|&c| package_of(c).ok());
     let first = packages.next().flatten()?;
     packages.all(|p| p == Some(first)).then_some(first)

@@ -82,7 +82,7 @@ impl EventEntry {
                 let mut events = event::parse(event)?;
                 if let Some(rename) = rename {
                     for e in &mut events {
-                        e.name = rename.clone();
+                        e.set_name(rename.clone());
                     }
                 }
                 Ok(events)
@@ -131,7 +131,7 @@ mod tests {
             rename: Some("my llc miss".to_owned()),
         };
         for parsed in &entry.parse().unwrap() {
-            assert_eq!(sanitize(&parsed.name), "my_llc_miss");
+            assert_eq!(sanitize(parsed.name()), "my_llc_miss");
         }
     }
 
