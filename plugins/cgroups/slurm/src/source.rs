@@ -18,6 +18,7 @@ pub struct JobSourceSetup {
     trigger: TriggerSpec,
     ignore_non_jobs: bool,
     jobs_monitoring_level: JobMonitoringLevel,
+    jobs_event_level: JobMonitoringLevel,
 }
 
 impl JobSourceSetup {
@@ -28,6 +29,7 @@ impl JobSourceSetup {
             trigger: TriggerSpec::at_interval(config.common.poll_interval),
             ignore_non_jobs: config.ignore_non_jobs,
             jobs_monitoring_level: config.jobs_monitoring_level,
+            jobs_event_level: config.jobs_event_level,
         })
     }
 }
@@ -96,6 +98,24 @@ impl CgroupSetupCallback for JobSourceSetup {
             metrics,
             source_settings,
         })
+    }
+
+    fn should_emit_event(&mut self, cgroup: &Cgroup) -> bool {
+        // extracts attributes "job_id", "job_step" and "user_id"
+        let attrs = self.tagger.attributes_for_cgroup(cgroup);
+
+        let job_id = find_jobid_in_attrs(&attrs);
+        let step_id = find_key_in_attrs("step", &attrs);
+        let sub_step = find_key_in_attrs("sub_step", &attrs);
+        let task_id = find_key_in_attrs("task", &attrs);
+
+        match (job_id, step_id, sub_step, task_id) {
+            (Some(_), None, None, None) => true,
+            (Some(_), Some(_), None, None) => self.jobs_event_level >= JobMonitoringLevel::Step,
+            (Some(_), Some(_), Some(_), None) => self.jobs_event_level >= JobMonitoringLevel::SubStep,
+            (Some(_), Some(_), Some(_), Some(_)) => self.jobs_event_level >= JobMonitoringLevel::Task,
+            _ => false,
+        }
     }
 }
 

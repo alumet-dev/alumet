@@ -35,6 +35,9 @@ pub trait CgroupRemovalCallback: Clone + Send + 'static {
 pub trait CgroupSetupCallback: Clone + Send + 'static {
     /// Prepares a new probe. Returns `None` to skip the creation of the probe.
     fn setup_new_probe(&mut self, cgroup: &Cgroup, metrics: &Metrics) -> Option<ProbeSetup>;
+
+    /// Checks if an event has to be emitted in reaction to this cgroup.
+    fn should_emit_event(&mut self, cgroup: &Cgroup) -> bool;
 }
 
 /// A callback that does nothing.
@@ -273,13 +276,19 @@ where
             let resource_consumer = ResourceConsumer::ControlGroup {
                 path: cgroup.canonical_path().to_owned().into(),
             };
-            resource_consumers.push(resource_consumer.clone());
+
+            // filter events
+            if self.state.callbacks.probe_setup.should_emit_event(&cgroup) {
+                resource_consumers.push(resource_consumer.clone());
+            }
+
             // setup the source
             let setup = self
                 .state
                 .callbacks
                 .probe_setup
                 .setup_new_probe(&cgroup, &self.state.metrics);
+
             match setup {
                 Some(s) => {
                     // create the source

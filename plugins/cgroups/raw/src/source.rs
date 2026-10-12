@@ -36,4 +36,8 @@ impl CgroupSetupCallback for SourceSetup {
             source_settings,
         })
     }
+
+    fn should_emit_event(&mut self, _cgroup: &util_cgroups::Cgroup) -> bool {
+        true
+    }
 }

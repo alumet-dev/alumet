@@ -83,6 +83,11 @@ ignore_non_jobs = true
 # - "task": measure jobs, steps, substeps and tasks
 jobs_monitoring_level = "job"
 
+# At which level should the plugin emit events destined to other plugins?
+# Same levels as `jobs_monitoring_level`.
+# No event will be emitted for non-jobs cgroups.
+jobs_event_level = "job"
+
 # If true, start the sources in "paused" state.
 # This is useful in combination with other plugins that will resume the sources.
 add_source_in_pause_state = false

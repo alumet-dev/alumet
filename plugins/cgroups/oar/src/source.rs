@@ -115,6 +115,12 @@ impl CgroupSetupCallback for JobSourceSetup {
             source_settings,
         })
     }
+
+    fn should_emit_event(&mut self, cgroup: &Cgroup) -> bool {
+        let attrs = self.tagger.attributes_for_cgroup(cgroup);
+        let is_job = !attrs.is_empty();
+        is_job
+    }
 }
 
 fn username_from_id(id: u64) -> anyhow::Result<String> {
