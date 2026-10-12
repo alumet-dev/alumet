@@ -44,4 +44,10 @@ impl CgroupSetupCallback for SourceSetup {
             source_settings,
         })
     }
+
+    fn should_emit_event(&mut self, cgroup: &util_cgroups::Cgroup) -> bool {
+        let attrs = self.container_registry.attributes_for_cgroup(cgroup);
+        let is_container = !attrs.is_empty();
+        is_container
+    }
 }
