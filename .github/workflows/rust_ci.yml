@@ -23,6 +23,7 @@ jobs:
           components: rustfmt
       - name: Check formatting
         run: cargo fmt --check
+
   check_dependencies:
     runs-on: ubuntu-latest
     steps:
@@ -38,6 +39,127 @@ jobs:
         run: |
           cargo binstall --no-confirm cargo-machete --version 0.9.2 --locked
           cargo machete
+
+  check_semver:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    outputs:
+      packages_modified: ${{ steps.get_packages_modified.outputs.packages_modified }}
+    env:
+      SEARCH_STRING_OR_BODY: "You have some breaking changes ! Please check the log of the check_semver job in the step check_semver before merging"
+      ORDER: "last" #could be 'first' or 'last'
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067
+        with:
+          toolchain: ${{ env.CI_RUST_VERSION }}
+
+      - name: Get packages modified
+        id: get_packages_modified
+        run: |
+
+          # This is an array of paths from files modified (or added/deleted)
+          # We take into account only *.rs files
+          paths_files_modified_raw=($(git diff --diff-filter=ACDMRT --name-only origin/${{ github.base_ref }} ${{ github.sha }} -- '*.rs'))
+
+          # It expects paths in a certain format in src,tests,benches folder but need also to work for agent/build.rs
+          # It also strips the start and the end of the path and keep only one per package
+          # Ex if you modify multiple files for the same package we only need to include it once
+          paths_files_modified_stripped=($( printf "%s\n" "${paths_files_modified_raw[@]}"| sed -E 's/(.*)\/(src|tests|benches|build)(.*)/\1/' | sort -u))
+
+          cargo metadata --no-deps --format-version 1 > metadata.json
+
+          declare -A MAP_ARRAY
+
+          while read -r PACKAGE PATH_RAW; do
+            STRIPPED_PATH=$(dirname "$PATH_RAW" | sed -e "s#.*/alumet/##")
+            MAP_ARRAY[$STRIPPED_PATH]=$PACKAGE
+          done <<<$(jq -r '.packages[] | "\(.name) \(.manifest_path)"' metadata.json)
+
+          # Prepare list of package modified thanks to the map
+          pkg_modified_list=() # we want something like [pkg1,pkg2]
+          for i in "${!paths_files_modified_stripped[@]}"; do
+              pkg_modified_list[$i]=${MAP_ARRAY[${paths_files_modified_stripped[$i]}]}
+          done
+
+          # From the list of package modified prepare the parameters for the semver cmd
+          cmd_part_semver_checks_package_parameters=$(echo -p ${pkg_modified_list[@]}  | sed -E 's/" "/" -p "/g' | sed -E 's/\"//g' )
+          echo "cmd_part_semver_checks_package_parameters: ${cmd_part_semver_checks_package_parameters}"
+          echo "packages_modified=${cmd_part_semver_checks_package_parameters}" >> "$GITHUB_OUTPUT"
+
+      - uses: cargo-bins/cargo-binstall@v1.25.3
+
+      - name: Check semver run
+        id: check_semver_run
+        if : steps.get_packages_modified.outputs.packages_modified != '-p'
+        continue-on-error: true
+        run: |
+          cargo binstall --no-confirm cargo-semver-checks@0.45.0
+
+          cmd_part_semver_checks_package_parameters=${{ steps.get_packages_modified.outputs.packages_modified }}
+          echo "cmd_part_semver_checks_package_parameters: ${cmd_part_semver_checks_package_parameters}"
+
+          cargo semver-checks $cmd_part_semver_checks_package_parameters --baseline-rev origin/${{ github.base_ref }}
+
+      - name: Delete comment PR breaking change if any
+        uses: actions/github-script@v9
+        with:
+          script: |
+            // search for the comment id
+
+            const opts = github.rest.issues.listComments.endpoint.merge({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+
+            // Paginate is used to retrieve the comments of every pages.
+            // See https://octokit.github.io/rest.js/v21/#pagination.
+            var comments = await github.paginate(opts)
+
+            // Reverse comments array if wanted
+            // (listComments returns the comments ordered by ascending ID).
+            if (process.env.ORDER === 'last') {
+              comments.reverse()
+            }
+
+            // Iterate over the comments array.
+            for (const comment of comments) {
+              if (comment.user.login !== 'github-actions[bot]') {
+                continue
+              }
+
+              if (comment.body.includes(process.env.SEARCH_STRING_OR_BODY)) {
+
+                // delete the comment
+                github.rest.issues.deleteComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  comment_id: comment.id,
+                })
+
+                break
+              }
+            }
+
+      - name: Add comment PR breaking change
+        if: always() && steps.check_semver_run.outcome == 'failure'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: process.env.SEARCH_STRING_OR_BODY
+            })
 
   build_and_test:
     runs-on: ubuntu-latest
