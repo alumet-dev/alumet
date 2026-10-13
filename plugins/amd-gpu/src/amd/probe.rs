@@ -101,7 +101,7 @@ impl<H: ProcessorHandle> AmdGpuSource<H> {
                 self.metrics.gpu_activity_usage,
                 resource,
                 consumer,
-                value.gfx_activity as f64,
+                value.gfx_activity.unwrap_or_default() as f64,
                 || (KEY, "graphic_core".to_string()),
             );
 
@@ -111,7 +111,7 @@ impl<H: ProcessorHandle> AmdGpuSource<H> {
                 self.metrics.gpu_activity_usage,
                 resource,
                 consumer,
-                value.mm_activity as f64,
+                value.mm_activity.unwrap_or_default() as f64,
                 || (KEY, "memory_management".to_string()),
             );
 
@@ -121,7 +121,7 @@ impl<H: ProcessorHandle> AmdGpuSource<H> {
                 self.metrics.gpu_activity_usage,
                 resource,
                 consumer,
-                value.umc_activity as f64,
+                value.umc_activity.unwrap_or_default() as f64,
                 || (KEY, "unified_memory_controller".to_string()),
             );
         }

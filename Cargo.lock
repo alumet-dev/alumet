@@ -135,8 +135,8 @@ dependencies = [
 
 [[package]]
 name = "amd-smi-wrapper"
-version = "0.7.0"
-source = "git+https://github.com/alumet-dev/amd-smi-wrapper.git#6dad086064c325aa2f17b1a83588fb333f1a7cb1"
+version = "0.7.1"
+source = "git+https://github.com/alumet-dev/amd-smi-wrapper.git#d30fccd42280dffd79c2d332b554fe654ef4421e"
 dependencies = [
  "amd-smi-wrapper-sys",
  "log",
@@ -147,7 +147,7 @@ dependencies = [
 [[package]]
 name = "amd-smi-wrapper-sys"
 version = "1.1.1"
-source = "git+https://github.com/alumet-dev/amd-smi-wrapper.git#6dad086064c325aa2f17b1a83588fb333f1a7cb1"
+source = "git+https://github.com/alumet-dev/amd-smi-wrapper.git#d30fccd42280dffd79c2d332b554fe654ef4421e"
 dependencies = [
  "libloading",
  "thiserror 2.0.18",
