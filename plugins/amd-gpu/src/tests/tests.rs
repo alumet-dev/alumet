@@ -158,13 +158,22 @@ fn test_start_success() {
 
                     match attr_type.as_str() {
                         "graphic_core" => {
-                            assert_eq!(p.value, WrappedMeasurementValue::F64(MOCK_ACTIVITY.gfx_activity as f64))
+                            assert_eq!(
+                                p.value,
+                                WrappedMeasurementValue::F64(MOCK_ACTIVITY.gfx_activity.unwrap() as f64)
+                            )
                         }
                         "memory_management" => {
-                            assert_eq!(p.value, WrappedMeasurementValue::F64(MOCK_ACTIVITY.mm_activity as f64))
+                            assert_eq!(
+                                p.value,
+                                WrappedMeasurementValue::F64(MOCK_ACTIVITY.mm_activity.unwrap() as f64)
+                            )
                         }
                         "unified_memory_controller" => {
-                            assert_eq!(p.value, WrappedMeasurementValue::F64(MOCK_ACTIVITY.umc_activity as f64))
+                            assert_eq!(
+                                p.value,
+                                WrappedMeasurementValue::F64(MOCK_ACTIVITY.umc_activity.unwrap() as f64)
+                            )
                         }
                         e => panic!("Unexpected type {e}"),
                     }

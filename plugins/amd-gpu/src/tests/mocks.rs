@@ -11,9 +11,9 @@ pub const MOCK_PROCESS_NAME: &str = "p1";
 pub const MOCK_VOLTAGE: i64 = 850;
 
 pub const MOCK_ACTIVITY: AmdEngineUsage = AmdEngineUsage {
-    gfx_activity: 131072,
-    mm_activity: 262144,
-    umc_activity: 524288,
+    gfx_activity: Some(131072),
+    mm_activity: Some(262144),
+    umc_activity: Some(524288),
 };
 
 pub const MOCK_ENERGY_RESOLUTION: f32 = 15.3;
