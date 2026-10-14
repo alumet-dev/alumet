@@ -25,22 +25,20 @@ pub struct AmdGpuSource<H: ProcessorHandle> {
     metrics: Metrics,
 }
 
-/// Check if an [`f64`] or [`u64`] metric value is not null, to push it or not in Alumet pipeline.
-/// The collect of certain metrics is triggered under specific conditions (activity engine, running processes...).
-/// So, if the value of these metrics is null, it's best to ignore them to economize pipeline resources.
-trait MeasurementValue {
-    fn check_push(&self) -> bool;
+/// Filter out NaN values.
+trait FilterableMeasurementValue {
+    fn can_push(&self) -> bool;
 }
 
-impl MeasurementValue for u64 {
-    fn check_push(&self) -> bool {
-        *self != 0
+impl FilterableMeasurementValue for u64 {
+    fn can_push(&self) -> bool {
+        true
     }
 }
 
-impl MeasurementValue for f64 {
-    fn check_push(&self) -> bool {
-        *self != 0.0 && !self.is_nan()
+impl FilterableMeasurementValue for f64 {
+    fn can_push(&self) -> bool {
+        !self.is_nan()
     }
 }
 
@@ -54,10 +52,10 @@ fn push<T, F>(
     value: T,
     attributes: F,
 ) where
-    T: MeasurementValue + MeasurementType<T = T>,
+    T: FilterableMeasurementValue + MeasurementType<T = T>,
     F: FnOnce() -> (&'static str, String),
 {
-    if value.check_push() {
+    if value.can_push() {
         let (key, label) = attributes();
         measurements.push(
             MeasurementPoint::new(timestamp, metric, resource.clone(), consumer.clone(), value).with_attr(key, label),
@@ -350,19 +348,19 @@ impl<H: ProcessorHandle> Source for AmdGpuSource<H> {
 
 #[cfg(test)]
 mod tests {
-    use super::MeasurementValue;
+    use super::FilterableMeasurementValue;
 
     #[test]
-    fn test_check_push_interger() {
-        assert_eq!(0.check_push(), false);
-        assert_eq!(2.check_push(), true);
+    fn can_push_integers() {
+        assert_eq!(0.can_push(), true);
+        assert_eq!(2.can_push(), true);
     }
 
     #[test]
-    fn test_check_push_float() {
-        assert_eq!(0.0.check_push(), false);
-        assert_eq!(2.5.check_push(), true);
-        assert_eq!((-4.5).check_push(), true);
-        assert_eq!(f64::NAN.check_push(), false);
+    fn can_push_float_if_not_nan() {
+        assert_eq!(0.0.can_push(), true);
+        assert_eq!(2.5.can_push(), true);
+        assert_eq!((-4.5).can_push(), true);
+        assert_eq!(f64::NAN.can_push(), false);
     }
 }
