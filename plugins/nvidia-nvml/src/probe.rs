@@ -424,6 +424,17 @@ impl<D: NvmlDevice> Source for FullSource<D> {
             }
         }
 
+        // Get the current power cap (power management limit), in milliWatts
+        if features.power_limit {
+            measurements.push(MeasurementPoint::new(
+                timestamp,
+                self.metrics.power_limit,
+                self.resource.clone(),
+                consumer.clone(),
+                device.power_management_limit()? as u64,
+            ));
+        }
+
         // Push requested GPM metrics
         if features.gpm_metrics
             && !self.gpm_keys.is_empty()

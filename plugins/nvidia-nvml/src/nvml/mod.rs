@@ -110,6 +110,10 @@ pub trait NvmlDevice: Display + Send {
     /// See [`nvml_wrapper::Device::clock_info`].
     fn clock_info(&self, clock_type: Clock) -> NvmlResult<u32>;
 
+    /// Current power cap (power management limit) in milliWatts.
+    /// See [`nvml_wrapper::Device::power_management_limit`].
+    fn power_management_limit(&self) -> NvmlResult<u32>;
+
     /// Checks whether the device supports GPM metrics.
     /// See [`nvml_wrapper::Device::gpm_support`]
     fn gpm_support(&self) -> Result<bool, nvml_wrapper::error::NvmlError>;

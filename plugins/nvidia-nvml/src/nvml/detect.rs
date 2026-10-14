@@ -157,6 +157,10 @@ mod tests {
                 .returning(|_| Err(NvmlError::NotSupported))
                 .times(1);
             device
+                .expect_power_management_limit()
+                .returning(|| Err(NvmlError::NotSupported))
+                .times(1);
+            device
                 .expect_gpm_support()
                 .returning(|| Err(NvmlError::NotSupported))
                 .times(1);

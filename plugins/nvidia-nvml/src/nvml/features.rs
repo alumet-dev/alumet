@@ -48,6 +48,8 @@ pub struct OptionalFeatures {
     pub running_graphics_processes: AvailableVersion,
     /// Clock frequency.
     pub clock_info: bool,
+    /// Power cap (power management limit).
+    pub power_limit: bool,
     // Amount of used GPU memory.
     pub used_gpu_memory: bool,
     /// GPM metrics.
@@ -69,6 +71,7 @@ impl OptionalFeatures {
             running_compute_processes: check_running_compute_processes(device)?,
             running_graphics_processes: check_running_graphics_processes(device)?,
             clock_info: check_clock_info(device)?,
+            power_limit: is_supported(device.power_management_limit())?,
             used_gpu_memory: check_running_compute_processes(device)? != AvailableVersion::None
                 || check_running_graphics_processes(device)? != AvailableVersion::None,
             gpm_metrics: is_supported(
@@ -90,6 +93,7 @@ impl OptionalFeatures {
             || self.running_compute_processes != AvailableVersion::None
             || self.running_graphics_processes != AvailableVersion::None
             || self.clock_info
+            || self.power_limit
             || self.used_gpu_memory
             || self.gpm_metrics
     }
@@ -134,6 +138,9 @@ impl Display for OptionalFeatures {
         };
         if self.clock_info {
             available.push("clock_info");
+        }
+        if self.power_limit {
+            available.push("power_limit");
         }
         if self.used_gpu_memory {
             available.push("used_gpu_memory");
@@ -224,12 +231,13 @@ mod tests {
             running_compute_processes: AvailableVersion::Latest,
             running_graphics_processes: AvailableVersion::Latest,
             clock_info: true,
+            power_limit: true,
             used_gpu_memory: true,
             gpm_metrics: true,
         };
         assert_eq!(
             format!("{}", features),
-            "total_energy_consumption, instant_power, major_utilization, memory_info, decoder_utilization, encoder_utilization, process_utilization_stats, temperature_gpu, running_compute_processes(latest), running_graphics_processes(latest), clock_info, used_gpu_memory, gpm_metrics"
+            "total_energy_consumption, instant_power, major_utilization, memory_info, decoder_utilization, encoder_utilization, process_utilization_stats, temperature_gpu, running_compute_processes(latest), running_graphics_processes(latest), clock_info, power_limit, used_gpu_memory, gpm_metrics"
         );
     }
 
@@ -247,6 +255,7 @@ mod tests {
             running_compute_processes: AvailableVersion::V2,
             running_graphics_processes: AvailableVersion::None,
             clock_info: false,
+            power_limit: false,
             used_gpu_memory: true,
             gpm_metrics: true,
         };
@@ -271,6 +280,7 @@ mod tests {
             running_compute_processes: AvailableVersion::None,
             running_graphics_processes: AvailableVersion::None,
             clock_info: false,
+            power_limit: false,
             used_gpu_memory: false,
             gpm_metrics: false,
         };
@@ -325,6 +335,9 @@ mod tests {
             })
             .times(1);
         device.expect_clock_info().returning(|_| Err(NvmlError::NotSupported));
+        device
+            .expect_power_management_limit()
+            .returning(|| Err(NvmlError::NotSupported));
         device.expect_gpm_support().returning(|| Err(NvmlError::NotSupported));
 
         let features = OptionalFeatures::detect_on(&device).expect("detection failed");
@@ -342,6 +355,7 @@ mod tests {
                 running_compute_processes: AvailableVersion::V2,
                 running_graphics_processes: AvailableVersion::None,
                 clock_info: false,
+                power_limit: false,
                 used_gpu_memory: true,
                 gpm_metrics: false
             }
@@ -368,6 +382,7 @@ mod tests {
                 running_compute_processes: AvailableVersion::V2,
                 running_graphics_processes: AvailableVersion::Latest,
                 clock_info: false,
+                power_limit: false,
                 used_gpu_memory: true,
                 gpm_metrics: false
             }
