@@ -176,7 +176,7 @@ impl AlumetPlugin for PerfPlugin {
                         };
                         Some((
                             Observable::Cgroup {
-                                path: absolute_path,
+                                path: path.to_string(),
                                 fd: Arc::new(fd),
                             },
                             cgroup_source_name(path),
