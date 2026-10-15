@@ -11,18 +11,27 @@ ALUMET_VERSION=0.9.4
 ALUMET_DISTRIBUTION=ubuntu_24.04
 ALUMET_ARCHITECTURE=amd64
 
+# For k8s tests
+ALUMET_CHART_VERSION=0.8.2
+ALUMET_CHART_INSTANCE_NAME=alumet-robot-fm
+
 REQUIRED_VARS := NODE GATEWAY USERNAME KEY 
 
 all: init test
 
 help:
 	@echo "Current test set-up:"
-	@echo "  ALUMET_VERSION         	$(ALUMET_VERSION)"
-	@echo "  ALUMET_DISTRIBUTION    	$(ALUMET_DISTRIBUTION)"
-	@echo "  ALUMET_ARCHITECTECTURE    	$(ALUMET_ARCHITECTECTURE)"
-	@echo "  Target node            	$(NODE)"
-	@echo "  Modify the variables ALUMET_VERSION, ALUMET_DISTRIBUTION, ALUMET_ARCHITECTURE in this Makefile if you want to modify the set-up"
-	@echo "  Modify the variables NODE, GATEWAY, USERNAME, KEY in the .env file if you want to modify the set-up"
+	@echo "  ALUMET_VERSION         		$(ALUMET_VERSION)"
+	@echo "  ALUMET_DISTRIBUTION    		$(ALUMET_DISTRIBUTION)"
+	@echo "  ALUMET_ARCHITECTURE    		$(ALUMET_ARCHITECTURE)"
+	@echo "  ALUMET_CHART_VERSION    		$(ALUMET_CHART_VERSION)"
+	@echo "  ALUMET_CHART_INSTANCE_NAME    	$(ALUMET_CHART_INSTANCE_NAME)"
+	@echo "  Modify the above variables in this Makefile if you want to modify the set-up"
+	@echo "  HTTP_PROXY                     $(HTTP_PROXY)"
+	@echo "  HTTPS_PROXY                    $(HTTPS_PROXY)"
+	@echo "  NO_PROXY                       $(NO_PROXY)"
+	@echo "  Target node                    $(NODE)"
+	@echo "  Modify the variables HTTP_PROXY, HTTPS_PROXY, NO_PROXY, NODE, GATEWAY, USERNAME, KEY in the .env file if you want to modify the set-up"
 
 	@echo "Available commands:"
 	@echo "  make                		- Install dependencies and run tests"
@@ -56,13 +65,18 @@ test: check-required-vars
 	@echo "Current test set-up:"
 	@echo "  ALUMET_VERSION         	$(ALUMET_VERSION)"
 	@echo "  ALUMET_DISTRIBUTION    	$(ALUMET_DISTRIBUTION)"	
-	@echo "  ALUMET_ARCHITECTECTURE    	$(ALUMET_ARCHITECTECTURE)"	
-	@echo "  Target node            	$(NODE)"
-	@echo "  Modify the variables ALUMET_VERSION, ALUMET_DISTRIBUTION, ALUMET_ARCHITECTURE in this Makefile if you want to modify the set-up"
-	@echo "  Modify the variables NODE, GATEWAY, USERNAME, KEY in the .env file if you want to modify the set-up"
+	@echo "  ALUMET_ARCHITECTURE    	$(ALUMET_ARCHITECTURE)"
+	@echo "  ALUMET_CHART_VERSION    	$(ALUMET_CHART_VERSION)"
+	@echo "  Modify the above variables in this Makefile if you want to modify the set-up"
+
+	@echo "  HTTP_PROXY                     $(HTTP_PROXY)"
+	@echo "  HTTPS_PROXY                    $(HTTPS_PROXY)"
+	@echo "  NO_PROXY                       $(NO_PROXY)"
+	@echo "  Target node                    $(NODE)"
+	@echo "  Modify the variables HTTP_PROXY, HTTPS_PROXY, NO_PROXY, NODE, GATEWAY, USERNAME, KEY in the .env file if you want to modify the set-up"
 
 	# Note: to exclude some tests you can:
-	# scpecify a path to a file or a directory /subdirectory (./scenario/container for example)
+	# specify a path to a file or a directory /subdirectory (./scenario/container for example)
 	# or add the option --exclude {tag name} to robot command
 
 	poetry run robot \
@@ -74,13 +88,20 @@ test: check-required-vars
         -v "ALUMET_VERSION:$(ALUMET_VERSION)" \
         -v "ALUMET_DISTRIBUTION:$(ALUMET_DISTRIBUTION)" \
 		-v "ALUMET_ARCHITECTURE:$(ALUMET_ARCHITECTURE)" \
+		-v "ALUMET_CHART_VERSION:$(ALUMET_CHART_VERSION)" \
+		-v "ALUMET_CHART_INSTANCE_NAME:$(ALUMET_CHART_INSTANCE_NAME)" \
+		-v "HTTP_PROXY:$(HTTP_PROXY)" \
+		-v "HTTPS_PROXY:$(HTTPS_PROXY)" \
+		-v "NO_PROXY:$(NO_PROXY)" \
         --metadata "Alumet version":$(ALUMET_VERSION) \
 		--metadata "Alumet distribution":$(ALUMET_DISTRIBUTION) \
 		--metadata "Alumet architecture":$(ALUMET_ARCHITECTURE) \
+		--metadata "Alumet chart version":$(ALUMET_CHART_VERSION) \
 		--metadata "Environnement target node":$(NODE) \
 		./scenarios/
 
 unused:
 	for type in arguments files keywords returns variables; do \
+		echo "Checking presence of unused $$type" ;\
 		poetry run robotunused $$type -v; \
 	done
