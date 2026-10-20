@@ -86,6 +86,7 @@ sagittaire
 SCPI
 servan
 simplifiable
+SLUID
 slurm
 slurmstep
 slurmstepd

@@ -91,6 +91,16 @@ jobs_event_level = "job"
 # If true, start the sources in "paused" state.
 # This is useful in combination with other plugins that will resume the sources.
 add_source_in_pause_state = false
+
+# Regex to apply to cgroup paths to extract job metadata.
+# 
+# Default (if absent): "slurm_auto".
+# Possible values:
+# - slurm_auto: uses Slurm cgroup paths, detects whether cgroup v1 or v2 is present
+# - slurm_cgroup_v1: Slurm on cgroup v1
+# - slurm_cgroup_v2: Slurm on cgroup v2
+# - psslurm: adapts to ParaStation's psslurm daemon
+#job_cgroup_regex = "psslurm"   
 ```
 
 ## Levels of Detail

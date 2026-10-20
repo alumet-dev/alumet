@@ -2,8 +2,9 @@ use alumet::pipeline::elements::source::trigger::TriggerSpec;
 use util_cgroups::Cgroup;
 
 use crate::{
-    Config, JobMonitoringLevel,
+    Config,
     attr::{SlurmJobTagger, find_jobid_in_attrs, find_key_in_attrs},
+    config::JobMonitoringLevel,
 };
 use util_cgroups_plugins::{
     cgroup_events::{CgroupSetupCallback, ProbeSetup, SourceSettings},
