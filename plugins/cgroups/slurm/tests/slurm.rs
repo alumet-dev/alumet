@@ -14,7 +14,7 @@ use alumet::{
     units::{PrefixedUnit, Unit},
 };
 
-use plugin_slurm::{Config, SlurmPlugin};
+use plugin_slurm::{SlurmPlugin, config::Config};
 use util_cgroups::measure::v2::mock::{CpuStatMock, MockFileCgroupKV};
 
 use anyhow::Result;

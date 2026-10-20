@@ -7,10 +7,11 @@ repository.workspace = true
 [dependencies]
 alumet.workspace = true
 anyhow.workspace = true
+const_format = "0.2.36"
 humantime-serde.workspace = true
 serde = { workspace = true, features = ["derive"] }
-util-cgroups = { version = "0.1.0", path = "../util-cgroups" }
-util-cgroups-plugins = { version = "0.1.0", path = "../util-cgroups-plugins" }
+util-cgroups = { path = "../util-cgroups" }
+util-cgroups-plugins = { path = "../util-cgroups-plugins" }
 
 [dev-dependencies]
 tempfile.workspace = true
@@ -18,6 +19,7 @@ toml.workspace = true
 alumet = { workspace = true, features = ["test"] }
 env_logger.workspace = true
 pretty_assertions.workspace = true
+util-cgroups = { path = "../util-cgroups", features = ["manually"] }
 
 [lints]
 workspace = true

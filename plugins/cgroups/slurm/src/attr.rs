@@ -1,16 +1,60 @@
 use alumet::measurement::AttributeValue;
+use const_format::formatcp;
 use util_cgroups::Cgroup;
 use util_cgroups_plugins::job_annotation_transform::JobTagger;
 use util_cgroups_plugins::regex::RegexAttributesExtrator;
 
-pub const JOB_REGEX_SLURM1: &str = "/slurm/uid_(?<user_id__u64>[0-9]+)/job_(?<job_id__u64>[0-9]+)";
-pub const JOB_REGEX_SLURM2: &str = "/slurmstepd.scope/job_(?<job_id__u64>[0-9]+)(?<remaining>(/.*)?)";
+const SLURM_TASK: &str = "task_(?<task_id>[^/]+)";
+const SLURM_SUBSTEP: &str = "(?<substep_id>[^/]+)";
+const SLURM_STEP: &str = "step_(?<step_id>[^/]+)";
+const SLURM_JOB: &str = "job_(?<job_id__u64>[0-9]+)"; // TODO support the new SLUID as an alternative to the job id
+pub const JOB_REGEX_SLURM1: &str = formatcp!("/slurm/uid_(?<user_id__u64>[0-9]+)/{SLURM_JOB}");
+pub const JOB_REGEX_SLURM2: &str =
+    formatcp!("/slurmstepd.scope/{SLURM_JOB}(/{SLURM_STEP}(/{SLURM_SUBSTEP}(/{SLURM_TASK})?)?)?");
+
+const PSSLURM_USER: &str = "user-(?<user>[^/]+)";
+const PSSLURM_JOB: &str = "job-(?<job_id__u64>[0-9]+)";
+const PSSLURM_STEP: &str = "step-(?<step_id>[^/]+)";
+pub const JOB_REGEX_PSSLURM: &str = formatcp!("/slurm/{PSSLURM_USER}/{PSSLURM_JOB}(/{PSSLURM_STEP})?");
 
 #[derive(Clone)]
-struct JobDetails {
-    step: Option<String>,
-    sub_step: Option<String>,
-    task: Option<String>,
+pub enum JobCgroupRegexExtractorStrategy {
+    /// Parses Slurm cgroup paths. Detects cgroup v1 and cgroup v2 automatically.
+    SlurmAuto {
+        v1: RegexAttributesExtrator,
+        v2: RegexAttributesExtrator,
+    },
+
+    /// Uses a fixed regex extractor.
+    Fixed(RegexAttributesExtrator),
+}
+
+#[derive(Clone)]
+pub struct SlurmJobTagger {
+    strategy: JobCgroupRegexExtractorStrategy,
+}
+
+impl SlurmJobTagger {
+    pub fn new(strategy: JobCgroupRegexExtractorStrategy) -> Self {
+        Self { strategy }
+    }
+}
+
+impl JobTagger for SlurmJobTagger {
+    fn attributes_for_cgroup(&mut self, cgroup: &Cgroup) -> Vec<(String, AttributeValue)> {
+        // extracts attributes "job_id" and ("user" or "user_id") and maybe others like step or sub-step
+        let extractor = match &self.strategy {
+            JobCgroupRegexExtractorStrategy::SlurmAuto { v1, v2 } => match cgroup.hierarchy().version() {
+                util_cgroups::CgroupVersion::V1 => v1,
+                util_cgroups::CgroupVersion::V2 => v2,
+            },
+            JobCgroupRegexExtractorStrategy::Fixed(ex) => ex,
+        };
+
+        extractor
+            .extract(cgroup.canonical_path())
+            .expect("bad regex: it should only match if the input can be parsed into the specified types")
+    }
 }
 
 pub fn find_jobid_in_attrs(attrs: &[(String, AttributeValue)]) -> Option<u64> {
@@ -27,95 +71,13 @@ pub fn find_key_in_attrs(key: &str, attrs: &[(String, AttributeValue)]) -> Optio
     })
 }
 
-fn extract_values(path: &str) -> Option<JobDetails> {
-    // Split on "/" and ignore empty parts
-    let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-
-    if parts.is_empty() {
-        return None;
-    }
-    let mut out: JobDetails = JobDetails {
-        step: None,
-        sub_step: None,
-        task: None,
-    };
-    let element_len = parts.len();
-
-    if element_len >= 1 {
-        // First element : step_X -> X
-        let step = parts[0];
-        let num = step.strip_prefix("step_").unwrap_or(step);
-        out.step = Some(num.to_string());
-    }
-
-    if element_len >= 2 {
-        out.sub_step = Some(parts[1].to_string());
-    }
-
-    if element_len >= 3 {
-        let last = parts[2];
-        let cleaned = last.strip_prefix("task_").unwrap_or(last);
-        out.task = Some(cleaned.to_string());
-    }
-
-    Some(out)
-}
-
-#[derive(Clone)]
-pub struct SlurmJobTagger {
-    extractor_v1: RegexAttributesExtrator,
-    extractor_v2: RegexAttributesExtrator,
-}
-
-impl SlurmJobTagger {
-    pub fn new() -> anyhow::Result<Self> {
-        Ok(Self {
-            extractor_v1: RegexAttributesExtrator::new(JOB_REGEX_SLURM1)?,
-            extractor_v2: RegexAttributesExtrator::new(JOB_REGEX_SLURM2)?,
-        })
-    }
-}
-
-impl JobTagger for SlurmJobTagger {
-    fn attributes_for_cgroup(&mut self, cgroup: &Cgroup) -> Vec<(String, AttributeValue)> {
-        // extracts attributes "job_id" and ("user" or "user_id")
-        let extractor = match cgroup.hierarchy().version() {
-            util_cgroups::CgroupVersion::V1 => &self.extractor_v1,
-            util_cgroups::CgroupVersion::V2 => &self.extractor_v2,
-        };
-
-        let mut attrs = extractor
-            .extract(cgroup.canonical_path())
-            .expect("bad regex: it should only match if the input can be parsed into the specified types");
-
-        // Retrieve remaining
-        let remaining = attrs
-            .iter()
-            .position(|(key, _)| key == "remaining")
-            .map(|pos| attrs.remove(pos));
-        let mut attributs: Option<JobDetails> = None;
-        if let Some((_key, AttributeValue::String(tmp_str))) = remaining {
-            attributs = extract_values(tmp_str.as_str());
-        }
-        if let Some(attributs) = attributs {
-            if let Some(step) = attributs.step {
-                attrs.push(("step".to_string(), AttributeValue::String(step)));
-            }
-            if let Some(sub_step) = attributs.sub_step {
-                attrs.push(("sub_step".to_string(), AttributeValue::String(sub_step)));
-            }
-            if let Some(task) = attributs.task {
-                attrs.push(("task".to_string(), AttributeValue::String(task)));
-            }
-        }
-        attrs
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use crate::attr::*;
     use alumet::measurement::AttributeValue;
+    use util_cgroups::{CgroupHierarchy, CgroupVersion};
 
     #[test]
     fn test_find_jobid_in_attrs() {
@@ -176,99 +138,89 @@ mod tests {
     }
 
     #[test]
-    fn test_fn_extract_values_empty() {
-        let mut part = "";
-        assert!(extract_values(part).is_none());
-        part = "/";
-        assert!(extract_values(part).is_none());
-        part = "//";
-        assert!(extract_values(part).is_none());
-    }
+    fn tagger_slurm_cgroupv1() {
+        let h = CgroupHierarchy::manually_unchecked_v1_named(PathBuf::from("/sys/fs/cgroup"), "test".to_string());
 
-    #[test]
-    fn test_fn_extract_values_len_1() {
-        let mut part = "step_19";
-        let mut ret = extract_values(part);
-        assert!(ret.is_some());
-        let mut ret_unwraped = ret.unwrap();
-        assert_eq!(ret_unwraped.step.unwrap(), "19".to_string());
-        assert!(ret_unwraped.sub_step.is_none());
-        assert!(ret_unwraped.task.is_none());
-
-        part = "step_-1/";
-        ret = extract_values(part);
-        assert!(ret.is_some());
-        ret_unwraped = ret.unwrap();
-        assert_eq!(ret_unwraped.step.unwrap(), "-1".to_string());
-        assert!(ret_unwraped.sub_step.is_none());
-        assert!(ret_unwraped.task.is_none());
-
-        part = "54";
-        ret = extract_values(part);
-        assert!(ret.is_some());
-        ret_unwraped = ret.unwrap();
-        assert_eq!(ret_unwraped.step.unwrap(), "54".to_string());
-        assert!(ret_unwraped.sub_step.is_none());
-        assert!(ret_unwraped.task.is_none());
-    }
-
-    #[test]
-    fn test_fn_extract_values_len_2() {
-        let mut part = "step_15/All_Hope_Is_Gone";
-        let mut ret = extract_values(part);
-        assert!(ret.is_some());
-        let mut ret_unwraped = ret.unwrap();
-        assert_eq!(ret_unwraped.step.unwrap(), "15".to_string());
-        assert_eq!(ret_unwraped.sub_step.unwrap(), "All_Hope_Is_Gone".to_string());
-        assert!(ret_unwraped.task.is_none());
-
-        part = "step_-101/.5:_The_Gray_Chapter";
-        ret = extract_values(part);
-        assert!(ret.is_some());
-        ret_unwraped = ret.unwrap();
-        assert_eq!(ret_unwraped.step.unwrap(), "-101".to_string());
-        assert_eq!(ret_unwraped.sub_step.unwrap(), ".5:_The_Gray_Chapter".to_string());
-        assert!(ret_unwraped.task.is_none());
-    }
-
-    #[test]
-    fn test_fn_extract_values_len_3() {
-        let mut part = "step_5/We_Are_Not_Your_Kind/task_-58";
-        let mut ret = extract_values(part);
-        assert!(ret.is_some());
-        let mut ret_unwraped = ret.unwrap();
-        assert_eq!(ret_unwraped.step.unwrap(), "5".to_string());
-        assert_eq!(ret_unwraped.sub_step.unwrap(), "We_Are_Not_Your_Kind".to_string());
-        assert_eq!(ret_unwraped.task.unwrap(), "-58".to_string());
-
-        part = "step_-101/The_End,_So_Far/task_2022";
-        ret = extract_values(part);
-        assert!(ret.is_some());
-        ret_unwraped = ret.unwrap();
-        assert_eq!(ret_unwraped.step.unwrap(), "-101".to_string());
-        assert_eq!(ret_unwraped.sub_step.unwrap(), "The_End,_So_Far".to_string());
-        assert_eq!(ret_unwraped.task.unwrap(), "2022");
-
-        part = "step_69/Vol._3:_(The_Subliminal_Verses)/2008";
-        ret = extract_values(part);
-        assert!(ret.is_some());
-        ret_unwraped = ret.unwrap();
-        assert_eq!(ret_unwraped.step.unwrap(), "69".to_string());
+        let job_cgroup = Cgroup::from_cgroup_path(&h, "/slurm/uid_123/job_999".to_string());
+        let mut tagger = SlurmJobTagger::new(JobCgroupRegexExtractorStrategy::Fixed(
+            RegexAttributesExtrator::new(JOB_REGEX_SLURM1).unwrap(),
+        ));
         assert_eq!(
-            ret_unwraped.sub_step.unwrap(),
-            "Vol._3:_(The_Subliminal_Verses)".to_string()
+            tagger.attributes_for_cgroup(&job_cgroup),
+            vec![
+                ("user_id".to_string(), AttributeValue::U64(123)),
+                ("job_id".to_string(), AttributeValue::U64(999))
+            ]
         );
-        assert_eq!(ret_unwraped.task.unwrap(), "2008");
     }
 
     #[test]
-    fn test_fn_extract_values_len_above() {
-        let part = "step_12/Iowa/2001/Slipknot/1999";
-        let ret = extract_values(part);
-        assert!(ret.is_some());
-        let ret_unwraped = ret.unwrap();
-        assert_eq!(ret_unwraped.step.unwrap(), "12".to_string());
-        assert_eq!(ret_unwraped.sub_step.unwrap(), "Iowa".to_string());
-        assert_eq!(ret_unwraped.task.unwrap(), "2001".to_string());
+    fn tagger_slurm_cgroupv2() {
+        let h = CgroupHierarchy::manually_unchecked(
+            PathBuf::from("/sys/fs/cgroup"),
+            CgroupVersion::V2,
+            vec![String::from("cpuset")],
+        );
+
+        let job_cgroup = Cgroup::from_cgroup_path(&h, "/slurmstepd.scope/job_999".to_string());
+        let mut tagger = SlurmJobTagger::new(JobCgroupRegexExtractorStrategy::Fixed(
+            RegexAttributesExtrator::new(JOB_REGEX_SLURM2).unwrap(),
+        ));
+        assert_eq!(
+            tagger.attributes_for_cgroup(&job_cgroup),
+            vec![("job_id".to_string(), AttributeValue::U64(999))]
+        );
+
+        let task_cgroup =
+            Cgroup::from_cgroup_path(&h, "/slurmstepd.scope/job_999/step_0/mysubthing/task_0".to_string());
+        let mut tagger = SlurmJobTagger::new(JobCgroupRegexExtractorStrategy::Fixed(
+            RegexAttributesExtrator::new(JOB_REGEX_SLURM2).unwrap(),
+        ));
+        assert_eq!(
+            tagger.attributes_for_cgroup(&task_cgroup),
+            vec![
+                ("job_id".to_string(), AttributeValue::U64(999)),
+                ("step_id".to_string(), AttributeValue::String(String::from("0"))),
+                (
+                    "substep_id".to_string(),
+                    AttributeValue::String(String::from("mysubthing"))
+                ),
+                ("task_id".to_string(), AttributeValue::String(String::from("0"))),
+            ]
+        );
+    }
+
+    #[test]
+    fn tagger_psslurm_cgroupv2() {
+        let h = CgroupHierarchy::manually_unchecked(
+            PathBuf::from("/sys/fs/cgroup"),
+            CgroupVersion::V2,
+            vec![String::from("cpuset")],
+        );
+
+        let job_cgroup = Cgroup::from_cgroup_path(&h, "/slurm/user-guigui/job-2026".to_string());
+        let mut tagger = SlurmJobTagger::new(JobCgroupRegexExtractorStrategy::Fixed(
+            RegexAttributesExtrator::new(JOB_REGEX_PSSLURM).unwrap(),
+        ));
+        assert_eq!(
+            tagger.attributes_for_cgroup(&job_cgroup),
+            vec![
+                ("user".to_string(), AttributeValue::String("guigui".to_string())),
+                ("job_id".to_string(), AttributeValue::U64(2026))
+            ]
+        );
+
+        let step_cgroup = Cgroup::from_cgroup_path(&h, "/slurm/user-guigui/job-2026/step-7".to_string());
+        let mut tagger = SlurmJobTagger::new(JobCgroupRegexExtractorStrategy::Fixed(
+            RegexAttributesExtrator::new(JOB_REGEX_PSSLURM).unwrap(),
+        ));
+        assert_eq!(
+            tagger.attributes_for_cgroup(&step_cgroup),
+            vec![
+                ("user".to_string(), AttributeValue::String("guigui".to_string())),
+                ("job_id".to_string(), AttributeValue::U64(2026)),
+                ("step_id".to_string(), AttributeValue::String("7".to_string())),
+            ]
+        );
     }
 }
