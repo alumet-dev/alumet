@@ -1,5 +1,6 @@
 use alumet::measurement::AttributeValue;
 use const_format::formatcp;
+use const_format::formatcp;
 use util_cgroups::Cgroup;
 use util_cgroups_plugins::job_annotation_transform::JobTagger;
 use util_cgroups_plugins::regex::RegexAttributesExtrator;
@@ -15,9 +16,7 @@ pub const JOB_REGEX_SLURM2: &str =
 const PSSLURM_USER: &str = "user-(?<user>[^/]+)";
 const PSSLURM_JOB: &str = "job-(?<job_id__u64>[0-9]+)";
 const PSSLURM_STEP: &str = "step-(?<step_id>[^/]+)";
-const PSSLURM_TASKS: &str = "(?<task_id>tasks)";
-pub const JOB_REGEX_PSSLURM: &str =
-    formatcp!("/slurm/{PSSLURM_USER}/{PSSLURM_JOB}(/{PSSLURM_STEP})?(/{PSSLURM_TASKS})?");
+pub const JOB_REGEX_PSSLURM: &str = formatcp!("/slurm/{PSSLURM_USER}/{PSSLURM_JOB}(/{PSSLURM_STEP})?");
 
 #[derive(Clone)]
 pub enum JobCgroupRegexExtractorStrategy {
@@ -32,6 +31,31 @@ pub enum JobCgroupRegexExtractorStrategy {
 }
 
 #[derive(Clone)]
+pub struct SlurmJobTagger {
+    strategy: JobCgroupRegexExtractorStrategy,
+}
+
+impl SlurmJobTagger {
+    pub fn new(strategy: JobCgroupRegexExtractorStrategy) -> Self {
+        Self { strategy }
+    }
+}
+
+impl JobTagger for SlurmJobTagger {
+    fn attributes_for_cgroup(&mut self, cgroup: &Cgroup) -> Vec<(String, AttributeValue)> {
+        // extracts attributes "job_id" and ("user" or "user_id") and maybe others like step or sub-step
+        let extractor = match &self.strategy {
+            JobCgroupRegexExtractorStrategy::SlurmAuto { v1, v2 } => match cgroup.hierarchy().version() {
+                util_cgroups::CgroupVersion::V1 => v1,
+                util_cgroups::CgroupVersion::V2 => v2,
+            },
+            JobCgroupRegexExtractorStrategy::Fixed(ex) => ex,
+        };
+
+        extractor
+            .extract(cgroup.canonical_path())
+            .expect("bad regex: it should only match if the input can be parsed into the specified types")
+    }
 pub struct SlurmJobTagger {
     strategy: JobCgroupRegexExtractorStrategy,
 }
@@ -77,8 +101,11 @@ pub fn find_key_in_attrs(key: &str, attrs: &[(String, AttributeValue)]) -> Optio
 mod tests {
     use std::path::PathBuf;
 
+    use std::path::PathBuf;
+
     use crate::attr::*;
     use alumet::measurement::AttributeValue;
+    use util_cgroups::{CgroupHierarchy, CgroupVersion};
     use util_cgroups::{CgroupHierarchy, CgroupVersion};
 
     #[test]
@@ -154,9 +181,56 @@ mod tests {
                 ("job_id".to_string(), AttributeValue::U64(999))
             ]
         );
+    fn tagger_slurm_cgroupv1() {
+        let h = CgroupHierarchy::manually_unchecked_v1_named(PathBuf::from("/sys/fs/cgroup"), "test".to_string());
+
+        let job_cgroup = Cgroup::from_cgroup_path(&h, "/slurm/uid_123/job_999".to_string());
+        let mut tagger = SlurmJobTagger::new(JobCgroupRegexExtractorStrategy::Fixed(
+            RegexAttributesExtrator::new(JOB_REGEX_SLURM1).unwrap(),
+        ));
+        assert_eq!(
+            tagger.attributes_for_cgroup(&job_cgroup),
+            vec![
+                ("user_id".to_string(), AttributeValue::U64(123)),
+                ("job_id".to_string(), AttributeValue::U64(999))
+            ]
+        );
     }
 
     #[test]
+    fn tagger_slurm_cgroupv2() {
+        let h = CgroupHierarchy::manually_unchecked(
+            PathBuf::from("/sys/fs/cgroup"),
+            CgroupVersion::V2,
+            vec![String::from("cpuset")],
+        );
+
+        let job_cgroup = Cgroup::from_cgroup_path(&h, "/slurmstepd.scope/job_999".to_string());
+        let mut tagger = SlurmJobTagger::new(JobCgroupRegexExtractorStrategy::Fixed(
+            RegexAttributesExtrator::new(JOB_REGEX_SLURM2).unwrap(),
+        ));
+        assert_eq!(
+            tagger.attributes_for_cgroup(&job_cgroup),
+            vec![("job_id".to_string(), AttributeValue::U64(999))]
+        );
+
+        let task_cgroup =
+            Cgroup::from_cgroup_path(&h, "/slurmstepd.scope/job_999/step_0/mysubthing/task_0".to_string());
+        let mut tagger = SlurmJobTagger::new(JobCgroupRegexExtractorStrategy::Fixed(
+            RegexAttributesExtrator::new(JOB_REGEX_SLURM2).unwrap(),
+        ));
+        assert_eq!(
+            tagger.attributes_for_cgroup(&task_cgroup),
+            vec![
+                ("job_id".to_string(), AttributeValue::U64(999)),
+                ("step_id".to_string(), AttributeValue::String(String::from("0"))),
+                (
+                    "substep_id".to_string(),
+                    AttributeValue::String(String::from("mysubthing"))
+                ),
+                ("task_id".to_string(), AttributeValue::String(String::from("0"))),
+            ]
+        );
     fn tagger_slurm_cgroupv2() {
         let h = CgroupHierarchy::manually_unchecked(
             PathBuf::from("/sys/fs/cgroup"),
@@ -222,19 +296,6 @@ mod tests {
                 ("user".to_string(), AttributeValue::String("guigui".to_string())),
                 ("job_id".to_string(), AttributeValue::U64(2026)),
                 ("step_id".to_string(), AttributeValue::String("7".to_string())),
-            ]
-        );
-
-        let task_cgroup = Cgroup::from_cgroup_path(&h, "/slurm/user-guigui/job-2026/tasks".to_string());
-        let mut tagger = SlurmJobTagger::new(JobCgroupRegexExtractorStrategy::Fixed(
-            RegexAttributesExtrator::new(JOB_REGEX_PSSLURM).unwrap(),
-        ));
-        assert_eq!(
-            tagger.attributes_for_cgroup(&task_cgroup),
-            vec![
-                ("user".to_string(), AttributeValue::String("guigui".to_string())),
-                ("job_id".to_string(), AttributeValue::U64(2026)),
-                ("task_id".to_string(), AttributeValue::String("tasks".to_string())),
             ]
         );
     }
