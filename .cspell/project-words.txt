@@ -71,6 +71,7 @@ paradoxe
 PERFMON
 pidfd
 POWERCAP
+psslurm
 psys
 ptraceable
 quarch

@@ -7,7 +7,7 @@ repository.workspace = true
 [dependencies]
 alumet.workspace = true
 anyhow.workspace = true
-itertools = "0.14.0"
+itertools.workspace = true
 log.workspace = true
 serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["rt"] }
