@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 use alumet::{measurement::MeasurementBuffer, pipeline::elements::output::OutputContext};
 use anyhow::Context;
@@ -8,6 +8,20 @@ use reqwest::{
 };
 
 use super::ser::{CreateIndexTemplate, IndexTemplate, Serializer};
+
+/// Timeout for the connection phase.
+///
+/// Without it, a request to an unreachable server (for instance an address
+/// blackholed by a firewall) can block forever.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Total timeout for an HTTP request.
+///
+/// reqwest has no timeout by default, so a stalled connection (server or
+/// reverse proxy that stops responding without closing the connection) makes
+/// the request — and therefore the output thread — block forever. The output
+/// then stops sending measurements without logging anything.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 // OpenSearch/ElasticSearch API client.
 pub struct Client {
@@ -59,7 +73,11 @@ impl Client {
                     .into_header_value()
                     .context("auth should make a valid http header")?,
             )]));
-        let client = builder.build().context("failed to initialize HTTP client")?;
+        let client = builder
+            .connect_timeout(CONNECT_TIMEOUT)
+            .timeout(REQUEST_TIMEOUT)
+            .build()
+            .context("failed to initialize HTTP client")?;
         Ok(Self {
             client,
             server_url: conn.server_url,
