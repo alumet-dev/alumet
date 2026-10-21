@@ -4,7 +4,7 @@ use std::{fs::File, io, sync::Arc};
 use anyhow::Context;
 
 use crate::event::{self, ParsedEvent, Scope};
-use crate::multiplexing::{GroupCounters, Snapshot};
+use crate::multiplexing;
 
 pub use crate::multiplexing::Accuracy;
 
@@ -49,7 +49,10 @@ pub struct EventGroup {
     counters: Vec<perf_event::Counter>,
     partial_pmu: bool,
     auto_scale: bool,
-    scaling: GroupCounters,
+    /// The value of each counter since the group was enabled, estimated for multiplexing, in
+    /// `counters` order.
+    values: Vec<u64>,
+    accuracy: Accuracy,
     /// Whether the previous poll found the group starved, so that we only warn on the transition
     /// into starvation and not on every poll while it lasts.
     starved: bool,
@@ -120,7 +123,8 @@ impl EventGroupBuilder {
     pub fn build(mut self) -> io::Result<EventGroup> {
         self.perf_group.enable()?;
         Ok(EventGroup {
-            scaling: GroupCounters::new(self.counters.len()),
+            values: vec![0; self.counters.len()],
+            accuracy: Accuracy::Exact,
             target: self.target,
             perf_group: self.perf_group,
             counters: self.counters,
@@ -132,11 +136,9 @@ impl EventGroupBuilder {
 }
 
 impl EventGroup {
-    /// Reads the group, updates the corrected cumulative value of each of its counters, and logs
+    /// Reads the group, updates the estimated value of each of its counters, and logs
     /// anything worth reporting about the multiplexing.
     pub fn read(&mut self) -> anyhow::Result<()> {
-        use crate::multiplexing::Interval;
-
         let counts = self.perf_group.read().context("reading perf group")?;
 
         // Always available: `Group::builder` asks for TOTAL_TIME_ENABLED and TOTAL_TIME_RUNNING.
@@ -145,55 +147,50 @@ impl EventGroup {
                 "perf_events did not report time_enabled/time_running, which are required to detect multiplexing"
             );
         };
-        let now = Snapshot {
-            time_enabled: time_enabled.as_nanos(),
-            time_running: time_running.as_nanos(),
-            values: self.counters.iter().map(|counter| counts[counter]).collect(),
-        };
+        let (enabled, running) = (time_enabled.as_nanos(), time_running.as_nanos());
+        let raw: Vec<u64> = self.counters.iter().map(|counter| counts[counter]).collect();
 
-        let auto_scale = self.auto_scale;
-        let interval = self.scaling.account(now, auto_scale, self.partial_pmu);
+        let (values, accuracy) = multiplexing::estimate(&raw, enabled, running, self.auto_scale, self.partial_pmu);
+        self.values = values;
+        self.accuracy = accuracy;
+
         // Only warn on the transition: starvation can last for the whole lifetime of the source.
-        let starved = interval == Interval::Starved;
-        let just_starved = starved && !self.starved;
+        let starved = running == 0 && enabled > 0;
+        if starved && !self.starved {
+            log::warn!(
+                "perf group ({:?}) ran but never made it onto the PMU, its counters are stalled. \
+                 Possible causes: more events configured in one group than the CPU has hardware counters, or \
+                 tools holding the PMU system-wide.",
+                self.target,
+            );
+        }
         self.starved = starved;
-        match interval {
-            Interval::Idle | Interval::Exact | Interval::Partial => (),
-            Interval::Multiplexed { running, enabled } => {
-                log::debug!(
-                    "perf group ({:?}) was only on the PMU {:.1}% of the time, its values are {}",
-                    self.target,
-                    100.0 * (running as f64) / (enabled as f64),
-                    if auto_scale { "extrapolated" } else { "underestimated" },
-                );
-            }
-            Interval::Starved if just_starved => {
-                log::warn!(
-                    "perf group ({:?}) ran but never made it onto the PMU, its counters are stalled. \
-                     Possible causes: more events configured in one group than the CPU has hardware counters, or \
-                     tools holding the PMU system-wide.",
-                    self.target,
-                );
-            }
-            Interval::Starved => (),
+        if !starved && running < enabled && !self.partial_pmu {
+            log::debug!(
+                "perf group ({:?}) was only on the PMU {:.1}% of the time, its values are {}",
+                self.target,
+                100.0 * (running as f64) / (enabled as f64),
+                accuracy.as_str(),
+            );
         }
         Ok(())
     }
 
-    /// The cumulative value of a counter of this group (corrected for multiplexing when `auto_scale`
-    /// is enabled), as of the last [`read`](Self::read).
+    /// The value of a counter of this group since it was enabled (estimated for multiplexing when
+    /// `auto_scale` is enabled), as of the last [`read`](Self::read). The estimate can go down
+    /// between two reads.
     #[allow(dead_code, reason = "only used by other plugins, once the module is public")]
     pub fn value(&self, id: CounterId) -> u64 {
-        self.scaling.corrected()[id.0]
+        self.values[id.0]
     }
 
-    /// The cumulative values of every counter, in [`add`](EventGroupBuilder::add) order. See [`value`](Self::value).
+    /// The values of every counter, in [`add`](EventGroupBuilder::add) order. See [`value`](Self::value).
     pub fn values(&self) -> &[u64] {
-        self.scaling.corrected()
+        &self.values
     }
 
     pub fn accuracy(&self) -> Accuracy {
-        self.scaling.accuracy()
+        self.accuracy
     }
 }
 
