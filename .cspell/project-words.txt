@@ -79,6 +79,7 @@ quarchpy
 Raffin
 RAPL
 regen
+reqwest
 robotunused
 rollup
 rustfmt

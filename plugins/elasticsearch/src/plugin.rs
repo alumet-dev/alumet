@@ -2,7 +2,10 @@ use alumet::{
     measurement::MeasurementBuffer,
     pipeline::{
         Output,
-        elements::{error::WriteError, output::OutputContext},
+        elements::{
+            error::WriteError,
+            output::{OutputContext, error::WriteRetry},
+        },
     },
     plugin::{
         AlumetPluginStart, ConfigTable,
@@ -88,7 +91,8 @@ impl Output for ElasticSearchOutput {
         if !measurements.is_empty() {
             self.client
                 .bulk_insert_measurements(measurements, ctx)
-                .context("failed to send measurements")?;
+                .context("failed to send measurements")
+                .retry_write()?;
         }
         Ok(())
     }
