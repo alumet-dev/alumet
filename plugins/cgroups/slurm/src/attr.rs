@@ -15,7 +15,9 @@ pub const JOB_REGEX_SLURM2: &str =
 const PSSLURM_USER: &str = "user-(?<user>[^/]+)";
 const PSSLURM_JOB: &str = "job-(?<job_id__u64>[0-9]+)";
 const PSSLURM_STEP: &str = "step-(?<step_id>[^/]+)";
-pub const JOB_REGEX_PSSLURM: &str = formatcp!("/slurm/{PSSLURM_USER}/{PSSLURM_JOB}(/{PSSLURM_STEP})?");
+const PSSLURM_TASKS: &str = "(?<task_id>tasks)";
+pub const JOB_REGEX_PSSLURM: &str =
+    formatcp!("/slurm/{PSSLURM_USER}/{PSSLURM_JOB}(/{PSSLURM_STEP})?(/{PSSLURM_TASKS})?");
 
 #[derive(Clone)]
 pub enum JobCgroupRegexExtractorStrategy {
@@ -220,6 +222,19 @@ mod tests {
                 ("user".to_string(), AttributeValue::String("guigui".to_string())),
                 ("job_id".to_string(), AttributeValue::U64(2026)),
                 ("step_id".to_string(), AttributeValue::String("7".to_string())),
+            ]
+        );
+
+        let task_cgroup = Cgroup::from_cgroup_path(&h, "/slurm/user-guigui/job-2026/tasks".to_string());
+        let mut tagger = SlurmJobTagger::new(JobCgroupRegexExtractorStrategy::Fixed(
+            RegexAttributesExtrator::new(JOB_REGEX_PSSLURM).unwrap(),
+        ));
+        assert_eq!(
+            tagger.attributes_for_cgroup(&task_cgroup),
+            vec![
+                ("user".to_string(), AttributeValue::String("guigui".to_string())),
+                ("job_id".to_string(), AttributeValue::U64(2026)),
+                ("task_id".to_string(), AttributeValue::String("tasks".to_string())),
             ]
         );
     }
