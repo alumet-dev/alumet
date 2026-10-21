@@ -9,6 +9,7 @@ alumet.workspace = true
 anyhow.workspace = true
 const_format = "0.2.36"
 humantime-serde.workspace = true
+itertools.workspace = true
 serde = { workspace = true, features = ["derive"] }
 util-cgroups = { path = "../util-cgroups" }
 util-cgroups-plugins = { path = "../util-cgroups-plugins" }
