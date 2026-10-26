@@ -23,6 +23,7 @@ jobs:
           components: rustfmt
       - name: Check formatting
         run: cargo fmt --check
+
   check_dependencies:
     runs-on: ubuntu-latest
     steps:
@@ -38,6 +39,155 @@ jobs:
         run: |
           cargo binstall --no-confirm cargo-machete --version 0.9.2 --locked
           cargo machete
+
+  check_semver:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067
+        with:
+          toolchain: ${{ env.CI_RUST_VERSION }}
+
+      - name: Get packages modified
+        id: get_packages_modified
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+
+          # This is an array of paths from files modified (or added/deleted)
+          # We take into account only *.rs files
+          paths_files_modified_raw=($(git diff --diff-filter=ACDMRT --name-only origin/"$BASE_REF" -- '*.rs'))
+
+          # It expects paths in a certain format in src,tests,benches folder but need also to work for agent/build.rs
+          # It also strips the start and the end of the path and keep only one per package
+          # Ex if you modify multiple files for the same package we only need to include it once
+          paths_files_modified_stripped=($(printf "%s\n" "${paths_files_modified_raw[@]}"| sed -E 's/(.*)\/(src|tests|benches|build)(.*)/\1/' | sort -u))
+
+          cargo metadata --no-deps --format-version 1 > metadata.json
+
+          declare -A MAP_ARRAY
+
+          while read -r PACKAGE PATH_RAW; do
+            STRIPPED_PATH=$(dirname "$PATH_RAW" | sed -e "s#.*/alumet/##")
+            MAP_ARRAY[$STRIPPED_PATH]=$PACKAGE
+          done <<<$(jq -r '.packages[] | "\(.name) \(.manifest_path)"' metadata.json)
+
+          # Prepare list of package modified thanks to the map
+          pkg_modified_list=() # we want something like [pkg1,pkg2]
+          for i in "${!paths_files_modified_stripped[@]}"; do
+              pkg_modified_list[$i]=${MAP_ARRAY[${paths_files_modified_stripped[$i]}]}
+          done
+
+          packages_modified=$(echo ${pkg_modified_list[@]} | sed -E 's/ /, /g') #  we want something like: pkg1, pkg2
+          echo "packages_modified=${packages_modified}" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Check semver
+        id: check_semver_run
+        if : steps.get_packages_modified.outputs.packages_modified != ''
+        continue-on-error: true
+        uses: obi1kenobi/cargo-semver-checks-action@v2.9
+        with:
+          baseline-rev: origin/${{ github.event.pull_request.base.ref }}
+          package: ${{ steps.get_packages_modified.outputs.packages_modified }}
+          rust-toolchain: manual
+
+      - name: Get body
+        id: get-body
+        if : steps.get_packages_modified.outputs.packages_modified != ''
+        env:
+          BODY_FAILURE: "You have some breaking changes! Please check the log of the [check_semver job](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/job/${{ job.check_run_id }})."
+          BODY_SUCCESS: "No breaking changes!"
+          OUTCOME: ${{ steps.check_semver_run.outcome }}
+        uses: actions/github-script@v9
+        with:
+          script: |
+            // body_new variable depending on the outcome of the previous step
+            var body_new = ""
+
+            if (process.env.OUTCOME ==='success'){
+              body_new = process.env.BODY_SUCCESS
+            }
+            else{
+              // process.env.OUTCOME ==='failure'
+              body_new = process.env.BODY_FAILURE
+            }
+            core.setOutput('comment-body', body_new);
+
+      - name: Search for previous comment
+        id: find-comment
+        if : steps.get_packages_modified.outputs.packages_modified != ''
+        env:
+          ORDER: "last" #could be 'first' or 'last'
+          SEARCH_STRING: "breaking changes"
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const opts = github.rest.issues.listComments.endpoint.merge({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+
+            // Paginate is used to retrieve the comments of every pages.
+            // See https://octokit.github.io/rest.js/v21/#pagination.
+            var comments = await github.paginate(opts)
+
+            // Reverse comments array if wanted
+            // (listComments returns the comments ordered by ascending ID).
+            if (process.env.ORDER === 'last') {
+              comments.reverse()
+            }
+
+            // Iterate over the comments array.
+            for (const comment of comments) {
+              if (comment.user.login !== 'github-actions[bot]') {
+                continue
+              }
+
+              if (comment.body.includes(process.env.SEARCH_STRING)) {
+                core.setOutput('comment-id', comment.id.toString())
+                break
+              }
+            }
+
+      - name: Create a new comment
+        if: steps.get_packages_modified.outputs.packages_modified != '' && steps.find-comment.outputs.comment-id == ''
+        uses: actions/github-script@v9
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `${{ steps.get-body.outputs.comment-body }}`
+            })
+
+      - name: Update existing comment
+        if: steps.get_packages_modified.outputs.packages_modified != '' && steps.find-comment.outputs.comment-id != ''
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const commentId = '${{ steps.find-comment.outputs.comment-id }}';
+            const body = `${{ steps.get-body.outputs.comment-body }}`;
+
+            core.info(`Updating comment ${commentId}`);
+            core.info(`Comment body:\n${body}`);
+
+            await github.rest.issues.updateComment({
+              comment_id: Number(commentId),
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
+
+            core.info(`Comment ${commentId} updated successfully`);
 
   build_and_test:
     runs-on: ubuntu-latest
