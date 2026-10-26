@@ -320,6 +320,10 @@ impl Builder {
 
         // --- Build the pipeline elements and control loops, with some optimizations ---
 
+        // Shared view of the managed sources' current config (poll intervals),
+        // populated by SourceControl and readable by outputs via OutputContext.
+        let source_states = crate::pipeline::elements::source::SourceStates::default();
+
         // Channel: sources -> transforms (or sources -> output in case of optimization).
         let (in_tx, in_rx) = mpsc::channel::<MeasurementBuffer>(self.source_channel_size);
 
@@ -340,7 +344,7 @@ impl Builder {
 
             // Outputs
             let out_rx_provider = channel::ReceiverProvider::from(in_rx);
-            output_control = OutputControl::new(out_rx_provider, rt_handle.clone(), metrics_r.clone());
+            output_control = OutputControl::new(out_rx_provider, rt_handle.clone(), metrics_r.clone(), source_states.clone());
             output_control
                 .blocking_create_outputs(self.outputs)
                 .context("output creation failed")?;
@@ -353,7 +357,7 @@ impl Builder {
 
             // Outputs
             let out_rx_provider = channel::ReceiverProvider::from(out_tx.clone());
-            output_control = OutputControl::new(out_rx_provider, rt_handle.clone(), metrics_r.clone());
+            output_control = OutputControl::new(out_rx_provider, rt_handle.clone(), metrics_r.clone(), source_states.clone());
             output_control
                 .blocking_create_outputs(self.outputs)
                 .context("output creation failed")?;
@@ -373,6 +377,7 @@ impl Builder {
             rt_handle.clone(),
             rt_priority.as_ref().unwrap_or(&rt_normal).handle().clone(),
             (metrics_r.clone(), metrics_tx.clone()),
+            source_states,
         );
         source_control
             .blocking_create_sources(self.sources)

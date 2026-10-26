@@ -129,6 +129,10 @@ struct TaskManager {
 
     /// Handle of the "priority" async runtime. Used for creating new sources.
     rt_priority: runtime::Handle,
+
+    /// Shared view of the current config of each managed source, for introspection
+    /// by other pipeline elements (e.g. poll intervals read by outputs).
+    source_states: super::task_controller::SourceStates,
 }
 
 impl SourceControl {
@@ -139,6 +143,7 @@ impl SourceControl {
         rt_normal: runtime::Handle,
         rt_priority: runtime::Handle,
         metrics: (MetricReader, MetricSender),
+        source_states: super::task_controller::SourceStates,
     ) -> Self {
         Self {
             tasks: TaskManager {
@@ -149,6 +154,7 @@ impl SourceControl {
                 in_tx,
                 rt_normal,
                 rt_priority,
+                source_states,
             },
             metrics,
         }
@@ -336,6 +342,7 @@ impl TaskManager {
 
                 // Create the source trigger, which may be interruptible by a config change (depending on the TriggerSpec).
                 // Some triggers need to be built with an executor available, therefore we use `Handle::enter()`.
+                let poll_interval = source.trigger_spec.poll_interval();
                 let trigger = {
                     match &dedicated_rt {
                         Some(rt) => {
@@ -351,8 +358,9 @@ impl TaskManager {
                 log::trace!("new trigger created from the spec: {trigger:?}");
 
                 // Create a controller to control the async task.
-                let (controller, config) = super::task_controller::new_managed(trigger, source.initial_state);
+                let (controller, config) = super::task_controller::new_managed(trigger, source.initial_state, poll_interval);
                 self.controllers.push((name.clone(), controller));
+                self.source_states.add_source(&name, config.clone());
                 log::trace!("new controller initialized");
 
                 // Create the future (async task).

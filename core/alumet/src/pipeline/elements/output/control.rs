@@ -19,7 +19,10 @@ use crate::pipeline::util::{
 };
 use crate::pipeline::{control::matching::OutputMatcher, matching::ElementNamePattern, naming::ElementKind};
 use crate::{measurement::MeasurementBuffer, pipeline::error::PipelineError};
-use crate::{metrics::online::MetricReader, pipeline::naming::ElementName};
+use crate::{
+    metrics::online::MetricReader,
+    pipeline::{elements::source::SourceStates, naming::ElementName},
+};
 
 use super::{
     builder::{self, OutputBuilder},
@@ -107,10 +110,18 @@ struct TaskManager {
     rt_normal: runtime::Handle,
 
     metrics: MetricReader,
+
+    /// Current config of the managed sources, to expose to outputs via OutputContext.
+    source_states: SourceStates,
 }
 
 impl OutputControl {
-    pub fn new(rx_provider: channel::ReceiverProvider, rt_normal: runtime::Handle, metrics: MetricReader) -> Self {
+    pub fn new(
+        rx_provider: channel::ReceiverProvider,
+        rt_normal: runtime::Handle,
+        metrics: MetricReader,
+        source_states: SourceStates,
+    ) -> Self {
         Self {
             tasks: TaskManager {
                 spawned_tasks: JoinSet::new(),
@@ -118,6 +129,7 @@ impl OutputControl {
                 rx_provider,
                 rt_normal,
                 metrics: metrics.clone(),
+                source_states,
             },
             metrics,
         }
@@ -246,6 +258,7 @@ impl TaskManager {
         // Create the necessary context.
         let rx = self.rx_provider.get(); // to receive measurements
         let metrics = self.metrics.clone(); // to read metric definitions
+        let source_states = self.source_states.clone(); // to read the sources' poll intervals
 
         // Create and store the task controller.
         let config = Arc::new(SharedOutputConfig::new());
@@ -260,11 +273,11 @@ impl TaskManager {
         match rx {
             // Specialize on the kind of receiver at compile-time (for performance).
             channel::ReceiverEnum::Broadcast(rx) => {
-                let task = run_blocking_output(name, guarded_output, rx, metrics, shared_config);
+                let task = run_blocking_output(name, guarded_output, rx, metrics, shared_config, source_states.clone());
                 self.spawned_tasks.spawn_on(task, &self.rt_normal);
             }
             channel::ReceiverEnum::Single(rx) => {
-                let task = run_blocking_output(name, guarded_output, rx, metrics, shared_config);
+                let task = run_blocking_output(name, guarded_output, rx, metrics, shared_config, source_states.clone());
                 self.spawned_tasks.spawn_on(task, &self.rt_normal);
             }
         }

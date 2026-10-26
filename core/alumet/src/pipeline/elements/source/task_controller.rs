@@ -1,10 +1,14 @@
+use std::collections::{BTreeSet, HashMap};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicU8, Ordering},
 };
+use std::time::Duration;
 
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
+
+use crate::pipeline::naming::{PluginName, SourceName};
 
 use super::control::{Reconfiguration, TaskState};
 use super::trigger::{ManualTrigger, Trigger};
@@ -33,6 +37,10 @@ pub struct SharedSourceConfig {
 
     /// Info about the current or next trigger of the source.
     pub trigger: Mutex<TriggerConfig>,
+
+    /// Current polling interval of the source, if its trigger is based on a time interval.
+    /// Updated whenever the trigger is replaced (see [`Reconfiguration::SetTrigger`]).
+    pub poll_interval: Mutex<Option<Duration>>,
 }
 
 pub struct TriggerConfig {
@@ -63,11 +71,13 @@ impl TriggerConfig {
 pub fn new_managed(
     initial_trigger: Trigger,
     initial_state: TaskState,
+    poll_interval: Option<Duration>,
 ) -> (SingleSourceController, Arc<SharedSourceConfig>) {
     let config = Arc::new(SharedSourceConfig {
         change_notifier: Notify::new(),
         atomic_state: AtomicU8::new(initial_state as u8),
         trigger: Mutex::new(TriggerConfig::new(initial_trigger)),
+        poll_interval: Mutex::new(poll_interval),
     });
     (SingleSourceController::Managed(config.clone()), config)
 }
@@ -98,6 +108,7 @@ impl SingleSourceController {
                         // triggered just after it takes the new trigger.
                         let trigger = Trigger::new(new_spec.to_owned()).unwrap();
                         *shared.trigger.lock().unwrap() = TriggerConfig::new(trigger);
+                        *shared.poll_interval.lock().unwrap() = new_spec.poll_interval();
                     }
                 }
                 log::trace!("reconfiguring source with {:p}", *shared);
@@ -125,5 +136,73 @@ impl SingleSourceController {
                 log::warn!("unsupported trigger command received for autonomous source, ignoring");
             }
         }
+    }
+}
+
+/// Shared, queryable view of the current configuration of the managed sources.
+///
+/// This allows pipeline elements (such as outputs) to read the current polling
+/// interval of a source, and to see the changes applied dynamically
+/// (e.g. via the socket-control plugin).
+#[derive(Clone, Default)]
+pub struct SourceStates {
+    inner: Arc<Mutex<HashMap<PluginName, Vec<Arc<SharedSourceConfig>>>>>,
+}
+
+impl SourceStates {
+    pub(crate) fn add_source(&self, name: &SourceName, config: Arc<SharedSourceConfig>) {
+        let plugin = PluginName(name.plugin().to_owned());
+        self.inner.lock().unwrap().entry(plugin).or_default().push(config);
+    }
+
+    /// The current polling intervals of the managed sources of the given plugin, deduplicated.
+    /// Empty if no source of that plugin is known, or if none is polled at a regular interval.
+    pub fn poll_intervals(&self, plugin: &PluginName) -> Vec<Duration> {
+        let mut intervals = BTreeSet::new();
+        if let Some(configs) = self.inner.lock().unwrap().get(plugin) {
+            for config in configs.iter() {
+                if let Some(interval) = *config.poll_interval.lock().unwrap() {
+                    intervals.insert(interval);
+                }
+            }
+        }
+        intervals.into_iter().collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use crate::pipeline::elements::source::control::{Reconfiguration, TaskState};
+    use crate::pipeline::naming::{PluginName, SourceName};
+
+    use crate::pipeline::elements::source::trigger::{Trigger, TriggerSpec};
+    use super::{SourceStates, new_managed};
+
+    #[test]
+    fn source_states_poll_intervals_follow_reconfiguration() {
+        // TimeInterval triggers need a tokio reactor (timerfd)
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let _guard = rt.enter();
+
+        let spec = TriggerSpec::at_interval(Duration::from_secs(1));
+        let trigger = Trigger::new(spec.clone()).unwrap();
+        let (mut controller, config) = new_managed(trigger, TaskState::Run, spec.poll_interval());
+
+        let states = SourceStates::default();
+        let name = SourceName::from_str("my-plugin", "my-source");
+        states.add_source(&name, config.clone());
+        let plugin = PluginName("my-plugin".to_owned());
+        assert_eq!(states.poll_intervals(&plugin), vec![Duration::from_secs(1)]);
+
+        // simulate a dynamic reconfiguration (e.g. socket-control 'control sources set-period 500ms')
+        controller.reconfigure(&Reconfiguration::SetTrigger(TriggerSpec::at_interval(
+            Duration::from_millis(500),
+        )));
+        assert_eq!(states.poll_intervals(&plugin), vec![Duration::from_millis(500)]);
     }
 }

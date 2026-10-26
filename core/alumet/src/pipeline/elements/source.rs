@@ -10,3 +10,4 @@ pub mod trigger;
 
 pub use error::PollError;
 pub use interface::{AutonomousSource, Source};
+pub use task_controller::SourceStates;

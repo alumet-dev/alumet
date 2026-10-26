@@ -7,6 +7,7 @@ use crate::{
     measurement::MeasurementBuffer,
     metrics::online::MetricReader,
     pipeline::{
+        elements::source::SourceStates,
         error::PipelineError,
         naming::OutputName,
         util::channel::{self, RecvError},
@@ -28,6 +29,7 @@ pub async fn run_blocking_output<Rx: channel::MeasurementReceiver>(
     mut rx: Rx,
     metrics_reader: MetricReader,
     config: Arc<control::SharedOutputConfig>,
+    source_states: SourceStates,
 ) -> Result<(), PipelineError> {
     /// If `measurements` is an `Ok`, build an [`OutputContext`] and call `output.write(&measurements, &ctx)`.
     /// Otherwise, handle the error.
@@ -35,6 +37,7 @@ pub async fn run_blocking_output<Rx: channel::MeasurementReceiver>(
         name: &OutputName,
         output: Arc<Mutex<Box<dyn Output>>>,
         metrics_r: MetricReader,
+        source_states: SourceStates,
         maybe_measurements: Result<MeasurementBuffer, channel::RecvError>,
     ) -> anyhow::Result<ControlFlow<()>> {
         match maybe_measurements {
@@ -43,6 +46,7 @@ pub async fn run_blocking_output<Rx: channel::MeasurementReceiver>(
                 let res = tokio::task::spawn_blocking(move || {
                     let ctx = OutputContext {
                         metrics: &metrics_r.blocking_read(),
+                        sources: &source_states,
                     };
                     output.lock().unwrap().write(&measurements, &ctx)
                 })
@@ -100,7 +104,7 @@ pub async fn run_blocking_output<Rx: channel::MeasurementReceiver>(
                 }
             },
             measurements = rx.recv(), if receive => {
-                let res = write_measurements(&name, guarded_output.clone(), metrics_reader.clone(), measurements)
+                let res = write_measurements(&name, guarded_output.clone(), metrics_reader.clone(), source_states.clone(), measurements)
                     .await
                     .map_err(|e| PipelineError::for_element(name.clone(), e))?;
                 if res.is_break() {
@@ -125,7 +129,7 @@ pub async fn run_blocking_output<Rx: channel::MeasurementReceiver>(
                     Err(RecvError::Lagged(n)) => format!("Err(Lagged({n}))"),
                 }
             );
-            let res = write_measurements(&name, guarded_output.clone(), metrics_reader.clone(), received)
+            let res = write_measurements(&name, guarded_output.clone(), metrics_reader.clone(), source_states.clone(), received)
                 .await
                 .map_err(|e| PipelineError::for_element(name.clone(), e))?;
             if res.is_break() {
