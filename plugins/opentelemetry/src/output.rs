@@ -12,7 +12,7 @@ use opentelemetry_proto::tonic::{
     },
     resource::v1::Resource,
 };
-use std::{collections::HashMap, env};
+use std::{collections::{HashMap, HashSet}, env};
 
 use tonic::transport::Channel;
 
@@ -23,6 +23,8 @@ pub struct OpenTelemetryOutput {
     prefix: String,
     suffix: String,
     collector_host: String,
+    // Names of the metrics whose values are differences (see Config.delta_metrics).
+    delta_metrics: HashSet<String>,
     // Map where the key is the full metric name (including prefix/suffix)
     metric_map: HashMap<String, OtelMetric>,
     client: Option<MetricsServiceClient<Channel>>,
@@ -35,6 +37,7 @@ impl OpenTelemetryOutput {
         prefix: String,
         suffix: String,
         collector_host: String,
+        delta_metrics: Vec<String>,
     ) -> anyhow::Result<OpenTelemetryOutput> {
         Ok(Self {
             use_unit_display_name,
@@ -42,6 +45,7 @@ impl OpenTelemetryOutput {
             prefix,
             suffix,
             collector_host,
+            delta_metrics: delta_metrics.into_iter().collect(),
             metric_map: HashMap::new(),
             client: None,
         })
@@ -95,6 +99,20 @@ impl alumet::pipeline::Output for OpenTelemetryOutput {
             }
 
             attributes.sort_by(|a, b| a.key.cmp(&b.key));
+
+            // Attach the current poll interval to delta metrics (see Config.delta_metrics),
+            // kept up to date with dynamic reconfigurations (e.g. socket-control 'set-period').
+            if self.delta_metrics.contains(full_metric.name.as_str()) {
+                let poll_intervals = ctx.poll_intervals_of(&m.metric);
+                if !poll_intervals.is_empty() {
+                    let intervals = poll_intervals
+                        .iter()
+                        .map(|d| d.as_millis().to_string())
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    attributes.push(make_kv("alumet_poll_interval_ms", intervals));
+                }
+            }
 
             let time_unix_nano = m
                 .timestamp
