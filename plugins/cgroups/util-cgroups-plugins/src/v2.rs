@@ -89,7 +89,7 @@ impl Source for CgroupV2Probe {
         if let Some(cpu_stat) = data.cpu_stat {
             if let Some(value) = cpu_stat
                 .usage
-                .map(|v| self.cpu_delta_counters.usage.update(v).difference())
+                .map(|v| self.cpu_delta_counters.usage.update(v * 1000).difference()) //in cgroupv2, unit is µs, so convert to ns.
                 .flatten()
             {
                 measurements.push(
@@ -111,7 +111,7 @@ impl Source for CgroupV2Probe {
 
             if let Some(value) = cpu_stat
                 .system
-                .map(|v| self.cpu_delta_counters.system.update(v).difference())
+                .map(|v| self.cpu_delta_counters.system.update(v * 1000).difference()) //in cgroupv2, unit is µs, so convert to ns.
                 .flatten()
             {
                 measurements.push(
@@ -133,7 +133,7 @@ impl Source for CgroupV2Probe {
 
             if let Some(value) = cpu_stat
                 .user
-                .map(|v| self.cpu_delta_counters.user.update(v).difference())
+                .map(|v| self.cpu_delta_counters.user.update(v * 1000).difference()) //in cgroupv2, unit is µs, so convert to ns.
                 .flatten()
             {
                 measurements.push(
