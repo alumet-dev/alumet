@@ -39,7 +39,7 @@ mod common {
     };
 
     use super::{
-        cpu::{CpuStatCollector, CpuStats},
+        cpu::{CpuStatCollector, CpuStats, CpusetCpusEffective},
         io::IoPressureStats,
         memory::{MemoryCurrentCollector, MemoryMaxCollector, MemoryStatCollector, MemoryStats},
     };
@@ -53,6 +53,7 @@ mod common {
         memory_swap_max: Option<MemorySwapMaxCollector>,
         cpu_stat: Option<CpuStatCollector>,
         io_pressure: Option<IoPressureCollector>,
+        cpuset_cpus_effective: Option<CpusetCpusEffective>,
     }
 
     pub struct V2Stats {
@@ -63,6 +64,7 @@ mod common {
         pub memory_swap_max: Option<f64>,
         pub cpu_stat: Option<CpuStats>,
         pub io_pressure: Option<IoPressureStats>,
+        pub cpuset_cpus_effective: Option<u64>,
     }
 
     impl V2Collector {
@@ -89,6 +91,7 @@ mod common {
             let memory_swap_max_file = cgroup_path.join("memory.swap.max");
             let cpu_stat_file = cgroup_path.join("cpu.stat");
             let io_pressure_file = cgroup_path.join("io.pressure");
+            let cpuset_cpus_effective_file = cgroup_path.join("cpuset.cpus.effective");
 
             let prepare_memory_current = || -> anyhow::Result<Option<MemoryCurrentCollector>> {
                 match MemoryCurrentCollector::new(&memory_current_file) {
@@ -195,6 +198,23 @@ mod common {
                 }
             };
 
+            let prepare_cpuset_cpus_effective = || -> anyhow::Result<Option<CpusetCpusEffective>> {
+                match CpusetCpusEffective::new(&cpuset_cpus_effective_file) {
+                    Ok(res) => Ok(Some(res)),
+                    Err(e) if e.kind() == ErrorKind::NotFound => {
+                        // the file does not exist, ignore.
+                        // This is the common case: the file exists only if the cpuset controller is enabled,
+                        // hence debug rather than warn to avoid spamming the logs of every cgroup.
+                        log::debug!(
+                            "{} does not exist, some metrics will not be available",
+                            cpuset_cpus_effective_file.display()
+                        );
+                        Ok(None)
+                    }
+                    Err(e) => Err(e.into()),
+                }
+            };
+
             let error_msg = || format!("collector creation failed for cgroup {}", cgroup.unique_name());
 
             Ok(Self {
@@ -205,6 +225,7 @@ mod common {
                 memory_swap_max: prepare_memory_swap_max().with_context(error_msg)?,
                 cpu_stat: prepare_cpu_stat(io_buf).with_context(error_msg)?,
                 io_pressure: prepare_io_pressure(io_buf).with_context(error_msg)?,
+                cpuset_cpus_effective: prepare_cpuset_cpus_effective().with_context(error_msg)?,
             })
         }
 
@@ -223,6 +244,7 @@ mod common {
             let memory_swap_max = self.memory_swap_max.as_mut().map(|c| c.measure(io_buf)).transpose()?;
             let cpu_stat = self.cpu_stat.as_mut().map(|c| c.measure(io_buf)).transpose()?;
             let io_pressure = self.io_pressure.as_mut().map(|c| c.measure(io_buf)).transpose()?;
+            let cpuset_cpus_effective = self.cpuset_cpus_effective.as_mut().map(|c| c.measure()).transpose()?;
 
             Ok(V2Stats {
                 memory_current,
@@ -232,6 +254,7 @@ mod common {
                 memory_swap_max,
                 cpu_stat,
                 io_pressure,
+                cpuset_cpus_effective,
             })
         }
     }

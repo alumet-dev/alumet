@@ -210,6 +210,11 @@ impl Source for CgroupV2Probe {
             }
         }
 
+        // Number of logical CPUs
+        if let Some(cpuset_cpus_effective) = data.cpuset_cpus_effective {
+            measurements.push(self.new_point(&self.metrics.cpuset_cpus_effective, t, &resource, cpuset_cpus_effective));
+        }
+
         Ok(())
     }
 
