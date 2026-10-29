@@ -28,6 +28,7 @@ pub struct CgroupV2Probe {
     io_buf: Vec<u8>,
     last_timestamp: Option<Timestamp>,
     n_cores: usize,
+    page_size: usize,
 }
 
 impl CgroupV2Probe {
@@ -40,6 +41,7 @@ impl CgroupV2Probe {
             IoPressureCollectorSettings::default(),
             &mut io_buf,
         )?;
+        let page_size = page_size();
 
         // To get the number of logical core, one could think about calling num_cpus::get().
         // However, this is affected by the constraints set on the Alumet process (sched affinity, cgroups cpuset), which is not what we want.
@@ -55,6 +57,7 @@ impl CgroupV2Probe {
             io_buf,
             last_timestamp: None,
             n_cores,
+            page_size,
         })
     }
 
@@ -83,7 +86,7 @@ impl Source for CgroupV2Probe {
             None => None,
         };
         let data = analyze_io_result(self.collector.measure(&mut self.io_buf))?;
-        let page_size = page_size();
+        let page_size = self.page_size;
 
         // The data that we collect here is cumulative across all the CPU cores.
         // => We compute a percentage for the whole machine.
