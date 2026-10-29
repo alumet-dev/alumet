@@ -1,6 +1,6 @@
 [package]
 name = "util-cgroups"
-version = "0.1.0"
+version = "0.2.0"
 edition.workspace = true
 repository.workspace = true
 description = "Utilities to use control groups, v1 and v2."
