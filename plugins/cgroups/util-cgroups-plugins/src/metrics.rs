@@ -38,6 +38,8 @@ pub struct Metrics {
     pub io_pressure_some_total: TypedMetricId<u64>,
     /// IO pressure: full total delta (all tasks stalled)
     pub io_pressure_full_total: TypedMetricId<u64>,
+    /// Number of effective logical CPUs
+    pub cpuset_cpus_effective: TypedMetricId<u64>,
 }
 
 /// Used by probes to configure how cgroup measurements will be mapped to Alumet measurement points.
@@ -93,6 +95,8 @@ pub struct AugmentedMetrics {
     pub io_pressure_some_total: AugmentedMetric<u64>,
     /// IO pressure: full total delta (all tasks stalled)
     pub io_pressure_full_total: AugmentedMetric<u64>,
+    /// Number of effective logical CPUs
+    pub cpuset_cpus_effective: AugmentedMetric<u64>,
 
     /// Common attributes, added to the points of all metrics.
     pub common_attrs: Vec<(String, AttributeValue)>,
@@ -174,6 +178,11 @@ impl Metrics {
             PrefixedUnit::micro(Unit::Second),
             "IO pressure full total delta: time with all tasks stalled since previous measurement",
         )?;
+        let cpuset_cpus_effective = alumet.create_metric::<u64>(
+            "cpuset_cpus_effective",
+            Unit::Unity,
+            "Number of effective logical CPUs available to the cgroup",
+        )?;
         Ok(Self {
             cpu_time_delta,
             cpu_percent,
@@ -190,6 +199,7 @@ impl Metrics {
             pswpout,
             io_pressure_some_total,
             io_pressure_full_total,
+            cpuset_cpus_effective,
         })
     }
 }
@@ -212,6 +222,7 @@ impl AugmentedMetrics {
             pswpout: AugmentedMetric::simple(metrics.pswpout),
             io_pressure_full_total: AugmentedMetric::simple(metrics.io_pressure_full_total),
             io_pressure_some_total: AugmentedMetric::simple(metrics.io_pressure_some_total),
+            cpuset_cpus_effective: AugmentedMetric::simple(metrics.cpuset_cpus_effective),
             common_attrs: Vec::new(),
         }
     }
@@ -246,6 +257,7 @@ impl AugmentedMetrics {
             pswpout: AugmentedMetric::simple(metrics.pswpout),
             io_pressure_full_total: AugmentedMetric::simple(metrics.io_pressure_full_total),
             io_pressure_some_total: AugmentedMetric::simple(metrics.io_pressure_some_total),
+            cpuset_cpus_effective: AugmentedMetric::simple(metrics.cpuset_cpus_effective),
             common_attrs,
         }
     }
