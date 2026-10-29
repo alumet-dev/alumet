@@ -28,10 +28,7 @@ suffix = "_alumet"
 use_unit_display_name = true
 # Forward measurement attributes as OpenTelemetry data-point attributes
 add_attributes_to_labels = true
-# Names of the metrics whose values are differences (e.g. computed with CounterDiff,
-# like rapl's energy). For these metrics only, each data point gets an extra
 # `alumet_poll_interval_ms` attribute with the current poll interval of the source
-# (kept up to date if the period is changed at runtime, e.g. via socket-control).
 delta_metrics = ["rapl_consumed_energy", "nvml_energy_consumption", "amd_gpu_energy_consumption", "grace_energy_consumption", "cpu_time_delta", "kernel_cpu_time", "kernel_context_switches", "kernel_new_forks", "io_pressure_some_total", "io_pressure_full_total"]
 ```
 

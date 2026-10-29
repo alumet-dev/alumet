@@ -9,7 +9,7 @@ use prometheus_client::{
     registry::Registry,
 };
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     net::SocketAddr,
     sync::{Arc, atomic::AtomicU64},
 };
@@ -27,6 +27,8 @@ pub struct PrometheusOutput {
     add_attributes_to_labels: bool,
     prefix: String,
     suffix: String,
+    // Names of the metrics whose values are differences (see Config.delta_metrics).
+    delta_metrics: HashSet<String>,
     pub addr: SocketAddr,
 }
 
@@ -37,6 +39,7 @@ impl PrometheusOutput {
         host: String,
         prefix: String,
         suffix: String,
+        delta_metrics: Vec<String>,
     ) -> anyhow::Result<PrometheusOutput> {
         // Create metric state
         let registry = Arc::new(RwLock::new(Registry::default()));
@@ -53,6 +56,7 @@ impl PrometheusOutput {
             add_attributes_to_labels,
             prefix,
             suffix,
+            delta_metrics: delta_metrics.into_iter().collect(),
             addr,
         })
     }
@@ -94,6 +98,20 @@ impl alumet::pipeline::Output for PrometheusOutput {
                 }
             }
             labels.sort_by(|a, b| a.0.cmp(&b.0));
+
+            // Attach the current poll interval to delta metrics (see Config.delta_metrics),
+            // kept up to date with dynamic reconfigurations (e.g. socket-control 'set-period').
+            if self.delta_metrics.contains(full_metric.name.as_str()) {
+                let poll_intervals = ctx.poll_intervals_of(&m.metric);
+                if !poll_intervals.is_empty() {
+                    let intervals = poll_intervals
+                        .iter()
+                        .map(|d| d.as_millis().to_string())
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    labels.push(("alumet_poll_interval_ms".to_string(), intervals));
+                }
+            }
 
             // Each family vector contains a metric with all associated metrics and differentiated by the labels
             let family = if let Some(family) = metrics.get(&metric_name) {
