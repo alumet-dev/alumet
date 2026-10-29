@@ -78,6 +78,8 @@ fn test_metrics_sets() {
         .expect_metric::<u64>("cgroup_slab_reclaimable", Unit::Byte)
         .expect_metric::<u64>("cgroup_pswpin", Unit::Unity)
         .expect_metric::<u64>("cgroup_pswpout", Unit::Unity)
+        .expect_metric::<u64>("cgroup_pswpin_bytes", Unit::Byte)
+        .expect_metric::<u64>("cgroup_pswpout_bytes", Unit::Byte)
         .expect_metric::<u64>("io_pressure_some_total", PrefixedUnit::micro(Unit::Second))
         .expect_metric::<u64>("io_pressure_full_total", PrefixedUnit::micro(Unit::Second))
         .expect_source(PLUGIN_NAME, SOURCE_NAME);
@@ -101,6 +103,8 @@ fn test_metrics_sets() {
             let cgroup_slab_reclaimable = ctx.metrics().by_name("cgroup_slab_reclaimable").unwrap().0;
             let cgroup_pswpin = ctx.metrics().by_name("cgroup_pswpin").unwrap().0;
             let cgroup_pswpout = ctx.metrics().by_name("cgroup_pswpout").unwrap().0;
+            let cgroup_pswpin_bytes = ctx.metrics().by_name("cgroup_pswpin_bytes").unwrap().0;
+            let cgroup_pswpout_bytes = ctx.metrics().by_name("cgroup_pswpout_bytes").unwrap().0;
             let io_pressure_some_total = ctx.metrics().by_name("io_pressure_some_total").unwrap().0;
             let io_pressure_full_total = ctx.metrics().by_name("io_pressure_full_total").unwrap().0;
 
@@ -117,6 +121,8 @@ fn test_metrics_sets() {
             assert!(m.iter().any(|p| p.metric == cgroup_slab_reclaimable));
             assert!(m.iter().any(|p| p.metric == cgroup_pswpin));
             assert!(m.iter().any(|p| p.metric == cgroup_pswpout));
+            assert!(m.iter().any(|p| p.metric == cgroup_pswpin_bytes));
+            assert!(m.iter().any(|p| p.metric == cgroup_pswpout_bytes));
             assert!(m.iter().any(|p| p.metric == io_pressure_some_total));
             assert!(m.iter().any(|p| p.metric == io_pressure_full_total));
         },

@@ -13,6 +13,12 @@ pub struct IoDeltaCounters {
     pub full: CounterDiff,
 }
 
+/// CounterDiff to compute the delta when it makes sense.
+pub struct MemoryDeltaCounters {
+    pub page_in: CounterDiff,
+    pub page_out: CounterDiff,
+}
+
 impl CpuDeltaCounters {
     pub fn reset(&mut self) {
         self.usage.reset();
@@ -25,6 +31,13 @@ impl IoDeltaCounters {
     pub fn reset(&mut self) {
         self.some.reset();
         self.full.reset();
+    }
+}
+
+impl MemoryDeltaCounters {
+    pub fn reset(&mut self) {
+        self.page_in.reset();
+        self.page_out.reset();
     }
 }
 
@@ -43,6 +56,15 @@ impl Default for IoDeltaCounters {
         Self {
             some: CounterDiff::with_max_value(u64::MAX),
             full: CounterDiff::with_max_value(u64::MAX),
+        }
+    }
+}
+
+impl Default for MemoryDeltaCounters {
+    fn default() -> Self {
+        Self {
+            page_in: CounterDiff::with_max_value(u64::MAX),
+            page_out: CounterDiff::with_max_value(u64::MAX),
         }
     }
 }
@@ -85,5 +107,27 @@ mod tests {
 
         assert_eq!(io_delta_counters.full.update(20), CounterDiffUpdate::FirstTime);
         assert_eq!(io_delta_counters.some.update(80), CounterDiffUpdate::FirstTime);
+    }
+
+    #[test]
+    fn test_mem_delta_counters() {
+        let mut memory_delta_counters = MemoryDeltaCounters::default();
+
+        assert_eq!(memory_delta_counters.page_in.update(800), CounterDiffUpdate::FirstTime);
+        assert_eq!(memory_delta_counters.page_out.update(75), CounterDiffUpdate::FirstTime);
+
+        assert_eq!(
+            memory_delta_counters.page_in.update(860),
+            CounterDiffUpdate::Difference(60)
+        );
+        assert_eq!(
+            memory_delta_counters.page_out.update(75),
+            CounterDiffUpdate::Difference(0)
+        );
+
+        memory_delta_counters.reset();
+
+        assert_eq!(memory_delta_counters.page_in.update(20), CounterDiffUpdate::FirstTime);
+        assert_eq!(memory_delta_counters.page_out.update(80), CounterDiffUpdate::FirstTime);
     }
 }

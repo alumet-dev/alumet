@@ -34,6 +34,10 @@ pub struct Metrics {
     pub pswpin: TypedMetricId<u64>,
     /// Number of pages swapped out of memory by the cgroup.
     pub pswpout: TypedMetricId<u64>,
+    /// Size of pages swapped into memory by the cgroup.
+    pub pswpin_bytes: TypedMetricId<u64>,
+    /// Size of pages swapped out of memory by the cgroup.
+    pub pswpout_bytes: TypedMetricId<u64>,
     /// IO pressure: some total delta (at least one task stalled)
     pub io_pressure_some_total: TypedMetricId<u64>,
     /// IO pressure: full total delta (all tasks stalled)
@@ -91,6 +95,10 @@ pub struct AugmentedMetrics {
     pub pswpin: AugmentedMetric<u64>,
     /// Number of pages swapped out of memory by the cgroup.
     pub pswpout: AugmentedMetric<u64>,
+    /// Size of pages swapped into memory by the cgroup.
+    pub pswpin_bytes: AugmentedMetric<u64>,
+    /// Size of pages swapped out of memory by the cgroup.
+    pub pswpout_bytes: AugmentedMetric<u64>,
     /// IO pressure: some total delta (at least one task stalled)
     pub io_pressure_some_total: AugmentedMetric<u64>,
     /// IO pressure: full total delta (all tasks stalled)
@@ -168,6 +176,17 @@ impl Metrics {
             Unit::Unity,
             "Number of pages swapped out of memory by the cgroup.",
         )?;
+        let pswpin_bytes = alumet.create_metric::<u64>(
+            "cgroup_pswpin_bytes",
+            Unit::Byte,
+            "Size of pages swapped into memory by the cgroup.",
+        )?;
+
+        let pswpout_bytes = alumet.create_metric::<u64>(
+            "cgroup_pswpout_bytes",
+            Unit::Byte,
+            "Size of pages swapped out of memory by the cgroup.",
+        )?;
         let io_pressure_some_total = alumet.create_metric::<u64>(
             "io_pressure_some_total",
             PrefixedUnit::micro(Unit::Second),
@@ -197,6 +216,8 @@ impl Metrics {
             slab_reclaimable,
             pswpin,
             pswpout,
+            pswpout_bytes,
+            pswpin_bytes,
             io_pressure_some_total,
             io_pressure_full_total,
             cpuset_cpus_effective,
@@ -220,6 +241,8 @@ impl AugmentedMetrics {
             slab_reclaimable: AugmentedMetric::simple(metrics.slab_reclaimable),
             pswpin: AugmentedMetric::simple(metrics.pswpin),
             pswpout: AugmentedMetric::simple(metrics.pswpout),
+            pswpin_bytes: AugmentedMetric::simple(metrics.pswpout_bytes),
+            pswpout_bytes: AugmentedMetric::simple(metrics.pswpout_bytes),
             io_pressure_full_total: AugmentedMetric::simple(metrics.io_pressure_full_total),
             io_pressure_some_total: AugmentedMetric::simple(metrics.io_pressure_some_total),
             cpuset_cpus_effective: AugmentedMetric::simple(metrics.cpuset_cpus_effective),
@@ -255,6 +278,8 @@ impl AugmentedMetrics {
             slab_reclaimable: AugmentedMetric::simple(metrics.slab_reclaimable),
             pswpin: AugmentedMetric::simple(metrics.pswpin),
             pswpout: AugmentedMetric::simple(metrics.pswpout),
+            pswpin_bytes: AugmentedMetric::simple(metrics.pswpout_bytes),
+            pswpout_bytes: AugmentedMetric::simple(metrics.pswpout_bytes),
             io_pressure_full_total: AugmentedMetric::simple(metrics.io_pressure_full_total),
             io_pressure_some_total: AugmentedMetric::simple(metrics.io_pressure_some_total),
             cpuset_cpus_effective: AugmentedMetric::simple(metrics.cpuset_cpus_effective),
