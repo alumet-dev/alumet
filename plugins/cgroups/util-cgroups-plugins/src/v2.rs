@@ -3,6 +3,7 @@ use alumet::{
     pipeline::{Source, elements::error::PollError},
     resources::{Resource, ResourceConsumer},
 };
+use rustix::param::page_size;
 use util_cgroups::{
     Cgroup,
     measure::v2::{
@@ -11,7 +12,7 @@ use util_cgroups::{
     },
 };
 
-use crate::delta::IoDeltaCounters;
+use crate::delta::{IoDeltaCounters, MemoryDeltaCounters};
 
 use super::{
     delta::CpuDeltaCounters, metrics::AugmentedMetric, metrics::AugmentedMetrics, self_stop::analyze_io_result,
@@ -21,11 +22,13 @@ pub struct CgroupV2Probe {
     consumer: ResourceConsumer,
     cpu_delta_counters: CpuDeltaCounters,
     io_delta_counters: IoDeltaCounters,
+    memory_delta_counters: MemoryDeltaCounters,
     metrics: AugmentedMetrics,
     collector: V2Collector,
     io_buf: Vec<u8>,
     last_timestamp: Option<Timestamp>,
     n_cores: usize,
+    page_size: usize,
 }
 
 impl CgroupV2Probe {
@@ -38,6 +41,7 @@ impl CgroupV2Probe {
             IoPressureCollectorSettings::default(),
             &mut io_buf,
         )?;
+        let page_size = page_size();
 
         // To get the number of logical core, one could think about calling num_cpus::get().
         // However, this is affected by the constraints set on the Alumet process (sched affinity, cgroups cpuset), which is not what we want.
@@ -47,11 +51,13 @@ impl CgroupV2Probe {
             consumer,
             cpu_delta_counters: Default::default(),
             io_delta_counters: Default::default(),
+            memory_delta_counters: Default::default(),
             metrics,
             collector,
             io_buf,
             last_timestamp: None,
             n_cores,
+            page_size,
         })
     }
 
@@ -80,6 +86,7 @@ impl Source for CgroupV2Probe {
             None => None,
         };
         let data = analyze_io_result(self.collector.measure(&mut self.io_buf))?;
+        let page_size = self.page_size;
 
         // The data that we collect here is cumulative across all the CPU cores.
         // => We compute a percentage for the whole machine.
@@ -183,8 +190,21 @@ impl Source for CgroupV2Probe {
             if let Some(value) = mem_stat.slab_reclaimable {
                 measurements.push(self.new_point(&self.metrics.slab_reclaimable, t, &resource, value));
             }
-            if let Some(value) = mem_stat.pswpin {
+            if let Some(value) = mem_stat
+                .pswpin
+                .map(|v| self.memory_delta_counters.page_in.update(v).difference())
+                .flatten()
+            {
                 measurements.push(self.new_point(&self.metrics.pswpin, t, &resource, value));
+                measurements.push(self.new_point(&self.metrics.pswpin_bytes, t, &resource, value * page_size as u64));
+            }
+            if let Some(value) = mem_stat
+                .pswpout
+                .map(|v| self.memory_delta_counters.page_out.update(v).difference())
+                .flatten()
+            {
+                measurements.push(self.new_point(&self.metrics.pswpout, t, &resource, value));
+                measurements.push(self.new_point(&self.metrics.pswpout_bytes, t, &resource, value * page_size as u64));
             }
             if let Some(value) = mem_stat.pswpout {
                 measurements.push(self.new_point(&self.metrics.pswpout, t, &resource, value));

@@ -1,6 +1,6 @@
 [package]
 name = "util-cgroups-plugins"
-version = "0.1.2"
+version = "0.2.0"
 edition.workspace = true
 repository.workspace = true
 description = "Common code to create cgroup-based Alumet plugins."
@@ -11,6 +11,7 @@ anyhow.workspace = true
 humantime-serde.workspace = true
 log.workspace = true
 regex = { version = "1.11.1", default-features = false, features = ["std", "perf"] }
+rustix = {version = "1.1.6", features = ["param"]}
 serde.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt"] }

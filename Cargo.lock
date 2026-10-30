@@ -3122,7 +3122,7 @@ dependencies = [
 
 [[package]]
 name = "plugin-containers"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "alumet",
  "anyhow",
@@ -3262,7 +3262,7 @@ dependencies = [
 
 [[package]]
 name = "plugin-k8s"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "alumet",
  "anyhow",
@@ -3365,7 +3365,7 @@ dependencies = [
 
 [[package]]
 name = "plugin-oar"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "alumet",
  "anyhow",
@@ -3494,7 +3494,7 @@ dependencies = [
 
 [[package]]
 name = "plugin-raw-cgroups"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "alumet",
  "anyhow",
@@ -3532,7 +3532,7 @@ dependencies = [
 
 [[package]]
 name = "plugin-slurm"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "alumet",
  "anyhow",
@@ -4171,9 +4171,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "1.1.4"
+version = "1.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6fe4565b9518b83ef4f91bb47ce29620ca828bd32cb7e408f0062e9930ba190"
+checksum = "e5e76742e5294153d4dde1207dbec5bdd81eef6fabdc0d2118babadabfd858aa"
 dependencies = [
  "bitflags 2.13.0",
  "errno",
@@ -4670,7 +4670,7 @@ dependencies = [
  "fastrand",
  "getrandom 0.4.3",
  "once_cell",
- "rustix 1.1.4",
+ "rustix 1.1.6",
  "windows-sys 0.61.2",
 ]
 
@@ -5323,7 +5323,7 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "util-cgroups"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "criterion",
@@ -5343,7 +5343,7 @@ dependencies = [
 
 [[package]]
 name = "util-cgroups-plugins"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "alumet",
  "anyhow",
@@ -5353,6 +5353,7 @@ dependencies = [
  "log",
  "pretty_assertions",
  "regex",
+ "rustix 1.1.6",
  "serde",
  "tempfile",
  "thiserror 2.0.18",
