@@ -27,6 +27,7 @@ Here are the metrics collected by the plugin's sources.
 |`cgroup_pswpout_bytes`|CounterDiff|Bytes|Total size of pages swapped out of memory by the cgroup.|`LocalMachine`|`Cgroup`|see below|
 |`io_pressure_some_total`|CounterDiff|microseconds|IO pressure some total delta (at least one task stalled)|`LocalMachine`|`Cgroup`|none|
 |`io_pressure_full_total`|CounterDiff|microseconds|IO pressure full total delta (all tasks stalled)|`LocalMachine`|`Cgroup`|none|
+|`cpuset_cpus_effective`|Gauge|Unit|Number of effective logical CPUs available to the cgroup|`LocalMachine`|`Cgroup`|none|
 
 ### Attributes
 
