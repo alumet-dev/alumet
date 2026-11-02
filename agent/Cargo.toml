@@ -39,6 +39,7 @@ plugin-amd-gpu = { path = "../plugins/amd-gpu" }
 # Linux-only dependencies
 [target.'cfg(target_os = "linux")'.dependencies]
 plugin-grace-hopper = { path = "../plugins/grace-hopper" }
+plugin-lm-sensors = { path = "../plugins/lm-sensors" }
 plugin-nvidia-jetson = { path = "../plugins/nvidia-jetson" }
 plugin-nvidia-nvml = { path = "../plugins/nvidia-nvml" }
 plugin-process-to-cgroup-bridge = { path = "../plugins/process-to-cgroup-bridge" }
