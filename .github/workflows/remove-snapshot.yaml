@@ -1,0 +1,119 @@
+---
+name: Remove old snapshots
+
+on:
+  workflow_call:
+
+jobs:
+    list-and-remove-old-snapshots-tag-and-assets:
+      runs-on: ubuntu-latest
+      steps:
+        - name: Install GitHub CLI
+          run: |
+            type -p gh >/dev/null || {
+              sudo apt-get update
+              sudo apt-get install -y gh
+            }
+
+        - name: Identify snapshots to delete
+          id: snapshots
+          env:
+            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          run: |
+            # Identify the oldest snapshots, while keeping the 8 most recent ones.
+            snapshots=$(gh release list --repo alumet-dev/alumet --limit 1000 --json tagName,publishedAt \
+              --jq '[
+                .[]
+                | select(.tagName | startswith("snapshot-"))
+              ]
+              | sort_by(.publishedAt)
+              | reverse
+              | .[7:]
+              | .[].tagName')
+            {
+              echo "tags<<EOF"
+              echo "$snapshots"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+
+        - name: Create GitHub App token
+          uses: actions/create-github-app-token@v3
+          id: get-app-token
+          with:
+            client-id: ${{ vars.APP_ID }}
+            private-key: ${{ secrets.APP_PRIVATE_KEY }}
+            owner: alumet-dev
+            permission-packages: write
+            permission-contents: write
+
+        - name: Delete old snapshots
+          shell: bash
+          env:
+            SNAPSHOTS_TO_DELETE: ${{ steps.snapshots.outputs.tags }}
+            GH_TOKEN: ${{ steps.get-app-token.outputs.token }}
+          run: |
+            # Parcourt les tags identifiés à l'étape précédente.
+            while IFS= read -r tag; do
+              # Ignore les lignes vides.
+              [ -z "$tag" ] && continue
+
+              echo "Deleting snapshot: $tag"
+              # gh release delete "$tag" --yes --cleanup-tag
+              echo "delete release: $tag"
+            done <<< "$SNAPSHOTS_TO_DELETE"
+        - name: Identify old snapshot images in GHCR
+          env:
+            GH_TOKEN: ${{ steps.get-app-token.outputs.token }}
+            SNAPSHOTS_TO_DELETE: ${{ steps.snapshots.outputs.tags }}
+          shell: bash
+          run: |
+            # Iterate over previously identified snapshots
+            while IFS= read -r tag; do
+              # Ignore empty lines
+              [ -z "$tag" ] && continue
+
+              # Extract the date : snapshot-20261026 -> 20261026.
+              date="${tag#snapshot-}"
+
+              # Check format before searching
+              if [[ ! "$date" =~ ^[0-9]{8}$ ]]; then
+                echo "::warning::Unexpected snapshot tag: $tag"
+                continue
+              fi
+
+              # Example : 0.9.5-20261026.giteb82639-1_ubuntu_24.04
+              pattern="-${date}."
+
+              echo "Searching GHCR images for snapshot: $tag"
+
+              # Recherche les versions GHCR contenant un tag correspondant à la date.
+              version_ids=$(
+              gh api --paginate \
+                "/orgs/alumet-dev/packages/container/alumet-agent/versions?per_page=100" \
+                --jq "
+                  .[]
+                  | select(any(
+                      .metadata.container.tags[]?;
+                      contains(\"$pattern\")
+                    ))
+                  | .id
+                " | sort -u
+            )
+            # No imge found, go to next one
+            if [ -z "$version_ids" ]; then
+              echo "No GHCR images found for $tag"
+              continue
+            fi
+
+            # Delete 
+            while IFS= read -r version_id; do
+              [ -z "$version_id" ] && continue
+
+              echo "Deleting GHCR version $version_id for $tag"
+
+              # gh api --method DELETE \
+              #   "/orgs/alumet-dev/packages/container/alumet-agent/versions/$version_id"
+              echo "Delete $version_id for tag: $tag"
+            done <<< "$version_ids"
+
+            done <<< "$SNAPSHOTS_TO_DELETE"
