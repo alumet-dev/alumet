@@ -33,6 +33,7 @@ pub struct EventGroupBuilder {
     target: Target,
     perf_group: perf_event::Group,
     counters: Vec<perf_event::Counter>,
+    event_names: Vec<String>,
     /// The PMU of the group's events, set by the first [`add`](Self::add): a perf group cannot span
     /// two PMUs.
     pmu_key: Option<u64>,
@@ -47,6 +48,7 @@ pub struct EventGroup {
     target: Target,
     perf_group: perf_event::Group,
     counters: Vec<perf_event::Counter>,
+    event_names: Vec<String>,
     partial_pmu: bool,
     auto_scale: bool,
     /// The value of each counter since the group was enabled, estimated for multiplexing, in
@@ -77,6 +79,7 @@ impl EventGroupBuilder {
             target,
             perf_group,
             counters: Vec::new(),
+            event_names: Vec::new(),
             pmu_key: None,
             partial_pmu: false,
             auto_scale,
@@ -116,6 +119,7 @@ impl EventGroupBuilder {
 
         self.pmu_key = Some(key);
         self.counters.push(counter);
+        self.event_names.push(event.name().to_owned());
         Ok(CounterId(self.counters.len() - 1))
     }
 
@@ -128,6 +132,7 @@ impl EventGroupBuilder {
             target: self.target,
             perf_group: self.perf_group,
             counters: self.counters,
+            event_names: self.event_names,
             partial_pmu: self.partial_pmu,
             auto_scale: self.auto_scale,
             starved: false,
@@ -158,16 +163,18 @@ impl EventGroup {
         let starved = running == 0 && enabled > 0;
         if starved && !self.starved {
             log::warn!(
-                "perf group ({:?}) ran but never made it onto the PMU, its counters are stalled. \
+                "perf group {:?} ({:?}) ran but never made it onto the PMU, its counters are stalled. \
                  Possible causes: more events configured in one group than the CPU has hardware counters, or \
                  tools holding the PMU system-wide.",
+                self.event_names,
                 self.target,
             );
         }
         self.starved = starved;
         if !starved && running < enabled && !self.partial_pmu {
             log::debug!(
-                "perf group ({:?}) was only on the PMU {:.1}% of the time, its values are {}",
+                "perf group {:?} ({:?}) was only on the PMU {:.1}% of the time, its values are {}",
+                self.event_names,
                 self.target,
                 100.0 * (running as f64) / (enabled as f64),
                 accuracy.as_str(),

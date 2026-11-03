@@ -22,7 +22,7 @@ use alumet::{
 use anyhow::Context;
 
 use crate::event;
-use config::{Config, ParsedConfig, sanitize};
+use config::{Config, ConfiguredEvent, ParsedConfig, sanitize};
 use source::{Observable, PerfEventSourceBuilder};
 
 mod config;
@@ -77,7 +77,7 @@ impl AlumetPlugin for PerfPlugin {
         // `pmu` attribute), so a metric is created once per distinct name and reused.
         let mut metrics = Vec::with_capacity(config.events.len());
         let mut by_name: HashMap<String, TypedMetricId<u64>> = HashMap::new();
-        for e in &config.events {
+        for ConfiguredEvent { event: e, .. } in &config.events {
             let metric_name = format!("perf_{}", sanitize(e.name()));
             let metric = match by_name.get(&metric_name) {
                 Some(metric) => *metric,
@@ -109,7 +109,7 @@ impl AlumetPlugin for PerfPlugin {
                 .events
                 .iter()
                 .zip(&config.metrics)
-                .filter_map(|(event, metric)| match event.scope() {
+                .filter_map(|(event, metric)| match event.event.scope() {
                     event::Scope::SystemWide { .. } => Some((event.clone(), *metric)),
                     event::Scope::TaskAttached { .. } => None,
                 })
@@ -189,7 +189,8 @@ impl AlumetPlugin for PerfPlugin {
                     log::info!("Starting to observe {o:?}...");
                     let config = config_cloned.lock().unwrap();
                     let mut builder = PerfEventSourceBuilder::observe(o, config.multiplexing_auto_scale)?;
-                    for (event, metric) in config.events.iter().zip(&config.metrics) {
+                    for (configured, metric) in config.events.iter().zip(&config.metrics) {
+                        let event = &configured.event;
                         match event.scope() {
                             // System-wide events (uncore, power, cstate…) are not tied to a
                             // process/cgroup; they will be opened once by a dedicated machine-wide
@@ -197,7 +198,7 @@ impl AlumetPlugin for PerfPlugin {
                             event::Scope::SystemWide { .. } => (),
                             event::Scope::TaskAttached { .. } => {
                                 builder
-                                    .add(event, *metric)
+                                    .add(configured, *metric)
                                     .with_context(|| format!("could not configure event {}", event.name()))?;
                             }
                         }
