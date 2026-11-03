@@ -102,6 +102,42 @@ fn test_integration_rejects_different_arm_implementers() {
 }
 
 #[test]
+fn test_integration_rejects_heterogeneous_arm_processors() {
+    let content = "processor\t: 0\n\
+                   CPU implementer\t: 0x41\n\
+                   CPU architecture: 8\n\
+                   CPU part\t: 0xd0c\n\
+                   \n\
+                   processor\t: 1\n\
+                   CPU implementer\t: 0x41\n\
+                   CPU architecture: 8\n\
+                   CPU part\t: 0xd08\n";
+
+    let temp_file = create_test_cpuinfo(content);
+    let error = CpuInfo::read(temp_file.path()).unwrap_err();
+
+    assert!(error.to_string().contains("heterogeneous CPU models"));
+}
+
+#[test]
+fn test_integration_rejects_different_arm_implementers() {
+    let content = "processor\t: 0\n\
+                   CPU implementer\t: 0x41\n\
+                   CPU architecture: 8\n\
+                   CPU part\t: 0xd08\n\
+                   \n\
+                   processor\t: 1\n\
+                   CPU implementer\t: 0x42\n\
+                   CPU architecture: 8\n\
+                   CPU part\t: 0xd08\n";
+
+    let temp_file = create_test_cpuinfo(content);
+    let error = CpuInfo::read(temp_file.path()).unwrap_err();
+
+    assert!(error.to_string().contains("heterogeneous CPU models"));
+}
+
+#[test]
 fn test_integration_read_arm_hexadecimal() {
     let content = "processor\t: 0\n\
                    BogoMIPS\t: 38.40\n\
