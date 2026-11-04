@@ -156,7 +156,7 @@ struct DeltaCpuTime {
     pub nice: u64,
     pub system: u64,
     pub idle: u64,
-    // iowait skipped because it's documented as unreliable
+    pub iowait: Option<u64>,
     pub irq: Option<u64>,
     pub softirq: Option<u64>,
     pub steal: Option<u64>,
@@ -171,6 +171,7 @@ impl DeltaCpuTime {
             nice: now.nice_ms() - prev.nice_ms(),
             system: now.system_ms() - prev.system_ms(),
             idle: now.idle_ms() - prev.idle_ms(),
+            iowait: now.iowait_ms().map(|x| x - prev.iowait_ms().unwrap()),
             irq: now.irq_ms().map(|x| x - prev.irq_ms().unwrap()),
             softirq: now.softirq_ms().map(|x| x - prev.softirq_ms().unwrap()),
             steal: now.steal_ms().map(|x| x - prev.steal_ms().unwrap()),
@@ -206,6 +207,12 @@ impl DeltaCpuTime {
             MeasurementPoint::new(timestamp, metric, res.clone(), consumer.clone(), self.idle)
                 .with_attr("cpu_state", "idle"),
         );
+        if let Some(iowait) = self.iowait {
+            acc.push(
+                MeasurementPoint::new(timestamp, metric, res.clone(), consumer.clone(), iowait)
+                    .with_attr("cpu_state", "iowait"),
+            );
+        }
         if let Some(irq) = self.irq {
             acc.push(
                 MeasurementPoint::new(timestamp, metric, res.clone(), consumer.clone(), irq)

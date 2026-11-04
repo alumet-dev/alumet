@@ -60,6 +60,7 @@ The CPU states is an attribute that indicates the kind of cpu time that is measu
 |`nice`|Time spent in user mode with low priority (nice)|
 |`system`|Time spent in system mode|
 |`idle`|Time spent in the idle state|
+|`iowait`|Time spent idle pending I/O|
 |`irq`|Time servicing interrupts|
 |`softirq`|Time servicing soft interrupts|
 |`steal`|Time of stolen time. Stolen time is the time spent in other operating systems when running in a virtualized environment.|
