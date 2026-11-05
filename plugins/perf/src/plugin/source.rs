@@ -11,6 +11,7 @@ use alumet::{
 use anyhow::Context;
 use itertools::Itertools;
 
+use super::config::ConfiguredEvent;
 use crate::event::{ParsedEvent, Scope};
 use crate::group::{EventGroup, EventGroupBuilder, Target};
 use crate::resource;
@@ -31,11 +32,13 @@ pub(super) struct PerfEventSource {
 }
 
 /// What a group measures, and the Alumet metric of each of its counters (in `add` order).
+#[derive(Debug)]
 struct GroupInfo {
     metrics: Vec<TypedMetricId<u64>>,
-    /// Partition key: there is one group per `(cpu_id, key)` (a perf group cannot span two PMUs).
-    key: u64,
+    /// The PMU of the group's events: a perf group cannot span two PMUs.
+    pmu_key: u64,
     cpu_id: Option<u32>,
+    group: Option<String>,
     resource: Resource,
     consumer: ResourceConsumer,
     /// The core PMU name, reported as the `pmu` attribute; `None` for events with no specific PMU.
@@ -65,7 +68,8 @@ impl Source for PerfEventSource {
 pub(super) struct PerfEventSourceBuilder {
     /// Something to observe.
     observable: Observable,
-    /// The groups opened so far, one per `(cpu, pmu)`.
+    /// The groups opened so far, one per `(cpu, pmu, group name)`, and one per event without a
+    /// group name.
     groups: Vec<(EventGroupBuilder, GroupInfo)>,
     /// The available CPUs to monitor.
     online_cpus: Vec<u32>,
@@ -83,17 +87,23 @@ impl PerfEventSourceBuilder {
         })
     }
 
-    pub(super) fn add(&mut self, event: &ParsedEvent, alumet_metric: TypedMetricId<u64>) -> anyhow::Result<&mut Self> {
-        let key = event.pmu_group_key();
-        let auto_scale = self.multiplexing_auto_scale;
+    /// Adds the event to its perf group, or to a group of its own if it has no group name.
+    pub(super) fn add(
+        &mut self,
+        configured: &ConfiguredEvent,
+        alumet_metric: TypedMetricId<u64>,
+    ) -> anyhow::Result<&mut Self> {
+        let ConfiguredEvent { event, group } = configured;
+        let pmu_key = event.pmu_group_key();
 
         match (event.scope(), &self.observable) {
             (Scope::TaskAttached { binding }, Observable::Process { pid }) => {
                 let target = Target::Process { pid: *pid };
                 let info = GroupInfo {
                     metrics: Vec::new(),
-                    key,
+                    pmu_key,
                     cpu_id: None,
+                    group: group.clone(),
                     resource: resource::for_process(binding.as_ref()),
                     consumer: ResourceConsumer::Process { pid: *pid },
                     pmu_attr: binding.as_ref().map(|b| b.pmu.clone()),
@@ -110,8 +120,9 @@ impl PerfEventSourceBuilder {
                     let target = Target::Cgroup { fd: fd.clone(), cpu };
                     let info = GroupInfo {
                         metrics: Vec::new(),
-                        key,
+                        pmu_key,
                         cpu_id: Some(cpu),
+                        group: group.clone(),
                         resource: resource::for_cgroup_on_cpu(cpu),
                         consumer: ResourceConsumer::ControlGroup {
                             path: path.clone().into(),
@@ -122,19 +133,17 @@ impl PerfEventSourceBuilder {
                 }
             }
             (Scope::SystemWide { pmu, cpus }, Observable::Machine) => {
-                // One group per event and per cpu.
                 for &cpu in cpus {
-                    let mut group = EventGroupBuilder::open(Target::Cpu { cpu }, auto_scale)?;
-                    group.add(event)?;
                     let info = GroupInfo {
-                        metrics: vec![alumet_metric],
-                        key,
+                        metrics: Vec::new(),
+                        pmu_key,
                         cpu_id: Some(cpu),
+                        group: group.clone(),
                         resource: resource::for_system_wide_pmu(pmu, cpu),
                         consumer: ResourceConsumer::LocalMachine,
                         pmu_attr: None,
                     };
-                    self.groups.push((group, info));
+                    self.add_to_group(Target::Cpu { cpu }, info, event, alumet_metric)?;
                 }
             }
             (Scope::SystemWide { .. }, _) => anyhow::bail!(
@@ -149,8 +158,8 @@ impl PerfEventSourceBuilder {
         Ok(self)
     }
 
-    /// Adds `event` to the group matching `info`'s `(cpu_id, key)`, opening it on `target` if none
-    /// exists yet.
+    /// Adds `event` to the group matching `info`'s `(cpu_id, pmu_key, group)`, opening it on `target`
+    /// if none exists yet. An event without a group name always opens a new group.
     fn add_to_group(
         &mut self,
         target: Target,
@@ -158,10 +167,9 @@ impl PerfEventSourceBuilder {
         event: &ParsedEvent,
         alumet_metric: TypedMetricId<u64>,
     ) -> anyhow::Result<()> {
-        let existing = self
-            .groups
-            .iter()
-            .position(|(_, g)| g.cpu_id == info.cpu_id && g.key == info.key);
+        let existing = self.groups.iter().position(|(_, g)| {
+            info.group.is_some() && g.group == info.group && g.cpu_id == info.cpu_id && g.pmu_key == info.pmu_key
+        });
         let i = match existing {
             Some(i) => i,
             None => {
@@ -179,13 +187,7 @@ impl PerfEventSourceBuilder {
     pub(super) fn build(self) -> io::Result<PerfEventSource> {
         log::debug!(
             "Built PerfEventSource with groups [{}]",
-            self.groups
-                .iter()
-                .map(|(_, info)| format!(
-                    "{{resource: {:?}, consumer: {:?}, cpu: {:?}, metrics: {:?}}}",
-                    info.resource, info.consumer, info.cpu_id, info.metrics
-                ))
-                .join(", ")
+            self.groups.iter().map(|(_, info)| format!("{info:?}")).join(", ")
         );
         let groups = self
             .groups

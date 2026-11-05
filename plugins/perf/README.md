@@ -58,6 +58,8 @@ events = [
     "RESOURCE_STALLS:ANY",                           # libpfm event with a unit mask
     { event = "CONTEXT_SWITCHES", rename = "ctxsw" }, # -> metric perf_ctxsw
     { event = "LL_READ_MISS#h", rename = "LL_READ_MISS_HYPERVISOR"}, # hypervisor only
+    { event = "LL_READ_ACCESS", group = "llc" },     # counted together with the event below
+    { event = "LL_READ_MISS", group = "llc" },       # (see the "Event groups" section)
 ]
 
 # If true, start the sources in "paused" state.
@@ -310,6 +312,11 @@ ones are affected.
 The surest way to avoid multiplexing altogether is to configure no more events than the CPU has
 hardware counters (typically 4 to 8). Note that a single event can already be multiplexed if
 something else is using the PMU, for example another `perf` process running system-wide.
+
+### Event groups
+
+The events of the same `group` are counted together. There is one group per observed process, cgroup
+or machine. Events of the same `group` on different PMUs are split into separate groups.
 
 ### perf_event_paranoid and capabilities
 
