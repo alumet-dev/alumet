@@ -177,7 +177,7 @@ fn write_single_u64_measurement() {
         suffix: String::new(),
         use_unit_display_name: false,
         add_attributes_to_labels: false,
-    delta_metrics: Vec::new(),
+        delta_metrics: Vec::new(),
     };
     let plugins = add_plugins(plugin_config);
 
@@ -257,7 +257,7 @@ fn write_single_f64_measurement() {
         suffix: String::new(),
         use_unit_display_name: false,
         add_attributes_to_labels: false,
-    delta_metrics: Vec::new(),
+        delta_metrics: Vec::new(),
     };
     let plugins = add_plugins(plugin_config);
 
@@ -312,7 +312,7 @@ fn group_multiple_datapoints_under_same_metric() {
         suffix: String::new(),
         use_unit_display_name: false,
         add_attributes_to_labels: true,
-    delta_metrics: Vec::new(),
+        delta_metrics: Vec::new(),
     };
     let plugins = add_plugins(plugin_config);
 
@@ -446,7 +446,7 @@ fn metric_name_prefix_and_suffix() {
         suffix: "_suf".to_string(),
         use_unit_display_name: false,
         add_attributes_to_labels: false,
-    delta_metrics: Vec::new(),
+        delta_metrics: Vec::new(),
     };
     let plugins = add_plugins(plugin_config);
 
@@ -484,7 +484,7 @@ fn use_unit_display_name_false() {
         suffix: String::new(),
         use_unit_display_name: false, // <-- disabled
         add_attributes_to_labels: false,
-    delta_metrics: Vec::new(),
+        delta_metrics: Vec::new(),
     };
     let plugins = add_plugins(plugin_config);
 
@@ -529,7 +529,7 @@ fn use_unit_display_name_true() {
         suffix: String::new(),
         use_unit_display_name: true, // <-- enabled
         add_attributes_to_labels: false,
-    delta_metrics: Vec::new(),
+        delta_metrics: Vec::new(),
     };
     let plugins = add_plugins(plugin_config);
 
@@ -629,7 +629,7 @@ fn empty_attribute_values_replaced_with_empty_string_literal() {
         suffix: String::new(),
         use_unit_display_name: false,
         add_attributes_to_labels: true,
-    delta_metrics: Vec::new(),
+        delta_metrics: Vec::new(),
     };
     let plugins = add_plugins(plugin_config);
 
@@ -697,7 +697,7 @@ fn empty_measurement_buffer_sends_no_request() {
         suffix: String::new(),
         use_unit_display_name: false,
         add_attributes_to_labels: false,
-    delta_metrics: Vec::new(),
+        delta_metrics: Vec::new(),
     };
     let plugins = add_plugins(plugin_config);
 
@@ -729,7 +729,7 @@ fn instrumentation_scope_identifies_alumet() {
         suffix: String::new(),
         use_unit_display_name: false,
         add_attributes_to_labels: false,
-    delta_metrics: Vec::new(),
+        delta_metrics: Vec::new(),
     };
     let plugins = add_plugins(plugin_config);
 

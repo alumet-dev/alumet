@@ -358,7 +358,8 @@ impl TaskManager {
                 log::trace!("new trigger created from the spec: {trigger:?}");
 
                 // Create a controller to control the async task.
-                let (controller, config) = super::task_controller::new_managed(trigger, source.initial_state, poll_interval);
+                let (controller, config) =
+                    super::task_controller::new_managed(trigger, source.initial_state, poll_interval);
                 self.controllers.push((name.clone(), controller));
                 self.source_states.add_source(&name, config.clone());
                 log::trace!("new controller initialized");

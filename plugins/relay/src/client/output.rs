@@ -5,7 +5,7 @@ use std::{
 };
 
 use alumet::{
-    measurement::MeasurementBuffer,
+    measurement::{MeasurementBuffer, POLL_INTERVAL_ATTRIBUTE},
     metrics::{Metric, RawMetricId, online::MetricReader},
     pipeline::elements::output::{AsyncOutputStream, interface::StreamRecvError},
 };
@@ -105,6 +105,17 @@ impl TcpOutput {
         let timeout_expired = (now - self.buffer_last_send) > self.settings.buffer.timeout;
 
         log::trace!("size_limit_reached={size_limit_reached}, timeout_expired={timeout_expired}, now={now:?}");
+
+        // Carry the poll interval of the producer source as a measurement attribute,
+        // so that it survives the merging of buffers from different sources and the
+        // serialization, and can be used by the server (and further hops) to annotate
+        // measurements. This must be done before `merge`, as merging drops buffer-level metadata.
+        if let Some(interval) = measurements.producer.as_ref().and_then(|tag| tag.poll_interval) {
+            let value = interval.as_millis().to_string();
+            for m in measurements.iter_mut() {
+                m.add_attr(POLL_INTERVAL_ATTRIBUTE, value.clone());
+            }
+        }
 
         if !size_limit_reached {
             self.buffer.merge(&mut measurements);

@@ -12,7 +12,10 @@ use opentelemetry_proto::tonic::{
     },
     resource::v1::Resource,
 };
-use std::{collections::{HashMap, HashSet}, env};
+use std::{
+    collections::{HashMap, HashSet},
+    env,
+};
 
 use tonic::transport::Channel;
 
@@ -92,6 +95,10 @@ impl alumet::pipeline::Output for OpenTelemetryOutput {
 
             if self.add_attributes_to_labels {
                 for (key, value) in m.attributes() {
+                    // the poll interval is handled separately below (only for delta metrics)
+                    if key == alumet::measurement::POLL_INTERVAL_ATTRIBUTE {
+                        continue;
+                    }
                     let v = value.to_string();
                     let v = if v.is_empty() { "empty".to_string() } else { v };
                     attributes.push(make_kv(key, v));
@@ -100,17 +107,12 @@ impl alumet::pipeline::Output for OpenTelemetryOutput {
 
             attributes.sort_by(|a, b| a.key.cmp(&b.key));
 
-            // Attach the current poll interval to delta metrics (see Config.delta_metrics),
-            // kept up to date with dynamic reconfigurations (e.g. socket-control 'set-period').
+            // Attach the poll interval to delta metrics (see Config.delta_metrics):
+            // computed for local sources (follows socket-control changes),
+            // restored from the relay attribute for remote measurements.
             if self.delta_metrics.contains(full_metric.name.as_str()) {
-                let poll_intervals = ctx.poll_intervals_of(&m.metric);
-                if !poll_intervals.is_empty() {
-                    let intervals = poll_intervals
-                        .iter()
-                        .map(|d| d.as_millis().to_string())
-                        .collect::<Vec<_>>()
-                        .join(",");
-                    attributes.push(make_kv("alumet_poll_interval_ms", intervals));
+                if let Some(interval) = ctx.poll_interval_for(measurements, m) {
+                    attributes.push(make_kv(alumet::measurement::POLL_INTERVAL_ATTRIBUTE, interval));
                 }
             }
 

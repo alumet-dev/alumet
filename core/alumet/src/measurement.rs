@@ -413,23 +413,53 @@ impl From<&'static str> for AttributeValue {
     }
 }
 
+/// Attribute used to carry the poll interval (in milliseconds) of the source that
+/// produced a measurement, across boundaries that cannot access the pipeline state,
+/// e.g. when the relay plugin transfers measurements between two Alumet agents.
+/// It is stamped by the relay client and read by outputs (in priority to their
+/// own computation, see [`crate::pipeline::elements::output::OutputContext::poll_intervals_of`]).
+/// Points produced by a local source never carry this attribute, so its presence
+/// alone tells an output that the interval to use is the one in the point.
+pub const POLL_INTERVAL_ATTRIBUTE: &str = "alumet_poll_interval_ms";
+
+/// Identifies the source that produced a [`MeasurementBuffer`],
+/// with a snapshot of its poll interval taken at flush time.
+///
+/// The interval travels with the buffer (instead of being looked up in a registry),
+/// so that it stays exact per source and survives serialization (e.g. relay).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceTag {
+    /// Name (plugin, source) of the producer.
+    pub name: crate::pipeline::naming::SourceName,
+    /// Current poll interval of the source, if it is polled at a regular interval.
+    pub poll_interval: Option<std::time::Duration>,
+}
+
 /// A `MeasurementBuffer` stores measured data points.
 /// Unlike a [`MeasurementAccumulator`], the buffer allows to modify the measurements.
 #[derive(Clone, Debug)]
 pub struct MeasurementBuffer {
     points: Vec<MeasurementPoint>,
+    /// Name of the source that produced this buffer, when known.
+    /// Used by outputs to know the current poll interval of the source (see
+    /// [`crate::pipeline::elements::output::OutputContext::poll_intervals_of`]).
+    pub producer: Option<SourceTag>,
 }
 
 impl MeasurementBuffer {
     /// Constructs a new buffer.
     pub fn new() -> MeasurementBuffer {
-        MeasurementBuffer { points: Vec::new() }
+        MeasurementBuffer {
+            points: Vec::new(),
+            producer: None,
+        }
     }
 
     /// Constructs a new buffer with at least the specified capacity (allocated on construction).
     pub fn with_capacity(capacity: usize) -> MeasurementBuffer {
         MeasurementBuffer {
             points: Vec::with_capacity(capacity),
+            producer: None,
         }
     }
 
@@ -497,6 +527,7 @@ impl Default for MeasurementBuffer {
     fn default() -> Self {
         Self {
             points: Default::default(),
+            producer: None,
         }
     }
 }
@@ -532,13 +563,17 @@ impl FromIterator<MeasurementPoint> for MeasurementBuffer {
     fn from_iter<T: IntoIterator<Item = MeasurementPoint>>(iter: T) -> Self {
         Self {
             points: Vec::from_iter(iter),
+            producer: None,
         }
     }
 }
 
 impl From<Vec<MeasurementPoint>> for MeasurementBuffer {
     fn from(value: Vec<MeasurementPoint>) -> Self {
-        MeasurementBuffer { points: value }
+        MeasurementBuffer {
+            points: value,
+            producer: None,
+        }
     }
 }
 

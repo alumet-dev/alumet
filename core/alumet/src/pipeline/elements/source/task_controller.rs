@@ -146,24 +146,36 @@ impl SingleSourceController {
 /// (e.g. via the socket-control plugin).
 #[derive(Clone, Default)]
 pub struct SourceStates {
-    inner: Arc<Mutex<HashMap<PluginName, Vec<Arc<SharedSourceConfig>>>>>,
+    inner: Arc<Mutex<HashMap<SourceName, Arc<SharedSourceConfig>>>>,
 }
 
 impl SourceStates {
     pub(crate) fn add_source(&self, name: &SourceName, config: Arc<SharedSourceConfig>) {
-        let plugin = PluginName(name.plugin().to_owned());
-        self.inner.lock().unwrap().entry(plugin).or_default().push(config);
+        self.inner.lock().unwrap().insert(name.clone(), config);
+    }
+
+    /// The current polling interval of a given source, or `None` if the source is
+    /// unknown (e.g. autonomous) or not polled at a regular interval (e.g. manual trigger).
+    pub fn poll_interval_of(&self, source: &SourceName) -> Option<Duration> {
+        let config = self.inner.lock().unwrap().get(source).cloned();
+        match config {
+            Some(config) => *config.poll_interval.lock().unwrap(),
+            None => None,
+        }
     }
 
     /// The current polling intervals of the managed sources of the given plugin, deduplicated.
     /// Empty if no source of that plugin is known, or if none is polled at a regular interval.
     pub fn poll_intervals(&self, plugin: &PluginName) -> Vec<Duration> {
         let mut intervals = BTreeSet::new();
-        if let Some(configs) = self.inner.lock().unwrap().get(plugin) {
-            for config in configs.iter() {
-                if let Some(interval) = *config.poll_interval.lock().unwrap() {
-                    intervals.insert(interval);
-                }
+        let sources = self.inner.lock().unwrap();
+        for config in sources
+            .iter()
+            .filter(|(name, _)| name.plugin() == plugin.0)
+            .map(|(_, config)| config)
+        {
+            if let Some(interval) = *config.poll_interval.lock().unwrap() {
+                intervals.insert(interval);
             }
         }
         intervals.into_iter().collect()
@@ -177,8 +189,8 @@ mod tests {
     use crate::pipeline::elements::source::control::{Reconfiguration, TaskState};
     use crate::pipeline::naming::{PluginName, SourceName};
 
-    use crate::pipeline::elements::source::trigger::{Trigger, TriggerSpec};
     use super::{SourceStates, new_managed};
+    use crate::pipeline::elements::source::trigger::{Trigger, TriggerSpec};
 
     #[test]
     fn source_states_poll_intervals_follow_reconfiguration() {
@@ -198,11 +210,13 @@ mod tests {
         states.add_source(&name, config.clone());
         let plugin = PluginName("my-plugin".to_owned());
         assert_eq!(states.poll_intervals(&plugin), vec![Duration::from_secs(1)]);
+        assert_eq!(states.poll_interval_of(&name), Some(Duration::from_secs(1)));
 
         // simulate a dynamic reconfiguration (e.g. socket-control 'control sources set-period 500ms')
         controller.reconfigure(&Reconfiguration::SetTrigger(TriggerSpec::at_interval(
             Duration::from_millis(500),
         )));
         assert_eq!(states.poll_intervals(&plugin), vec![Duration::from_millis(500)]);
+        assert_eq!(states.poll_interval_of(&name), Some(Duration::from_millis(500)));
     }
 }

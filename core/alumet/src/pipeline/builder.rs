@@ -344,7 +344,12 @@ impl Builder {
 
             // Outputs
             let out_rx_provider = channel::ReceiverProvider::from(in_rx);
-            output_control = OutputControl::new(out_rx_provider, rt_handle.clone(), metrics_r.clone(), source_states.clone());
+            output_control = OutputControl::new(
+                out_rx_provider,
+                rt_handle.clone(),
+                metrics_r.clone(),
+                source_states.clone(),
+            );
             output_control
                 .blocking_create_outputs(self.outputs)
                 .context("output creation failed")?;
@@ -357,7 +362,12 @@ impl Builder {
 
             // Outputs
             let out_rx_provider = channel::ReceiverProvider::from(out_tx.clone());
-            output_control = OutputControl::new(out_rx_provider, rt_handle.clone(), metrics_r.clone(), source_states.clone());
+            output_control = OutputControl::new(
+                out_rx_provider,
+                rt_handle.clone(),
+                metrics_r.clone(),
+                source_states.clone(),
+            );
             output_control
                 .blocking_create_outputs(self.outputs)
                 .context("output creation failed")?;

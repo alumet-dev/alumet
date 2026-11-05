@@ -93,23 +93,22 @@ impl alumet::pipeline::Output for PrometheusOutput {
             if self.add_attributes_to_labels {
                 // Add attributes as labels
                 for (key, value) in m.attributes() {
+                    // the poll interval is handled separately below (only for delta metrics)
+                    if key == alumet::measurement::POLL_INTERVAL_ATTRIBUTE {
+                        continue;
+                    }
                     let key = sanitize_name(key.to_owned());
                     labels.push((key, value.to_string()));
                 }
             }
             labels.sort_by(|a, b| a.0.cmp(&b.0));
 
-            // Attach the current poll interval to delta metrics (see Config.delta_metrics),
-            // kept up to date with dynamic reconfigurations (e.g. socket-control 'set-period').
+            // Attach the poll interval to delta metrics (see Config.delta_metrics):
+            // computed for local sources (follows socket-control changes),
+            // restored from the relay attribute for remote measurements.
             if self.delta_metrics.contains(full_metric.name.as_str()) {
-                let poll_intervals = ctx.poll_intervals_of(&m.metric);
-                if !poll_intervals.is_empty() {
-                    let intervals = poll_intervals
-                        .iter()
-                        .map(|d| d.as_millis().to_string())
-                        .collect::<Vec<_>>()
-                        .join(",");
-                    labels.push(("alumet_poll_interval_ms".to_string(), intervals));
+                if let Some(interval) = ctx.poll_interval_for(measurements, m) {
+                    labels.push((alumet::measurement::POLL_INTERVAL_ATTRIBUTE.to_string(), interval));
                 }
             }
 

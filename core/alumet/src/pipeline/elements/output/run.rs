@@ -129,9 +129,15 @@ pub async fn run_blocking_output<Rx: channel::MeasurementReceiver>(
                     Err(RecvError::Lagged(n)) => format!("Err(Lagged({n}))"),
                 }
             );
-            let res = write_measurements(&name, guarded_output.clone(), metrics_reader.clone(), source_states.clone(), received)
-                .await
-                .map_err(|e| PipelineError::for_element(name.clone(), e))?;
+            let res = write_measurements(
+                &name,
+                guarded_output.clone(),
+                metrics_reader.clone(),
+                source_states.clone(),
+                received,
+            )
+            .await
+            .map_err(|e| PipelineError::for_element(name.clone(), e))?;
             if res.is_break() {
                 break;
             }
