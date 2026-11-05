@@ -1,0 +1,121 @@
+name: Remove old snapshots
+
+on:
+  # TODO remove once validated (used for testing a second time when nothing to delete)
+  workflow_dispatch:
+  workflow_call:
+  # TODO remove once validated
+  push:
+    branches: ["BRSEED-1680/Add-an-automatic-cleanup-of-old-snapshots-in-alumet-repo"]
+  # TODO uncomment once validated : We want to try cleaning snapshots regularly
+  # even if some failed to be created in previous snapshot wf expected running 1 hour earlier.
+    # schedule:
+  #  - cron: '0 1 * * 1'
+
+jobs:
+    list-and-remove-old-snapshots-tag-and-assets:
+      runs-on: ubuntu-latest
+      steps:
+        - name: Checkout repo
+          uses: actions/checkout@v7
+          with:
+            fetch-depth: 0
+            ref: main
+
+        - name: Create GitHub App token
+          uses: actions/create-github-app-token@v3
+          id: get-app-token
+          with:
+            client-id: ${{ secrets.APP_ID }}
+            private-key: ${{ secrets.APP_PRIVATE_KEY }}
+            permission-packages: write
+            permission-contents: write
+
+        - name: Identify snapshots to delete
+          id: snapshots
+          env:
+            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # with this you don’t have to run gh auth login
+          run: |
+            # Identify the oldest snapshots, while keeping the 7 most recent ones
+            # It means ignoring index (0-6)
+
+            snapshots=$(gh release list --repo $GITHUB_REPOSITORY --limit 1000 --json tagName,publishedAt \
+              --jq '[
+                .[]
+                | select(.tagName | startswith("snapshot-"))
+              ]
+              | sort_by(.publishedAt)
+              | reverse
+              | .[7:]
+              | .[].tagName')
+            {
+              echo "tags<<EOF"
+              echo "$snapshots"
+              echo "EOF"
+            } | tee -a "$GITHUB_OUTPUT"
+
+        - name: Delete old snapshots
+          shell: bash
+          env:
+            SNAPSHOTS_TO_DELETE: ${{ steps.snapshots.outputs.tags }}
+            GH_TOKEN: ${{ steps.get-app-token.outputs.token }}
+          run: |
+            # For each tag identified at the previous step delete the release
+            while IFS= read -r tag; do
+              # Ignore empty lines.
+              [ -z "$tag" ] && continue
+              echo "Deleting snapshot: $tag"
+              gh release delete "$tag" --cleanup-tag --yes --repo $GITHUB_REPOSITORY
+              echo "delete release: $tag"
+            done <<< "$SNAPSHOTS_TO_DELETE"
+
+        - name: Identify and delete snapshot images in GHCR
+          env:
+            GH_TOKEN: ${{ steps.get-app-token.outputs.token }}
+            SNAPSHOTS_TO_DELETE: ${{ steps.snapshots.outputs.tags }}
+          shell: bash
+          run: |
+            # Iterate over previously identified snapshots
+
+            while IFS= read -r tag; do
+              # Ignore empty lines
+              [ -z "$tag" ] && continue
+              # Extract the date : snapshot-20261026 -> 20261026.
+              date="${tag#snapshot-}"
+              # Check format before searching
+              if [[ ! "$date" =~ ^[0-9]{8}$ ]]; then
+                echo "::warning::Unexpected snapshot tag: $tag"
+                continue
+              fi
+              # Example : 0.9.5-20261026.giteb82639-1_ubuntu_24.04
+              pattern="-${date}."
+              echo "Searching GHCR images for snapshot: $tag"
+
+              # Search GHCR versions containing a tag corresponding to the date
+
+              version_ids=$(
+              gh api --paginate \
+                "/orgs/alumet-dev/packages/container/alumet-agent/versions?per_page=100" \
+                --jq "
+                  .[]
+                  | select(any(
+                      .metadata.container.tags[]?;
+                      contains(\"$pattern\")
+                    ))
+                  | .id
+                " | sort -u
+              )
+            # No image found, go to next one
+            if [ -z "$version_ids" ]; then
+              echo "No GHCR images found for $tag"
+              continue
+            fi
+            # Delete
+            while IFS= read -r version_id; do
+              [ -z "$version_id" ] && continue
+              echo "Deleting GHCR version $version_id for $tag"
+              gh api --method DELETE \
+                "/orgs/alumet-dev/packages/container/alumet-agent/versions/$version_id"
+              echo "Delete $version_id for tag: $tag"
+            done <<< "$version_ids"
+            done <<< "$SNAPSHOTS_TO_DELETE"
