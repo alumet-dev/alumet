@@ -284,3 +284,12 @@ jobs:
             docker manifest push "$base"
 
           done
+
+  remove-snapshot:
+    permissions:
+      contents: write
+      packages: write
+    needs:
+      - push-docker
+    uses: ./.github/workflows/remove-snapshot.yaml
+
