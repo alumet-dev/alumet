@@ -82,7 +82,7 @@ The `perf` plugin can be used for multiple use cases:
 
 You can collect measurements for a single process using Alumet in `exec` mode.
 
-Example: `alumet --config alumet-config.toml --plugins perf,csv exec -- stress --cpu 8 --timeout 10s`
+Example: `alumet-agent --config alumet-config.toml --plugins perf,csv exec -- stress --cpu 8 --timeout 10s`
 
 In this example, Alumet will launch the `stress` process and collect measurements based on the configured counters in `alumet-config.toml`.
 
@@ -98,7 +98,7 @@ Not supported. The implementation will be done in the future.
 
 You can collect measurements for all the running cgroups using Alumet in `watch` mode combined with a `cgroups` **Observer**.
 
-Example: `alumet --config alumet-config.toml --plugins perf,cgroups,csv`
+Example: `alumet-agent --config alumet-config.toml --plugins perf,cgroups,csv`
 
 Make sure that the plugin `cgroups` (or `slurm`, `k8s`, `oar`) is activated in your configuration file:
 
@@ -107,10 +107,10 @@ Example:
 ```toml
 [plugins.cgroups]
 poll_interval = "1s"
-sources_disable = true
+disable_sources = true
 ```
 
-Having the `sources_disable = true` make the **Observer** feature alive without having their own sources activated.
+Having the `disable_sources = true` make the **Observer** feature alive without having their own sources activated.
 
 ### Events syntax
 

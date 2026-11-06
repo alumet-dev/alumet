@@ -18,16 +18,25 @@ There are various information collected by this plugin relative to Kernel, CPU, 
 |`kernel_new_forks`|CounterDiff|none|Number of forked operations*|LocalMachine|LocalMachine||
 |`kernel_n_procs_running`|Gauge|none|Number of processes in a runnable state|LocalMachine|LocalMachine||
 |`kernel_n_procs_blocked`|Gauge|none|Numbers of processes that are blocked on input/output operations|LocalMachine|LocalMachine||
-|`cpu_time_delta`|CounterDiff|millisecond|CPU usage|LocalMachine|Process|[kind](#kind)|
+|`cpu_time_delta`|CounterDiff|nanosecond|CPU usage|LocalMachine|Process|[kind](#kind)|
 |`cpu_percent`|Gauge|Percent (0 to 100)|`cpu_time_delta / delta_t / n_cores` (all cores used fully = 100%)|`LocalMachine`|Process|[kind](#kind)|
 |`memory_usage`|Gauge|bytes|Memory usage|LocalMachine|Process|[kind](#kind)|
+|`mem_total`|Gauge|bytes|Total usable RAM (`MemTotal` in `/proc/meminfo`)*|LocalMachine|LocalMachine||
+|`mem_free`|Gauge|bytes|Free RAM (`MemFree` in `/proc/meminfo`)*|LocalMachine|LocalMachine||
+|`mem_available`|Gauge|bytes|Estimated memory available for starting new applications (`MemAvailable` in `/proc/meminfo`)*|LocalMachine|LocalMachine||
+|`cached`|Gauge|bytes|Memory used by the page cache (`Cached` in `/proc/meminfo`)*|LocalMachine|LocalMachine||
+|`swap_cached`|Gauge|bytes|Swap memory also cached in RAM (`SwapCached` in `/proc/meminfo`)*|LocalMachine|LocalMachine||
+|`active`|Gauge|bytes|Recently used memory (`Active` in `/proc/meminfo`)*|LocalMachine|LocalMachine||
+|`inactive`|Gauge|bytes|Less recently used memory (`Inactive` in `/proc/meminfo`)*|LocalMachine|LocalMachine||
+|`mapped`|Gauge|bytes|Memory mapped into processes (e.g. libraries) (`Mapped` in `/proc/meminfo`)*|LocalMachine|LocalMachine||
 |`network_bytes`|Gauge|bytes|Tx/Rx bytes per interface|LocalMachine|LocalMachine|direction,interface|
-|`network_packets`|Gauge|bytes|Tx/Rx packets per interface|LocalMachine|LocalMachine|direction,interface|
-|`network_packet_drops`|Gauge|bytes|Tx/Rx packets dropped per interface|LocalMachine|LocalMachine|direction,interface|
-|`network_errors`|Gauge|bytes|Tx/Rx network errors per interface|LocalMachine|LocalMachine|direction,interface|
+|`network_packets`|Gauge|none|Tx/Rx packets per interface|LocalMachine|LocalMachine|direction,interface|
+|`network_packet_drops`|Gauge|none|Tx/Rx packets dropped per interface|LocalMachine|LocalMachine|direction,interface|
+|`network_errors`|Gauge|none|Tx/Rx network errors per interface|LocalMachine|LocalMachine|direction,interface|
 
 - ***Context switches**: Operation allowing a single CPU to manage multiple processes efficiently, involves saving the state of a currently running process and loading the state of another process, enabling multitasking and optimal CPU utilization.
 - ***Forks**: When a process creates a copy of itself.
+- ***Memory metrics**: The default entries of `[plugins.procfs.memory]`; the list is configurable (see [Memory metrics](#memory-metrics)).
 
 ### Attributes
 
@@ -48,7 +57,8 @@ The kind of the CPU time delta is the average CPU time spent by various tasks:
 |-----|-----------|
 |`user`|Time spent in user mode|
 |`system`|Time spent in system mode|
-|`guest`|Time spent running a virtual CPU for guest operating systems under control of the linux kernel|
+|`guest`|Time spent running a virtual CPU for guest operating systems under control of the linux kernel (only for `cpu_time_delta`)|
+|`total`|`user` + `system` (only for `cpu_percent`)|
 
 #### cpu_state
 

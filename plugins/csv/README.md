@@ -23,6 +23,8 @@ append_unit_to_metric_name = true
 use_unit_display_name = true
 # The CSV delimiter, such as `;`
 csv_delimiter = ";"
+# The delimiter between the entries in `__late_attributes`.
+csv_late_delimiter = ","
 ```
 
 ## More information

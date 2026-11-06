@@ -20,10 +20,12 @@ Here are the metrics collected by the plugin's sources.
 |`cgroup_memory_file`|Gauge|Bytes|memory used to cache filesystem data|`LocalMachine`|`Cgroup`|see below|
 |`cgroup_memory_kernel_stack`|Gauge|Bytes|memory allocated to kernel stacks|`LocalMachine`|`Cgroup`|see below|
 |`cgroup_memory_pagetables`|Gauge|Bytes|memory reserved for the page tables|`LocalMachine`|`Cgroup`|see below|
+|`cgroup_memory_swap_current`|Gauge|Bytes|current swap usage of the cgroup|`LocalMachine`|`Cgroup`|see below|
+|`cgroup_memory_swap_max`|Gauge|Bytes|maximum allowed swap usage for the cgroup|`LocalMachine`|`Cgroup`|see below|
 |`cgroup_slab_reclaimable`|Gauge|Bytes|Amount of reclaimable kernel slab memory used by the cgroup.|`LocalMachine`|`Cgroup`|see below|
 |`cgroup_pswpin`|CounterDiff|Pages|Total number of pages swapped into memory by the cgroup.|`LocalMachine`|`Cgroup`|see below|
 |`cgroup_pswpout`|CounterDiff|Pages|Total number of pages swapped out of memory by the cgroup.|`LocalMachine`|`Cgroup`|see below|
-|`cgroup_pswpin_bytes`|CounterDiff|Bytes|Total size of pages swapped out of memory by the cgroup.|`LocalMachine`|`Cgroup`|see below|
+|`cgroup_pswpin_bytes`|CounterDiff|Bytes|Total size of pages swapped into memory by the cgroup.|`LocalMachine`|`Cgroup`|see below|
 |`cgroup_pswpout_bytes`|CounterDiff|Bytes|Total size of pages swapped out of memory by the cgroup.|`LocalMachine`|`Cgroup`|see below|
 |`io_pressure_some_total`|CounterDiff|microseconds|IO pressure some total delta (at least one task stalled)|`LocalMachine`|`Cgroup`|none|
 |`io_pressure_full_total`|CounterDiff|microseconds|IO pressure full total delta (all tasks stalled)|`LocalMachine`|`Cgroup`|none|
@@ -38,7 +40,7 @@ The **cpu** measurements have an additional attribute `kind`, which can be one o
 
 ## Special Values for Maximum Metrics
 
-Some metrics that represent maximum limits (`memory_max`, `memory_swap_max`) are returned as `f64` instead of `u64` to handle a special case:
+Some metrics that represent maximum limits (`memory_max`, `cgroup_memory_swap_max`) are returned as `f64` instead of `u64` to handle a special case:
 
 - When these metrics return `-1`, it indicates that the capping is set to maximum (unlimited), meaning the actual limit value is not available or meaningful. This occurs when the cgroup has no explicit limit set and can use all available system resources.
 
