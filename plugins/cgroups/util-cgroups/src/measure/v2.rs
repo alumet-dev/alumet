@@ -65,6 +65,7 @@ mod common {
         pub cpu_stat: Option<CpuStats>,
         pub io_pressure: Option<IoPressureStats>,
         pub cpuset_cpus_effective: Option<u64>,
+        pub cpuset_cpus_effective_list: Option<String>,
     }
 
     impl V2Collector {
@@ -244,8 +245,10 @@ mod common {
             let memory_swap_max = self.memory_swap_max.as_mut().map(|c| c.measure(io_buf)).transpose()?;
             let cpu_stat = self.cpu_stat.as_mut().map(|c| c.measure(io_buf)).transpose()?;
             let io_pressure = self.io_pressure.as_mut().map(|c| c.measure(io_buf)).transpose()?;
-            let cpuset_cpus_effective = self.cpuset_cpus_effective.as_mut().map(|c| c.measure()).transpose()?;
-
+            let cpuset_cpus_effective_vec = self.cpuset_cpus_effective.as_mut().map(|c| c.measure()).transpose()?;
+            let cpuset_cpus_effective = cpuset_cpus_effective_vec.as_ref().map(|cpus| cpus.len() as u64);
+            let cpuset_cpus_effective_list: Option<String> =
+                cpuset_cpus_effective_vec.map(|cpus| cpus.iter().map(u32::to_string).collect::<Vec<_>>().join(","));
             Ok(V2Stats {
                 memory_current,
                 memory_max,
@@ -255,6 +258,7 @@ mod common {
                 cpu_stat,
                 io_pressure,
                 cpuset_cpus_effective,
+                cpuset_cpus_effective_list,
             })
         }
     }

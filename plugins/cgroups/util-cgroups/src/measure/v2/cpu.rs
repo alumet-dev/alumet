@@ -1,4 +1,5 @@
 use std::io::{Read, Seek, SeekFrom};
+use std::num::ParseIntError;
 use std::{fs::File, io, path::Path};
 
 use serde::Serialize;
@@ -114,33 +115,13 @@ impl CpuStatCollector {
     }
 }
 
-fn count_cpus(cpulist: &str) -> anyhow::Result<u32> {
-    let mut count = 0;
-
-    for item in cpulist.trim().split(',') {
-        let bounds: Vec<u32> = item.split('-').map(str::parse).collect::<Result<Vec<u32>, _>>()?;
-
-        match bounds.as_slice() {
-            [start, end] if start <= end => {
-                count += end - start + 1;
-            }
-            [n] => {
-                count += 1;
-            }
-            _ => anyhow::bail!("invalid cpu_list: {}", item),
-        }
-    }
-
-    Ok(count)
-}
-
-pub fn parse_cpuset(file: &mut File) -> anyhow::Result<u32> {
+pub fn parse_cpuset(file: &mut File) -> anyhow::Result<Vec<u32>> {
     file.seek(SeekFrom::Start(0))?;
 
     let mut content = String::new();
     file.read_to_string(&mut content)?;
 
-    count_cpus(content.trim())
+    parse_cpu_list(content.trim())
 }
 
 impl CpusetCpusEffective {
@@ -150,10 +131,38 @@ impl CpusetCpusEffective {
     }
 
     /// Collects measurements from the underlying "file",
-    pub fn measure(&mut self) -> io::Result<u64> {
+    pub fn measure(&mut self) -> io::Result<Vec<u32>> {
         let count = parse_cpuset(&mut self.cpus).map_err(|e| io::Error::other(e))?;
-        Ok(u64::from(count))
+        Ok(count)
     }
+}
+
+pub fn parse_cpu_list(cpulist: &str) -> anyhow::Result<Vec<u32>> {
+    // handles "n" or "start-end"
+    fn parse_cpulist_item(item: &str) -> anyhow::Result<Vec<u32>> {
+        let bounds: Vec<u32> = item
+            .split('-')
+            .map(str::parse)
+            .collect::<Result<Vec<u32>, ParseIntError>>()?;
+
+        match *bounds.as_slice() {
+            [start, end] => Ok((start..=end).collect()),
+            [n] => Ok(vec![n]),
+            _ => Err(anyhow::anyhow!("invalid cpu_list: {}", item)),
+        }
+    }
+
+    // this can be "0,64" or "0-1" or maybe "0-1,64-66"
+    let cpus: Vec<u32> = cpulist
+        .trim_end()
+        .split(',')
+        .map(parse_cpulist_item)
+        .collect::<anyhow::Result<Vec<Vec<u32>>>>()?
+        .into_iter() // not the same as iter() !
+        .flatten()
+        .collect();
+
+    Ok(cpus)
 }
 
 #[cfg(test)]
@@ -162,60 +171,56 @@ mod tests {
 
     #[test]
     fn test_single_cpu() {
-        assert_eq!(count_cpus("0").unwrap(), 1);
-        assert_eq!(count_cpus("5").unwrap(), 1);
-        assert_eq!(count_cpus("127").unwrap(), 1);
+        assert_eq!(parse_cpu_list("0").unwrap(), vec![0]);
+        assert_eq!(parse_cpu_list("5").unwrap(), vec![5]);
+        assert_eq!(parse_cpu_list("127").unwrap(), vec![127]);
     }
 
     #[test]
     fn test_cpu_ranges() {
-        assert_eq!(count_cpus("0-7").unwrap(), 8);
-        assert_eq!(count_cpus("1-4").unwrap(), 4);
-        assert_eq!(count_cpus("5-5").unwrap(), 1);
-        assert_eq!(count_cpus("0-0").unwrap(), 1);
-        assert_eq!(count_cpus("10-19").unwrap(), 10);
+        assert_eq!(parse_cpu_list("0-7").unwrap(), vec![0, 1, 2, 3, 4, 5, 6, 7]);
+        assert_eq!(parse_cpu_list("1-4").unwrap(), vec![1, 2, 3, 4]);
+        assert_eq!(parse_cpu_list("5-5").unwrap(), vec![5]);
+        assert_eq!(parse_cpu_list("0-0").unwrap(), vec![0]);
+        assert_eq!(parse_cpu_list("15-19").unwrap(), vec![15, 16, 17, 18, 19]);
     }
 
     #[test]
     fn test_multiple_cpus() {
-        assert_eq!(count_cpus("1,5,9").unwrap(), 3);
-        assert_eq!(count_cpus("1,5,9,12-14").unwrap(), 6);
-        assert_eq!(count_cpus("0-3,6-7").unwrap(), 6);
-        assert_eq!(count_cpus("0-2,4-6,8-10").unwrap(), 9);
+        assert_eq!(parse_cpu_list("1,5,9").unwrap(), vec![1, 5, 9]);
+        assert_eq!(parse_cpu_list("1,5,9,12-14").unwrap(), vec![1, 5, 9, 12, 13, 14]);
+        assert_eq!(parse_cpu_list("0-3,6-7").unwrap(), vec![0, 1, 2, 3, 6, 7]);
+        assert_eq!(
+            parse_cpu_list("0-2,4-6,8-10").unwrap(),
+            vec![0, 1, 2, 4, 5, 6, 8, 9, 10]
+        );
     }
 
     #[test]
     fn test_cpu_list_with_whitespace_at_end() {
-        assert_eq!(count_cpus("0-7\n").unwrap(), 8);
-        assert_eq!(count_cpus("1,5,9\n").unwrap(), 3);
-        assert_eq!(count_cpus("0-3  ").unwrap(), 4);
+        assert_eq!(parse_cpu_list("0-7\n").unwrap(), vec![0, 1, 2, 3, 4, 5, 6, 7]);
+        assert_eq!(parse_cpu_list("1,5,9\n").unwrap(), vec![1, 5, 9]);
+        assert_eq!(parse_cpu_list("0-3  ").unwrap(), vec![0, 1, 2, 3]);
     }
 
     #[test]
     fn test_invalid_input() {
-        assert!(count_cpus("abc").is_err());
-        assert!(count_cpus("1-x").is_err());
-        assert!(count_cpus("1-2-3").is_err());
-        assert!(count_cpus("3-1").is_err());
+        assert!(parse_cpu_list("abc").is_err());
+        assert!(parse_cpu_list("1-x").is_err());
+        assert_eq!(parse_cpu_list("3-1").unwrap(), vec![]);
     }
 
     #[test]
     fn test_empty_input() {
-        assert!(count_cpus("").is_err());
-        assert!(count_cpus("   ").is_err());
+        assert!(parse_cpu_list("").is_err());
+        assert!(parse_cpu_list("   ").is_err());
     }
 
     #[test]
     fn test_invalid_items_in_list() {
-        assert!(count_cpus("0-2,abc").is_err());
-        assert!(count_cpus("0-2,4-x").is_err());
-        assert!(count_cpus("0-2,").is_err());
-        assert!(count_cpus(",1,2").is_err());
-    }
-
-    #[test]
-    fn test_large_cpu_ranges() {
-        assert_eq!(count_cpus("0-255").unwrap(), 256);
-        assert_eq!(count_cpus("0-1023").unwrap(), 1024);
+        assert!(parse_cpu_list("0-2,abc").is_err());
+        assert!(parse_cpu_list("0-2,4-x").is_err());
+        assert!(parse_cpu_list("0-2,").is_err());
+        assert!(parse_cpu_list(",1,2").is_err());
     }
 }

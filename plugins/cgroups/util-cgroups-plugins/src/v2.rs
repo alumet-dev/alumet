@@ -232,7 +232,11 @@ impl Source for CgroupV2Probe {
 
         // Number of logical CPUs
         if let Some(cpuset_cpus_effective) = data.cpuset_cpus_effective {
-            measurements.push(self.new_point(&self.metrics.cpuset_cpus_effective, t, &resource, cpuset_cpus_effective));
+            let mut point = self.new_point(&self.metrics.cpuset_cpus_effective, t, &resource, cpuset_cpus_effective);
+            if let Some(core_list) = data.cpuset_cpus_effective_list {
+                point = point.with_attr("core_list", core_list);
+            }
+            measurements.push(point);
         }
 
         Ok(())
