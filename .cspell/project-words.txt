@@ -124,3 +124,17 @@ cpumask
 cstate
 imc
 pmu
+InfiniBand
+Mellanox
+mlx5
+ibp
+DOCA
+Kraken
+udev
+ibs
+OFED
+VLs
+PMA
+PortCounters
+PortRcvData
+perfquery
