@@ -137,7 +137,7 @@ flush_interval = "5s"
 
 # On startup, the plugin inspects the GPU devices and detect their features.
 # If `skip_failed_devices = true` (or is omitted), inspection failures will be logged and the plugin will continue.
-# If `skip_failed_devices = true`, the first failure will make the plugin's startup fail.
+# If `skip_failed_devices = false`, the first failure will make the plugin's startup fail.
 skip_failed_devices = true
 
 # See below

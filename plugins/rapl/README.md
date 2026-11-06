@@ -39,6 +39,8 @@ The possible domain values are:
 |`pp1`|the iGPU|
 |`dram`|the RAM attached to the processor|
 
+For each domain, the plugin also produces a `{domain}_total` value (e.g. `package_total`): the sum over all CPU packages, with the `LocalMachine` resource.
+
 ## Configuration
 
 Here is a configuration example of the RAPL plugin. It's part of the Alumet configuration file (eg: `alumet-config.toml`).

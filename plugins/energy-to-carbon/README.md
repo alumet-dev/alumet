@@ -37,12 +37,12 @@ If you want to use the emission intensity of a specific country, use this mode:
 # "country", "intensity_override" or "world_avg"
 mode = "country"
 
-[plugin.energy-to-carbon.country]
+[plugins.energy-to-carbon.country]
 # Country 3-letter ISO Code
-country = "FRA"
+code = "FRA"
 ```
 
-The country mode uses the `./plugins/energy-to-carbon/src/intensity/country/energy_mix_per_country.json` file to retrieve the emission intensity based on the country code you provide. Please note that these values are yearly calculated averages and may not be up to date.
+The country mode uses the `assets/energy_mix_per_country.json` file (embedded at compile time) to retrieve the emission intensity based on the country code you provide. Please note that these values are yearly calculated averages and may not be up to date.
 
 ### Override Mode
 
@@ -53,7 +53,7 @@ If you know your exact emission intensity, you can override it.
 # "country", "intensity_override" or "world_avg"
 mode = "intensity_override"
 
-[plugin.energy-to-carbon.override]
+[plugins.energy-to-carbon.intensity_override]
 # Override the emission intensity value (in gCO₂/kWh).
 intensity = 100
 ```

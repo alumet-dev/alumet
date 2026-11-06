@@ -22,9 +22,9 @@ The plugin exposes the following metric:
 
 | Name | Type | Unit | Description | Resource | ResourceConsumer | Attributes | More Information |
 |-----------------|-------|------|---------------------------------|----------------|------------------|------------|---------------------------------------|
-| `disk_power_W` | F64 | W | Disk power consumption in Watts | local_machine | local_machine | - | Sample is controlled via `poll_interval` |
+| `disk_power` | F64 | W | Disk power consumption in Watts | local_machine | local_machine | - | Sample is controlled via `poll_interval` |
 
-**Sampling rate** is controlled via the plugin configuration (`sample`, `poll_interval`).
+**Sampling rate** is derived from `poll_interval` (see the table below).
 
 ## Configuration
 

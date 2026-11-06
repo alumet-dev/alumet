@@ -16,16 +16,16 @@ Here is an example of how to configure this plugin. Put the following in the con
 host = "http://localhost:8086"
 # Token to write on the database
 token = "FILL ME"
-/// Organisation where to write data
+# Organisation where to write data
 org = "FILL ME"
-/// Bucket where to write data   
+# Bucket where to write data
 bucket = "FILL ME"
 # By default, serialize all Alumet attributes as fields. This can be either `"field"` or `"tag".
 attributes_as = "field"
 # Always serialize the given list of attributes as InfluxDB tags
-attributes_as_tags = [""]
+attributes_as_tags = []
 # Always serialize the given list of attributes as InfluxDB fields
-attributes_as_fields = [""]
+attributes_as_fields = []
 ```
 
 ## More information

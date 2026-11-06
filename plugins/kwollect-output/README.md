@@ -1,6 +1,6 @@
-# Kwollect plugin
+# Kwollect output plugin
 
-The `kwollect` plugin pushes data to a [Kwollect](https://gitlab.inria.fr/grid5000/kwollect) API.
+The `kwollect-output` plugin pushes data to a [Kwollect](https://gitlab.inria.fr/grid5000/kwollect) API.
 
 In particular, it allows users of the [Grid'5000](https://www.grid5000.fr/w/Grid5000:Home) testbed to easily visualize the measurements obtained by Alumet, alongside other measurements provided by, for instance, wattmeters.
 
@@ -12,10 +12,10 @@ If you are running a job on Grid'5000, you already have this access.
 
 ## Configuration
 
-Here is a configuration example of the `kwollect` plugin. It's part of the Alumet configuration file (eg: `alumet-config.toml`).
+Here is a configuration example of the `kwollect-output` plugin. It's part of the Alumet configuration file (eg: `alumet-config.toml`).
 
 ```toml
-[plugins.kwollect]
+[plugins.kwollect-output]
 # Url of the Grid'5000 API, it needs to specify the correct site (here 'grenoble')
 url = "https://api.grid5000.fr/stable/sites/grenoble/metrics"
 # Name of the machine
@@ -23,6 +23,10 @@ hostname = "mars"
 # Login and password used to push the metric, both are optional. If none are specified, it will push using the current user
 # login = ""
 # password = ""
+# Do we append the unit to the metric name?
+append_unit_to_metric_name = true
+# Do we use the unit display name (instead of its unique name)?
+use_unit_display_name = true
 ```
 
 On Grid'5000, you can simply generate this configuration (see below).
@@ -37,7 +41,7 @@ Here is a quick guide to send Alumet measurements to Kwollect.
 2. Automatically generate the configuration corresponding to your node:
 
 ```sh
-alumet-agent --plugins rapl,kwollect   config regen
+alumet-agent --plugins rapl,kwollect-output config regen
 # add other plugins here as needed ^^^
 ```
 

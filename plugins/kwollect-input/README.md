@@ -36,9 +36,10 @@ Here is a configuration example of the plugin. It's part of the Alumet configura
 [plugins.kwollect-input]
 site = "CLUSTER"                  # Grid'5000 site
 hostname = "NODE"                 # Target node hostname
-metrics = "wattmetre_power_watt"  # Metric to collect, DO NOT CHANGE IT
+metrics = ["wattmetre_power_watt"] # Kwollect metrics to collect
 login = "YOUR_G5K_LOGIN"          # Your Grid'5000 username
 password = "YOUR_G5K_PASSWORD"    # Your Grid'5000 password
+utc_offset = 2                    # Timezone offset (in hours) expected by Kwollect, UTC if omitted
 ```
 
 ## Usage

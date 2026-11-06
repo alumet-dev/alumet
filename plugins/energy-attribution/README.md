@@ -42,7 +42,7 @@ ref = "cpu_energy"
 # This need to be coherent with the poll_interval of the metrics involved in this formula.
 # Eg: If the metrics come from sources that poll every 1 second, it's recommanded to define the retention_time to at least 2 seconds.
 # This way the plugin can make use of the precedent values of this metric to make interpolations.
-retention_time = "1s"
+retention_time = "2s"
 
 # Timeseries related to the resources.
 [plugins.energy-attribution.formulas.attributed_energy.per_resource]
@@ -58,6 +58,12 @@ cpu_energy = { metric = "rapl_consumed_energy", resource_kind = "local_machine",
 # - the metric `cpu_percent`
 # - the attribute `kind` equal to `total`
 cpu_usage = { metric = "cpu_percent", kind = "total" }
+```
+
+To not copy the attributes of a timeseries into the result, use `keep_attributes = false`:
+
+```toml
+cpu_energy = { metric = "rapl_consumed_energy", domain = "package_total", keep_attributes = false }
 ```
 
 You can configure multiple formulas. Be sure to give each formula a unique name.

@@ -57,11 +57,11 @@ output/*/*
 
 # Match all the transforms of a plugin
 
-transform/plugin-energy-attribution/*
+transform/energy-attribution/*
 
 # Match a specific source of a source plugin
 
-source/plugin-procfs/memory
+source/procfs/memory
 ```
 
 #### Control arguments
