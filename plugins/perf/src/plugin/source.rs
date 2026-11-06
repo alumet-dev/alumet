@@ -1,6 +1,5 @@
-//! The perf [`Source`]: how the configured events are spread over [`EventGroup`]s, and how their
-//! values are reported to Alumet.
-use std::{fs::File, io, sync::Arc};
+//! The perf [`Source`]: how the values of the events are reported to Alumet.
+use std::collections::HashMap;
 
 use alumet::{
     measurement::{MeasurementAccumulator, MeasurementPoint, Timestamp},
@@ -8,192 +7,67 @@ use alumet::{
     pipeline::{Source, elements::error::PollError},
     resources::{Resource, ResourceConsumer},
 };
-use anyhow::Context;
-use itertools::Itertools;
 
-use super::config::ConfiguredEvent;
+use crate::counters::{Counters, GroupedEvent, Observed};
 use crate::event::{ParsedEvent, Scope};
-use crate::group::{EventGroup, EventGroupBuilder, Target};
 use crate::resource;
-use crate::sysfs;
 
-#[derive(Debug)]
-pub(super) enum Observable {
-    /// Observe a process.
-    Process { pid: u32 },
-    /// Observe a cgroup. `path` is the canonical cgroup path (relative to the cgroup root).
-    Cgroup { path: String, fd: Arc<File> },
-    /// Observe the whole machine, for the system-wide PMUs (uncore, `power`, `cstate_*`, …).
-    Machine,
-}
-
+/// The source of a process, a cgroup or the whole machine.
 pub(super) struct PerfEventSource {
-    groups: Vec<(EventGroup, GroupInfo)>,
+    counters: Counters,
+    /// The events counted, in the order given to the counters, and their metric.
+    events: Vec<(ParsedEvent, TypedMetricId<u64>)>,
+    consumer: ResourceConsumer,
+    /// The resource of each `(event, cpu)` read, computed once (it may read sysfs).
+    resources: HashMap<(usize, Option<u32>), Resource>,
 }
 
-/// What a group measures, and the Alumet metric of each of its counters (in `add` order).
-#[derive(Debug)]
-struct GroupInfo {
-    metrics: Vec<TypedMetricId<u64>>,
-    /// The PMU of the group's events: a perf group cannot span two PMUs.
-    pmu_key: u64,
-    cpu_id: Option<u32>,
-    group: Option<String>,
-    resource: Resource,
-    consumer: ResourceConsumer,
-    /// The core PMU name, reported as the `pmu` attribute; `None` for events with no specific PMU.
-    pmu_attr: Option<String>,
+impl PerfEventSource {
+    /// Opens the counters of `events` (each paired with its metric) on `observed`.
+    pub(super) fn new(
+        observed: &Observed,
+        events: &[(GroupedEvent, TypedMetricId<u64>)],
+        auto_scale: bool,
+        consumer: ResourceConsumer,
+    ) -> anyhow::Result<Self> {
+        let grouped: Vec<GroupedEvent> = events.iter().map(|(e, _)| e.clone()).collect();
+        Ok(Self {
+            counters: Counters::open(observed, &grouped, auto_scale)?,
+            events: events.iter().map(|(e, m)| (e.event.clone(), *m)).collect(),
+            consumer,
+            resources: HashMap::new(),
+        })
+    }
 }
 
 impl Source for PerfEventSource {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
-        for (group, info) in &mut self.groups {
-            group.read()?;
-            let accuracy = group.accuracy().as_str();
-            for (metric, value) in info.metrics.iter().zip(group.values()) {
-                let mut point =
-                    MeasurementPoint::new(timestamp, *metric, info.resource.clone(), info.consumer.clone(), *value)
-                        .with_attr("accuracy", accuracy);
-                if let Some(pmu) = &info.pmu_attr {
-                    point = point.with_attr("pmu", pmu.clone());
-                }
-                measurements.push(point)
+        let readings = self.counters.read()?;
+        for r in readings {
+            let (event, metric) = &self.events[r.event];
+            let resource = self
+                .resources
+                .entry((r.event, r.cpu))
+                .or_insert_with(|| resource_of(event, r.cpu))
+                .clone();
+            let mut point = MeasurementPoint::new(timestamp, *metric, resource, self.consumer.clone(), r.value)
+                .with_attr("accuracy", r.accuracy.as_str());
+            if let Scope::TaskAttached { binding: Some(b) } = event.scope() {
+                point = point.with_attr("pmu", b.pmu.clone());
             }
+            measurements.push(point);
         }
         Ok(())
     }
 }
 
-/// Builder for the perf [`Source`] of a process, a cgroup or the whole machine.
-pub(super) struct PerfEventSourceBuilder {
-    /// Something to observe.
-    observable: Observable,
-    /// The groups opened so far, one per `(cpu, pmu, group name)`, and one per event without a
-    /// group name.
-    groups: Vec<(EventGroupBuilder, GroupInfo)>,
-    /// The available CPUs to monitor.
-    online_cpus: Vec<u32>,
-    /// Activate auto_scaling in case of detected multiplexing
-    multiplexing_auto_scale: bool,
-}
-
-impl PerfEventSourceBuilder {
-    pub(super) fn observe(observable: Observable, multiplexing_auto_scale: bool) -> anyhow::Result<Self> {
-        Ok(Self {
-            observable,
-            groups: Vec::new(),
-            online_cpus: sysfs::online_cpus().context("could not detect online CPUs")?,
-            multiplexing_auto_scale,
-        })
-    }
-
-    /// Adds the event to its perf group, or to a group of its own if it has no group name.
-    pub(super) fn add(
-        &mut self,
-        configured: &ConfiguredEvent,
-        alumet_metric: TypedMetricId<u64>,
-    ) -> anyhow::Result<&mut Self> {
-        let ConfiguredEvent { event, group } = configured;
-        let pmu_key = event.pmu_group_key();
-
-        match (event.scope(), &self.observable) {
-            (Scope::TaskAttached { binding }, Observable::Process { pid }) => {
-                let target = Target::Process { pid: *pid };
-                let info = GroupInfo {
-                    metrics: Vec::new(),
-                    pmu_key,
-                    cpu_id: None,
-                    group: group.clone(),
-                    resource: resource::for_process(binding.as_ref()),
-                    consumer: ResourceConsumer::Process { pid: *pid },
-                    pmu_attr: binding.as_ref().map(|b| b.pmu.clone()),
-                };
-                self.add_to_group(target, info, event, alumet_metric)?;
-            }
-            (Scope::TaskAttached { binding }, Observable::Cgroup { path, fd }) => {
-                // Owned copies, so that `self` is no longer borrowed while groups are added.
-                let (path, fd) = (path.clone(), fd.clone());
-                let cpus = binding
-                    .as_ref()
-                    .map_or_else(|| self.online_cpus.clone(), |b| b.cpus.clone());
-                for cpu in cpus {
-                    let target = Target::Cgroup { fd: fd.clone(), cpu };
-                    let info = GroupInfo {
-                        metrics: Vec::new(),
-                        pmu_key,
-                        cpu_id: Some(cpu),
-                        group: group.clone(),
-                        resource: resource::for_cgroup_on_cpu(cpu),
-                        consumer: ResourceConsumer::ControlGroup {
-                            path: path.clone().into(),
-                        },
-                        pmu_attr: binding.as_ref().map(|b| b.pmu.clone()),
-                    };
-                    self.add_to_group(target, info, event, alumet_metric)?;
-                }
-            }
-            (Scope::SystemWide { pmu, cpus }, Observable::Machine) => {
-                for &cpu in cpus {
-                    let info = GroupInfo {
-                        metrics: Vec::new(),
-                        pmu_key,
-                        cpu_id: Some(cpu),
-                        group: group.clone(),
-                        resource: resource::for_system_wide_pmu(pmu, cpu),
-                        consumer: ResourceConsumer::LocalMachine,
-                        pmu_attr: None,
-                    };
-                    self.add_to_group(Target::Cpu { cpu }, info, event, alumet_metric)?;
-                }
-            }
-            (Scope::SystemWide { .. }, _) => anyhow::bail!(
-                "system-wide event {} can only be counted on the whole machine",
-                event.name()
-            ),
-            (Scope::TaskAttached { .. }, Observable::Machine) => anyhow::bail!(
-                "event {} cannot be counted on the whole machine: only system-wide events can",
-                event.name()
-            ),
+/// The resource measured by `event` on `cpu` (`None`: counted on a task, on any cpu).
+fn resource_of(event: &ParsedEvent, cpu: Option<u32>) -> Resource {
+    match (event.scope(), cpu) {
+        (Scope::TaskAttached { binding }, None) => resource::for_process(binding.as_ref()),
+        (Scope::TaskAttached { .. }, Some(cpu)) => resource::for_cgroup_on_cpu(cpu),
+        (Scope::SystemWide { pmu, .. }, cpu) => {
+            resource::for_system_wide_pmu(pmu, cpu.expect("system-wide events are counted per cpu"))
         }
-        Ok(self)
-    }
-
-    /// Adds `event` to the group matching `info`'s `(cpu_id, pmu_key, group)`, opening it on `target`
-    /// if none exists yet. An event without a group name always opens a new group.
-    fn add_to_group(
-        &mut self,
-        target: Target,
-        info: GroupInfo,
-        event: &ParsedEvent,
-        alumet_metric: TypedMetricId<u64>,
-    ) -> anyhow::Result<()> {
-        let existing = self.groups.iter().position(|(_, g)| {
-            info.group.is_some() && g.group == info.group && g.cpu_id == info.cpu_id && g.pmu_key == info.pmu_key
-        });
-        let i = match existing {
-            Some(i) => i,
-            None => {
-                let group = EventGroupBuilder::open(target, self.multiplexing_auto_scale)?;
-                self.groups.push((group, info));
-                self.groups.len() - 1
-            }
-        };
-        let (group, info) = &mut self.groups[i];
-        group.add(event)?;
-        info.metrics.push(alumet_metric);
-        Ok(())
-    }
-
-    pub(super) fn build(self) -> io::Result<PerfEventSource> {
-        log::debug!(
-            "Built PerfEventSource with groups [{}]",
-            self.groups.iter().map(|(_, info)| format!("{info:?}")).join(", ")
-        );
-        let groups = self
-            .groups
-            .into_iter()
-            .map(|(group, info)| Ok((group.build()?, info)))
-            .collect::<io::Result<_>>()?;
-        Ok(PerfEventSource { groups })
     }
 }
