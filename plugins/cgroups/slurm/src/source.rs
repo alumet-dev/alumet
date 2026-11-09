@@ -131,20 +131,17 @@ impl CgroupSetupCallback for JobSourceSetup {
     }
 
     fn should_emit_event(&mut self, cgroup: &Cgroup) -> bool {
-        // extracts attributes "job_id", "job_step" and "user_id"
         let attrs = self.tagger.attributes_for_cgroup(cgroup);
-
-        let job_id = find_jobid_in_attrs(&attrs);
-        let step_id = find_key_in_attrs("step", &attrs);
-        let sub_step = find_key_in_attrs("sub_step", &attrs);
-        let task_id = find_key_in_attrs("task", &attrs);
-
-        match (job_id, step_id, sub_step, task_id) {
-            (Some(_), None, None, None) => true,
-            (Some(_), Some(_), None, None) => self.jobs_event_level >= JobMonitoringLevel::Step,
-            (Some(_), Some(_), Some(_), None) => self.jobs_event_level >= JobMonitoringLevel::SubStep,
-            (Some(_), Some(_), Some(_), Some(_)) => self.jobs_event_level >= JobMonitoringLevel::Task,
-            _ => false,
+        let attrs = JobAttrs::from(&attrs);
+        match attrs.job_level() {
+            Some(job_level) => {
+                // check the level
+                job_level <= self.jobs_event_level
+            }
+            None => {
+                // not a job
+                false
+            }
         }
     }
 }
