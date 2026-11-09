@@ -156,7 +156,7 @@ mod tests {
     use alumet::{measurement::AttributeValue, pipeline::elements::source::trigger::TriggerSpec};
     use std::{path::PathBuf, time::Duration};
     use util_cgroups::{Cgroup, CgroupHierarchy, CgroupVersion};
-    use util_cgroups_plugins::regex::RegexAttributesExtrator;
+    use util_cgroups_plugins::{cgroup_events::CgroupSetupCallback, regex::RegexAttributesExtrator};
 
     #[test]
     fn job_level_from_attrs() {
@@ -253,6 +253,11 @@ mod tests {
         assert_eq!(jss.prepare(&step), None);
         assert_eq!(jss.prepare(&task_in_step), None);
         assert_eq!(jss.prepare(&other), None);
+        assert_eq!(jss.should_emit_event(&job), true);
+        assert_eq!(jss.should_emit_event(&task), false);
+        assert_eq!(jss.should_emit_event(&step), false);
+        assert_eq!(jss.should_emit_event(&task_in_step), false);
+        assert_eq!(jss.should_emit_event(&other), false);
 
         // change: level=task
         jss.jobs_monitoring_level = JobMonitoringLevel::Task;
@@ -302,6 +307,21 @@ mod tests {
         );
         assert_eq!(jss.prepare(&other), None);
 
+        // jobs_event_level has not changed, so we expect the same result as before
+        assert_eq!(jss.should_emit_event(&job), true);
+        assert_eq!(jss.should_emit_event(&task), false);
+        assert_eq!(jss.should_emit_event(&step), false);
+        assert_eq!(jss.should_emit_event(&task_in_step), false);
+        assert_eq!(jss.should_emit_event(&other), false);
+
+        // change jobs_event_level
+        jss.jobs_event_level = JobMonitoringLevel::Task;
+        assert_eq!(jss.should_emit_event(&job), true);
+        assert_eq!(jss.should_emit_event(&task), true);
+        assert_eq!(jss.should_emit_event(&step), true);
+        assert_eq!(jss.should_emit_event(&task_in_step), true);
+        assert_eq!(jss.should_emit_event(&other), false);
+
         // change: accept non-jobs
         jss.ignore_non_jobs = false;
         assert_eq!(
@@ -311,6 +331,8 @@ mod tests {
                 attrs: vec![]
             })
         );
+        // NOTE: ignore_non_jobs does not apply to events (at least for now)
+        assert_eq!(jss.should_emit_event(&other), false);
     }
 
     #[test]
@@ -357,6 +379,7 @@ mod tests {
 
         // change: level=step
         jss.jobs_monitoring_level = JobMonitoringLevel::Step;
+        jss.jobs_event_level = JobMonitoringLevel::Step;
         assert_eq!(
             jss.prepare(&job),
             Some(SourcePreparation {
@@ -377,6 +400,10 @@ mod tests {
         assert_eq!(jss.prepare(&substep), None);
         assert_eq!(jss.prepare(&task), None);
         assert_eq!(jss.prepare(&other), None);
+        assert_eq!(jss.should_emit_event(&job), true);
+        assert_eq!(jss.should_emit_event(&step), true);
+        assert_eq!(jss.should_emit_event(&substep), false);
+        assert_eq!(jss.should_emit_event(&other), false);
 
         // change: level=substep
         jss.jobs_monitoring_level = JobMonitoringLevel::SubStep;
