@@ -77,12 +77,12 @@ impl CgroupV2Probe {
 impl Source for CgroupV2Probe {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, t: Timestamp) -> Result<(), PollError> {
         // To compute the cpu utilization as a percentage, we need to :
-        // - compute the difference of the current counter value with the previous one (the value is in microseconds)
-        // - divide it by the elapsed time (in microseconds)
+        // - compute the difference of the current counter value with the previous one (the value is in nanoseconds)
+        // - divide it by the elapsed time (in nanoseconds)
         let last_timestamp = self.last_timestamp;
         self.last_timestamp = Some(t);
-        let poll_interval_micros = match last_timestamp {
-            Some(last) => Some(t.duration_since(last)?.as_micros()),
+        let poll_interval_nanos = match last_timestamp {
+            Some(last) => Some(t.duration_since(last)?.as_nanos()),
             None => None,
         };
         let data = analyze_io_result(self.collector.measure(&mut self.io_buf))?;
@@ -103,7 +103,7 @@ impl Source for CgroupV2Probe {
                     self.new_point(&self.metrics.cpu_time_delta, t, &resource, value)
                         .with_attr("kind", "total"),
                 );
-                if let Some(poll_interval) = poll_interval_micros {
+                if let Some(poll_interval) = poll_interval_nanos {
                     measurements.push(
                         self.new_point(
                             &self.metrics.cpu_percent,
@@ -125,7 +125,7 @@ impl Source for CgroupV2Probe {
                     self.new_point(&self.metrics.cpu_time_delta, t, &resource, value)
                         .with_attr("kind", "system"),
                 );
-                if let Some(poll_interval) = poll_interval_micros {
+                if let Some(poll_interval) = poll_interval_nanos {
                     measurements.push(
                         self.new_point(
                             &self.metrics.cpu_percent,
@@ -147,7 +147,7 @@ impl Source for CgroupV2Probe {
                     self.new_point(&self.metrics.cpu_time_delta, t, &resource, value)
                         .with_attr("kind", "user"),
                 );
-                if let Some(poll_interval) = poll_interval_micros {
+                if let Some(poll_interval) = poll_interval_nanos {
                     measurements.push(
                         self.new_point(
                             &self.metrics.cpu_percent,
