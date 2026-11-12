@@ -4,7 +4,8 @@ use std::time::Duration;
 use alumet::metrics::TypedMetricId;
 use serde::{Deserialize, Serialize};
 
-use crate::event::{self, ParsedEvent};
+use crate::counters::GroupedEvent;
+use crate::event;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -39,6 +40,32 @@ pub(super) struct Config {
     /// Either way, every measurement carries an `accuracy` attribute telling whether its value is
     /// exact, extrapolated or underestimated.
     pub(super) multiplexing_auto_scale: bool,
+
+    /// How the events of a cgroup are counted.
+    ///
+    /// Since Linux 6.2 (and RHEL 9.3), the kernel miscounts the cgroup events once they are
+    /// multiplexed (fixed in Linux 7.3). `native` (the default) opens the events on the cgroup;
+    /// `via_processes` counts every process of the cgroup instead, and sums them (written
+    /// `{ via_processes = {} }`, or `{ via_processes = { scan_interval = "50ms" } }`).
+    #[serde(default)]
+    pub(super) cgroup_counting: CgroupCounting,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum CgroupCounting {
+    #[default]
+    Native,
+    ViaProcesses {
+        /// How often `cgroup.procs` is read to find the new processes: what a new process does
+        /// before it is found is lost.
+        #[serde(with = "humantime_serde", default = "default_scan_interval")]
+        scan_interval: Duration,
+    },
+}
+
+fn default_scan_interval() -> Duration {
+    Duration::from_millis(100)
 }
 
 impl Default for Config {
@@ -57,6 +84,8 @@ impl Default for Config {
             add_source_in_pause_state: false,
 
             multiplexing_auto_scale: true,
+
+            cgroup_counting: CgroupCounting::Native,
         }
     }
 }
@@ -79,7 +108,7 @@ pub(super) enum EventEntry {
 impl EventEntry {
     /// Parse the event; a `rename` replaces the name of every event it expands to, so that they all
     /// share the renamed metric, and they all belong to the `group`.
-    pub(super) fn parse(&self) -> anyhow::Result<Vec<ConfiguredEvent>> {
+    pub(super) fn parse(&self) -> anyhow::Result<Vec<GroupedEvent>> {
         let (spec, rename, group) = match self {
             EventEntry::Simple(event) => (event, None, None),
             EventEntry::Detailed { event, rename, group } => (event, rename.as_ref(), group.as_ref()),
@@ -92,7 +121,7 @@ impl EventEntry {
         }
         Ok(events
             .into_iter()
-            .map(|event| ConfiguredEvent {
+            .map(|event| GroupedEvent {
                 event,
                 group: group.cloned(),
             })
@@ -100,25 +129,20 @@ impl EventEntry {
     }
 }
 
-/// An event to count, and the perf group it belongs to (`None`: a group of its own).
-#[derive(Debug, Clone)]
-pub(super) struct ConfiguredEvent {
-    pub(super) event: ParsedEvent,
-    pub(super) group: Option<String>,
-}
-
 // TODO proper deserialization with serde?
 pub(super) struct ParsedConfig {
     pub(super) poll_interval: Duration,
     pub(super) flush_interval: Duration,
 
-    pub(super) events: Vec<ConfiguredEvent>,
-    /// The Alumet metric of each event, in `events` order.
-    pub(super) metrics: Vec<TypedMetricId<u64>>,
+    /// Each event and its Alumet metric, filled in `start` (the metrics cannot be created before).
+    pub(super) events: Vec<(GroupedEvent, TypedMetricId<u64>)>,
 
     pub(super) add_source_in_pause_state: bool,
 
     pub(super) multiplexing_auto_scale: bool,
+
+    /// `Some(scan interval)` to count the cgroups through their processes (`cgroup_counting`).
+    pub(super) cgroup_via_processes: Option<Duration>,
 }
 
 /// Turn a string into a metric-name-safe suffix: letters are lowercased, non-alphanumeric
@@ -140,6 +164,28 @@ pub(super) fn sanitize(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cgroup_counting_forms() {
+        #[derive(serde::Deserialize)]
+        struct Wrap {
+            cgroup_counting: CgroupCounting,
+        }
+        let parse = |s: &str| toml::from_str::<Wrap>(s).unwrap().cgroup_counting;
+        assert_eq!(parse(r#"cgroup_counting = "native""#), CgroupCounting::Native);
+        assert_eq!(
+            parse("cgroup_counting = { via_processes = {} }"),
+            CgroupCounting::ViaProcesses {
+                scan_interval: Duration::from_millis(100)
+            }
+        );
+        assert_eq!(
+            parse(r#"cgroup_counting = { via_processes = { scan_interval = "50ms" } }"#),
+            CgroupCounting::ViaProcesses {
+                scan_interval: Duration::from_millis(50)
+            }
+        );
+    }
 
     #[test]
     fn rename_overrides_metric_name() {
