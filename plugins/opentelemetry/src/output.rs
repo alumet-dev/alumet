@@ -12,7 +12,10 @@ use opentelemetry_proto::tonic::{
     },
     resource::v1::Resource,
 };
-use std::{collections::HashMap, env};
+use std::{
+    collections::{HashMap, HashSet},
+    env,
+};
 
 use tonic::transport::Channel;
 
@@ -23,6 +26,8 @@ pub struct OpenTelemetryOutput {
     prefix: String,
     suffix: String,
     collector_host: String,
+    // Names of the metrics whose values are differences (see Config.delta_metrics).
+    delta_metrics: HashSet<String>,
     // Map where the key is the full metric name (including prefix/suffix)
     metric_map: HashMap<String, OtelMetric>,
     client: Option<MetricsServiceClient<Channel>>,
@@ -35,6 +40,7 @@ impl OpenTelemetryOutput {
         prefix: String,
         suffix: String,
         collector_host: String,
+        delta_metrics: Vec<String>,
     ) -> anyhow::Result<OpenTelemetryOutput> {
         Ok(Self {
             use_unit_display_name,
@@ -42,6 +48,7 @@ impl OpenTelemetryOutput {
             prefix,
             suffix,
             collector_host,
+            delta_metrics: delta_metrics.into_iter().collect(),
             metric_map: HashMap::new(),
             client: None,
         })
@@ -88,6 +95,10 @@ impl alumet::pipeline::Output for OpenTelemetryOutput {
 
             if self.add_attributes_to_labels {
                 for (key, value) in m.attributes() {
+                    // the poll interval is handled separately below (only for delta metrics)
+                    if key == alumet::measurement::POLL_INTERVAL_ATTRIBUTE {
+                        continue;
+                    }
                     let v = value.to_string();
                     let v = if v.is_empty() { "empty".to_string() } else { v };
                     attributes.push(make_kv(key, v));
@@ -95,6 +106,15 @@ impl alumet::pipeline::Output for OpenTelemetryOutput {
             }
 
             attributes.sort_by(|a, b| a.key.cmp(&b.key));
+
+            // Attach the poll interval to delta metrics (see Config.delta_metrics):
+            // computed for local sources (follows socket-control changes),
+            // restored from the relay attribute for remote measurements.
+            if self.delta_metrics.contains(full_metric.name.as_str()) {
+                if let Some(interval) = ctx.poll_interval_for(measurements, m) {
+                    attributes.push(make_kv(alumet::measurement::POLL_INTERVAL_ATTRIBUTE, interval));
+                }
+            }
 
             let time_unix_nano = m
                 .timestamp

@@ -46,6 +46,7 @@ impl AlumetPlugin for PrometheusPlugin {
             self.config.host.clone(),
             self.config.prefix.clone(),
             self.config.suffix.clone(),
+            self.config.delta_metrics.clone(),
         )?);
 
         // Create shutdown channel to close the server thread
@@ -155,6 +156,11 @@ struct Config {
     suffix: String,
     port: u16,
     add_attributes_to_labels: bool,
+    /// Names of the metrics whose values are differences (e.g. computed with CounterDiff,
+    /// like rapl's energy). For these metrics only, each series gets an extra
+    /// `alumet_poll_interval_ms` label, kept up to date with dynamic reconfigurations.
+    #[serde(default)]
+    delta_metrics: Vec<String>,
 }
 
 impl Default for Config {
@@ -165,6 +171,7 @@ impl Default for Config {
             suffix: String::from("_alumet"),
             port: 9091,
             add_attributes_to_labels: true,
+            delta_metrics: Vec::new(),
         }
     }
 }

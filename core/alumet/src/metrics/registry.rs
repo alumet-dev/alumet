@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 
+use crate::pipeline::naming::PluginName;
+
 use super::{
     def::{Metric, MetricId, RawMetricId},
     duplicate::{self, DuplicateCriteria, DuplicateReaction},
@@ -15,6 +17,7 @@ use super::{
 pub struct MetricRegistry {
     pub(crate) metrics_by_id: HashMap<RawMetricId, Metric>,
     pub(crate) metrics_by_name: HashMap<String, RawMetricId>,
+    registered_by: HashMap<RawMetricId, Vec<PluginName>>,
 }
 
 impl MetricRegistry {
@@ -23,7 +26,23 @@ impl MetricRegistry {
         MetricRegistry {
             metrics_by_id: HashMap::new(),
             metrics_by_name: HashMap::new(),
+            registered_by: HashMap::new(),
         }
+    }
+
+    /// Records that the metric `id` has been registered by the plugin `plugin`.
+    /// Several plugins may register the same metric (when duplicates are merged);
+    /// each plugin is listed once, in registration order.
+    pub(crate) fn attribute_to_plugin(&mut self, id: RawMetricId, plugin: &PluginName) {
+        let plugins = self.registered_by.entry(id).or_default();
+        if !plugins.contains(plugin) {
+            plugins.push(plugin.clone());
+        }
+    }
+
+    /// The plugins that registered the metric `id`, if known.
+    pub fn plugins_of(&self, id: &RawMetricId) -> Option<&[PluginName]> {
+        self.registered_by.get(id).map(Vec::as_slice)
     }
 
     /// Finds the metric that has the given id.

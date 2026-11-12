@@ -9,7 +9,7 @@ use prometheus_client::{
     registry::Registry,
 };
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     net::SocketAddr,
     sync::{Arc, atomic::AtomicU64},
 };
@@ -27,6 +27,8 @@ pub struct PrometheusOutput {
     add_attributes_to_labels: bool,
     prefix: String,
     suffix: String,
+    // Names of the metrics whose values are differences (see Config.delta_metrics).
+    delta_metrics: HashSet<String>,
     pub addr: SocketAddr,
 }
 
@@ -37,6 +39,7 @@ impl PrometheusOutput {
         host: String,
         prefix: String,
         suffix: String,
+        delta_metrics: Vec<String>,
     ) -> anyhow::Result<PrometheusOutput> {
         // Create metric state
         let registry = Arc::new(RwLock::new(Registry::default()));
@@ -53,6 +56,7 @@ impl PrometheusOutput {
             add_attributes_to_labels,
             prefix,
             suffix,
+            delta_metrics: delta_metrics.into_iter().collect(),
             addr,
         })
     }
@@ -89,11 +93,24 @@ impl alumet::pipeline::Output for PrometheusOutput {
             if self.add_attributes_to_labels {
                 // Add attributes as labels
                 for (key, value) in m.attributes() {
+                    // the poll interval is handled separately below (only for delta metrics)
+                    if key == alumet::measurement::POLL_INTERVAL_ATTRIBUTE {
+                        continue;
+                    }
                     let key = sanitize_name(key.to_owned());
                     labels.push((key, value.to_string()));
                 }
             }
             labels.sort_by(|a, b| a.0.cmp(&b.0));
+
+            // Attach the poll interval to delta metrics (see Config.delta_metrics):
+            // computed for local sources (follows socket-control changes),
+            // restored from the relay attribute for remote measurements.
+            if self.delta_metrics.contains(full_metric.name.as_str()) {
+                if let Some(interval) = ctx.poll_interval_for(measurements, m) {
+                    labels.push((alumet::measurement::POLL_INTERVAL_ATTRIBUTE.to_string(), interval));
+                }
+            }
 
             // Each family vector contains a metric with all associated metrics and differentiated by the labels
             let family = if let Some(family) = metrics.get(&metric_name) {

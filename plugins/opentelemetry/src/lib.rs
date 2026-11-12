@@ -34,6 +34,7 @@ impl AlumetPlugin for OpenTelemetryPlugin {
             self.config.prefix.clone(),
             self.config.suffix.clone(),
             self.config.collector_host.clone(),
+            self.config.delta_metrics.clone(),
         )?);
         alumet.add_blocking_output("out", otel_output.clone())?;
         Ok(())
@@ -52,6 +53,11 @@ pub struct Config {
     pub suffix: String,
     pub use_unit_display_name: bool,
     pub add_attributes_to_labels: bool,
+    /// Names of the metrics whose values are differences (e.g. computed with CounterDiff,
+    /// like rapl's energy). For these metrics only, the output adds an
+    /// `alumet_poll_interval_ms` attribute, kept up to date with dynamic reconfigurations.
+    #[serde(default)]
+    pub delta_metrics: Vec<String>,
 }
 
 impl Default for Config {
@@ -62,6 +68,7 @@ impl Default for Config {
             suffix: String::from("_alumet"),
             use_unit_display_name: true,
             add_attributes_to_labels: true,
+            delta_metrics: Vec::new(),
         }
     }
 }
