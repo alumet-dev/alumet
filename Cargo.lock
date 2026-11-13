@@ -92,6 +92,7 @@ dependencies = [
  "plugin-energy-to-carbon",
  "plugin-filter",
  "plugin-grace-hopper",
+ "plugin-infiniband",
  "plugin-influxdb",
  "plugin-k8s",
  "plugin-kwollect-input",
@@ -3242,6 +3243,20 @@ dependencies = [
  "serde",
  "tempfile",
  "thiserror 2.0.18",
+ "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
+name = "plugin-infiniband"
+version = "0.1.0"
+dependencies = [
+ "alumet",
+ "anyhow",
+ "humantime-serde",
+ "log",
+ "pretty_assertions",
+ "serde",
+ "tempfile",
  "toml 0.9.12+spec-1.1.0",
 ]
 
