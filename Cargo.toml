@@ -16,6 +16,7 @@ members = [
     "plugins/influxdb",
     "plugins/kwollect-input",
     "plugins/kwollect-output",
+    "plugins/lm-sensors",
     "plugins/mongodb",
     "plugins/nvidia-jetson",
     "plugins/nvidia-nvml",
