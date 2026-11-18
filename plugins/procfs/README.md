@@ -77,6 +77,8 @@ The CPU states is an attribute that indicates the kind of cpu time that is measu
 |`guest`|Time spent running a virtual CPU for guest operating systems under control of the linux kernel|
 |`guest_nice`|Time spent running a niced guest|
 
+:warning: For `iowait`, [under certain conditions](https://kernel.org/doc/html/v6.0/filesystems/proc.html), the new value may be lower than the previous one. In such cases, it was decided to return 0 instead of a negative value.
+
 ## Configuration
 
 Here is a configuration example of the plugin. It is composed of different sections. Each section can be enabled or disabled with the `enabled` boolean parameter.
