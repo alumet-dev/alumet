@@ -89,3 +89,56 @@ fn convert_meminfo_to_bytes(value: u64, unit: &str) -> Option<u64> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Creating the probe on a missing file fails.
+    #[test]
+    fn missing_file() {
+        assert!(MeminfoProbe::new(vec![], "/does/not/exist").is_err());
+    }
+
+    mod convert_meminfo_to_bytes {
+        use super::*;
+
+        /// A value in bytes is returned as is.
+        #[test]
+        fn bytes() {
+            assert_eq!(convert_meminfo_to_bytes(12, "B"), Some(12));
+        }
+
+        /// All the spellings of kilobytes are converted with a factor of 1024.
+        #[test]
+        fn kilobytes() {
+            for unit in ["kB", "KiB", "kiB", "KB"] {
+                assert_eq!(convert_meminfo_to_bytes(3, unit), Some(3 << 10));
+            }
+        }
+
+        /// All the spellings of megabytes are converted with a factor of 1024^2.
+        #[test]
+        fn megabytes() {
+            for unit in ["mB", "MiB", "miB", "MB"] {
+                assert_eq!(convert_meminfo_to_bytes(3, unit), Some(3 << 20));
+            }
+        }
+
+        /// All the spellings of gigabytes are converted with a factor of 1024^3.
+        #[test]
+        fn gigabytes() {
+            for unit in ["gB", "GiB", "giB", "GB"] {
+                assert_eq!(convert_meminfo_to_bytes(3, unit), Some(3 << 30));
+            }
+        }
+
+        /// An unknown unit cannot be converted.
+        #[test]
+        fn unknown_unit() {
+            for unit in ["TB", "kb", ""] {
+                assert_eq!(convert_meminfo_to_bytes(1, unit), None);
+            }
+        }
+    }
+}
