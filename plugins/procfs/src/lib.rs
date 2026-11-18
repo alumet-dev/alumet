@@ -440,9 +440,10 @@ fn convert_to_snake_case(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::convert_to_snake_case;
+    use crate::{config::Config, convert_to_snake_case};
     use pretty_assertions::assert_eq;
 
+    /// The names of the meminfo entries are converted to snake_case metric names.
     #[test]
     fn test_case_conversion() {
         assert_eq!("", convert_to_snake_case(""));
@@ -457,5 +458,119 @@ mod tests {
         assert_eq!("s_reclaimable", convert_to_snake_case("SReclaimable"));
         assert_eq!("nfs_unstable", convert_to_snake_case("NFS_Unstable"));
         assert_eq!("committed_as", convert_to_snake_case("Committed_AS"));
+    }
+    /// A minimal valid configuration.
+    const CONFIG: &str = r#"
+        [kernel]
+        poll_interval = "1s"
+        [memory]
+        poll_interval = "1s"
+        metrics = ["MemTotal"]
+        [network]
+        poll_interval = "1s"
+        [processes]
+        refresh_interval = "1s"
+        [[processes.groups]]
+        pid = 1
+        exe_regex = "^/usr/bin/"
+        poll_interval = "1s"
+        flush_interval = "2s"
+        memory_mode = "slow_but_accurate"
+        [processes.events]
+        poll_interval = "1s"
+        flush_interval = "2s"
+        memory_mode = "quick"
+    "#;
+
+    fn parse(s: &str) -> Result<Config, toml::de::Error> {
+        toml::from_str(s)
+    }
+
+    mod config {
+        use crate::ProcfsPlugin;
+
+        use super::*;
+        use alumet::plugin::rust::AlumetPlugin;
+        use pretty_assertions::assert_eq;
+
+        fn default_table() -> toml::Table {
+            ProcfsPlugin::default_config()
+                .unwrap()
+                .expect("procfs has a default config")
+                .0
+        }
+
+        /// The default config can be serialized and deserialized without loss.
+        #[test]
+        fn default_roundtrip() {
+            let table = toml::Table::try_from(Config::default()).unwrap();
+            let config: Config = table.clone().try_into().unwrap();
+            assert_eq!(toml::Table::try_from(config).unwrap(), table);
+        }
+
+        /// A section without the `enabled` key is enabled.
+        #[test]
+        fn enabled_by_default() {
+            let config = parse(CONFIG).unwrap();
+            assert!(config.kernel.enabled && config.memory.enabled && config.network.enabled);
+            assert!(config.processes.enabled);
+        }
+
+        /// A section can be disabled with `enabled = false`.
+        #[test]
+        fn disabled() {
+            let config = parse(&CONFIG.replace("[network]", "[network]\nenabled = false")).unwrap();
+            assert!(!config.network.enabled);
+        }
+
+        /// The default config contains exactly the 4 sections of the plugin.
+        #[test]
+        fn sections() {
+            let mut keys: Vec<_> = default_table().keys().cloned().collect();
+            keys.sort();
+            assert_eq!(keys, ["kernel", "memory", "network", "processes"]);
+        }
+
+        /// Every section is enabled in the default config.
+        #[test]
+        fn all_enabled() {
+            let table = default_table();
+            for section in ["kernel", "memory", "network", "processes"] {
+                assert_eq!(table[section]["enabled"].as_bool(), Some(true), "{section}");
+            }
+        }
+
+        /// The default config uses the expected poll and refresh intervals.
+        #[test]
+        fn poll_intervals() {
+            let table = default_table();
+            assert_eq!(table["kernel"]["poll_interval"].as_str(), Some("5s"));
+            assert_eq!(table["memory"]["poll_interval"].as_str(), Some("5s"));
+            assert_eq!(table["network"]["poll_interval"].as_str(), Some("5s"));
+            assert_eq!(table["processes"]["refresh_interval"].as_str(), Some("2s"));
+        }
+
+        /// The default config reads the expected entries of /proc/meminfo, in order.
+        #[test]
+        fn memory_metrics() {
+            let table = default_table();
+            let metrics: Vec<_> = table["memory"]["metrics"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|m| m.as_str().unwrap())
+                .collect();
+            let expected = [
+                "MemTotal",
+                "MemFree",
+                "MemAvailable",
+                "Cached",
+                "SwapCached",
+                "Active",
+                "Inactive",
+                "Mapped",
+            ];
+            assert_eq!(metrics, expected);
+        }
     }
 }
