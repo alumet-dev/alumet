@@ -171,7 +171,10 @@ impl DeltaCpuTime {
             nice: now.nice_ms() - prev.nice_ms(),
             system: now.system_ms() - prev.system_ms(),
             idle: now.idle_ms() - prev.idle_ms(),
-            iowait: now.iowait_ms().map(|x| x - prev.iowait_ms().unwrap()),
+            iowait: now
+                .iowait_ms()
+                .zip(prev.iowait_ms())
+                .map(|(now, prev)| now.saturating_sub(prev)),
             irq: now.irq_ms().map(|x| x - prev.irq_ms().unwrap()),
             softirq: now.softirq_ms().map(|x| x - prev.softirq_ms().unwrap()),
             steal: now.steal_ms().map(|x| x - prev.steal_ms().unwrap()),
