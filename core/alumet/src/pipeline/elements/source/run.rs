@@ -1,10 +1,11 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 
-use crate::measurement::{MeasurementBuffer, Timestamp};
+use crate::measurement::{MeasurementBuffer, SourceTag, Timestamp};
 use crate::pipeline::error::PipelineError;
 use crate::pipeline::naming::SourceName;
 use crate::pipeline::util::coop::TriggerCoop;
@@ -20,12 +21,31 @@ pub(crate) async fn run_managed(
     tx: mpsc::Sender<MeasurementBuffer>,
     config: Arc<super::task_controller::SharedSourceConfig>,
 ) -> Result<(), PipelineError> {
+    /// Creates a new buffer, tagged with the name of the source that will fill it.
+    fn new_buffer(name: &SourceName, capacity: usize) -> MeasurementBuffer {
+        let mut buffer = MeasurementBuffer::with_capacity(capacity);
+        buffer.producer = Some(SourceTag {
+            name: name.clone(),
+            poll_interval: None,
+        });
+        buffer
+    }
+    /// Reads the current poll interval, ending the mutex borrow before the caller awaits.
+    fn current_poll_interval(config: &super::task_controller::SharedSourceConfig) -> Option<Duration> {
+        *config.poll_interval.lock().unwrap()
+    }
     /// Flushes the measurement and returns a new buffer.
     async fn flush(
-        buffer: MeasurementBuffer,
+        mut buffer: MeasurementBuffer,
         tx: &mpsc::Sender<MeasurementBuffer>,
         name: &SourceName,
+        poll_interval: Option<Duration>,
     ) -> MeasurementBuffer {
+        // snapshot the current poll interval, so that consumers (outputs, relay...)
+        // know at what rate this buffer was produced, even if it changes later.
+        if let Some(tag) = &mut buffer.producer {
+            tag.poll_interval = poll_interval;
+        }
         // Hint for the new buffer capacity, great if the number of measurements per flush doesn't change much,
         // which is often the case.
         let prev_length = buffer.len();
@@ -34,7 +54,7 @@ pub(crate) async fn run_managed(
             Ok(()) => {
                 // buffer has been sent, create a new one
                 log::debug!("{name} flushed {prev_length} measurements");
-                MeasurementBuffer::with_capacity(prev_length)
+                new_buffer(name, prev_length)
             }
             Err(TrySendError::Closed(_buf)) => {
                 // the channel Receiver has been closed
@@ -56,7 +76,7 @@ pub(crate) async fn run_managed(
                     "{name} flushed {prev_length} measurements, after waiting {} µs",
                     delta.as_micros()
                 );
-                MeasurementBuffer::with_capacity(prev_length)
+                new_buffer(name, prev_length)
             }
         }
     }
@@ -81,7 +101,7 @@ pub(crate) async fn run_managed(
 
     // Store measurements in this buffer, and replace it every `flush_rounds` rounds.
     // For now, we don't know how many measurements the source will produce, so we allocate 1 per round.
-    let mut buffer = MeasurementBuffer::with_capacity(init_trigger.params.flush_rounds);
+    let mut buffer = new_buffer(&source_name, init_trigger.params.flush_rounds);
 
     // This Notify is used to "interrupt" the trigger mechanism when the source configuration is modified
     // by the control loop.
@@ -154,7 +174,7 @@ pub(crate) async fn run_managed(
                 // This is done _after_ polling, to ensure that we poll at least once before flushing, even if flush_rounds is 1.
                 if i % trigger.params.flush_rounds == 0 {
                     // flush and create a new buffer
-                    buffer = flush(buffer, &tx, &source_name).await;
+                    buffer = flush(buffer, &tx, &source_name, current_poll_interval(&config)).await;
                 }
 
                 // only update on some rounds, for performance reasons.
@@ -190,7 +210,7 @@ pub(crate) async fn run_managed(
                         log::debug!("nothing to flush in {source_name}");
                     } else {
                         log::debug!("flushing {source_name}");
-                        buffer = flush(buffer, &tx, &source_name).await;
+                        buffer = flush(buffer, &tx, &source_name, current_poll_interval(&config)).await;
                     }
 
                     // Switch back to normal run (otherwise we would always flush from now on).
@@ -220,7 +240,7 @@ pub(crate) async fn run_managed(
     // source stopped, flush the buffer
     log::debug!("{source_name} is stopping...");
     if !buffer.is_empty() {
-        flush(buffer, &tx, &source_name).await;
+        flush(buffer, &tx, &source_name, current_poll_interval(&config)).await;
     }
 
     // log the name of the source, so we know which source terminates
