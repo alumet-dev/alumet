@@ -46,6 +46,7 @@ mod tests {
     use super::*;
     use std::io::Write;
 
+    /// Ranges separated by commas are expanded into the list of cpu ids.
     #[test]
     fn test_parse_cpu_list() {
         let cpulist = "1-2,3-4";
@@ -53,6 +54,7 @@ mod tests {
         assert_eq!(result, vec![1, 2, 3, 4]);
     }
 
+    /// A range with more than two bounds is rejected.
     #[test]
     fn test_parse_cpulist_invalid() {
         let cpulist = "1-2-3";
@@ -60,6 +62,7 @@ mod tests {
         assert!(result.to_string().contains("invalid cpu_list"));
     }
 
+    /// The cpu list is read from a file and parsed.
     #[test]
     fn test_online_cpus_path() -> anyhow::Result<()> {
         let mut file = tempfile::NamedTempFile::new()?;
@@ -70,5 +73,31 @@ mod tests {
         assert_eq!(result, vec![1, 2, 3, 5, 6]);
 
         Ok(())
+    }
+
+    /// The real sysfs file of the machine lists at least one online cpu.
+    #[test]
+    fn not_empty() {
+        assert!(!online_cpus().unwrap().is_empty());
+    }
+
+    /// A single cpu id, with the trailing newline of sysfs, is parsed.
+    #[test]
+    fn single() {
+        assert_eq!(parse_cpu_list("0\n").unwrap(), vec![0]);
+    }
+
+    /// Ids separated by commas are kept in order.
+    #[test]
+    fn list() {
+        assert_eq!(parse_cpu_list("0,64").unwrap(), vec![0, 64]);
+    }
+
+    /// Empty, non-numeric or malformed lists are rejected.
+    #[test]
+    fn invalid() {
+        for list in ["", "a", "0,", "-1", "0-", "0 - 1"] {
+            assert!(parse_cpu_list(list).is_err(), "{list:?} should be invalid");
+        }
     }
 }

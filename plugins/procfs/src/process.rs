@@ -660,3 +660,229 @@ impl ProcessFilter {
 fn ns_per_ticks() -> u64 {
     1_000_000_000 / procfs::ticks_per_second()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PPID: usize = 4;
+    const UTIME: usize = 14;
+    const STIME: usize = 15;
+    const STARTTIME: usize = 22;
+    const GUEST_TIME: usize = 43;
+
+    /// Builds a `/proc/<pid>/stat` with `n_fields` fields. The given fields are identified
+    /// by their 1-based index, as in `man 5 proc`; the others are set to 0.
+    fn stat(fields: &[(usize, u64)], n_fields: usize) -> procfs::process::Stat {
+        let mut line = String::from("42 (test) S");
+        for i in 4..=n_fields {
+            let value = fields.iter().find(|(idx, _)| *idx == i).map_or(0, |(_, v)| *v);
+            line.push_str(&format!(" {value}"));
+        }
+        procfs::process::Stat::from_read(io::Cursor::new(line)).unwrap()
+    }
+
+    mod delta_cpu_time {
+        use super::*;
+
+        /// Without a previous measurement, the whole cpu time is converted from ticks to ns.
+        #[test]
+        fn first() {
+            let d = DeltaCpuTime::compute_first(&stat(&[(UTIME, 10), (STIME, 4), (GUEST_TIME, 2)], 52), 1000);
+            assert_eq!((d.user, d.system, d.guest), (10_000, 4_000, Some(2_000)));
+        }
+
+        /// The guest time is `None` when the kernel does not provide it.
+        #[test]
+        fn first_without_guest() {
+            let d = DeltaCpuTime::compute_first(&stat(&[(UTIME, 10)], 41), 1000);
+            assert_eq!(d.guest, None);
+        }
+
+        /// The cpu time is the difference between two measurements, converted from ticks to ns.
+        #[test]
+        fn diff() {
+            let prev = stat(&[(UTIME, 10), (STIME, 4), (GUEST_TIME, 2)], 52);
+            let now = stat(&[(UTIME, 25), (STIME, 5), (GUEST_TIME, 3)], 52);
+            let d = DeltaCpuTime::compute_diff(&prev, &now, 10);
+            assert_eq!((d.user, d.system, d.guest), (150, 10, Some(10)));
+        }
+
+        /// The difference works when the kernel does not provide the guest time.
+        #[test]
+        fn diff_without_guest() {
+            let d = DeltaCpuTime::compute_diff(&stat(&[(UTIME, 1)], 41), &stat(&[(UTIME, 3)], 41), 7);
+            assert_eq!((d.user, d.system, d.guest), (14, 0, None));
+        }
+    }
+
+    mod process_fingerprint {
+        use super::*;
+
+        fn fingerprint(ppid: u64, starttime: u64) -> ProcessFingerprint {
+            ProcessFingerprint::new(&stat(&[(PPID, ppid), (STARTTIME, starttime)], 52))
+        }
+
+        /// Two measurements of the same process have the same fingerprint.
+        #[test]
+        fn same_process() {
+            assert!(fingerprint(1, 100) == fingerprint(1, 100));
+        }
+
+        /// A reused pid with another start time is a different process.
+        #[test]
+        fn other_start_time() {
+            assert!(fingerprint(1, 100) != fingerprint(1, 200));
+        }
+
+        /// A reused pid with another parent is a different process.
+        #[test]
+        fn other_parent() {
+            assert!(fingerprint(1, 100) != fingerprint(2, 100));
+        }
+    }
+
+    mod stop_if_proc_not_found {
+        use super::*;
+
+        /// A process that disappeared stops the source normally.
+        #[test]
+        fn not_found() {
+            let res = stop_if_proc_not_found(ProcError::NotFound(None));
+            assert!(matches!(res, PollError::NormalStop));
+        }
+
+        /// ESRCH ("No such process") stops the source normally.
+        #[test]
+        fn no_such_process() {
+            let res = stop_if_proc_not_found(ProcError::Io(io::Error::from_raw_os_error(3), None));
+            assert!(matches!(res, PollError::NormalStop));
+        }
+
+        /// Other errors are fatal.
+        #[test]
+        fn other_error() {
+            let res = stop_if_proc_not_found(ProcError::PermissionDenied(None));
+            assert!(matches!(res, PollError::Fatal(_)));
+        }
+    }
+
+    mod stop_if_io_not_found {
+        use super::*;
+
+        /// A file that disappeared stops the source normally.
+        #[test]
+        fn not_found() {
+            let res = stop_if_io_not_found(io::ErrorKind::NotFound.into());
+            assert!(matches!(res, PollError::NormalStop));
+        }
+
+        /// ESRCH ("No such process") stops the source normally.
+        #[test]
+        fn no_such_process() {
+            let res = stop_if_io_not_found(io::Error::from_raw_os_error(3));
+            assert!(matches!(res, PollError::NormalStop));
+        }
+
+        /// Other I/O errors are fatal.
+        #[test]
+        fn other_error() {
+            let res = stop_if_io_not_found(io::ErrorKind::PermissionDenied.into());
+            assert!(matches!(res, PollError::Fatal(_)));
+        }
+    }
+
+    mod ns_per_ticks {
+        use super::*;
+
+        /// The number of ns per tick matches the tick rate of the kernel.
+        #[test]
+        fn one_second() {
+            assert_eq!(ns_per_ticks() * procfs::ticks_per_second(), 1_000_000_000);
+        }
+    }
+
+    mod memory_stats_mode {
+        use super::*;
+
+        #[derive(Serialize, Deserialize, Debug, PartialEq)]
+        struct Wrapper {
+            mode: MemoryStatsMode,
+        }
+
+        /// The modes are written in snake_case in the config, both ways.
+        #[test]
+        fn serde() {
+            for (mode, s) in [
+                (MemoryStatsMode::Quick, "mode = \"quick\"\n"),
+                (MemoryStatsMode::SlowButAccurate, "mode = \"slow_but_accurate\"\n"),
+            ] {
+                assert_eq!(toml::to_string(&Wrapper { mode }).unwrap(), s);
+                assert_eq!(toml::from_str::<Wrapper>(s).unwrap(), Wrapper { mode });
+            }
+        }
+
+        /// A mode with the wrong case is rejected.
+        #[test]
+        fn invalid() {
+            assert!(toml::from_str::<Wrapper>("mode = \"Quick\"").is_err());
+        }
+    }
+
+    mod process_filter {
+        use super::*;
+
+        fn accepts(pid: Option<i32>, ppid: Option<i32>, exe_regex: Option<&str>) -> bool {
+            let filter = ProcessFilter {
+                pid,
+                ppid,
+                exe_regex: exe_regex.map(|r| Regex::new(r).unwrap()),
+            };
+            filter.accepts(&Process::myself().unwrap()).unwrap()
+        }
+
+        fn my_pid() -> i32 {
+            std::process::id() as i32
+        }
+
+        fn my_ppid() -> i32 {
+            std::os::unix::process::parent_id() as i32
+        }
+
+        /// A filter without criteria accepts any process.
+        #[test]
+        fn empty() {
+            assert!(accepts(None, None, None));
+        }
+
+        /// The pid filter only accepts the process with this pid.
+        #[test]
+        fn pid() {
+            assert!(accepts(Some(my_pid()), None, None));
+            assert!(!accepts(Some(my_pid() + 1), None, None));
+        }
+
+        /// The ppid filter only accepts the children of this parent.
+        #[test]
+        fn ppid() {
+            assert!(accepts(None, Some(my_ppid()), None));
+            assert!(!accepts(None, Some(my_ppid() + 1), None));
+        }
+
+        /// The regex filter is applied to the path of the executable.
+        #[test]
+        fn exe_regex() {
+            let exe = std::env::current_exe().unwrap();
+            let name = regex::escape(exe.file_name().unwrap().to_str().unwrap());
+            assert!(accepts(None, None, Some(&format!("{name}$"))));
+            assert!(!accepts(None, None, Some("^not-the-exe$")));
+        }
+
+        /// When several criteria are given, all of them must match.
+        #[test]
+        fn all_criteria() {
+            assert!(accepts(Some(my_pid()), Some(my_ppid()), Some(".*")));
+            assert!(!accepts(Some(my_pid()), Some(my_ppid()), Some("^nope$")));
+        }
+    }
+}

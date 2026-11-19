@@ -248,3 +248,90 @@ impl DeltaCpuTime {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const STAT_1: &str = "\
+cpu  100 10 50 1000 5 1 2 0 0 0
+cpu0 60 5 30 500 3 1 1 0 0 0
+ctxt 1000
+btime 1700000000
+processes 500
+procs_running 2
+procs_blocked 1
+";
+
+    const STAT_2: &str = "\
+cpu  150 20 70 1100 4 3 4 1 2 3
+cpu0 90 10 40 550 2 2 2 1 1 2
+ctxt 1500
+btime 1700000000
+processes 510
+procs_running 3
+procs_blocked 0
+";
+
+    /// Old kernels: only 4 cpu fields and no `procs_*` lines.
+    const STAT_OLD: &str = "\
+cpu  100 10 50 1000
+cpu0 100 10 50 1000
+ctxt 1000
+btime 1700000000
+processes 500
+";
+
+    mod delta_cpu_time {
+        use super::*;
+        use std::io::Cursor;
+
+        /// Parses the total cpu time, with 100 ticks per second (10 ms per tick).
+        fn total(content: &str) -> CpuTime {
+            let info = ExplicitSystemInfo {
+                boot_time_secs: 0,
+                ticks_per_second: 100,
+                page_size: 4096,
+                is_little_endian: true,
+            };
+            KernelStats::from_buf_read(Cursor::new(content), &info).unwrap().total
+        }
+
+        /// Every cpu state is the difference between the two measurements, converted to milliseconds.
+        #[test]
+        fn diff() {
+            let d = DeltaCpuTime::compute_diff(&total(STAT_1), &total(STAT_2));
+            assert_eq!((d.user, d.nice, d.system, d.idle), (500, 100, 200, 1000));
+            assert_eq!((d.irq, d.softirq, d.steal), (Some(20), Some(20), Some(10)));
+            assert_eq!((d.guest, d.guest_nice), (Some(20), Some(30)));
+        }
+
+        /// iowait can decrease on some kernels: the delta must be 0 instead of overflowing.
+        #[test]
+        fn iowait_decrease() {
+            let d = DeltaCpuTime::compute_diff(&total(STAT_1), &total(STAT_2));
+            assert_eq!(d.iowait, Some(0));
+        }
+
+        /// On old kernels, the optional cpu states are absent and stay `None`.
+        #[test]
+        fn missing_fields() {
+            let d = DeltaCpuTime::compute_diff(&total(STAT_OLD), &total(STAT_OLD));
+            assert_eq!((d.user, d.nice, d.system, d.idle), (0, 0, 0, 0));
+            assert_eq!((d.iowait, d.irq, d.softirq), (None, None, None));
+            assert_eq!((d.steal, d.guest, d.guest_nice), (None, None, None));
+        }
+    }
+
+    mod gather_system_info {
+        use super::*;
+
+        /// The system information of the machine is read without error and is consistent.
+        #[test]
+        fn local() {
+            let info = gather_system_info().unwrap();
+            assert!(info.ticks_per_second > 0);
+            assert!(info.boot_time_secs > 0);
+        }
+    }
+}
