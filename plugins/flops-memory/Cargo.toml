@@ -1,16 +1,20 @@
 [package]
-name = "flops-memory"
+name = "plugin-flops-memory"
 version = "0.1.0"
 edition.workspace = true
 repository.workspace = true
+autotests = false
 
 [dependencies]
+alumet.workspace = true
 anyhow = { workspace = true }
 chrono = "0.4.41"
 clap = { version = "4.5.17", features = ["derive"] }
 env_logger = { workspace = true }
+humantime-serde.workspace = true
 indexmap = { version = "2.14.0", features = ["serde"] }
 log = { workspace = true }
+plugin-perf = { path = "../perf" }
 regex = "1.11.1"
 serde = { workspace = true, features = ["derive"] }
 serde_json = "1.0.140"
@@ -19,6 +23,10 @@ tempfile = { workspace = true }
 [[bin]]
 name = "likwid_extractor"
 path = "src/bin/likwid_extractor.rs"
+
+[[test]]
+name = "cpuinfo"
+path = "tests/cpuinfo.rs"
 
 [lints]
 workspace = true
