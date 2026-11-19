@@ -1,14 +1,9 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+#[cfg(not(target_os = "linux"))]
+compile_error!("This plugin only works on Linux.");
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+mod cpuinfo;
+mod formula;
+mod plugin;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use cpuinfo::{CpuInfo, read_cpu_info};
+pub use plugin::FlopsMemoryPlugin;
