@@ -52,6 +52,7 @@ fn load_plugins_metadata() -> Vec<PluginMetadata> {
             plugin_raw_cgroups::RawCgroupPlugin,
             plugin_containers::ContainersPlugin,
             plugin_grace_hopper::GraceHopperPlugin,
+            plugin_infiniband::InfinibandPlugin,
             plugin_rapl::RaplPlugin,
             plugin_perf::PerfPlugin,
             plugin_procfs::ProcfsPlugin,
