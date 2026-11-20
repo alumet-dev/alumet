@@ -1,24 +1,29 @@
 name: Remove old snapshots
 
 on:
-  # We want to try cleaning snapshots regularly
-  # even if some failed to be created in previous snapshot wf expected running 1 hour earlier.
-  schedule:
-    - cron: '0 1 * * 1'
+  # TODO remove after change validated
+  push:
+    branches: ["BRSEED-1680/Add-an-automatic-cleanup-of-old-snapshots-in-alumet-repo"]
+  workflow_call:
 
 jobs:
     list-and-remove-old-snapshots-tag-and-assets:
       runs-on: ubuntu-latest
+      concurrency:
+        group: cleanup-snapshots
+        cancel-in-progress: false
+        queue: single
       permissions:
         contents: write
         packages: write
 
       steps:
-        - name: Checkout repo
-          uses: actions/checkout@v7
-          with:
-            fetch-depth: 0
-            ref: main
+      # TODO remove if not needed
+      #  - name: Checkout repo
+      #    uses: actions/checkout@v7
+      #    with:
+      #      fetch-depth: 0
+      #      ref: main
 
         - name: Identify snapshots to delete
           id: snapshots
@@ -42,21 +47,6 @@ jobs:
               echo "$snapshots"
               echo "EOF"
             } | tee -a "$GITHUB_OUTPUT"
-
-        - name: Delete old snapshots
-          shell: bash
-          env:
-            SNAPSHOTS_TO_DELETE: ${{ steps.snapshots.outputs.tags }}
-            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          run: |
-            # For each tag identified at the previous step delete the release
-            while IFS= read -r tag; do
-              # Ignore empty lines.
-              [ -z "$tag" ] && continue
-              echo "delete snapshot (pre-release): $tag"
-              # We want to keep the tag to rebuild it if necessary so no need to used --cleanup-tag
-              gh release delete "$tag" --yes --repo $GITHUB_REPOSITORY
-            done <<< "$SNAPSHOTS_TO_DELETE"
 
         - name: Identify and delete snapshot images in GHCR
           env:
@@ -107,4 +97,19 @@ jobs:
                 echo "Deleting GHCR version $version_id for tag: $tag"
                 gh api --method DELETE "/orgs/alumet-dev/packages/container/alumet-agent/versions/$version_id"
               done <<< "$version_ids"
+            done <<< "$SNAPSHOTS_TO_DELETE"
+
+        - name: Delete old snapshots
+          shell: bash
+          env:
+            SNAPSHOTS_TO_DELETE: ${{ steps.snapshots.outputs.tags }}
+            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          run: |
+            # For each tag identified at the snapshots step delete the release
+            while IFS= read -r tag; do
+              # Ignore empty lines.
+              [ -z "$tag" ] && continue
+              echo "delete snapshot (pre-release): $tag"
+              # We want to keep the tag to rebuild it if necessary so no need to use --cleanup-tag
+              gh release delete "$tag" --yes --repo $GITHUB_REPOSITORY
             done <<< "$SNAPSHOTS_TO_DELETE"
