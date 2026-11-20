@@ -91,6 +91,7 @@ dependencies = [
  "plugin-energy-estimation-tdp",
  "plugin-energy-to-carbon",
  "plugin-filter",
+ "plugin-flops-memory",
  "plugin-grace-hopper",
  "plugin-influxdb",
  "plugin-k8s",
@@ -2136,6 +2137,8 @@ checksum = "d466e9454f08e4a911e14806c24e16fba1b4c121d1ea474396f396069cf949d9"
 dependencies = [
  "equivalent",
  "hashbrown 0.17.1",
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -3228,6 +3231,25 @@ dependencies = [
  "log",
  "serde",
  "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
+name = "plugin-flops-memory"
+version = "0.1.0"
+dependencies = [
+ "alumet",
+ "anyhow",
+ "chrono",
+ "clap",
+ "env_logger",
+ "humantime-serde",
+ "indexmap 2.14.0",
+ "log",
+ "plugin-perf",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
