@@ -87,6 +87,13 @@ jobs:
 
           packages_modified=$(echo ${pkg_modified_list[@]} | sed -E 's/ /, /g') #  we want something like: pkg1, pkg2
           echo "packages_modified=${packages_modified}" | tee -a "$GITHUB_OUTPUT"
+      
+      
+      - name: Install cargo-semver-checks
+        if: steps.get_packages_modified.outputs.packages_modified != ''
+        run: |
+          curl -sSfL https://github.com/obi1kenobi/cargo-semver-checks/releases/download/v0.45.0/cargo-semver-checks-x86_64-unknown-linux-gnu.tar.gz \
+            | tar xz -C ~/.cargo/bin
 
       - name: Check semver
         id: check_semver_run
