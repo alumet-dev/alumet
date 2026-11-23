@@ -19,7 +19,8 @@ tokio = { workspace = true, features = ["rt"] }
 workspace = true
 
 [dev-dependencies]
-alumet.workspace = true
+alumet = { workspace = true, features = ["test"] }
 pretty_assertions.workspace = true
 toml.workspace = true
 tempfile.workspace = true
+insta = "1.49.0"

@@ -237,3 +237,59 @@ impl Source for NetworkProbe {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const HEADER: &str = "\
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+";
+    const ETH_1: &str = "eth0: 5000 50 1 2 0 0 0 0 3000 30 3 4 0 0 0 0";
+    const ETH_2: &str = "eth1: 1000 50 1 2 0 0 0 0 7000 30 3 4 0 0 0 0";
+    const WLAN: &str = "wlan0: 700 7 1 1 0 0 0 0 600 6 0 2 0 0 0 0";
+
+    fn net_dev(interfaces: &[&str]) -> String {
+        format!("{HEADER}{}\n", interfaces.join("\n"))
+    }
+
+    mod proc_net_reader {
+        use super::*;
+
+        fn read(reader: &mut ProcNetReader, content: &str) -> InterfaceDeviceStatus {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("dev");
+            std::fs::write(&path, content).unwrap();
+            if let ProcNetReader::Optimized(r) = reader {
+                *r = BufReader::new(File::open(&path).unwrap());
+            }
+            reader.read(&path).unwrap()
+        }
+
+        /// The optimized reader, which keeps the file open, parses every interface.
+        #[test]
+        fn optimized() {
+            let mut reader = ProcNetReader::Optimized(BufReader::new(File::open("/dev/null").unwrap()));
+            let status = read(&mut reader, &net_dev(&[ETH_1, WLAN]));
+            assert_eq!(status.0.len(), 2);
+            assert_eq!(status.0["eth0"].recv_bytes, 5000);
+            assert_eq!(status.0["eth0"].sent_bytes, 3000);
+        }
+
+        /// The workaround reader, which reopens the file each time, parses the counters.
+        #[test]
+        fn workaround() {
+            let status = read(&mut ProcNetReader::Workaround, &net_dev(&[ETH_2]));
+            assert_eq!(status.0["eth1"].recv_bytes, 1000);
+            assert_eq!(status.0["eth1"].sent_bytes, 7000);
+        }
+
+        /// The workaround reader fails when the file does not exist.
+        #[test]
+        fn missing_file() {
+            let path = PathBuf::from("/does/not/exist");
+            assert!(ProcNetReader::Workaround.read(&path).is_err());
+        }
+    }
+}

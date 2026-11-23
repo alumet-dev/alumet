@@ -440,9 +440,10 @@ fn convert_to_snake_case(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::convert_to_snake_case;
+    use crate::{config::Config, convert_to_snake_case};
     use pretty_assertions::assert_eq;
 
+    /// The names of the meminfo entries are converted to snake_case metric names.
     #[test]
     fn test_case_conversion() {
         assert_eq!("", convert_to_snake_case(""));
@@ -457,5 +458,76 @@ mod tests {
         assert_eq!("s_reclaimable", convert_to_snake_case("SReclaimable"));
         assert_eq!("nfs_unstable", convert_to_snake_case("NFS_Unstable"));
         assert_eq!("committed_as", convert_to_snake_case("Committed_AS"));
+    }
+
+    mod config {
+        use crate::ProcfsPlugin;
+
+        use super::*;
+        use alumet::plugin::rust::AlumetPlugin;
+        use pretty_assertions::assert_eq;
+
+        fn default_table() -> toml::Table {
+            ProcfsPlugin::default_config()
+                .unwrap()
+                .expect("procfs has a default config")
+                .0
+        }
+
+        /// The default config can be serialized and deserialized without loss.
+        #[test]
+        fn default_roundtrip() {
+            let table = toml::Table::try_from(Config::default()).unwrap();
+            let config: Config = table.clone().try_into().unwrap();
+            assert_eq!(toml::Table::try_from(config).unwrap(), table);
+        }
+
+        /// A section without the `enabled` key is enabled.
+        #[test]
+        fn enabled_by_default() {
+            let mut table = default_table();
+            for section in ["kernel", "memory", "network", "processes"] {
+                table[section].as_table_mut().unwrap().remove("enabled");
+            }
+            let config: Config = table.try_into().unwrap();
+            assert!(config.kernel.enabled && config.memory.enabled && config.network.enabled);
+            assert!(config.processes.enabled);
+        }
+
+        /// The default config is rendered as expected in the configuration file of the agent.
+        #[test]
+        fn default_config() {
+            let rendered = toml::to_string(&default_table()).unwrap();
+            insta::assert_snapshot!(rendered, @r#"
+            [kernel]
+            enabled = true
+            poll_interval = "5s"
+
+            [memory]
+            enabled = true
+            poll_interval = "5s"
+            metrics = ["MemTotal", "MemFree", "MemAvailable", "Cached", "SwapCached", "Active", "Inactive", "Mapped"]
+
+            [network]
+            enabled = true
+            poll_interval = "5s"
+
+            [processes]
+            enabled = true
+            refresh_interval = "2s"
+            strategy = "watcher"
+
+            [[processes.groups]]
+            exe_regex = ""
+            poll_interval = "2s"
+            flush_interval = "4s"
+            memory_mode = "quick"
+
+            [processes.events]
+            poll_interval = "1s"
+            flush_interval = "4s"
+            memory_mode = "quick"
+            "#);
+        }
     }
 }
