@@ -510,3 +510,123 @@ pub fn match_gpm_id_to_attributes(gpm_metric: &GpmMetricId) -> Vec<(&'static str
         _ => vec![],
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use GpmMetricId::*;
+
+    /// Every GPM metric id known by nvml-wrapper.
+    fn all_gpm_ids() -> Vec<GpmMetricId> {
+        (0..=u8::MAX as u32)
+            .filter_map(|i| GpmMetricId::try_from(i).ok())
+            .collect()
+    }
+
+    fn str_attr(key: &'static str, value: &'static str) -> (&'static str, AttributeValue) {
+        (key, AttributeValue::Str(value))
+    }
+
+    mod match_gpm_id_to_attributes {
+        use super::*;
+        use pretty_assertions::assert_eq;
+
+        /// Metrics that are global to the GPU have no attribute.
+        #[test]
+        fn global_metrics() {
+            for id in [GraphicsUtil, SmUtil, SmOccupancy, DramBwUtil] {
+                assert!(match_gpm_id_to_attributes(&id).is_empty(), "{id:?}");
+            }
+        }
+
+        /// Tensor utilization is split by operation type.
+        #[test]
+        fn tensor_operation_type() {
+            let expected = [
+                (AnyTensorUtil, "any"),
+                (DfmaTensorUtil, "dfma"),
+                (HmmaTensorUtil, "hmma"),
+                (ImmaTensorUtil, "imma"),
+            ];
+            for (id, op) in expected {
+                assert_eq!(match_gpm_id_to_attributes(&id), vec![str_attr("operation_type", op)]);
+            }
+        }
+
+        /// Precision utilization is split by precision.
+        #[test]
+        fn precision() {
+            let expected = [
+                (IntegerUtil, "integer"),
+                (Fp64Util, "fp64"),
+                (Fp32Util, "fp32"),
+                (Fp16Util, "fp16"),
+            ];
+            for (id, precision) in expected {
+                assert_eq!(match_gpm_id_to_attributes(&id), vec![str_attr("precision", precision)]);
+            }
+        }
+
+        /// PCIe throughput is split by direction.
+        #[test]
+        fn pcie_direction() {
+            assert_eq!(
+                match_gpm_id_to_attributes(&PcieTxPerSec),
+                vec![str_attr("direction", "transmitted")]
+            );
+            assert_eq!(
+                match_gpm_id_to_attributes(&PcieRxPerSec),
+                vec![str_attr("direction", "received")]
+            );
+        }
+
+        /// The ids of `all_gpm_ids` whose name starts with `prefix`, with their name.
+        fn ids_named(prefix: &str) -> Vec<(GpmMetricId, String)> {
+            all_gpm_ids()
+                .into_iter()
+                .map(|id| (id, format!("{id:?}")))
+                .filter(|(_, name)| name.starts_with(prefix))
+                .collect()
+        }
+
+        /// Each NVDEC, NVJPG and NVOFA instance is identified by the number in its id.
+        #[test]
+        fn engine_instance() {
+            for (prefix, count) in [("Nvdec", 8), ("Nvjpg", 8), ("Nvofa", 2)] {
+                let ids = ids_named(prefix);
+                assert_eq!(ids.len(), count, "{prefix}");
+                for (id, name) in ids {
+                    let instance: u64 = name[prefix.len()..name.len() - "Util".len()].parse().unwrap();
+                    let expected = vec![("instance", AttributeValue::U64(instance))];
+                    assert_eq!(match_gpm_id_to_attributes(&id), expected, "{name}");
+                }
+            }
+        }
+
+        /// NVLink throughput is split by direction and by link, or "total" for all the links.
+        #[test]
+        fn nvlink_direction_and_instance() {
+            let ids = ids_named("Nvlink");
+            assert_eq!(ids.len(), 2 * 19, "18 links and the total, in both directions");
+            for (id, name) in ids {
+                // e.g. "NvlinkL13RxPerSec" or "NvlinkTotalTxPerSec"
+                let link = &name["Nvlink".len()..name.len() - "RxPerSec".len()];
+                let instance = match link {
+                    "Total" => String::from("total"),
+                    l => l.trim_start_matches('L').to_owned(),
+                };
+                let direction = if name.ends_with("RxPerSec") {
+                    "received"
+                } else {
+                    "transmitted"
+                };
+                let actual: Vec<_> = match_gpm_id_to_attributes(&id)
+                    .into_iter()
+                    .map(|(k, v)| (k, v.to_string()))
+                    .collect();
+                let expected = vec![("direction", direction.to_owned()), ("instance", instance)];
+                assert_eq!(actual, expected, "{name}");
+            }
+        }
+    }
+}

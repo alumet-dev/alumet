@@ -26,6 +26,12 @@ mod probe;
 
 pub use nvml::objects::NvmlLoader;
 
+/// Mocks of the NVML library, to test the plugin without a GPU.
+#[cfg(feature = "mock")]
+pub mod mock {
+    pub use crate::nvml::{MockNvmlDevice, MockNvmlLib, NvmlProvider};
+}
+
 pub struct NvmlPlugin<P: NvmlProvider + 'static> {
     config: Config,
     nvml: P::Lib,

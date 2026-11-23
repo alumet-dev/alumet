@@ -3329,9 +3329,11 @@ dependencies = [
  "mockall",
  "nvml-wrapper",
  "nvml-wrapper-sys",
+ "plugin-nvidia-nvml",
  "pretty_assertions",
  "serde",
  "tempfile",
+ "toml 0.9.12+spec-1.1.0",
 ]
 
 [[package]]

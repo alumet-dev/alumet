@@ -148,7 +148,6 @@ impl<D: NvmlDevice> Source for FullSource<D> {
     fn poll(&mut self, measurements: &mut MeasurementAccumulator, timestamp: Timestamp) -> Result<(), PollError> {
         let features = &self.device.features;
         let device = &self.device.inner;
-        let device_memory_info = device.memory_info()?;
         let clock_types = [Clock::Graphics, Clock::SM, Clock::Memory, Clock::Video];
 
         // no consumer, we just monitor the device here
@@ -223,6 +222,7 @@ impl<D: NvmlDevice> Source for FullSource<D> {
 
         // Get the current memory information for this device in Bytes
         if features.memory_info {
+            let device_memory_info = device.memory_info()?;
             measurements.push(
                 MeasurementPoint::new(
                     timestamp,
