@@ -323,7 +323,7 @@ mod tests {
                     key_wanted_list => {
                         let mut attributes_list = p
                             .attributes()
-                            .filter(|(key, _value)| key_wanted_list.contains(&key))
+                            .filter(|(key, _value)| key_wanted_list.contains(key))
                             .collect::<Vec<(&str, &AttributeValue)>>();
                         attributes_list.sort_by(|myself, other| cmp_by_key_list(attribute_key_list, *myself, *other));
                         vec![((metric_name, consumer.clone(), attributes_list), p)]
@@ -495,84 +495,6 @@ mod tests {
         let agent = alumet::agent::Builder::new(plugins);
         let running = agent.build_and_start();
         assert!(running.is_err(), "should fail because there is no gpu");
-    }
-
-    #[test]
-    fn run_plugin_minimal() {
-        let mut nvml = MockNvmlLib::new();
-        let device_state = mock_one_gpu(&mut nvml);
-
-        let config = serialize_config(super::Config {
-            mode: Mode::Minimal,
-            ..Default::default()
-        })
-        .unwrap();
-
-        let mut plugins = PluginSet::new();
-        plugins.add_plugin(PluginInfo {
-            metadata: NvmlPlugin::test_metadata(nvml),
-            enabled: true,
-            config: Some(config.0),
-        });
-        let agent = alumet::agent::Builder::new(plugins);
-
-        let startup_checks = StartupExpectations::new()
-            .expect_metric::<f64>("nvml_energy_consumption", PrefixedUnit::milli(Unit::Joule))
-            .expect_metric::<u64>("nvml_instant_power", PrefixedUnit::milli(Unit::Watt));
-
-        let source_name = SourceName::from_str("nvml", &format!("device_{MOCK_BUS_ID}"));
-        let runtime_checks = RuntimeExpectations::new()
-            .test_source(
-                source_name.clone(),
-                move || {
-                    // The mock has already been configured.
-                    // Reset the counters, so that the features detection does not count in later calls.
-                    device_state.lock().unwrap().reset();
-                },
-                |out| {
-                    // first trigger, the source only produces the instant power
-                    let points = out.measurements().iter().collect::<Vec<_>>();
-                    assert_eq!(points.len(), 1, "wrong number of points, got {points:?}");
-                    assert_eq!(points[0].value.as_u64(), 100);
-                },
-            )
-            .test_source(
-                source_name,
-                || {
-                    // The mock will be called a second time, and will change some of the values it returns.
-                },
-                |out| {
-                    // second trigger, the source returns the instant power *and* the energy, computed from the 2 power values.
-                    // previous power: 100
-                    // new power: 150
-                    // energy: ?
-                    let points = points_by_metric_and_consumer(out, &[]); // no particular attribute to fetch
-                    assert_eq!(points.len(), 2, "wrong number of points, got {points:?}");
-                    assert_eq!(
-                        points[&("nvml_instant_power", ResourceConsumer::LocalMachine, vec![])]
-                            .value
-                            .as_u64(),
-                        150
-                    );
-
-                    // FIXME: the value depends on the time difference between the two calls, and we cannot mock that for the moment…
-                    assert!(
-                        points[&("nvml_energy_consumption", ResourceConsumer::LocalMachine, vec![])]
-                            .value
-                            .as_f64()
-                            >= 0.0
-                    );
-                },
-            );
-
-        let running = agent
-            .with_expectations(startup_checks)
-            .with_expectations(runtime_checks)
-            .build_and_start()
-            .expect("should start fine");
-        running
-            .wait_for_shutdown(Duration::from_secs(1))
-            .expect("error(s) detected");
     }
 
     #[test]

@@ -207,12 +207,12 @@ where
     agent.wait_for_shutdown(TIMEOUT).expect("agent should stop");
 }
 
-/// Starts the plugin with the given config, and checks the first poll of the GPU source.
-fn check_poll<F>(config: toml::Table, startup: StartupExpectations, check: F)
+/// Starts the plugin with the default config, and checks the first poll of the GPU source.
+fn check_poll<F>(check: F)
 where
     F: Fn(&MetricRegistry, &MeasurementBuffer) + Send + Clone + 'static,
 {
-    check_last_poll(config, startup, 1, check);
+    check_last_poll(default_config(), StartupExpectations::new(), 1, check);
 }
 
 /// Starts the plugin with the default config, and checks the second poll of the GPU source.
@@ -231,17 +231,12 @@ fn points<'a>(metrics: &MetricRegistry, buf: &'a MeasurementBuffer, metric: &str
         .collect()
 }
 
-/// The points of the metric named `metric` that measure the GPU itself (not a process).
-fn gpu_points<'a>(metrics: &MetricRegistry, buf: &'a MeasurementBuffer, metric: &str) -> Vec<&'a MeasurementPoint> {
-    points(metrics, buf, metric)
+/// The value of the unique point of `metric` that measures the GPU itself (not a process).
+fn gpu_value(metrics: &MetricRegistry, buf: &MeasurementBuffer, metric: &str) -> u64 {
+    let points: Vec<_> = points(metrics, buf, metric)
         .into_iter()
         .filter(|p| p.consumer == ResourceConsumer::LocalMachine)
-        .collect()
-}
-
-/// The value of the unique GPU point of `metric`.
-fn gpu_value(metrics: &MetricRegistry, buf: &MeasurementBuffer, metric: &str) -> u64 {
-    let points = gpu_points(metrics, buf, metric);
+        .collect();
     assert_eq!(points.len(), 1, "one point expected for {metric}, got {points:?}");
     points[0].value.as_u64()
 }
@@ -278,16 +273,16 @@ mod power {
     /// The instantaneous power is measured in mW.
     #[test]
     fn instant_power() {
-        check_poll(default_config(), StartupExpectations::new(), |m, buf| {
-            assert_eq!(gpu_value(m, buf, "nvml_instant_power"), POWER_MW as u64);
+        check_poll(|m, buf| {
+            assert_eq!(gpu_value(m, buf, "nvml_instant_power"), u64::from(POWER_MW));
         });
     }
 
     /// The power cap is measured in mW.
     #[test]
     fn power_limit() {
-        check_poll(default_config(), StartupExpectations::new(), |m, buf| {
-            assert_eq!(gpu_value(m, buf, "nvml_power_limit"), POWER_LIMIT_MW as u64);
+        check_poll(|m, buf| {
+            assert_eq!(gpu_value(m, buf, "nvml_power_limit"), u64::from(POWER_LIMIT_MW));
         });
     }
 }
@@ -299,7 +294,7 @@ mod energy {
     /// energy nothing is measured on the first one.
     #[test]
     fn first_poll() {
-        check_poll(default_config(), StartupExpectations::new(), |m, buf| {
+        check_poll(|m, buf| {
             assert!(points(m, buf, "nvml_energy_consumption").is_empty());
         });
     }
@@ -308,7 +303,7 @@ mod energy {
     #[test]
     fn second_poll() {
         check_second_poll(|m, buf| {
-            let points = gpu_points(m, buf, "nvml_energy_consumption");
+            let points = points(m, buf, "nvml_energy_consumption");
             assert_eq!(points.len(), 1);
             assert_eq!(points[0].value.as_f64(), ENERGY_STEP as f64);
         });
@@ -321,8 +316,8 @@ mod temperature {
 
     #[test]
     fn gpu() {
-        check_poll(default_config(), StartupExpectations::new(), |m, buf| {
-            assert_eq!(gpu_value(m, buf, "nvml_temperature_gpu"), TEMPERATURE_C as u64);
+        check_poll(|m, buf| {
+            assert_eq!(gpu_value(m, buf, "nvml_temperature_gpu"), u64::from(TEMPERATURE_C));
         });
     }
 }
@@ -334,23 +329,26 @@ mod utilization {
     /// utilization of GPU and memory are measured in percent.
     #[test]
     fn major() {
-        check_poll(default_config(), StartupExpectations::new(), |m, buf| {
-            assert_eq!(gpu_value(m, buf, "nvml_gpu_utilization"), GPU_UTILIZATION as u64);
-            assert_eq!(gpu_value(m, buf, "nvml_memory_utilization"), MEMORY_UTILIZATION as u64);
+        check_poll(|m, buf| {
+            assert_eq!(gpu_value(m, buf, "nvml_gpu_utilization"), u64::from(GPU_UTILIZATION));
+            assert_eq!(
+                gpu_value(m, buf, "nvml_memory_utilization"),
+                u64::from(MEMORY_UTILIZATION)
+            );
         });
     }
 
     /// utilization of  decoder is measured with its sampling period.
     #[test]
     fn decoder() {
-        check_poll(default_config(), StartupExpectations::new(), |m, buf| {
+        check_poll(|m, buf| {
             assert_eq!(
                 gpu_value(m, buf, "nvml_decoder_utilization"),
-                DECODER_UTILIZATION as u64
+                u64::from(DECODER_UTILIZATION)
             );
             assert_eq!(
                 gpu_value(m, buf, "nvml_decoder_sampling_period"),
-                DECODER_SAMPLING_US as u64
+                u64::from(DECODER_SAMPLING_US)
             );
         });
     }
@@ -358,14 +356,29 @@ mod utilization {
     /// utilization of  encoder is measured with its sampling period.
     #[test]
     fn encoder() {
-        check_poll(default_config(), StartupExpectations::new(), |m, buf| {
+        check_poll(|m, buf| {
             assert_eq!(
                 gpu_value(m, buf, "nvml_encoder_utilization"),
-                ENCODER_UTILIZATION as u64
+                u64::from(ENCODER_UTILIZATION)
             );
             assert_eq!(
                 gpu_value(m, buf, "nvml_encoder_sampling_period"),
-                ENCODER_SAMPLING_US as u64
+                u64::from(ENCODER_SAMPLING_US)
+            );
+        });
+    }
+
+    /// The GPU and its processes are measured with the same metric, told apart by the consumer.
+    #[test]
+    fn gpu_and_processes() {
+        check_second_poll(|m, buf| {
+            assert_eq!(
+                gpu_value(m, buf, "nvml_decoder_utilization"),
+                u64::from(DECODER_UTILIZATION)
+            );
+            assert_eq!(
+                process_value(m, buf, "nvml_decoder_utilization", COMPUTE_PID),
+                u64::from(PROCESS_DECODER_UTILIZATION)
             );
         });
     }
@@ -378,7 +391,7 @@ mod memory_info {
     /// free, reserved, total and used memory are measured in bytes.
     #[test]
     fn supported() {
-        check_poll(default_config(), StartupExpectations::new(), |m, buf| {
+        check_poll(|m, buf| {
             let metric = "nvml_gpu_memory_info";
             assert_eq!(value_with_attr(m, buf, metric, "kind", "free"), MEMORY_FREE_BYTES);
             assert_eq!(
@@ -398,23 +411,23 @@ mod clock_info {
     /// Each clock is measured in Hz (nvml gives MHz).
     #[test]
     fn all_clocks() {
-        check_poll(default_config(), StartupExpectations::new(), |m, buf| {
+        check_poll(|m, buf| {
             let metric = "nvml_clock_info";
             assert_eq!(
                 value_with_attr(m, buf, metric, "clock_type", "SM"),
-                CLOCK_SM_MHZ as u64 * 1_000_000
+                u64::from(CLOCK_SM_MHZ) * 1_000_000
             );
             assert_eq!(
                 value_with_attr(m, buf, metric, "clock_type", "Video"),
-                CLOCK_VIDEO_MHZ as u64 * 1_000_000
+                u64::from(CLOCK_VIDEO_MHZ) * 1_000_000
             );
             assert_eq!(
                 value_with_attr(m, buf, metric, "clock_type", "Memory"),
-                CLOCK_MEMORY_MHZ as u64 * 1_000_000
+                u64::from(CLOCK_MEMORY_MHZ) * 1_000_000
             );
             assert_eq!(
                 value_with_attr(m, buf, metric, "clock_type", "Graphics"),
-                CLOCK_GRAPHICS_MHZ as u64 * 1_000_000
+                u64::from(CLOCK_GRAPHICS_MHZ) * 1_000_000
             );
         });
     }
@@ -426,21 +439,21 @@ mod processes {
 
     #[test]
     fn count() {
-        check_poll(default_config(), StartupExpectations::new(), |m, buf| {
+        check_poll(|m, buf| {
             assert_eq!(
                 gpu_value(m, buf, "nvml_n_compute_processes"),
-                N_COMPUTE_PROCESSES as u64
+                u64::from(N_COMPUTE_PROCESSES)
             );
             assert_eq!(
                 gpu_value(m, buf, "nvml_n_graphic_processes"),
-                N_GRAPHICS_PROCESSES as u64
+                u64::from(N_GRAPHICS_PROCESSES)
             );
         });
     }
 
     #[test]
     fn compute_memory() {
-        check_poll(default_config(), StartupExpectations::new(), |m, buf| {
+        check_poll(|m, buf| {
             assert_eq!(
                 process_value(m, buf, "nvml_used_gpu_memory", COMPUTE_PID),
                 COMPUTE_GPU_MEMORY_BYTES
@@ -456,7 +469,7 @@ mod processes {
 
     #[test]
     fn graphics_memory_on_partition() {
-        check_poll(default_config(), StartupExpectations::new(), |m, buf| {
+        check_poll(|m, buf| {
             assert_eq!(
                 process_value(m, buf, "nvml_used_gpu_memory", GRAPHICS_PID),
                 GRAPHICS_GPU_MEMORY_BYTES
@@ -481,7 +494,7 @@ mod processes {
     /// The per-process utilization needs the timestamp of a previous poll.
     #[test]
     fn utilization_first_poll() {
-        check_poll(default_config(), StartupExpectations::new(), |m, buf| {
+        check_poll(|m, buf| {
             assert!(points(m, buf, "nvml_sm_utilization").is_empty());
         });
     }
@@ -492,19 +505,19 @@ mod processes {
         check_second_poll(|m, buf| {
             assert_eq!(
                 process_value(m, buf, "nvml_sm_utilization", COMPUTE_PID),
-                PROCESS_SM_UTILIZATION as u64
+                u64::from(PROCESS_SM_UTILIZATION)
             );
             assert_eq!(
                 process_value(m, buf, "nvml_memory_utilization", COMPUTE_PID),
-                PROCESS_MEMORY_UTILIZATION as u64
+                u64::from(PROCESS_MEMORY_UTILIZATION)
             );
             assert_eq!(
                 process_value(m, buf, "nvml_encoder_utilization", COMPUTE_PID),
-                PROCESS_ENCODER_UTILIZATION as u64
+                u64::from(PROCESS_ENCODER_UTILIZATION)
             );
             assert_eq!(
                 process_value(m, buf, "nvml_decoder_utilization", COMPUTE_PID),
-                PROCESS_DECODER_UTILIZATION as u64
+                u64::from(PROCESS_DECODER_UTILIZATION)
             );
         });
     }
