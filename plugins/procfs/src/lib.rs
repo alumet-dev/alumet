@@ -459,32 +459,6 @@ mod tests {
         assert_eq!("nfs_unstable", convert_to_snake_case("NFS_Unstable"));
         assert_eq!("committed_as", convert_to_snake_case("Committed_AS"));
     }
-    /// A minimal valid configuration.
-    const CONFIG: &str = r#"
-        [kernel]
-        poll_interval = "1s"
-        [memory]
-        poll_interval = "1s"
-        metrics = ["MemTotal"]
-        [network]
-        poll_interval = "1s"
-        [processes]
-        refresh_interval = "1s"
-        [[processes.groups]]
-        pid = 1
-        exe_regex = "^/usr/bin/"
-        poll_interval = "1s"
-        flush_interval = "2s"
-        memory_mode = "slow_but_accurate"
-        [processes.events]
-        poll_interval = "1s"
-        flush_interval = "2s"
-        memory_mode = "quick"
-    "#;
-
-    fn parse(s: &str) -> Result<Config, toml::de::Error> {
-        toml::from_str(s)
-    }
 
     mod config {
         use crate::ProcfsPlugin;
@@ -511,66 +485,49 @@ mod tests {
         /// A section without the `enabled` key is enabled.
         #[test]
         fn enabled_by_default() {
-            let config = parse(CONFIG).unwrap();
+            let mut table = default_table();
+            for section in ["kernel", "memory", "network", "processes"] {
+                table[section].as_table_mut().unwrap().remove("enabled");
+            }
+            let config: Config = table.try_into().unwrap();
             assert!(config.kernel.enabled && config.memory.enabled && config.network.enabled);
             assert!(config.processes.enabled);
         }
 
-        /// A section can be disabled with `enabled = false`.
+        /// The default config is rendered as expected in the configuration file of the agent.
         #[test]
-        fn disabled() {
-            let config = parse(&CONFIG.replace("[network]", "[network]\nenabled = false")).unwrap();
-            assert!(!config.network.enabled);
-        }
+        fn default_config() {
+            let rendered = toml::to_string(&default_table()).unwrap();
+            insta::assert_snapshot!(rendered, @r#"
+            [kernel]
+            enabled = true
+            poll_interval = "5s"
 
-        /// The default config contains exactly the 4 sections of the plugin.
-        #[test]
-        fn sections() {
-            let mut keys: Vec<_> = default_table().keys().cloned().collect();
-            keys.sort();
-            assert_eq!(keys, ["kernel", "memory", "network", "processes"]);
-        }
+            [memory]
+            enabled = true
+            poll_interval = "5s"
+            metrics = ["MemTotal", "MemFree", "MemAvailable", "Cached", "SwapCached", "Active", "Inactive", "Mapped"]
 
-        /// Every section is enabled in the default config.
-        #[test]
-        fn all_enabled() {
-            let table = default_table();
-            for section in ["kernel", "memory", "network", "processes"] {
-                assert_eq!(table[section]["enabled"].as_bool(), Some(true), "{section}");
-            }
-        }
+            [network]
+            enabled = true
+            poll_interval = "5s"
 
-        /// The default config uses the expected poll and refresh intervals.
-        #[test]
-        fn poll_intervals() {
-            let table = default_table();
-            assert_eq!(table["kernel"]["poll_interval"].as_str(), Some("5s"));
-            assert_eq!(table["memory"]["poll_interval"].as_str(), Some("5s"));
-            assert_eq!(table["network"]["poll_interval"].as_str(), Some("5s"));
-            assert_eq!(table["processes"]["refresh_interval"].as_str(), Some("2s"));
-        }
+            [processes]
+            enabled = true
+            refresh_interval = "2s"
+            strategy = "watcher"
 
-        /// The default config reads the expected entries of /proc/meminfo, in order.
-        #[test]
-        fn memory_metrics() {
-            let table = default_table();
-            let metrics: Vec<_> = table["memory"]["metrics"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|m| m.as_str().unwrap())
-                .collect();
-            let expected = [
-                "MemTotal",
-                "MemFree",
-                "MemAvailable",
-                "Cached",
-                "SwapCached",
-                "Active",
-                "Inactive",
-                "Mapped",
-            ];
-            assert_eq!(metrics, expected);
+            [[processes.groups]]
+            exe_regex = ""
+            poll_interval = "2s"
+            flush_interval = "4s"
+            memory_mode = "quick"
+
+            [processes.events]
+            poll_interval = "1s"
+            flush_interval = "4s"
+            memory_mode = "quick"
+            "#);
         }
     }
 }

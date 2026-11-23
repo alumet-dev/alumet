@@ -57,9 +57,9 @@ mod tests {
     /// A range with more than two bounds is rejected.
     #[test]
     fn test_parse_cpulist_invalid() {
-        let cpulist = "1-2-3";
-        let result = parse_cpu_list(cpulist).unwrap_err();
-        assert!(result.to_string().contains("invalid cpu_list"));
+        for list in ["", "a", "0,", "-1", "0-", "0 - 1", "1-2-3"] {
+            assert!(parse_cpu_list(list).is_err(), "{list:?} should be invalid");
+        }
     }
 
     /// The cpu list is read from a file and parsed.
@@ -91,13 +91,5 @@ mod tests {
     #[test]
     fn list() {
         assert_eq!(parse_cpu_list("0,64").unwrap(), vec![0, 64]);
-    }
-
-    /// Empty, non-numeric or malformed lists are rejected.
-    #[test]
-    fn invalid() {
-        for list in ["", "a", "0,", "-1", "0-", "0 - 1"] {
-            assert!(parse_cpu_list(list).is_err(), "{list:?} should be invalid");
-        }
     }
 }

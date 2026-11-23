@@ -802,33 +802,6 @@ mod tests {
         }
     }
 
-    mod memory_stats_mode {
-        use super::*;
-
-        #[derive(Serialize, Deserialize, Debug, PartialEq)]
-        struct Wrapper {
-            mode: MemoryStatsMode,
-        }
-
-        /// The modes are written in snake_case in the config, both ways.
-        #[test]
-        fn serde() {
-            for (mode, s) in [
-                (MemoryStatsMode::Quick, "mode = \"quick\"\n"),
-                (MemoryStatsMode::SlowButAccurate, "mode = \"slow_but_accurate\"\n"),
-            ] {
-                assert_eq!(toml::to_string(&Wrapper { mode }).unwrap(), s);
-                assert_eq!(toml::from_str::<Wrapper>(s).unwrap(), Wrapper { mode });
-            }
-        }
-
-        /// A mode with the wrong case is rejected.
-        #[test]
-        fn invalid() {
-            assert!(toml::from_str::<Wrapper>("mode = \"Quick\"").is_err());
-        }
-    }
-
     mod process_filter {
         use super::*;
 

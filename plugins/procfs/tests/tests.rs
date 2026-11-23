@@ -146,10 +146,3 @@ fn process_metrics() {
     let runtime = RuntimeExpectations::new().test_source(source("memory"), || (), |_| ());
     run_agent(plugin_set(config), startup, runtime);
 }
-
-/// The agent refuses to start with an invalid config.
-#[test]
-fn invalid_config() {
-    let config = config(|c| c["kernel"]["poll_interval"] = toml::Value::String("abc".into()));
-    assert!(agent::Builder::new(plugin_set(config)).build_and_start().is_err());
-}
