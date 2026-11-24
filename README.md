@@ -3,7 +3,7 @@
 </h1>
 
 [![Latest release](https://www.shieldcn.dev/github/release/alumet-dev/alumet.svg?color=orange&size=xs)](https://github.com/alumet-dev/alumet/releases)
-[![CI workflow status](https://www.shieldcn.dev/github/ci/alumet-dev/alumet.svg?variant=secondary&size=xs)](https://github.com/alumet-dev/alumet/actions?query=branch%3Amain+)
+[![CI workflow status](https://www.shieldcn.dev/github/ci/alumet-dev/alumet.svg?branch=main&variant=secondary&size=xs)](https://github.com/alumet-dev/alumet/actions?query=branch%3Amain+)
 [![HAL software publication](https://www.shieldcn.dev/badge/HAL-open%20science?logo=hal&size=xs)](https://hal.science/hal-05036272)
 
 Adaptive, Lightweight, Unified Metrics.
