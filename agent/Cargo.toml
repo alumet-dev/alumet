@@ -47,6 +47,7 @@ plugin-procfs = { path = "../plugins/procfs" }
 plugin-quarch = { path = "../plugins/quarch" }
 plugin-rapl = { path = "../plugins/rapl" }
 plugin-socket-control = { path = "../plugins/socket-control" }
+plugin-flops-memory = { path = "../plugins/flops-memory" }
 # cgroup-based plugins
 plugin-k8s = { path = "../plugins/cgroups/k8s" }
 plugin-oar = { path = "../plugins/cgroups/oar" }
