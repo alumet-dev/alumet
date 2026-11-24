@@ -4,13 +4,15 @@
 //! Since Linux 6.2 (bd2756811766, RHEL 9.3), the cgroup events report a wrong `time_running` once
 //! multiplexed, so their scaled values are wrong (fixed by e4c7c401c6b9 in Linux 7.3).
 //! It's intended to be removed when most supported kernels have the fix.
+//!
+//! The processes are found by reading `cgroup.procs` regularly (see [`CgroupProcesses::scan`])
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::counters::{Counters, GroupedEvent, Observed, Reading};
+use crate::counters::{Counters, GroupedEvent, PerfEventTarget, Reading};
 use crate::group::Accuracy;
 
 /// How a process of the cgroup is counted.
@@ -74,7 +76,9 @@ pub struct CgroupProcesses {
     dir: PathBuf,
     events: Vec<GroupedEvent>,
     auto_scale: bool,
-    counting: HashMap<u32, ProcessCounting>,
+    /// The processes of the cgroup, by `(pid, starttime)`: a pid is reused once the pids have
+    /// rotated, so it only identifies a process along with its starttime.
+    counting: HashMap<(u32, u64), ProcessCounting>,
     /// The length of a clock tick (the unit of starttime), in ns.
     tick_ns: u64,
 }
@@ -98,16 +102,27 @@ impl CgroupProcesses {
         let Some(pids) = cgroup_procs(&self.dir) else {
             return false;
         };
-        let mut new: Vec<(u32, u32, u64)> = pids
-            .into_iter()
-            .filter(|p| !self.counting.contains_key(p))
-            .filter_map(|p| stat_of(p).map(|(ppid, start)| (p, ppid, start)))
+        let current = pids.into_iter().filter_map(|p| Some((p, stat_of(p)?))).collect();
+        self.update(&current);
+        true
+    }
+
+    /// Takes in the processes `current`ly in the cgroup, `pid -> (ppid, starttime)`.
+    fn update(&mut self, current: &HashMap<u32, (u32, u64)>) {
+        let mut new: Vec<(u32, u32, u64)> = current
+            .iter()
+            .filter(|&(&p, &(_, start))| !self.counting.contains_key(&(p, start)))
+            .map(|(&p, &(ppid, start))| (p, ppid, start))
             .collect();
         // Parents before children.
         new.sort_by_key(|&(_, _, start)| start);
         let tick = self.tick_ns;
         for (pid, ppid, start) in new {
-            let inherited = match self.counting.get(&ppid) {
+            // A parent outside the cgroup is not counted: its children need their own counters.
+            let parent = current
+                .get(&ppid)
+                .and_then(|&(_, parent_start)| self.counting.get(&(ppid, parent_start)));
+            let inherited = match parent {
                 Some(ProcessCounting::Inherited) => true,
                 Some(ProcessCounting::Own { opening, .. }) => match opening.when_forked(pid, start, tick) {
                     ForkRelativeToOpening::Before => false,
@@ -120,12 +135,11 @@ impl CgroupProcesses {
                 None => false,
             };
             if inherited {
-                self.counting.insert(pid, ProcessCounting::Inherited);
+                self.counting.insert((pid, start), ProcessCounting::Inherited);
             } else {
-                self.open_process(pid);
+                self.open_process(pid, start);
             }
         }
-        true
     }
 
     /// Opens every thread of `pid`.
@@ -133,13 +147,13 @@ impl CgroupProcesses {
     /// A thread created meanwhile by a thread not opened yet is lost. Listing the threads again
     /// would not help: those created by an opened thread are inherited, and nothing tells which
     /// thread created which, so they would be counted twice.
-    fn open_process(&mut self, pid: u32) {
+    fn open_process(&mut self, pid: u32, start: u64) {
         let boot_start = boottime_ns();
         let last_pid_before = last_pid();
         let mut threads = Vec::new();
         for tid in threads_of(pid) {
-            let observed = Observed::Task { tid, inherit: true };
-            match Counters::open(&observed, &self.events, self.auto_scale) {
+            let target = PerfEventTarget::Task { tid, inherit: true };
+            match Counters::open(&target, &self.events, self.auto_scale) {
                 Ok(c) => threads.push(c),
                 // The thread exited meanwhile: nothing to count.
                 Err(e) if is_no_such_task(&e) => (),
@@ -165,7 +179,8 @@ impl CgroupProcesses {
             threads.len(),
             self.dir.display()
         );
-        self.counting.insert(pid, ProcessCounting::Own { opening, threads });
+        self.counting
+            .insert((pid, start), ProcessCounting::Own { opening, threads });
     }
 
     /// The values of every event counted (by index in the `events` given to [`new`](Self::new)),
@@ -253,7 +268,10 @@ fn parse_thread_names(names: impl Iterator<Item = OsString>) -> Vec<u32> {
     names.filter_map(|n| n.to_str()?.parse().ok()).collect()
 }
 
-/// The clock of `starttime` in `/proc/<pid>/stat`.
+/// The clock of `starttime` in `/proc/<pid>/stat`, to compare it with the opening of the
+/// counters. [`std::time::Instant`] cannot replace it: it is opaque (nothing to compare
+/// `starttime` with), and `CLOCK_MONOTONIC` stops while the machine is suspended, unlike
+/// `CLOCK_BOOTTIME`.
 fn boottime_ns() -> u64 {
     let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
     unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut ts) };
@@ -282,6 +300,31 @@ fn is_no_such_task(e: &anyhow::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// No event: a process to open would have no counter, so only `Inherited` ones are kept.
+    fn processes(known: &[(u32, u64)]) -> CgroupProcesses {
+        let mut p = CgroupProcesses::new(PathBuf::from("/nonexistent"), Vec::new(), false);
+        p.counting = known
+            .iter()
+            .map(|&process| (process, ProcessCounting::Inherited))
+            .collect();
+        p
+    }
+
+    fn known(p: &CgroupProcesses) -> Vec<(u32, u64)> {
+        let mut known: Vec<(u32, u64)> = p.counting.keys().copied().collect();
+        known.sort();
+        known
+    }
+
+    #[test]
+    fn reused_pid_is_a_new_process() {
+        // 10 exited and its pid was reused by a child of 1, which is counted by inheritance. The
+        // former 10 is kept: its counters keep their final values.
+        let mut p = processes(&[(1, 100), (10, 5)]);
+        p.update(&HashMap::from([(1, (0, 100)), (10, (1, 700))]));
+        assert_eq!(known(&p), [(1, 100), (10, 5), (10, 700)]);
+    }
 
     #[test]
     fn own_stat() {

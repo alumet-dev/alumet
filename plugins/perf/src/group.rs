@@ -12,8 +12,8 @@ pub use crate::multiplexing::Accuracy;
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum Target {
-    /// A task (a thread: perf counts the given tid only), on any cpu; with `inherit`, also every
-    /// task it creates after being opened.
+    /// A kernel task (a thread: perf counts the given tid only, and the main thread of a process
+    /// has tid == pid), on any cpu; with `inherit`, also every task it creates after being opened.
     Task { tid: u32, inherit: bool },
     /// A cgroup, on one cpu.
     ///
@@ -163,7 +163,7 @@ impl EventGroup {
         // Only warn on the transition: starvation can last for the whole lifetime of the source.
         let starved = running == 0 && enabled > 0;
         if starved && !self.starved {
-            log::debug!(
+            log::warn!(
                 "perf group {:?} ({:?}) ran but never made it onto the PMU, its counters are stalled. \
                  Possible causes: more events configured in one group than the CPU has hardware counters, or \
                  tools holding the PMU system-wide.",

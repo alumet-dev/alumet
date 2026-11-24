@@ -23,8 +23,7 @@ use alumet::{
 };
 use anyhow::Context;
 
-use crate::counters::{GroupedEvent, Observed};
-use crate::event;
+use crate::counters::{GroupedEvent, PerfEventTarget};
 use alumet::resources::ResourceConsumer;
 use cgroup_via_processes::CgroupProcessesSource;
 use config::{CgroupCounting, Config, ParsedConfig, sanitize};
@@ -115,7 +114,7 @@ impl AlumetPlugin for PerfPlugin {
         // it is created once, here, rather than when a consumer appears.
         {
             let config = self.config.lock().unwrap();
-            let system_events = events_of(&config, true);
+            let system_events = config.events(true);
             if !system_events.is_empty() {
                 let n = system_events.len();
                 let poll_interval = config.poll_interval;
@@ -130,7 +129,7 @@ impl AlumetPlugin for PerfPlugin {
                 };
 
                 let source = PerfEventSource::new(
-                    &Observed::Machine,
+                    &PerfEventTarget::Machine,
                     &system_events,
                     auto_scale,
                     ResourceConsumer::LocalMachine,
@@ -162,11 +161,11 @@ impl AlumetPlugin for PerfPlugin {
         alumet_event_bus::start_consumer_measurement().subscribe(move |e| {
             for consumer in e.0 {
                 let config = config_cloned.lock().unwrap();
-                let events = events_of(&config, false);
+                let events = config.events(false);
                 let (source, source_name): (Box<dyn Source>, String) = match &consumer {
                     ResourceConsumer::Process { pid } => {
                         // The main thread of the process, whose tid is the pid.
-                        let observed = Observed::Task {
+                        let observed = PerfEventTarget::Task {
                             tid: *pid,
                             inherit: false,
                         };
@@ -201,7 +200,7 @@ impl AlumetPlugin for PerfPlugin {
                             let Ok(fd) = File::open(&absolute_path) else {
                                 panic!("cgroup not found in filesystem: {absolute_path}")
                             };
-                            let observed = Observed::Cgroup { fd: Arc::new(fd) };
+                            let observed = PerfEventTarget::Cgroup { fd: Arc::new(fd) };
                             log::info!("Starting to observe cgroup {path}...");
                             let source = PerfEventSource::new(
                                 &observed,
@@ -256,19 +255,6 @@ impl AlumetPlugin for PerfPlugin {
     fn stop(&mut self) -> anyhow::Result<()> {
         Ok(())
     }
-}
-
-/// The events of the config counted by the machine source (`system_wide`) or by the process and
-/// cgroup sources, each paired with its metric.
-fn events_of(config: &ParsedConfig, system_wide: bool) -> Vec<(GroupedEvent, TypedMetricId<u64>)> {
-    // System-wide events (uncore, power, cstate…) are not tied to a process or a cgroup: they are
-    // counted once, by the machine source.
-    config
-        .events
-        .iter()
-        .filter(|(e, _)| matches!(e.event.scope(), event::Scope::SystemWide { .. }) == system_wide)
-        .cloned()
-        .collect()
 }
 
 // prevent 'Too many open files' error

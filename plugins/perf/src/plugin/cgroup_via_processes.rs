@@ -1,4 +1,4 @@
-//! The plugin side of [`crate::cgroup_via_processes`] (`cgroup_counting = { via_processes = {} }`):
+//! The plugin side of [`crate::cgroup_via_processes`] (`cgroup_counting = "via_processes"`):
 //! a source that counts a cgroup through its processes, and scans them in the background.
 //! Self-contained on purpose: delete this file with that module once the kernels have the fix.
 use std::collections::HashMap;
@@ -16,9 +16,8 @@ use alumet::resources::{Resource, ResourceConsumer};
 use crate::cgroup_via_processes::CgroupProcesses;
 use crate::counters::GroupedEvent;
 use crate::event::{ParsedEvent, Scope};
-use crate::resource;
 
-/// The source of a cgroup counted through its processes, on the kernels that miscount their
+/// The source that measures a cgroup through its processes, on the kernels that miscount their
 /// multiplexed events (see [`crate::cgroup_via_processes`]).
 pub(super) struct CgroupProcessesSource {
     processes: Arc<Mutex<CgroupProcesses>>,
@@ -78,7 +77,7 @@ impl Source for CgroupProcessesSource {
             let resource = self
                 .resources
                 .entry((r.event, r.cpu))
-                .or_insert_with(|| resource_of(event, r.cpu))
+                .or_insert_with(|| event.resource(r.cpu))
                 .clone();
             let mut point = MeasurementPoint::new(timestamp, *metric, resource, self.consumer.clone(), r.value)
                 .with_attr("accuracy", r.accuracy.as_str());
@@ -88,16 +87,5 @@ impl Source for CgroupProcessesSource {
             measurements.push(point);
         }
         Ok(())
-    }
-}
-
-/// The resource measured by `event` on `cpu` (`None`: counted through a task, on any cpu).
-fn resource_of(event: &ParsedEvent, cpu: Option<u32>) -> Resource {
-    match (event.scope(), cpu) {
-        (Scope::TaskAttached { binding }, None) => resource::for_process(binding.as_ref()),
-        (Scope::TaskAttached { .. }, Some(cpu)) => resource::for_cgroup_on_cpu(cpu),
-        (Scope::SystemWide { pmu, .. }, cpu) => {
-            resource::for_system_wide_pmu(pmu, cpu.expect("system-wide events are counted per cpu"))
-        }
     }
 }

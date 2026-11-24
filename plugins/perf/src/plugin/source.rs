@@ -8,11 +8,10 @@ use alumet::{
     resources::{Resource, ResourceConsumer},
 };
 
-use crate::counters::{Counters, GroupedEvent, Observed};
+use crate::counters::{Counters, GroupedEvent, PerfEventTarget};
 use crate::event::{ParsedEvent, Scope};
-use crate::resource;
 
-/// The source of a process, a cgroup or the whole machine.
+/// The source that measures a process, a cgroup or the whole machine.
 pub(super) struct PerfEventSource {
     counters: Counters,
     /// The events counted, in the order given to the counters, and their metric.
@@ -25,7 +24,7 @@ pub(super) struct PerfEventSource {
 impl PerfEventSource {
     /// Opens the counters of `events` (each paired with its metric) on `observed`.
     pub(super) fn new(
-        observed: &Observed,
+        observed: &PerfEventTarget,
         events: &[(GroupedEvent, TypedMetricId<u64>)],
         auto_scale: bool,
         consumer: ResourceConsumer,
@@ -48,7 +47,7 @@ impl Source for PerfEventSource {
             let resource = self
                 .resources
                 .entry((r.event, r.cpu))
-                .or_insert_with(|| resource_of(event, r.cpu))
+                .or_insert_with(|| event.resource(r.cpu))
                 .clone();
             let mut point = MeasurementPoint::new(timestamp, *metric, resource, self.consumer.clone(), r.value)
                 .with_attr("accuracy", r.accuracy.as_str());
@@ -58,16 +57,5 @@ impl Source for PerfEventSource {
             measurements.push(point);
         }
         Ok(())
-    }
-}
-
-/// The resource measured by `event` on `cpu` (`None`: counted on a task, on any cpu).
-fn resource_of(event: &ParsedEvent, cpu: Option<u32>) -> Resource {
-    match (event.scope(), cpu) {
-        (Scope::TaskAttached { binding }, None) => resource::for_process(binding.as_ref()),
-        (Scope::TaskAttached { .. }, Some(cpu)) => resource::for_cgroup_on_cpu(cpu),
-        (Scope::SystemWide { pmu, .. }, cpu) => {
-            resource::for_system_wide_pmu(pmu, cpu.expect("system-wide events are counted per cpu"))
-        }
     }
 }

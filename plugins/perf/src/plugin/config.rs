@@ -46,12 +46,12 @@ pub(super) struct Config {
     /// Since Linux 6.2 (and RHEL 9.3), the kernel miscounts the cgroup events once they are
     /// multiplexed (fixed in Linux 7.3). `native` (the default) opens the events on the cgroup;
     /// `via_processes` counts every process of the cgroup instead, and sums them (written
-    /// `{ via_processes = {} }`, or `{ via_processes = { scan_interval = "50ms" } }`).
+    /// `"via_processes"`, or `cgroup_counting.via_processes.scan_interval = "50ms"`).
     #[serde(default)]
     pub(super) cgroup_counting: CgroupCounting,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum CgroupCounting {
     #[default]
@@ -59,9 +59,59 @@ pub(super) enum CgroupCounting {
     ViaProcesses {
         /// How often `cgroup.procs` is read to find the new processes: what a new process does
         /// before it is found is lost.
-        #[serde(with = "humantime_serde", default = "default_scan_interval")]
+        #[serde(with = "humantime_serde")]
         scan_interval: Duration,
     },
+}
+
+/// A mode is written alone (`"via_processes"`), or as a table when it has parameters.
+impl<'de> Deserialize<'de> for CgroupCounting {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visitor;
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = CgroupCounting;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str(r#""native", "via_processes" or { via_processes = { ... } }"#)
+            }
+
+            fn visit_str<E: serde::de::Error>(self, mode: &str) -> Result<Self::Value, E> {
+                match mode {
+                    "native" => Ok(CgroupCounting::Native),
+                    "via_processes" => Ok(CgroupCounting::ViaProcesses {
+                        scan_interval: default_scan_interval(),
+                    }),
+                    _ => Err(E::unknown_variant(mode, &["native", "via_processes"])),
+                }
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                use serde::de::Error;
+                // The parameters of `ViaProcesses`: a variant cannot be deserialized on its own.
+                #[derive(Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct ViaProcessesParams {
+                    #[serde(with = "humantime_serde", default = "default_scan_interval")]
+                    scan_interval: Duration,
+                }
+                let counting = match map.next_key::<String>()?.as_deref() {
+                    Some("via_processes") => {
+                        let params: ViaProcessesParams = map.next_value()?;
+                        CgroupCounting::ViaProcesses {
+                            scan_interval: params.scan_interval,
+                        }
+                    }
+                    Some(mode) => return Err(A::Error::unknown_variant(mode, &["via_processes"])),
+                    None => return Err(A::Error::invalid_length(0, &self)),
+                };
+                if map.next_key::<String>()?.is_some() {
+                    return Err(A::Error::custom("only one counting mode can be given"));
+                }
+                Ok(counting)
+            }
+        }
+        deserializer.deserialize_any(Visitor)
+    }
 }
 
 fn default_scan_interval() -> Duration {
@@ -145,6 +195,20 @@ pub(super) struct ParsedConfig {
     pub(super) cgroup_via_processes: Option<Duration>,
 }
 
+impl ParsedConfig {
+    /// The events counted by the machine source (`system_wide`) or by the process and cgroup
+    /// sources, each paired with its metric.
+    pub(super) fn events(&self, system_wide: bool) -> Vec<(GroupedEvent, TypedMetricId<u64>)> {
+        // System-wide events (uncore, power, cstate…) are not tied to a process or a cgroup: they
+        // are counted once, by the machine source.
+        self.events
+            .iter()
+            .filter(|(e, _)| matches!(e.event.scope(), event::Scope::SystemWide { .. }) == system_wide)
+            .cloned()
+            .collect()
+    }
+}
+
 /// Turn a string into a metric-name-safe suffix: letters are lowercased, non-alphanumeric
 /// characters become `_`, and leading/trailing `_` are trimmed.
 pub(super) fn sanitize(s: &str) -> String {
@@ -174,6 +238,18 @@ mod tests {
         let parse = |s: &str| toml::from_str::<Wrap>(s).unwrap().cgroup_counting;
         assert_eq!(parse(r#"cgroup_counting = "native""#), CgroupCounting::Native);
         assert_eq!(
+            parse(r#"cgroup_counting = "via_processes""#),
+            CgroupCounting::ViaProcesses {
+                scan_interval: Duration::from_millis(100)
+            }
+        );
+        assert_eq!(
+            parse(r#"cgroup_counting.via_processes.scan_interval = "50ms""#),
+            CgroupCounting::ViaProcesses {
+                scan_interval: Duration::from_millis(50)
+            }
+        );
+        assert_eq!(
             parse("cgroup_counting = { via_processes = {} }"),
             CgroupCounting::ViaProcesses {
                 scan_interval: Duration::from_millis(100)
@@ -185,6 +261,41 @@ mod tests {
                 scan_interval: Duration::from_millis(50)
             }
         );
+    }
+
+    #[test]
+    fn cgroup_counting_rejects_unknown_forms() {
+        #[derive(Debug, serde::Deserialize)]
+        struct Wrap {
+            #[allow(dead_code)]
+            cgroup_counting: CgroupCounting,
+        }
+        for wrong in [
+            r#"cgroup_counting = "via_threads""#,
+            r#"cgroup_counting.via_processes.scan_intervall = "50ms""#,
+            r#"cgroup_counting = { via_processes = {}, native = {} }"#,
+        ] {
+            assert!(toml::from_str::<Wrap>(wrong).is_err(), "{wrong}");
+        }
+    }
+
+    #[test]
+    fn cgroup_counting_round_trips() {
+        #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+        struct Wrap {
+            cgroup_counting: CgroupCounting,
+        }
+        for counting in [
+            CgroupCounting::Native,
+            CgroupCounting::ViaProcesses {
+                scan_interval: Duration::from_secs(1),
+            },
+        ] {
+            let wrap = Wrap {
+                cgroup_counting: counting,
+            };
+            assert_eq!(toml::from_str::<Wrap>(&toml::to_string(&wrap).unwrap()).unwrap(), wrap);
+        }
     }
 
     #[test]

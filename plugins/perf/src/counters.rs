@@ -6,11 +6,11 @@ use crate::event::{ParsedEvent, Scope};
 use crate::group::{Accuracy, EventGroup, EventGroupBuilder, Target};
 use crate::sysfs;
 
-/// What to count on.
+/// What to count on: split into one [`Target`] per cpu when perf needs it.
 #[derive(Debug, Clone)]
-pub enum Observed {
-    /// A task (a thread: perf counts the given tid only); with `inherit`, also every task it
-    /// creates after being opened.
+pub enum PerfEventTarget {
+    /// A kernel task (a thread: perf counts the given tid only, and the main thread of a process
+    /// has tid == pid); with `inherit`, also every task it creates after being opened.
     Task { tid: u32, inherit: bool },
     /// A cgroup (an open directory of the cgroup v2 hierarchy), on each cpu it may run on.
     Cgroup { fd: Arc<File> },
@@ -47,15 +47,15 @@ struct GroupMembers {
     group: Option<String>,
 }
 
-/// The perf groups counting a list of events on one [`Observed`]: one per `(cpu, pmu, group name)`,
-/// and one per event without a group name.
+/// The perf groups counting a list of events on one [`PerfEventTarget`]: one per
+/// `(cpu, pmu, group name)`, and one per event without a group name.
 pub struct Counters {
     groups: Vec<(EventGroup, GroupMembers)>,
 }
 
 impl Counters {
     /// Spreads `events` over perf groups, and opens and enables them on `observed`.
-    pub fn open(observed: &Observed, events: &[GroupedEvent], auto_scale: bool) -> anyhow::Result<Self> {
+    pub fn open(observed: &PerfEventTarget, events: &[GroupedEvent], auto_scale: bool) -> anyhow::Result<Self> {
         let mut groups: Vec<(EventGroupBuilder, GroupMembers)> = Vec::new();
         for (i, GroupedEvent { event, group }) in events.iter().enumerate() {
             for (target, cpu) in targets(observed, event)? {
@@ -93,9 +93,9 @@ impl Counters {
 }
 
 /// Where to open `event` on `observed`, and the cpu of each target if it is per cpu.
-fn targets(observed: &Observed, event: &ParsedEvent) -> anyhow::Result<Vec<(Target, Option<u32>)>> {
+fn targets(observed: &PerfEventTarget, event: &ParsedEvent) -> anyhow::Result<Vec<(Target, Option<u32>)>> {
     Ok(match (event.scope(), observed) {
-        (Scope::TaskAttached { .. }, Observed::Task { tid, inherit }) => vec![(
+        (Scope::TaskAttached { .. }, PerfEventTarget::Task { tid, inherit }) => vec![(
             Target::Task {
                 tid: *tid,
                 inherit: *inherit,
@@ -103,7 +103,7 @@ fn targets(observed: &Observed, event: &ParsedEvent) -> anyhow::Result<Vec<(Targ
             None,
         )],
         // Cgroup events need a cpu: one per cpu of the event's core PMU, or per online cpu.
-        (Scope::TaskAttached { binding }, Observed::Cgroup { fd }) => {
+        (Scope::TaskAttached { binding }, PerfEventTarget::Cgroup { fd }) => {
             let cpus = match binding {
                 Some(b) => b.cpus.clone(),
                 None => sysfs::online_cpus().context("could not detect online CPUs")?,
@@ -112,14 +112,14 @@ fn targets(observed: &Observed, event: &ParsedEvent) -> anyhow::Result<Vec<(Targ
                 .map(|cpu| (Target::Cgroup { fd: fd.clone(), cpu }, Some(cpu)))
                 .collect()
         }
-        (Scope::SystemWide { cpus, .. }, Observed::Machine) => {
+        (Scope::SystemWide { cpus, .. }, PerfEventTarget::Machine) => {
             cpus.iter().map(|&cpu| (Target::Cpu { cpu }, Some(cpu))).collect()
         }
         (Scope::SystemWide { .. }, _) => anyhow::bail!(
             "system-wide event {} can only be counted on the whole machine",
             event.name()
         ),
-        (Scope::TaskAttached { .. }, Observed::Machine) => anyhow::bail!(
+        (Scope::TaskAttached { .. }, PerfEventTarget::Machine) => anyhow::bail!(
             "event {} cannot be counted on the whole machine: only system-wide events can",
             event.name()
         ),
