@@ -8,7 +8,6 @@ repository.workspace = true
 alumet.workspace = true
 anyhow.workspace = true
 humantime-serde.workspace = true
-indexmap = "2.14.0"
 log.workspace = true
 nvml-wrapper = {version = "0.13.0", features = ["legacy-functions","serde"] }
 nvml-wrapper-sys = {version = "0.10.0" }
@@ -26,7 +25,6 @@ toml.workspace = true
 tempfile.workspace = true
 mockall = {version = "0.14.0" }
 alumet = { workspace = true, features = ["test"]}
-enum-map = "2.7.3"
 insta = "1.49.0"
 
 [lints]

@@ -106,13 +106,6 @@ impl NvmlProvider for GpmProvider {
 
 type Plugin = NvmlPlugin<GpmProvider>;
 
-/// Every GPM metric id known by nvml-wrapper.
-fn all_gpm_ids() -> Vec<GpmMetricId> {
-    (0..=u8::MAX as u32)
-        .filter_map(|i| GpmMetricId::try_from(i).ok())
-        .collect()
-}
-
 /// The plugin, configured to measure the given GPM metrics.
 fn plugin_set(gpm_metrics: &[GpmMetricId]) -> PluginSet {
     let mut config = Plugin::default_config().unwrap().unwrap().0;
@@ -209,7 +202,9 @@ mod create_gpm_metrics {
     /// Every GPM id known by nvml-wrapper is registered and measured.
     #[test]
     fn all_ids() {
-        let ids = all_gpm_ids();
+        let ids: Vec<GpmMetricId> = (0..=u8::MAX as u32)
+            .filter_map(|i| GpmMetricId::try_from(i).ok())
+            .collect();
         let n_ids = ids.len();
         check_poll(&ids, StartupExpectations::new(), move |m, buf| {
             assert_eq!(gpm_points(m, buf).len(), n_ids);

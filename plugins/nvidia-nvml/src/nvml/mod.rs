@@ -7,7 +7,10 @@ use nvml_wrapper_sys::bindings::nvmlGpmSample_t;
 
 pub mod detect;
 pub mod features;
+// Excluded from the code coverage: these modules call the real NVML library, which needs a GPU.
+#[cfg(not(tarpaulin_include))]
 pub mod nvml_ext;
+#[cfg(not(tarpaulin_include))]
 pub mod objects;
 
 pub type NvmlResult<T> = Result<T, nvml_wrapper::error::NvmlError>;

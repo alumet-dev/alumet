@@ -544,6 +544,7 @@ mod tests {
                     format!("{id:?}: {attrs}\n")
                 })
                 .collect();
+            // To update this snapshot after an intended change: `cargo insta test -p plugin-nvidia-nvml --accept`
             insta::assert_snapshot!(rendered, @r#"
             GraphicsUtil: (none)
             SmUtil: (none)

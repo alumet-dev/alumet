@@ -13,6 +13,7 @@ use alumet::{
     plugin::{PluginMetadata, rust::AlumetPlugin},
     resources::{Resource, ResourceConsumer},
     test::{RuntimeExpectations, StartupExpectations},
+    units::{PrefixedUnit, Unit},
 };
 use nvml_wrapper::{
     enum_wrappers::device::Clock,
@@ -56,6 +57,8 @@ const N_COMPUTE_PROCESSES: u32 = 1;
 const N_GRAPHICS_PROCESSES: u32 = 2;
 const COMPUTE_GPU_MEMORY_BYTES: u64 = 64_000;
 const GRAPHICS_GPU_MEMORY_BYTES: u64 = 32_000;
+const OTHER_GRAPHICS_PID: u32 = 9012; // second graphics process, on the whole GPU
+const OTHER_GRAPHICS_GPU_MEMORY_BYTES: u64 = 16_000;
 const GRAPHICS_PARTITION_ID: u32 = 0; // MIG partition of the graphics process
 const GRAPHICS_COMPUTE_INSTANCE_ID: u32 = 1;
 const PROCESS_SM_UTILIZATION: u32 = 50; // %
@@ -131,12 +134,20 @@ fn device() -> MockNvmlDevice {
         .expect_running_graphics_processes_count()
         .returning(|| Ok(N_GRAPHICS_PROCESSES));
     device.expect_running_graphics_processes().returning(|| {
-        Ok(vec![ProcessInfo {
-            pid: GRAPHICS_PID,
-            used_gpu_memory: UsedGpuMemory::Used(GRAPHICS_GPU_MEMORY_BYTES),
-            gpu_instance_id: Some(GRAPHICS_PARTITION_ID),
-            compute_instance_id: Some(GRAPHICS_COMPUTE_INSTANCE_ID),
-        }])
+        Ok(vec![
+            ProcessInfo {
+                pid: GRAPHICS_PID,
+                used_gpu_memory: UsedGpuMemory::Used(GRAPHICS_GPU_MEMORY_BYTES),
+                gpu_instance_id: Some(GRAPHICS_PARTITION_ID),
+                compute_instance_id: Some(GRAPHICS_COMPUTE_INSTANCE_ID),
+            },
+            ProcessInfo {
+                pid: OTHER_GRAPHICS_PID,
+                used_gpu_memory: UsedGpuMemory::Used(OTHER_GRAPHICS_GPU_MEMORY_BYTES),
+                gpu_instance_id: None,
+                compute_instance_id: None,
+            },
+        ])
     });
 
     device.expect_clock_info().returning(|clock| match clock {
@@ -491,6 +502,29 @@ mod processes {
         });
     }
 
+    /// Several processes in the same list are measured, each on its own resource.
+    #[test]
+    fn graphics_memory_on_whole_gpu() {
+        check_poll(|m, buf| {
+            assert_eq!(
+                process_value(m, buf, "nvml_used_gpu_memory", OTHER_GRAPHICS_PID),
+                OTHER_GRAPHICS_GPU_MEMORY_BYTES
+            );
+            let point = points(m, buf, "nvml_used_gpu_memory")
+                .into_iter()
+                .find(|p| {
+                    p.consumer
+                        == ResourceConsumer::Process {
+                            pid: OTHER_GRAPHICS_PID,
+                        }
+                })
+                .unwrap();
+            assert_eq!(attr(point, "context").as_deref(), Some("graphics"));
+            assert_eq!(attr(point, "compute_instance_id"), None);
+            assert_eq!(point.resource, Resource::Gpu { bus_id: BUS_ID.into() });
+        });
+    }
+
     /// The per-process utilization needs the timestamp of a previous poll.
     #[test]
     fn utilization_first_poll() {
@@ -519,6 +553,91 @@ mod processes {
                 process_value(m, buf, "nvml_decoder_utilization", COMPUTE_PID),
                 u64::from(PROCESS_DECODER_UTILIZATION)
             );
+        });
+    }
+}
+
+mod startup {
+    use super::*;
+
+    /// In full mode, every metric, except GPM, is registered with its unit.
+    #[test]
+    fn metrics() {
+        let startup = StartupExpectations::new()
+            .expect_metric::<f64>("nvml_energy_consumption", PrefixedUnit::milli(Unit::Joule))
+            .expect_metric::<u64>("nvml_instant_power", PrefixedUnit::milli(Unit::Watt))
+            .expect_metric::<u64>("nvml_power_limit", PrefixedUnit::milli(Unit::Watt))
+            .expect_metric::<u64>("nvml_temperature_gpu", Unit::DegreeCelsius)
+            .expect_metric::<u64>("nvml_gpu_utilization", Unit::Percent)
+            .expect_metric::<u64>("nvml_memory_utilization", Unit::Percent)
+            .expect_metric::<u64>("nvml_gpu_memory_info", Unit::Byte)
+            .expect_metric::<u64>("nvml_decoder_utilization", Unit::Percent)
+            .expect_metric::<u64>("nvml_decoder_sampling_period", PrefixedUnit::micro(Unit::Second))
+            .expect_metric::<u64>("nvml_encoder_utilization", Unit::Percent)
+            .expect_metric::<u64>("nvml_encoder_sampling_period", PrefixedUnit::micro(Unit::Second))
+            .expect_metric::<u64>("nvml_sm_utilization", Unit::Percent)
+            .expect_metric::<u64>("nvml_n_compute_processes", Unit::Unity)
+            .expect_metric::<u64>("nvml_n_graphic_processes", Unit::Unity)
+            .expect_metric::<u64>("nvml_used_gpu_memory", Unit::Byte)
+            .expect_metric::<u64>("nvml_clock_info", Unit::Hertz)
+            .expect_source("nvml", &format!("device_{BUS_ID}"));
+        check_last_poll(default_config(), startup, 1, |_, _| ());
+    }
+}
+
+mod all_points {
+    use super::*;
+
+    /// Every point of the second poll (sorted), to detect a missing, extra or modified point.
+    #[test]
+    fn second_poll() {
+        check_second_poll(|m, buf| {
+            let mut lines: Vec<String> = buf
+                .iter()
+                .map(|p| {
+                    let name = &m.by_id(&p.metric).unwrap().name;
+                    let attrs: Vec<_> = p.attributes().map(|(k, v)| format!("{k}={v:?}")).collect();
+                    let attrs = if attrs.is_empty() {
+                        String::from("-")
+                    } else {
+                        attrs.join(", ")
+                    };
+                    format!(
+                        "{} ~ {:?} ~ {:?} ~ {} = {:?}",
+                        name, p.consumer, p.resource, attrs, p.value
+                    )
+                })
+                .collect();
+            lines.sort();
+            insta::assert_snapshot!(lines.join("\n"), @r#"
+            nvml_clock_info ~ LocalMachine ~ Gpu { bus_id: "00000000:01:00.0" } ~ clock_type=Str("Graphics") = U64(4000000)
+            nvml_clock_info ~ LocalMachine ~ Gpu { bus_id: "00000000:01:00.0" } ~ clock_type=Str("Memory") = U64(3000000)
+            nvml_clock_info ~ LocalMachine ~ Gpu { bus_id: "00000000:01:00.0" } ~ clock_type=Str("SM") = U64(1000000)
+            nvml_clock_info ~ LocalMachine ~ Gpu { bus_id: "00000000:01:00.0" } ~ clock_type=Str("Video") = U64(2000000)
+            nvml_decoder_sampling_period ~ LocalMachine ~ Gpu { bus_id: "00000000:01:00.0" } ~ - = U64(1100)
+            nvml_decoder_utilization ~ LocalMachine ~ Gpu { bus_id: "00000000:01:00.0" } ~ - = U64(15)
+            nvml_decoder_utilization ~ Process { pid: 1234 } ~ Gpu { bus_id: "00000000:01:00.0" } ~ - = U64(7)
+            nvml_encoder_sampling_period ~ LocalMachine ~ Gpu { bus_id: "00000000:01:00.0" } ~ - = U64(2000)
+            nvml_encoder_utilization ~ LocalMachine ~ Gpu { bus_id: "00000000:01:00.0" } ~ - = U64(25)
+            nvml_encoder_utilization ~ Process { pid: 1234 } ~ Gpu { bus_id: "00000000:01:00.0" } ~ - = U64(5)
+            nvml_energy_consumption ~ LocalMachine ~ Gpu { bus_id: "00000000:01:00.0" } ~ - = F64(5000.0)
+            nvml_gpu_memory_info ~ LocalMachine ~ Gpu { bus_id: "00000000:01:00.0" } ~ kind=Str("free") = U64(1000)
+            nvml_gpu_memory_info ~ LocalMachine ~ Gpu { bus_id: "00000000:01:00.0" } ~ kind=Str("reserved") = U64(200)
+            nvml_gpu_memory_info ~ LocalMachine ~ Gpu { bus_id: "00000000:01:00.0" } ~ kind=Str("total") = U64(4000)
+            nvml_gpu_memory_info ~ LocalMachine ~ Gpu { bus_id: "00000000:01:00.0" } ~ kind=Str("used") = U64(2800)
+            nvml_gpu_utilization ~ LocalMachine ~ Gpu { bus_id: "00000000:01:00.0" } ~ - = U64(40)
+            nvml_instant_power ~ LocalMachine ~ Gpu { bus_id: "00000000:01:00.0" } ~ - = U64(190000)
+            nvml_memory_utilization ~ LocalMachine ~ Gpu { bus_id: "00000000:01:00.0" } ~ - = U64(30)
+            nvml_memory_utilization ~ Process { pid: 1234 } ~ Gpu { bus_id: "00000000:01:00.0" } ~ - = U64(60)
+            nvml_n_compute_processes ~ LocalMachine ~ Gpu { bus_id: "00000000:01:00.0" } ~ - = U64(1)
+            nvml_n_graphic_processes ~ LocalMachine ~ Gpu { bus_id: "00000000:01:00.0" } ~ - = U64(2)
+            nvml_power_limit ~ LocalMachine ~ Gpu { bus_id: "00000000:01:00.0" } ~ - = U64(250000)
+            nvml_sm_utilization ~ Process { pid: 1234 } ~ Gpu { bus_id: "00000000:01:00.0" } ~ - = U64(50)
+            nvml_temperature_gpu ~ LocalMachine ~ Gpu { bus_id: "00000000:01:00.0" } ~ - = U64(57)
+            nvml_used_gpu_memory ~ Process { pid: 1234 } ~ Gpu { bus_id: "00000000:01:00.0" } ~ context=Str("compute") = U64(64000)
+            nvml_used_gpu_memory ~ Process { pid: 5678 } ~ GpuPartition { parent_id: "00000000:01:00.0", partition_id: 0 } ~ context=Str("graphics"), compute_instance_id=U64(1) = U64(32000)
+            nvml_used_gpu_memory ~ Process { pid: 9012 } ~ Gpu { bus_id: "00000000:01:00.0" } ~ context=Str("graphics") = U64(16000)
+            "#);
         });
     }
 }
