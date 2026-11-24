@@ -2118,6 +2118,18 @@ dependencies = [
 
 [[package]]
 name = "io-uring"
+version = "0.7.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b67d3d2e287e4b86c10b3f3b641033d1f89b74bdb39d05f34952e2b9a6fe21cd"
+dependencies = [
+ "console",
+ "once_cell",
+ "similar",
+ "tempfile",
+]
+
+[[package]]
+name = "io-uring"
 version = "0.7.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "878c26bc5e45fe089ce2ca25689260c152a87ce1d7de2ca86101efeea6973932"
@@ -3325,6 +3337,7 @@ dependencies = [
  "enum-map",
  "humantime-serde",
  "indexmap 2.14.2",
+ "insta",
  "log",
  "mockall",
  "nvml-wrapper",

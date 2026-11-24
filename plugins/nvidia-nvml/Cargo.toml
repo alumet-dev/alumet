@@ -27,6 +27,7 @@ tempfile.workspace = true
 mockall = {version = "0.14.0" }
 alumet = { workspace = true, features = ["test"]}
 enum-map = "2.7.3"
+insta = "1.49.0"
 
 [lints]
 workspace = true
