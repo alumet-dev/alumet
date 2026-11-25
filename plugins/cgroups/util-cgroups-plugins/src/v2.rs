@@ -206,9 +206,6 @@ impl Source for CgroupV2Probe {
                 measurements.push(self.new_point(&self.metrics.pswpout, t, &resource, value));
                 measurements.push(self.new_point(&self.metrics.pswpout_bytes, t, &resource, value * page_size as u64));
             }
-            if let Some(value) = mem_stat.pswpout {
-                measurements.push(self.new_point(&self.metrics.pswpout, t, &resource, value));
-            }
         }
 
         // IO statistics
@@ -244,6 +241,7 @@ impl Source for CgroupV2Probe {
 
     fn reset(&mut self) -> anyhow::Result<()> {
         self.cpu_delta_counters.reset();
+        self.memory_delta_counters.reset();
         self.io_delta_counters.reset();
         self.last_timestamp = None;
         Ok(())
