@@ -6,6 +6,12 @@
 //! It's intended to be removed when most supported kernels have the fix.
 //!
 //! The processes are found by reading `cgroup.procs` regularly (see [`CgroupProcesses::scan`])
+//!
+//! # Limitation
+//!
+//! When opening counters for a new process, we may lost the events counting for threads
+//! created during the opening phase (when the parent thread was not counted yet).
+//! See [`CgroupProcesses::open_process`] for more details.
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs;
