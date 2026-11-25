@@ -299,7 +299,7 @@ impl Builder {
                 &mut post_start_actions,
             )?;
         }
-        print_stats(&mut pipeline_builder, &initialized_plugins, &disabled_plugins);
+        print_stats(&mut pipeline_builder, &initialized_plugins, &disabled_plugins)?;
         (self.callbacks.after_plugins_start)(&mut pipeline_builder);
 
         // pre-pipeline-start actions
@@ -423,7 +423,7 @@ fn print_stats(
     pipeline_builder: &mut pipeline::Builder,
     enabled_plugins: &[Box<dyn Plugin>],
     disabled_plugins: &[PluginInfo],
-) {
+) -> anyhow::Result<()> {
     macro_rules! pluralize {
         ($count:expr, $str:expr) => {
             if $count > 1 { concat!($str, "s") } else { $str }
@@ -451,10 +451,29 @@ fn print_stats(
     let metric_list = if metrics.is_empty() {
         String::from("    ∅")
     } else {
-        let mut m = metrics
-            .iter()
-            .map(|(id, m)| (id, format!("    - {}: {} ({})", m.name, m.value_type, m.unit)))
-            .collect::<Vec<_>>();
+        let mut m = Vec::with_capacity(metrics.len());
+        let mut no_plugin = Vec::new();
+        for (id, metric) in metrics.iter() {
+            match metrics.plugins_of(id) {
+                Some(plugins) if !plugins.is_empty() => {
+                    let plugins = plugins.iter().map(|p| p.0.as_str()).collect::<Vec<_>>().join(", ");
+                    m.push((
+                        id,
+                        format!(
+                            "    - {} ({plugins}): {} ({})",
+                            metric.name, metric.value_type, metric.unit
+                        ),
+                    ));
+                }
+                _ => no_plugin.push(metric.name.clone()),
+            }
+        }
+        if !no_plugin.is_empty() {
+            return Err(anyhow!(
+                "the following metrics were registered without any plugin attribution: {}",
+                no_plugin.join(", ")
+            ));
+        }
         // Sort by metric id to display the metrics in the order they were registered (less confusing).
         m.sort_by_key(|(id, _)| id.0);
         m.into_iter()
@@ -495,4 +514,5 @@ fn print_stats(
         "
     };
     log::info!("{msg}");
+    Ok(())
 }

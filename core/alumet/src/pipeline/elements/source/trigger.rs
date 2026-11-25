@@ -116,6 +116,15 @@ impl TriggerSpec {
         builder::time_interval(poll_interval)
     }
 
+    /// The interval between two polls, if this spec is based on a time interval.
+    /// Returns `None` for other mechanisms (manual trigger, custom future).
+    pub fn poll_interval(&self) -> Option<time::Duration> {
+        match &self.mechanism {
+            TriggerMechanismSpec::TimeInterval(_, d) => Some(*d),
+            _ => None,
+        }
+    }
+
     /// Adjusts the trigger specification to respect the given constraints.
     ///
     /// # Constraints
