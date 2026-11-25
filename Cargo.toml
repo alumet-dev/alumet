@@ -35,6 +35,7 @@ members = [
 [workspace.package]
 edition = "2024"
 repository = "https://github.com/alumet-dev/alumet"
+license = "EUPL-1.2"
 
 [workspace.dependencies]
 alumet = { path = "core/alumet" }

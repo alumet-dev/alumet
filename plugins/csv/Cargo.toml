@@ -3,6 +3,7 @@ name = "plugin-csv"
 version = "0.2.0"
 edition.workspace = true
 repository.workspace = true
+license.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
