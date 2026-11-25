@@ -174,6 +174,23 @@ pub enum Scope {
     SystemWide { pmu: String, cpus: Vec<u32> },
 }
 
+/// The scope of an event but without any details.
+/// See [`Scope`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScopeKind {
+    TaskAttached,
+    SystemWide,
+}
+
+impl Scope {
+    pub fn kind(&self) -> ScopeKind {
+        match self {
+            Scope::TaskAttached { .. } => ScopeKind::TaskAttached,
+            Scope::SystemWide { .. } => ScopeKind::SystemWide,
+        }
+    }
+}
+
 /// The core PMU a task-attached event is bound to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
