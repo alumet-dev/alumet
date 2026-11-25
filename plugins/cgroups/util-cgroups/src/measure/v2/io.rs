@@ -60,7 +60,7 @@ impl IoPressureCollector {
     /// Uses the IoPressureFile parser to read the current values, then computes
     /// the delta since the last measurement.
     pub fn measure(&mut self, io_buf: &mut Vec<u8>) -> io::Result<IoPressureStats> {
-        let current_stats = unsafe { self.file.read(io_buf) }?;
+        let current_stats = self.file.read(io_buf)?;
         Ok(current_stats)
     }
 }

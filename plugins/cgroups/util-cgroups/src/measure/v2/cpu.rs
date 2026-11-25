@@ -132,7 +132,7 @@ impl CpusetCpusEffective {
 
     /// Collects measurements from the underlying "file",
     pub fn measure(&mut self) -> io::Result<Vec<u32>> {
-        let count = parse_cpuset(&mut self.cpus).map_err(|e| io::Error::other(e))?;
+        let count = parse_cpuset(&mut self.cpus).map_err(io::Error::other)?;
         Ok(count)
     }
 }

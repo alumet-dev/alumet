@@ -327,7 +327,7 @@ where
     }
 
     fn on_cgroups_removed(&mut self, cgroups: Vec<Cgroup>) -> anyhow::Result<()> {
-        if cgroups.len() > 0 {
+        if !cgroups.is_empty() {
             let mut resource_consumers = Vec::with_capacity(cgroups.len());
             for cgroup in &cgroups {
                 let resource_consumer = ResourceConsumer::ControlGroup {
