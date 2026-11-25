@@ -1,8 +1,21 @@
 //! The Alumet [`Resource`] measured by a perf counter, one function per way of opening it.
 use alumet::resources::Resource;
 
-use crate::event::CoreBinding;
+use crate::event::{CoreBinding, ParsedEvent, Scope};
 use crate::sysfs;
+
+impl ParsedEvent {
+    /// The resource measured by this event on `cpu` (`None`: counted on a task, on any cpu).
+    pub fn resource(&self, cpu: Option<u32>) -> Resource {
+        match (self.scope(), cpu) {
+            (Scope::TaskAttached { binding }, None) => for_process(binding.as_ref()),
+            (Scope::TaskAttached { .. }, Some(cpu)) => for_cgroup_on_cpu(cpu),
+            (Scope::SystemWide { pmu, .. }, cpu) => {
+                for_system_wide_pmu(pmu, cpu.expect("system-wide events are counted per cpu"))
+            }
+        }
+    }
+}
 
 /// A counter attached to a process, on any cpu: the package of the core PMU it is bound to, or the
 /// whole machine when it is unbound or its PMU spans several packages.

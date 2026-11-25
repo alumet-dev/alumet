@@ -1,6 +1,8 @@
 #[cfg(not(target_os = "linux"))]
 compile_error!("This plugin only works on Linux.");
 
+pub mod cgroup_via_processes;
+pub mod counters;
 pub mod event;
 pub mod group;
 mod multiplexing;

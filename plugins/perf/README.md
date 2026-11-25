@@ -68,6 +68,9 @@ add_source_in_pause_state = false
 # Compensate for counter multiplexing (optional, true by default).
 # See the "Counter multiplexing" section below.
 multiplexing_auto_scale = true
+# How the cgroups are counted: "native" (default), or "via_processes" to count them through their
+# processes (see the "Cgroups on Linux 6.2 to 7.2" section below).
+cgroup_counting = "native"
 ```
 
 See [Event formats](#event-formats) section for more information about the supported syntax of events.
@@ -312,6 +315,23 @@ ones are affected.
 The surest way to avoid multiplexing altogether is to configure no more events than the CPU has
 hardware counters (typically 4 to 8). Note that a single event can already be multiplexed if
 something else is using the PMU, for example another `perf` process running system-wide.
+
+### Cgroups on Linux 6.2 to 7.2
+
+From Linux 6.2 to 7.2 , the kernel miscounts the cgroup events once they are multiplexed.
+For more information see [here](https://lore.kernel.org/linux-perf-users/PR3PR07MB69223331EED5BEBE150375B7849C2@PR3PR07MB6922.eurprd07.prod.outlook.com/T/#u).
+It was fixed in Linux 7.3 (commit e4c7c401c6b9).
+
+With `cgroup_counting = "via_processes"`, the plugin counts a cgroup through its processes
+instead, and sums them.
+This is a valid workaround to bypass this limitation.
+
+The new processes are found by reading the `cgroup.procs` files every `scan_interval` (100ms by
+default), which can be changed with:
+
+```toml
+cgroup_counting.via_processes.scan_interval = "1s"
+```
 
 ### Event groups
 
