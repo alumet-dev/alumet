@@ -79,6 +79,9 @@ impl<'a> AlumetPluginStart<'a> {
             self.pipeline_builder
                 .metrics
                 .register(m, DuplicateCriteria::Incompatible, DuplicateReaction::Error)?;
+        self.pipeline_builder
+            .metrics
+            .attribute_to_plugin(untyped_id, &self.current_plugin);
         Ok(TypedMetricId(untyped_id, PhantomData))
     }
 
@@ -101,9 +104,14 @@ impl<'a> AlumetPluginStart<'a> {
             value_type,
             unit: unit.into(),
         };
+        let id =
+            self.pipeline_builder
+                .metrics
+                .register(m, DuplicateCriteria::Incompatible, DuplicateReaction::Error)?;
         self.pipeline_builder
             .metrics
-            .register(m, DuplicateCriteria::Incompatible, DuplicateReaction::Error)
+            .attribute_to_plugin(id, &self.current_plugin);
+        Ok(id)
     }
 
     /// Adds a _managed_ measurement source to the Alumet pipeline.
