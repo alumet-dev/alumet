@@ -11,7 +11,11 @@ use alumet::{
     metrics::TypedMetricId,
     pipeline::{
         Source,
-        control::{matching::SourceMatcher, request},
+        control::{
+            PluginControlHandle,
+            matching::SourceMatcher,
+            request::{self, CreationRequest, MultiCreationRequestBuilder},
+        },
         elements::source::{control::TaskState, trigger::TriggerSpec},
         matching::{SourceNamePattern, StringPattern},
     },
@@ -79,7 +83,7 @@ impl AlumetPlugin for PerfPlugin {
     }
 
     fn start(&mut self, alumet: &mut alumet::plugin::AlumetPluginStart) -> anyhow::Result<()> {
-        increase_file_descriptors_soft_limit().context("Error while increasing file descriptors soft limit")?;
+        increase_file_descriptors_soft_limit().context("error while increasing file descriptors soft limit")?;
 
         let mut config = self.config.lock().unwrap();
 
@@ -103,134 +107,39 @@ impl AlumetPlugin for PerfPlugin {
     }
 
     fn post_pipeline_start(&mut self, alumet: &mut AlumetPostStart) -> anyhow::Result<()> {
-        let config_cloned = self.config.clone();
-        let pipeline_control_start = alumet.pipeline_control();
-        let pipeline_control_end = alumet.pipeline_control();
-        let runtime_start = alumet.async_runtime().clone();
-        let runtime_end = alumet.async_runtime().clone();
+        const REQUEST_TIMEOUT: Duration = Duration::from_secs(1);
+        let config = self.config.lock().unwrap().clone();
+        let factory = PerfSourceFactory::new(config)?;
 
-        // Start the machine-wide source for system-wide events (uncore, power, cstate…). Unlike the
-        // per-process/cgroup sources below, it is not reactive: it exists for the whole machine, so
-        // it is created once, here, rather than when a consumer appears.
-        {
-            let config = self.config.lock().unwrap();
-            let system_events = config.events(true);
-            if !system_events.is_empty() {
-                let n = system_events.len();
-                let poll_interval = config.poll_interval;
-                let flush_interval = config.flush_interval;
-                let auto_scale = config.multiplexing_auto_scale;
-                let add_source_in_pause_state = config.add_source_in_pause_state;
-                drop(config);
-
-                let init_source_state = match add_source_in_pause_state {
-                    false => TaskState::Run,
-                    true => TaskState::Pause,
-                };
-
-                let source = PerfEventSource::new(
-                    &PerfEventTarget::Machine,
-                    &system_events,
-                    auto_scale,
-                    ResourceConsumer::LocalMachine,
-                );
-                match source {
-                    Ok(source) => {
-                        let trigger = TriggerSpec::builder(poll_interval)
-                            .flush_interval(flush_interval)
-                            .build()?;
-                        let request = request::create_one().add_source_with_state(
-                            "source-system-wide",
-                            Box::new(source),
-                            trigger,
-                            init_source_state,
-                        );
-                        runtime_start.block_on(pipeline_control_start.dispatch(request, Duration::from_secs(1)))?;
-                        log::info!("Started system-wide perf source with {n} event(s).");
-                    }
-                    // Not fatal: system-wide PMUs need CAP_PERFMON / perf_event_paranoid < 1, which
-                    // the per-process/cgroup events do not. Keep the rest of the plugin working.
-                    Err(e) => log::warn!(
-                        "could not open system-wide perf events (uncore/power/cstate): {e:#}; continuing without them"
-                    ),
-                }
+        // Unlike the per-process/cgroup sources below, the system-wide is not reactive: it exists for the whole machine, so
+        // it is created once, rather than when a consumer appears.
+        match factory.create_system_source() {
+            Ok(None) => (),
+            Ok(Some(request)) => {
+                alumet.block_on(alumet.pipeline_control().dispatch(request, REQUEST_TIMEOUT))?;
             }
+            // Not fatal: system-wide PMUs need CAP_PERFMON / perf_event_paranoid < 1, which
+            // the per-process/cgroup events do not. Keep the rest of the plugin working.
+            Err(e) => log::warn!(
+                "could not open system-wide perf events (uncore/power/cstate): {e:#}; continuing without them"
+            ),
         }
 
         // Listen to start consumer events, starting sources.
+        let runtime = alumet.async_runtime();
+        let pipeline_control = alumet.pipeline_control();
         alumet_event_bus::start_consumer_measurement().subscribe(move |e| {
+            let mut multi_request = request::create_many();
             for consumer in e.0 {
-                let config = config_cloned.lock().unwrap();
-                let events = config.events(false);
-                let (source, source_name): (Box<dyn Source>, String) = match &consumer {
-                    ResourceConsumer::Process { pid } => {
-                        // The main thread of the process, whose tid is the pid.
-                        let observed = PerfEventTarget::Task {
-                            tid: *pid,
-                            inherit: false,
-                        };
-                        log::info!("Starting to observe {observed:?}...");
-                        let source =
-                            PerfEventSource::new(&observed, &events, config.multiplexing_auto_scale, consumer.clone())?;
-                        (Box::new(source), process_source_name(*pid))
-                    }
-                    ResourceConsumer::ControlGroup { path } => {
-                        // making an assumption about the cgroup mounting point here to be /sys/fs/cgroup
-                        // we just have information about the canonical path here
-                        // making it hard to not recompute the mounting path here
-                        // note that it will only work for cgroup v2
-                        // todo: make it dynamic or configurable
-                        let absolute_path = format!("/sys/fs/cgroup{path}");
-                        if let Some(scan_interval) = config.cgroup_via_processes {
-                            // Workaround for the kernels that miscount multiplexed cgroup events.
-                            match CgroupProcessesSource::new(
-                                PathBuf::from(&absolute_path),
-                                &events,
-                                config.multiplexing_auto_scale,
-                                consumer.clone(),
-                                scan_interval,
-                            ) {
-                                Ok(source) => (Box::new(source), cgroup_source_name(path.clone())),
-                                Err(e) => {
-                                    log::warn!("cannot observe cgroup {absolute_path}: {e:#}");
-                                    continue;
-                                }
-                            }
-                        } else {
-                            let Ok(fd) = File::open(&absolute_path) else {
-                                panic!("cgroup not found in filesystem: {absolute_path}")
-                            };
-                            let observed = PerfEventTarget::Cgroup { fd: Arc::new(fd) };
-                            log::info!("Starting to observe cgroup {path}...");
-                            let source = PerfEventSource::new(
-                                &observed,
-                                &events,
-                                config.multiplexing_auto_scale,
-                                consumer.clone(),
-                            )?;
-                            (Box::new(source), cgroup_source_name(path.clone()))
-                        }
-                    }
-                    _ => continue,
-                };
-                let trigger = TriggerSpec::builder(config.poll_interval)
-                    .flush_interval(config.flush_interval)
-                    .build()?;
-                let init_source_state = match config.add_source_in_pause_state {
-                    false => TaskState::Run,
-                    true => TaskState::Pause,
-                };
-                drop(config);
-
-                let request =
-                    request::create_one().add_source_with_state(&source_name, source, trigger, init_source_state);
-                runtime_start.block_on(pipeline_control_start.dispatch(request, Duration::from_secs(1)))?;
-                log::debug!("New source {source_name} has started.");
+                factory.create_consumer_source(consumer, &mut multi_request);
             }
+            runtime.block_on(pipeline_control.dispatch(multi_request.build(), REQUEST_TIMEOUT))?;
             Ok(())
         });
 
         // Listen to end consumer events, stopping sources.
+        let runtime = alumet.async_runtime();
+        let pipeline_control = alumet.pipeline_control();
         alumet_event_bus::end_consumer_measurement().subscribe(move |e| {
             for consumer in e.0 {
                 let source_name = match consumer {
@@ -243,8 +152,8 @@ impl AlumetPlugin for PerfPlugin {
                     StringPattern::Exact(source_name.clone()),
                 )))
                 .stop();
-                runtime_end.block_on(pipeline_control_end.dispatch(stop_request, Duration::from_secs(1)))?;
-                log::debug!("Source {source_name} has stopped.");
+                runtime.block_on(pipeline_control.dispatch(stop_request, REQUEST_TIMEOUT))?;
+                log::debug!("Source {source_name} has been requested to stop.");
             }
             Ok(())
         });
@@ -254,6 +163,131 @@ impl AlumetPlugin for PerfPlugin {
 
     fn stop(&mut self) -> anyhow::Result<()> {
         Ok(())
+    }
+}
+
+struct PerfSourceFactory {
+    config: ParsedConfig,
+    trigger: TriggerSpec,
+}
+
+impl PerfSourceFactory {
+    fn new(config: ParsedConfig) -> anyhow::Result<Self> {
+        let trigger = TriggerSpec::builder(config.poll_interval)
+            .flush_interval(config.flush_interval)
+            .build()?;
+        Ok(Self { config, trigger })
+    }
+
+    /// Builds an Alumet control request that creates the system-wide source for system-wide events (uncore, power, cstate…).
+    fn create_system_source(&self) -> anyhow::Result<Option<CreationRequest>> {
+        let system_events = self.config.events(crate::event::ScopeKind::SystemWide);
+        if system_events.is_empty() {
+            return Ok(None);
+        }
+        let n = system_events.len();
+        let init_source_state = match self.config.add_source_in_pause_state {
+            true => TaskState::Pause,
+            false => TaskState::Run,
+        };
+
+        let source = PerfEventSource::new(
+            &PerfEventTarget::Machine,
+            &system_events,
+            self.config.multiplexing_auto_scale,
+            ResourceConsumer::LocalMachine,
+        )?;
+
+        let trigger = self.trigger.clone();
+        let request = request::create_one().add_source_with_state(
+            "source-system-wide",
+            Box::new(source),
+            trigger,
+            init_source_state,
+        );
+        log::info!("Prepared system-wide perf source with {n} event(s).");
+
+        Ok(Some(request))
+    }
+
+    fn create_consumer_source(&self, consumer: ResourceConsumer, requests: &mut MultiCreationRequestBuilder) -> () {
+        let consumer_events = self.config.events(crate::event::ScopeKind::TaskAttached);
+        if consumer_events.is_empty() {
+            return;
+        }
+        let (source, source_name): (Box<dyn Source>, String) = match &consumer {
+            ResourceConsumer::Process { pid } => {
+                // The main thread of the process, whose tid is the pid.
+                let observed = PerfEventTarget::Task {
+                    tid: *pid,
+                    inherit: false,
+                };
+                log::info!("Starting to observe process {pid}...");
+                match PerfEventSource::new(
+                    &observed,
+                    &consumer_events,
+                    self.config.multiplexing_auto_scale,
+                    consumer.clone(),
+                ) {
+                    Ok(source) => (Box::new(source), process_source_name(*pid)),
+                    Err(e) => {
+                        log::warn!("cannot observe events {consumer_events:?} on process {pid}: {e:#}");
+                        return;
+                    }
+                }
+            }
+            ResourceConsumer::ControlGroup { path } => {
+                // making an assumption about the cgroup mounting point here to be /sys/fs/cgroup
+                // we just have information about the canonical path here
+                // making it hard to not recompute the mounting path here
+                // note that it will only work for cgroup v2
+                // TODO: make it dynamic or configurable
+                let absolute_path = format!("/sys/fs/cgroup{path}");
+                if let Some(scan_interval) = self.config.cgroup_via_processes {
+                    // Workaround for the kernels that miscount multiplexed cgroup events.
+                    match CgroupProcessesSource::new(
+                        PathBuf::from(&absolute_path),
+                        &consumer_events,
+                        self.config.multiplexing_auto_scale,
+                        consumer.clone(),
+                        scan_interval,
+                    ) {
+                        Ok(source) => (Box::new(source), cgroup_source_name(path.clone())),
+                        Err(e) => {
+                            log::warn!("cannot observe cgroup {absolute_path}: {e:#}");
+                            return;
+                        }
+                    }
+                } else {
+                    log::info!("Starting to observe cgroup {path}...");
+                    let Ok(fd) = File::open(&absolute_path) else {
+                        log::error!("cgroup not found (or not readable) in filesystem: {absolute_path}");
+                        return;
+                    };
+                    let observed = PerfEventTarget::Cgroup { fd: Arc::new(fd) };
+                    match PerfEventSource::new(
+                        &observed,
+                        &consumer_events,
+                        self.config.multiplexing_auto_scale,
+                        consumer.clone(),
+                    ) {
+                        Ok(source) => (Box::new(source), cgroup_source_name(path.clone())),
+                        Err(e) => {
+                            log::warn!("cannot observe events {consumer_events:?} on cgroup {absolute_path}: {e:#}");
+                            return;
+                        }
+                    }
+                }
+            }
+            _ => return,
+        };
+        let trigger = self.trigger.clone();
+        let init_source_state = match self.config.add_source_in_pause_state {
+            false => TaskState::Run,
+            true => TaskState::Pause,
+        };
+        requests.add_source_with_state(&source_name, source, trigger, init_source_state);
+        log::info!("New source prepared: {source_name}");
     }
 }
 

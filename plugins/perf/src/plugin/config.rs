@@ -5,7 +5,7 @@ use alumet::metrics::TypedMetricId;
 use serde::{Deserialize, Serialize};
 
 use crate::counters::GroupedEvent;
-use crate::event;
+use crate::event::{self, ScopeKind};
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -180,6 +180,7 @@ impl EventEntry {
 }
 
 // TODO proper deserialization with serde?
+#[derive(Clone)]
 pub(super) struct ParsedConfig {
     pub(super) poll_interval: Duration,
     pub(super) flush_interval: Duration,
@@ -198,12 +199,12 @@ pub(super) struct ParsedConfig {
 impl ParsedConfig {
     /// The events counted by the machine source (`system_wide`) or by the process and cgroup
     /// sources, each paired with its metric.
-    pub(super) fn events(&self, system_wide: bool) -> Vec<(GroupedEvent, TypedMetricId<u64>)> {
+    pub(super) fn events(&self, scope_kind: ScopeKind) -> Vec<(GroupedEvent, TypedMetricId<u64>)> {
         // System-wide events (uncore, power, cstate…) are not tied to a process or a cgroup: they
         // are counted once, by the machine source.
         self.events
             .iter()
-            .filter(|(e, _)| matches!(e.event.scope(), event::Scope::SystemWide { .. }) == system_wide)
+            .filter(|(e, _)| e.event.scope().kind() == scope_kind)
             .cloned()
             .collect()
     }
