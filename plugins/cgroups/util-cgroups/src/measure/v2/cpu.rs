@@ -223,4 +223,43 @@ mod tests {
         assert!(parse_cpu_list("0-2,").is_err());
         assert!(parse_cpu_list(",1,2").is_err());
     }
+
+    mod cpuset_cpus_effective {
+        use super::*;
+
+        fn measure(content: &str) -> io::Result<Vec<u32>> {
+            let tmp = tempfile::NamedTempFile::new()?;
+            std::fs::write(tmp.path(), content)?;
+            CpusetCpusEffective::new(tmp.path())?.measure()
+        }
+
+        /// A range of cpus is expanded to the list of these cpus.
+        #[test]
+        fn range() {
+            assert_eq!(measure("0-3\n").unwrap(), vec![0, 1, 2, 3]);
+        }
+
+        /// Ranges and single cpus can be mixed.
+        #[test]
+        fn list() {
+            assert_eq!(measure("0-1,4,6-7\n").unwrap(), vec![0, 1, 4, 6, 7]);
+        }
+
+        /// A range with more than two bounds is rejected.
+        #[test]
+        fn invalid() {
+            assert!(measure("1-2-3\n").is_err());
+        }
+
+        /// The file is read again at each measurement.
+        #[test]
+        fn rereads_file() {
+            let tmp = tempfile::NamedTempFile::new().unwrap();
+            std::fs::write(tmp.path(), "0-1\n").unwrap();
+            let mut collector = CpusetCpusEffective::new(tmp.path()).unwrap();
+            assert_eq!(collector.measure().unwrap(), vec![0, 1]);
+            std::fs::write(tmp.path(), "0-3\n").unwrap();
+            assert_eq!(collector.measure().unwrap(), vec![0, 1, 2, 3]);
+        }
+    }
 }

@@ -521,4 +521,42 @@ mod tests {
 
         Ok(())
     }
+
+    mod max_collectors {
+        use super::*;
+
+        /// Writes `content` to a temporary file.
+        fn file(content: &str) -> tempfile::NamedTempFile {
+            let tmp = tempfile::NamedTempFile::new().unwrap();
+            std::fs::write(tmp.path(), content).unwrap();
+            tmp
+        }
+
+        /// A memory limit is measured in bytes.
+        #[test]
+        fn memory_max_value() {
+            let tmp = file("4096\n");
+            let mut io_buf = Vec::new();
+            let mut collector = MemoryMaxCollector::new(tmp.path()).unwrap();
+            assert_eq!(collector.measure(&mut io_buf).unwrap(), 4096.0);
+        }
+
+        /// Without memory limit ("max"), the value is -1.
+        #[test]
+        fn memory_max_unlimited() {
+            let tmp = file("max\n");
+            let mut io_buf = Vec::new();
+            let mut collector = MemoryMaxCollector::new(tmp.path()).unwrap();
+            assert_eq!(collector.measure(&mut io_buf).unwrap(), -1.0);
+        }
+
+        /// Without swap limit ("max"), the value is -1.
+        #[test]
+        fn swap_max_unlimited() {
+            let tmp = file("max\n");
+            let mut io_buf = Vec::new();
+            let mut collector = MemorySwapMaxCollector::new(tmp.path()).unwrap();
+            assert_eq!(collector.measure(&mut io_buf).unwrap(), -1.0);
+        }
+    }
 }

@@ -257,3 +257,51 @@ pub fn test_new_and_measure_bad_file_content_value() -> anyhow::Result<()> {
     assert!(collector_res.is_err());
     Ok(())
 }
+
+mod new {
+    use super::*;
+
+    /// When every file of the cgroup exists, every statistic is measured.
+    #[test]
+    fn all_files() {
+        let root = tempdir().unwrap();
+        let files = [
+            ("memory.current", "1000\n"),
+            ("memory.max", "max\n"),
+            ("memory.swap.current", "200\n"),
+            ("memory.swap.max", "3000\n"),
+            ("cpu.stat", "usage_usec 40\nuser_usec 10\nsystem_usec 30\n"),
+            (
+                "io.pressure",
+                "some avg10=0.00 avg60=0.00 avg300=0.00 total=500\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=600\n",
+            ),
+            ("cpuset.cpus.effective", "0-3\n"),
+        ];
+        for (name, content) in files {
+            std::fs::write(root.path().join(name), content).unwrap();
+        }
+
+        let hierarchy = CgroupHierarchy::manually_unchecked(root.path(), CgroupVersion::V2, vec!["cpu", "memory"]);
+        let cgroup = Cgroup::from_fs_path(&hierarchy, root.path().to_path_buf());
+        let mut io_buf = Vec::new();
+        let mut collector = V2Collector::new(
+            cgroup,
+            MemoryStatCollectorSettings::default(),
+            CpuStatCollectorSettings::default(),
+            IoPressureCollectorSettings::default(),
+            &mut io_buf,
+        )
+        .unwrap();
+
+        let stats = collector.measure(&mut io_buf).unwrap();
+        assert_eq!(stats.memory_current, Some(1000));
+        assert_eq!(stats.memory_max, Some(-1.0));
+        assert_eq!(stats.memory_swap_current, Some(200));
+        assert_eq!(stats.memory_swap_max, Some(3000.0));
+        assert_eq!(stats.cpu_stat.unwrap().usage, Some(40));
+        let io = stats.io_pressure.unwrap();
+        assert_eq!((io.some_total, io.full_total), (Some(500), Some(600)));
+        assert_eq!(stats.cpuset_cpus_effective, Some(4));
+        assert_eq!(stats.cpuset_cpus_effective_list.as_deref(), Some("0,1,2,3"));
+    }
+}

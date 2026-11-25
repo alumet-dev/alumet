@@ -786,4 +786,19 @@ burst_usec 0
             assert_eq!(result.unwrap_err().kind(), ErrorKind::InvalidData);
         }
     }
+
+    mod stat_file_builder {
+        use super::*;
+
+        /// A file with too many lines for the BitSet is rejected.
+        #[test]
+        fn too_many_lines() {
+            let mut file = tempfile::tempfile().unwrap();
+            for i in 0..BitSet128::LIMIT as usize + 1 {
+                writeln!(file, "key{i} {i}").unwrap();
+            }
+            let res = StatFileBuilder::new(file, &["key0"]).build(&mut Vec::new());
+            assert!(res.is_err());
+        }
+    }
 }
