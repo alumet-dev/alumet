@@ -7,7 +7,10 @@ use nvml_wrapper_sys::bindings::nvmlGpmSample_t;
 
 pub mod detect;
 pub mod features;
+// Excluded from the code coverage: these modules call the real NVML library, which needs a GPU.
+#[cfg(not(tarpaulin_include))]
 pub mod nvml_ext;
+#[cfg(not(tarpaulin_include))]
 pub mod objects;
 
 pub type NvmlResult<T> = Result<T, nvml_wrapper::error::NvmlError>;
@@ -18,7 +21,7 @@ pub trait NvmlProvider {
     fn get() -> anyhow::Result<Self::Lib>;
 }
 
-#[cfg_attr(test, mockall::automock(type Device = MockNvmlDevice;))]
+#[cfg_attr(any(test, feature = "mock"), mockall::automock(type Device = MockNvmlDevice;))]
 pub trait NvmlLib {
     type Device: NvmlDevice;
 
@@ -26,7 +29,7 @@ pub trait NvmlLib {
     fn device_by_index(&self, i: u32) -> anyhow::Result<Self::Device>;
 }
 
-#[cfg_attr(test, mockall::automock)]
+#[cfg_attr(any(test, feature = "mock"), mockall::automock)]
 pub trait NvmlDevice: Display + Send {
     /// Name of the device.
     /// See [`nvml_wrapper::Device::name`].
@@ -139,7 +142,7 @@ pub trait NvmlDevice: Display + Send {
     ) -> Result<Vec<Result<GpmMetricResult, NvmlError>>, NvmlError>;
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "mock"))]
 impl Display for MockNvmlDevice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "mock {self:?}")

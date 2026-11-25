@@ -206,6 +206,45 @@ Lint your code with Clippy:
 cargo clippy --no-deps -p the_package
 ```
 
+#### Snapshot Tests
+
+Some tests use [insta](https://insta.rs) to compare an output (a rendered config, a list of measurements…) with a reference value, called a _snapshot_. We use **inline** snapshots: the expected value is written in the test itself, after `@`.
+
+```rust
+#[test]
+fn check_default_config() {
+    let config = serialize_config(super::Config::default()).unwrap();
+    let rendered: String = config
+        .0
+        .iter()
+        .map(|tuple| format!("{}: {}\n", tuple.0, tuple.1))
+        .collect();
+    insta::assert_snapshot!(rendered, @r#"
+    poll_interval: "1s"
+    flush_interval: "5s"
+    skip_failed_devices: true
+    mode: "full"
+    gpm_metrics: []
+    "#);
+}
+```
+
+Source: [extracted from this file](./plugins/nvidia-nvml/src/lib.rs)
+
+When the output changes, the test fails and prints the diff. If the change is intended, update the snapshot with [cargo-insta](https://insta.rs/docs/cli/):
+
+```sh
+cargo install cargo-insta
+cargo insta test -p the_package --review   # review each change interactively
+cargo insta test -p the_package --accept   # or accept all the changes
+```
+
+`cargo insta` will rewrites the inline snapshots in the source code.
+
+:warning: Always check the diff before committing: a snapshot only detects a change, it doesn't tell if the new value is correct.
+
+Use snapshots for outputs that are stable and easy to read. Classic assertions are better for values that vary between runs (timestamps, real measurements) or for precise rules (conversions, computations).
+
 ### Documentation
 
 There are different kinds of documentation:

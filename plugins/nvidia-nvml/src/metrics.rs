@@ -510,3 +510,162 @@ pub fn match_gpm_id_to_attributes(gpm_metric: &GpmMetricId) -> Vec<(&'static str
         _ => vec![],
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every GPM metric id known by nvml-wrapper.
+    fn all_gpm_ids() -> Vec<GpmMetricId> {
+        (0..=u8::MAX as u32)
+            .filter_map(|i| GpmMetricId::try_from(i).ok())
+            .collect()
+    }
+
+    mod match_gpm_id_to_attributes {
+        use super::*;
+        use pretty_assertions::assert_eq;
+
+        /// Every GPM id is mapped to the expected attributes (the type of each value is shown).
+        #[test]
+        fn all_ids() {
+            let rendered: String = all_gpm_ids()
+                .iter()
+                .map(|id| {
+                    let attrs: Vec<_> = match_gpm_id_to_attributes(id)
+                        .into_iter()
+                        .map(|(k, v)| format!("{k}={v:?}"))
+                        .collect();
+                    let attrs = if attrs.is_empty() {
+                        String::from("(none)")
+                    } else {
+                        attrs.join(", ")
+                    };
+                    format!("{id:?}: {attrs}\n")
+                })
+                .collect();
+            // To update this snapshot after an intended change: `cargo insta test -p plugin-nvidia-nvml --accept`
+            insta::assert_snapshot!(rendered, @r#"
+            GraphicsUtil: (none)
+            SmUtil: (none)
+            SmOccupancy: (none)
+            IntegerUtil: precision=Str("integer")
+            AnyTensorUtil: operation_type=Str("any")
+            DfmaTensorUtil: operation_type=Str("dfma")
+            HmmaTensorUtil: operation_type=Str("hmma")
+            ImmaTensorUtil: operation_type=Str("imma")
+            DramBwUtil: (none)
+            Fp64Util: precision=Str("fp64")
+            Fp32Util: precision=Str("fp32")
+            Fp16Util: precision=Str("fp16")
+            PcieTxPerSec: direction=Str("transmitted")
+            PcieRxPerSec: direction=Str("received")
+            Nvdec0Util: instance=U64(0)
+            Nvdec1Util: instance=U64(1)
+            Nvdec2Util: instance=U64(2)
+            Nvdec3Util: instance=U64(3)
+            Nvdec4Util: instance=U64(4)
+            Nvdec5Util: instance=U64(5)
+            Nvdec6Util: instance=U64(6)
+            Nvdec7Util: instance=U64(7)
+            Nvjpg0Util: instance=U64(0)
+            Nvjpg1Util: instance=U64(1)
+            Nvjpg2Util: instance=U64(2)
+            Nvjpg3Util: instance=U64(3)
+            Nvjpg4Util: instance=U64(4)
+            Nvjpg5Util: instance=U64(5)
+            Nvjpg6Util: instance=U64(6)
+            Nvjpg7Util: instance=U64(7)
+            Nvofa0Util: instance=U64(0)
+            Nvofa1Util: instance=U64(1)
+            NvlinkTotalRxPerSec: direction=Str("received"), instance=Str("total")
+            NvlinkTotalTxPerSec: direction=Str("transmitted"), instance=Str("total")
+            NvlinkL0RxPerSec: direction=Str("received"), instance=Str("0")
+            NvlinkL0TxPerSec: direction=Str("transmitted"), instance=Str("0")
+            NvlinkL1RxPerSec: direction=Str("received"), instance=Str("1")
+            NvlinkL1TxPerSec: direction=Str("transmitted"), instance=Str("1")
+            NvlinkL2RxPerSec: direction=Str("received"), instance=Str("2")
+            NvlinkL2TxPerSec: direction=Str("transmitted"), instance=Str("2")
+            NvlinkL3RxPerSec: direction=Str("received"), instance=Str("3")
+            NvlinkL3TxPerSec: direction=Str("transmitted"), instance=Str("3")
+            NvlinkL4RxPerSec: direction=Str("received"), instance=Str("4")
+            NvlinkL4TxPerSec: direction=Str("transmitted"), instance=Str("4")
+            NvlinkL5RxPerSec: direction=Str("received"), instance=Str("5")
+            NvlinkL5TxPerSec: direction=Str("transmitted"), instance=Str("5")
+            NvlinkL6RxPerSec: direction=Str("received"), instance=Str("6")
+            NvlinkL6TxPerSec: direction=Str("transmitted"), instance=Str("6")
+            NvlinkL7RxPerSec: direction=Str("received"), instance=Str("7")
+            NvlinkL7TxPerSec: direction=Str("transmitted"), instance=Str("7")
+            NvlinkL8RxPerSec: direction=Str("received"), instance=Str("8")
+            NvlinkL8TxPerSec: direction=Str("transmitted"), instance=Str("8")
+            NvlinkL9RxPerSec: direction=Str("received"), instance=Str("9")
+            NvlinkL9TxPerSec: direction=Str("transmitted"), instance=Str("9")
+            NvlinkL10RxPerSec: direction=Str("received"), instance=Str("10")
+            NvlinkL10TxPerSec: direction=Str("transmitted"), instance=Str("10")
+            NvlinkL11RxPerSec: direction=Str("received"), instance=Str("11")
+            NvlinkL11TxPerSec: direction=Str("transmitted"), instance=Str("11")
+            NvlinkL12RxPerSec: direction=Str("received"), instance=Str("12")
+            NvlinkL12TxPerSec: direction=Str("transmitted"), instance=Str("12")
+            NvlinkL13RxPerSec: direction=Str("received"), instance=Str("13")
+            NvlinkL13TxPerSec: direction=Str("transmitted"), instance=Str("13")
+            NvlinkL14RxPerSec: direction=Str("received"), instance=Str("14")
+            NvlinkL14TxPerSec: direction=Str("transmitted"), instance=Str("14")
+            NvlinkL15RxPerSec: direction=Str("received"), instance=Str("15")
+            NvlinkL15TxPerSec: direction=Str("transmitted"), instance=Str("15")
+            NvlinkL16RxPerSec: direction=Str("received"), instance=Str("16")
+            NvlinkL16TxPerSec: direction=Str("transmitted"), instance=Str("16")
+            NvlinkL17RxPerSec: direction=Str("received"), instance=Str("17")
+            NvlinkL17TxPerSec: direction=Str("transmitted"), instance=Str("17")
+            "#);
+        }
+
+        /// The ids of `all_gpm_ids` whose name starts with `prefix`, with their name.
+        fn ids_named(prefix: &str) -> Vec<(GpmMetricId, String)> {
+            all_gpm_ids()
+                .into_iter()
+                .map(|id| (id, format!("{id:?}")))
+                .filter(|(_, name)| name.starts_with(prefix))
+                .collect()
+        }
+
+        /// Each NVDEC, NVJPG and NVOFA instance is identified by the number in its id.
+        #[test]
+        fn engine_instance() {
+            for (prefix, count) in [("Nvdec", 8), ("Nvjpg", 8), ("Nvofa", 2)] {
+                let ids = ids_named(prefix);
+                assert_eq!(ids.len(), count, "{prefix}");
+                for (id, name) in ids {
+                    let instance: u64 = name[prefix.len()..name.len() - "Util".len()].parse().unwrap();
+                    let expected = vec![("instance", AttributeValue::U64(instance))];
+                    assert_eq!(match_gpm_id_to_attributes(&id), expected, "{name}");
+                }
+            }
+        }
+
+        /// NVLink throughput is split by direction and by link, or "total" for all the links.
+        #[test]
+        fn nvlink_direction_and_instance() {
+            let ids = ids_named("Nvlink");
+            assert_eq!(ids.len(), 2 * 19, "18 links and the total, in both directions");
+            for (id, name) in ids {
+                // e.g. "NvlinkL13RxPerSec" or "NvlinkTotalTxPerSec"
+                let link = &name["Nvlink".len()..name.len() - "RxPerSec".len()];
+                let instance = match link {
+                    "Total" => String::from("total"),
+                    l => l.trim_start_matches('L').to_owned(),
+                };
+                let direction = if name.ends_with("RxPerSec") {
+                    "received"
+                } else {
+                    "transmitted"
+                };
+                let actual: Vec<_> = match_gpm_id_to_attributes(&id)
+                    .into_iter()
+                    .map(|(k, v)| (k, v.to_string()))
+                    .collect();
+                let expected = vec![("direction", direction.to_owned()), ("instance", instance)];
+                assert_eq!(actual, expected, "{name}");
+            }
+        }
+    }
+}
