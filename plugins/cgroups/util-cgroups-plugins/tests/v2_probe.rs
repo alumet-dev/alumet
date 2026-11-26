@@ -9,7 +9,7 @@ use alumet::{
         plugin::{PluginInfo, PluginSet},
     },
     measurement::AttributeValue,
-    pipeline::elements::source::trigger::TriggerSpec,
+    pipeline::{elements::source::trigger::TriggerSpec, naming::SourceName},
     plugin::{AlumetPluginStart, ConfigTable, PluginMetadata, rust::AlumetPlugin},
     resources::ResourceConsumer,
     test::RuntimeExpectations,
@@ -114,6 +114,11 @@ fn plugin_set(cgroup_dir: &Path) -> PluginSet {
     plugins
 }
 
+/// Name of the probe source
+fn source() -> SourceName {
+    SourceName::from_str(TestPlugin::name(), SOURCE)
+}
+
 /// Creates an empty cgroup directory in a temporary root
 fn cgroup_dir() -> (tempfile::TempDir, PathBuf) {
     let root = tempfile::tempdir().unwrap();
@@ -122,27 +127,21 @@ fn cgroup_dir() -> (tempfile::TempDir, PathBuf) {
     (root, dir)
 }
 
+/// A cgroup without any file is accepted, and its probe measures nothing.
 #[test]
 fn empty_cgroup() {
     let (_root, dir) = cgroup_dir();
-    assert!(agent_starts(&dir));
+    let runtime = RuntimeExpectations::new().test_source(
+        source(),
+        || (),
+        |ctx| {
+            assert!(ctx.measurements().is_empty());
+        },
+    );
+    run_probe(&dir, runtime);
 }
 
-#[test]
-fn full_cgroup() {
-    let (_root, dir) = cgroup_dir();
-    // Write some files
-    std::fs::write(dir.join("memory.current"), "5555\n").unwrap();
-    std::fs::write(dir.join("memory.max"), "max\n").unwrap();
-    std::fs::write(
-        dir.join("cpu.stat"),
-        "usage_usec 3333\nuser_usec 2222\nsystem_usec 1111\n",
-    )
-    .unwrap();
-
-    assert!(agent_starts(&dir));
-}
-
+/// A file that exists but cannot be read (here a directory) is an error, unlike a missing file.
 #[test]
 fn unreadable_file() {
     let (_root, dir) = cgroup_dir();
@@ -157,54 +156,34 @@ mod poll {
     use alumet::{
         measurement::{MeasurementBuffer, MeasurementPoint},
         metrics::registry::MetricRegistry,
-        pipeline::naming::SourceName,
     };
-
-    // Name of the probe source
-    fn source() -> SourceName {
-        SourceName::from_str(TestPlugin::name(), SOURCE)
-    }
-
-    /// The points of the metric named `metric`.
-    fn points<'a>(metrics: &MetricRegistry, buf: &'a MeasurementBuffer, metric: &str) -> Vec<&'a MeasurementPoint> {
-        buf.iter()
-            .filter(|p| metrics.by_id(&p.metric).unwrap().name == metric)
-            .collect()
-    }
+    use std::collections::BTreeMap;
 
     /// The value of the attribute `key`, as a string.
     fn attr(point: &MeasurementPoint, key: &str) -> Option<String> {
         point.attributes().find(|(k, _)| *k == key).map(|(_, v)| v.to_string())
     }
 
-    /// The unique point of `metric` with the attribute `key = value`.
-    fn point_with_attr<'a>(
+    /// The points of the buffer, by metric name, followed by `/kind` if the point has a "kind" attribute
+    /// (e.g. `memory_usage` or `cpu_time_delta/user`). Sorted by key to be compared easily.
+    /// Panics if two points have the same key.
+    fn points_by_metric<'a>(
         metrics: &MetricRegistry,
         buf: &'a MeasurementBuffer,
-        metric: &str,
-        key: &str,
-        value: &str,
-    ) -> &'a MeasurementPoint {
-        let points: Vec<_> = points(metrics, buf, metric)
-            .into_iter()
-            .filter(|p| attr(p, key).as_deref() == Some(value))
-            .collect();
-        assert_eq!(points.len(), 1, "one point expected for {metric} with {key}={value}");
-        points[0]
+    ) -> BTreeMap<String, &'a MeasurementPoint> {
+        let mut map = BTreeMap::new();
+        for p in buf.iter() {
+            let name = &metrics.by_id(&p.metric).unwrap().name;
+            let key = match attr(p, "kind") {
+                Some(kind) => format!("{name}/{kind}"),
+                None => name.clone(),
+            };
+            assert!(map.insert(key.clone(), p).is_none(), "duplicate point for {key}");
+        }
+        map
     }
 
-    /// The value of the unique point of `metric` with the attribute `key = value`.
-    fn value_with_attr(metrics: &MetricRegistry, buf: &MeasurementBuffer, metric: &str, key: &str, value: &str) -> u64 {
-        point_with_attr(metrics, buf, metric, key, value).value.as_u64()
-    }
-
-    /// The value of the unique point of `metric`.
-    fn value(metrics: &MetricRegistry, buf: &MeasurementBuffer, metric: &str) -> u64 {
-        let points = points(metrics, buf, metric);
-        assert_eq!(points.len(), 1, "one point expected for {metric}, got {points:?}");
-        points[0].value.as_u64()
-    }
-
+    /// The memory used by the cgroup and its limit are measured in bytes.
     #[test]
     fn memory() {
         let (_root, dir) = cgroup_dir();
@@ -215,17 +194,16 @@ mod poll {
             source(),
             || (),
             |ctx| {
-                let memory_usage_points = points(ctx.metrics(), ctx.measurements(), "memory_usage");
-                let memory_max_points = points(ctx.metrics(), ctx.measurements(), "memory_max");
-                assert_eq!(memory_usage_points.len(), 1);
-                assert_eq!(memory_usage_points[0].value.as_u64(), 5555);
-                assert_eq!(memory_max_points.len(), 1);
-                assert_eq!(memory_max_points[0].value.as_f64(), 8888.0);
+                let p = points_by_metric(ctx.metrics(), ctx.measurements());
+                assert_eq!(p.keys().collect::<Vec<_>>(), ["memory_max", "memory_usage"]);
+                assert_eq!(p["memory_usage"].value.as_u64(), 5555);
+                assert_eq!(p["memory_max"].value.as_f64(), 8888.0);
             },
         );
         run_probe(&dir, runtime);
     }
 
+    /// The cpu time is a difference between two polls: nothing is measured on the first one.
     #[test]
     fn cpu_first_poll() {
         let (_root, dir) = cgroup_dir();
@@ -239,15 +217,14 @@ mod poll {
             source(),
             || (),
             |ctx| {
-                let cpu_time_delta_points = points(ctx.metrics(), ctx.measurements(), "cpu_time_delta");
-                let cpu_percent_points = points(ctx.metrics(), ctx.measurements(), "cpu_percent");
-                assert_eq!(cpu_time_delta_points.len(), 0);
-                assert_eq!(cpu_percent_points.len(), 0);
+                let p = points_by_metric(ctx.metrics(), ctx.measurements());
+                assert!(p.is_empty(), "nothing expected, got {:?}", p.keys());
             },
         );
         run_probe(&dir, runtime);
     }
 
+    /// The cpu time consumed between two polls is measured in ns (cpu.stat is in µs), for each kind.
     #[test]
     fn cpu_time_delta() {
         let (_root, dir) = cgroup_dir();
@@ -260,14 +237,22 @@ mod poll {
                 source(),
                 move || std::fs::write(&cpu_stat, "usage_usec 3000\nuser_usec 1300\nsystem_usec 1700\n").unwrap(),
                 |ctx| {
-                    let (m, buf) = (ctx.metrics(), ctx.measurements());
-                    let cpu_time_delta_points = points(ctx.metrics(), ctx.measurements(), "cpu_time_delta");
-                    let cpu_percent_points = points(ctx.metrics(), ctx.measurements(), "cpu_percent");
-                    assert_eq!(cpu_time_delta_points.len(), 3);
-                    assert_eq!(value_with_attr(m, buf, "cpu_time_delta", "kind", "total"), 3_000_000);
-                    assert_eq!(value_with_attr(m, buf, "cpu_time_delta", "kind", "user"), 1_300_000);
-                    assert_eq!(value_with_attr(m, buf, "cpu_time_delta", "kind", "system"), 1_700_000);
-                    assert_eq!(cpu_percent_points.len(), 3);
+                    let p = points_by_metric(ctx.metrics(), ctx.measurements());
+                    // nothing else than the cpu metrics is measured
+                    assert_eq!(
+                        p.keys().collect::<Vec<_>>(),
+                        [
+                            "cpu_percent/system",
+                            "cpu_percent/total",
+                            "cpu_percent/user",
+                            "cpu_time_delta/system",
+                            "cpu_time_delta/total",
+                            "cpu_time_delta/user",
+                        ]
+                    );
+                    assert_eq!(p["cpu_time_delta/total"].value.as_u64(), 3_000_000);
+                    assert_eq!(p["cpu_time_delta/user"].value.as_u64(), 1_300_000);
+                    assert_eq!(p["cpu_time_delta/system"].value.as_u64(), 1_700_000);
                 },
             );
         run_probe(&dir, runtime);
@@ -287,8 +272,8 @@ mod poll {
                 source(),
                 move || std::fs::write(&cpu_stat, "usage_usec 3000\nuser_usec 1300\nsystem_usec 1700\n").unwrap(),
                 |ctx| {
-                    let (m, buf) = (ctx.metrics(), ctx.measurements());
-                    let percent = |kind| point_with_attr(m, buf, "cpu_percent", "kind", kind).value.as_f64();
+                    let p = points_by_metric(ctx.metrics(), ctx.measurements());
+                    let percent = |kind: &str| p[&format!("cpu_percent/{kind}")].value.as_f64();
                     let (total, user, system) = (percent("total"), percent("user"), percent("system"));
                     assert!(total > 0.0);
                     assert!(
@@ -320,7 +305,8 @@ mod poll {
         let runtime = RuntimeExpectations::new()
             .test_source(source(), || (), |ctx| {
                 // first poll: no previous value, hence no difference
-                assert_eq!(points(ctx.metrics(), ctx.measurements(), "io_pressure_some_total").len(), 0);
+                let p = points_by_metric(ctx.metrics(), ctx.measurements());
+                assert!(p.is_empty(), "nothing expected, got {:?}", p.keys());
             })
             .test_source(
                 source(),
@@ -332,9 +318,13 @@ mod poll {
                     .unwrap()
                 },
                 |ctx| {
-                    let (m, buf) = (ctx.metrics(), ctx.measurements());
-                    assert_eq!(value(m, buf, "io_pressure_some_total"), 4000 - 1000);
-                    assert_eq!(value(m, buf, "io_pressure_full_total"), 2500 - 500);
+                    let p = points_by_metric(ctx.metrics(), ctx.measurements());
+                    assert_eq!(
+                        p.keys().collect::<Vec<_>>(),
+                        ["io_pressure_full_total", "io_pressure_some_total"]
+                    );
+                    assert_eq!(p["io_pressure_some_total"].value.as_u64(), 4000 - 1000);
+                    assert_eq!(p["io_pressure_full_total"].value.as_u64(), 2500 - 500);
                 },
             );
         run_probe(&dir, runtime);
@@ -354,12 +344,22 @@ mod poll {
             source(),
             || (),
             |ctx| {
-                let (m, buf) = (ctx.metrics(), ctx.measurements());
-                assert_eq!(value(m, buf, "cgroup_memory_anonymous"), 1111);
-                assert_eq!(value(m, buf, "cgroup_memory_file"), 2222);
-                assert_eq!(value(m, buf, "cgroup_memory_kernel_stack"), 3333);
-                assert_eq!(value(m, buf, "cgroup_memory_pagetables"), 4444);
-                assert_eq!(value(m, buf, "cgroup_slab_reclaimable"), 5555);
+                let p = points_by_metric(ctx.metrics(), ctx.measurements());
+                assert_eq!(
+                    p.keys().collect::<Vec<_>>(),
+                    [
+                        "cgroup_memory_anonymous",
+                        "cgroup_memory_file",
+                        "cgroup_memory_kernel_stack",
+                        "cgroup_memory_pagetables",
+                        "cgroup_slab_reclaimable",
+                    ]
+                );
+                assert_eq!(p["cgroup_memory_anonymous"].value.as_u64(), 1111);
+                assert_eq!(p["cgroup_memory_file"].value.as_u64(), 2222);
+                assert_eq!(p["cgroup_memory_kernel_stack"].value.as_u64(), 3333);
+                assert_eq!(p["cgroup_memory_pagetables"].value.as_u64(), 4444);
+                assert_eq!(p["cgroup_slab_reclaimable"].value.as_u64(), 5555);
             },
         );
         run_probe(&dir, runtime);
@@ -376,11 +376,13 @@ mod poll {
             source(),
             || (),
             |ctx| {
-                let (m, buf) = (ctx.metrics(), ctx.measurements());
-                assert_eq!(value(m, buf, "cgroup_memory_swap_current"), 1234);
-                let max = points(m, buf, "cgroup_memory_swap_max");
-                assert_eq!(max.len(), 1);
-                assert_eq!(max[0].value.as_f64(), 4321.0);
+                let p = points_by_metric(ctx.metrics(), ctx.measurements());
+                assert_eq!(
+                    p.keys().collect::<Vec<_>>(),
+                    ["cgroup_memory_swap_current", "cgroup_memory_swap_max"]
+                );
+                assert_eq!(p["cgroup_memory_swap_current"].value.as_u64(), 1234);
+                assert_eq!(p["cgroup_memory_swap_max"].value.as_f64(), 4321.0);
             },
         );
         run_probe(&dir, runtime);
@@ -399,17 +401,19 @@ mod poll {
                 || (),
                 |ctx| {
                     // first poll: no previous value, hence no difference
-                    assert_eq!(points(ctx.metrics(), ctx.measurements(), "cgroup_pswpin").len(), 0);
+                    let p = points_by_metric(ctx.metrics(), ctx.measurements());
+                    assert!(p.is_empty(), "nothing expected, got {:?}", p.keys());
                 },
             )
             .test_source(
                 source(),
                 move || std::fs::write(&memory_stat, "pswpin 15\n").unwrap(),
                 |ctx| {
-                    let (m, buf) = (ctx.metrics(), ctx.measurements());
+                    let p = points_by_metric(ctx.metrics(), ctx.measurements());
+                    assert_eq!(p.keys().collect::<Vec<_>>(), ["cgroup_pswpin", "cgroup_pswpin_bytes"]);
                     let page_size = rustix::param::page_size() as u64;
-                    assert_eq!(value(m, buf, "cgroup_pswpin"), 15 - 10);
-                    assert_eq!(value(m, buf, "cgroup_pswpin_bytes"), (15 - 10) * page_size);
+                    assert_eq!(p["cgroup_pswpin"].value.as_u64(), 15 - 10);
+                    assert_eq!(p["cgroup_pswpin_bytes"].value.as_u64(), (15 - 10) * page_size);
                 },
             );
         run_probe(&dir, runtime);
@@ -428,17 +432,19 @@ mod poll {
                 || (),
                 |ctx| {
                     // first poll: no previous value, hence no difference
-                    assert_eq!(points(ctx.metrics(), ctx.measurements(), "cgroup_pswpout").len(), 0);
+                    let p = points_by_metric(ctx.metrics(), ctx.measurements());
+                    assert!(p.is_empty(), "nothing expected, got {:?}", p.keys());
                 },
             )
             .test_source(
                 source(),
                 move || std::fs::write(&memory_stat, "pswpout 30\n").unwrap(),
                 |ctx| {
-                    let (m, buf) = (ctx.metrics(), ctx.measurements());
+                    let p = points_by_metric(ctx.metrics(), ctx.measurements());
+                    assert_eq!(p.keys().collect::<Vec<_>>(), ["cgroup_pswpout", "cgroup_pswpout_bytes"]);
                     let page_size = rustix::param::page_size() as u64;
-                    assert_eq!(value(m, buf, "cgroup_pswpout"), 30 - 20);
-                    assert_eq!(value(m, buf, "cgroup_pswpout_bytes"), (30 - 20) * page_size);
+                    assert_eq!(p["cgroup_pswpout"].value.as_u64(), 30 - 20);
+                    assert_eq!(p["cgroup_pswpout_bytes"].value.as_u64(), (30 - 20) * page_size);
                 },
             );
         run_probe(&dir, runtime);
@@ -454,9 +460,10 @@ mod poll {
             source(),
             || (),
             |ctx| {
-                let (m, buf) = (ctx.metrics(), ctx.measurements());
-                assert_eq!(value(m, buf, "cpuset_cpus_effective"), 4);
-                let point = points(m, buf, "cpuset_cpus_effective")[0];
+                let p = points_by_metric(ctx.metrics(), ctx.measurements());
+                assert_eq!(p.keys().collect::<Vec<_>>(), ["cpuset_cpus_effective"]);
+                let point = p["cpuset_cpus_effective"];
+                assert_eq!(point.value.as_u64(), 4);
                 assert_eq!(attr(point, "core_list").as_deref(), Some("0,1,2,3"));
             },
         );

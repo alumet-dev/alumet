@@ -148,22 +148,35 @@ mod poll {
         metrics::registry::MetricRegistry,
         pipeline::naming::SourceName,
     };
+    use std::collections::BTreeMap;
 
     // Name of the probe source
     fn source() -> SourceName {
         SourceName::from_str(TestPlugin::name(), SOURCE)
     }
 
-    /// The points of the metric named `metric`.
-    fn points<'a>(metrics: &MetricRegistry, buf: &'a MeasurementBuffer, metric: &str) -> Vec<&'a MeasurementPoint> {
-        buf.iter()
-            .filter(|p| metrics.by_id(&p.metric).unwrap().name == metric)
-            .collect()
-    }
-
     /// The value of the attribute `key`, as a string.
     fn attr(point: &MeasurementPoint, key: &str) -> Option<String> {
         point.attributes().find(|(k, _)| *k == key).map(|(_, v)| v.to_string())
+    }
+
+    /// The points of the buffer, by metric name, followed by `/kind` if the point has a "kind" attribute
+    /// (e.g. `memory_usage` or `cpu_time_delta/total`). Sorted by key to be compared easily.
+    /// Panics if two points have the same key.
+    fn points_by_metric<'a>(
+        metrics: &MetricRegistry,
+        buf: &'a MeasurementBuffer,
+    ) -> BTreeMap<String, &'a MeasurementPoint> {
+        let mut map = BTreeMap::new();
+        for p in buf.iter() {
+            let name = &metrics.by_id(&p.metric).unwrap().name;
+            let key = match attr(p, "kind") {
+                Some(kind) => format!("{name}/{kind}"),
+                None => name.clone(),
+            };
+            assert!(map.insert(key.clone(), p).is_none(), "duplicate point for {key}");
+        }
+        map
     }
 
     /// The memory used by the cgroup is measured in bytes.
@@ -176,9 +189,9 @@ mod poll {
             source(),
             || (),
             |ctx| {
-                let memory_usage_points = points(ctx.metrics(), ctx.measurements(), "memory_usage");
-                assert_eq!(memory_usage_points.len(), 1);
-                assert_eq!(memory_usage_points[0].value.as_u64(), 5555);
+                let p = points_by_metric(ctx.metrics(), ctx.measurements());
+                assert_eq!(p.keys().collect::<Vec<_>>(), ["memory_usage"]);
+                assert_eq!(p["memory_usage"].value.as_u64(), 5555);
             },
         );
         run_probe(&dir, runtime);
@@ -194,10 +207,9 @@ mod poll {
             source(),
             || (),
             |ctx| {
-                let cpu_time_delta_points = points(ctx.metrics(), ctx.measurements(), "cpu_time_delta");
-                let cpu_percent_points = points(ctx.metrics(), ctx.measurements(), "cpu_percent");
-                assert_eq!(cpu_time_delta_points.len(), 0);
-                assert_eq!(cpu_percent_points.len(), 0);
+                // only the memory is measured
+                let p = points_by_metric(ctx.metrics(), ctx.measurements());
+                assert_eq!(p.keys().collect::<Vec<_>>(), ["memory_usage"]);
             },
         );
         run_probe(&dir, runtime);
@@ -217,14 +229,13 @@ mod poll {
                 source(),
                 move || std::fs::write(&cpuacct_usage, "4000\n").unwrap(),
                 |ctx| {
-                    let cpu_time_delta_points = points(ctx.metrics(), ctx.measurements(), "cpu_time_delta");
-                    let cpu_percent_points = points(ctx.metrics(), ctx.measurements(), "cpu_percent");
-                    assert_eq!(cpu_time_delta_points.len(), 1);
-                    assert_eq!(cpu_time_delta_points[0].value.as_u64(), 4000 - 1000);
-                    assert_eq!(attr(cpu_time_delta_points[0], "kind").as_deref(), Some("total"));
-                    assert_eq!(cpu_percent_points.len(), 1);
-                    assert!(cpu_percent_points[0].value.as_f64() > 0.0);
-                    assert_eq!(attr(cpu_percent_points[0], "kind").as_deref(), Some("total"));
+                    let p = points_by_metric(ctx.metrics(), ctx.measurements());
+                    assert_eq!(
+                        p.keys().collect::<Vec<_>>(),
+                        ["cpu_percent/total", "cpu_time_delta/total", "memory_usage"]
+                    );
+                    assert_eq!(p["cpu_time_delta/total"].value.as_u64(), 4000 - 1000);
+                    assert!(p["cpu_percent/total"].value.as_f64() > 0.0);
                 },
             );
         run_probe(&dir, runtime);

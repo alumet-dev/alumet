@@ -1,6 +1,5 @@
 //! Gather information about CPU cores.
 // (copied from the rapl plugin)
-use std::num::ParseIntError;
 
 use anyhow::Context;
 use util_cgroups::measure::v2::cpu::parse_cpu_list;
