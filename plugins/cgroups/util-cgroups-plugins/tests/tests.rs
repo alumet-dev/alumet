@@ -45,10 +45,10 @@ impl JobTagger for Tagger {
         &mut self,
         _cgroup: &util_cgroups::Cgroup,
     ) -> Vec<(String, alumet::measurement::AttributeValue)> {
-        return vec![
+        vec![
             ("user_id".to_string(), AttributeValue::U64(1000)),
             ("job_id".to_string(), AttributeValue::String("123456".to_string())),
-        ];
+        ]
     }
 }
 

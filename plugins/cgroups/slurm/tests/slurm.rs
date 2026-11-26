@@ -44,9 +44,9 @@ fn test_default_config() {
     let config_table = result.unwrap();
     let config: Config = deserialize_config(config_table).expect("ERROR : Failed to deserialize config");
 
-    assert_eq!(config.ignore_non_jobs, true);
+    assert!(config.ignore_non_jobs);
     assert_eq!(config.common.poll_interval, Duration::from_secs(5));
-    assert_eq!(config.common.disable_sources, false);
+    assert!(!config.common.disable_sources);
 }
 
 // Test `init` function to initialize slurm_cgroupv2 plugin configuration
@@ -132,10 +132,12 @@ fn test_correct_run_with_one_job() {
         .test_source(
             SourceName::from_str("slurm", "job:job_12345"),
             move || {
-                let mut mock = CpuStatMock::default();
-                mock.usage_usec = 50;
-                mock.user_usec = 10;
-                mock.system_usec = 75;
+                let mock = CpuStatMock {
+                    usage_usec: 50,
+                    user_usec: 10,
+                    system_usec: 75,
+                    ..Default::default()
+                };
                 let mut path_to_cpu_stat = PathBuf::from(&pah_src1.clone());
                 path_to_cpu_stat = path_to_cpu_stat.join("system.slice/slurmstepd.scope/job_12345/cpu.stat");
                 let mut file = OpenOptions::new()
@@ -150,10 +152,12 @@ fn test_correct_run_with_one_job() {
         .test_source(
             SourceName::from_str("slurm", "job:job_12345"),
             move || {
-                let mut mock = CpuStatMock::default();
-                mock.usage_usec = 55; // +5
-                mock.user_usec = 12; // +2
-                mock.system_usec = 78; // +3
+                let mock = CpuStatMock {
+                    usage_usec: 55,  // +5
+                    user_usec: 12,   // +2
+                    system_usec: 78, // +3
+                    ..Default::default()
+                };
                 let mut path_to_cpu_stat = PathBuf::from(&pah_src2);
                 path_to_cpu_stat = path_to_cpu_stat.join("system.slice/slurmstepd.scope/job_12345/cpu.stat");
                 let mut file = OpenOptions::new()
@@ -221,10 +225,12 @@ fn test_correct_run_with_two_jobs() {
         .test_source(
             SourceName::from_str("slurm", "job:job_12345"),
             move || {
-                let mut mock = CpuStatMock::default();
-                mock.usage_usec = 100;
-                mock.user_usec = 110;
-                mock.system_usec = 120;
+                let mock = CpuStatMock {
+                    usage_usec: 100,
+                    user_usec: 110,
+                    system_usec: 120,
+                    ..Default::default()
+                };
                 let mut path_to_cpu_stat = PathBuf::from(&path_src11.clone());
                 path_to_cpu_stat = path_to_cpu_stat.join("system.slice/slurmstepd.scope/job_12345/cpu.stat");
                 let mut file = OpenOptions::new()
@@ -239,10 +245,12 @@ fn test_correct_run_with_two_jobs() {
         .test_source(
             SourceName::from_str("slurm", "job:job_12345"),
             move || {
-                let mut mock = CpuStatMock::default();
-                mock.usage_usec = 115; // +15
-                mock.user_usec = 120; // +10
-                mock.system_usec = 125; // +5
+                let mock = CpuStatMock {
+                    usage_usec: 115,  // +15
+                    user_usec: 120,   // +10
+                    system_usec: 125, // +5
+                    ..Default::default()
+                };
                 let mut path_to_cpu_stat = PathBuf::from(&path_src12);
                 path_to_cpu_stat = path_to_cpu_stat.join("system.slice/slurmstepd.scope/job_12345/cpu.stat");
                 let mut file = OpenOptions::new()
@@ -271,10 +279,12 @@ fn test_correct_run_with_two_jobs() {
         .test_source(
             SourceName::from_str("slurm", "job:job_67890"),
             move || {
-                let mut mock = CpuStatMock::default();
-                mock.usage_usec = 200;
-                mock.user_usec = 210;
-                mock.system_usec = 220;
+                let mock = CpuStatMock {
+                    usage_usec: 200,
+                    user_usec: 210,
+                    system_usec: 220,
+                    ..Default::default()
+                };
                 let mut path_to_cpu_stat = PathBuf::from(&path_src21.clone());
                 path_to_cpu_stat = path_to_cpu_stat.join("system.slice/slurmstepd.scope/job_67890/cpu.stat");
                 let mut file = OpenOptions::new()
@@ -289,10 +299,12 @@ fn test_correct_run_with_two_jobs() {
         .test_source(
             SourceName::from_str("slurm", "job:job_67890"),
             move || {
-                let mut mock = CpuStatMock::default();
-                mock.usage_usec = 230; // +30
-                mock.user_usec = 245; // +35
-                mock.system_usec = 240; // +20
+                let mock = CpuStatMock {
+                    usage_usec: 230,  // +30
+                    user_usec: 245,   // +35
+                    system_usec: 240, // +20
+                    ..Default::default()
+                };
                 let mut path_to_cpu_stat = PathBuf::from(&path_src22);
                 path_to_cpu_stat = path_to_cpu_stat.join("system.slice/slurmstepd.scope/job_67890/cpu.stat");
                 let mut file = OpenOptions::new()
@@ -363,10 +375,12 @@ fn test_correct_run_with_one_job_coming_later() {
         .test_source(
             SourceName::from_str("slurm", "job:job_12345"),
             move || {
-                let mut mock = CpuStatMock::default();
-                mock.usage_usec = 100;
-                mock.user_usec = 110;
-                mock.system_usec = 120;
+                let mock = CpuStatMock {
+                    usage_usec: 100,
+                    user_usec: 110,
+                    system_usec: 120,
+                    ..Default::default()
+                };
                 let mut path_to_cpu_stat = PathBuf::from(&path_job.clone());
                 path_to_cpu_stat = path_to_cpu_stat.join("system.slice/slurmstepd.scope/job_12345/cpu.stat");
                 let mut file = OpenOptions::new()
@@ -522,8 +536,8 @@ mod cgroupv2 {
     }
 
     pub fn create_cgroupv2_tree_slurm_empty(root: &PathBuf) -> anyhow::Result<()> {
-        create_files(&root)?;
-        create_folder(&root, "system.slice")?;
+        create_files(root)?;
+        create_folder(root, "system.slice")?;
         let path_to_system = root.clone().join("system.slice/");
 
         create_folder(&path_to_system, "slurmstepd.scope")?;
@@ -535,8 +549,8 @@ mod cgroupv2 {
 
     pub fn create_cgroupv2_tree_slurm_job(root: &PathBuf) -> anyhow::Result<()> {
         let job_name = "job_12345";
-        create_files(&root)?;
-        create_folder(&root, "system.slice")?;
+        create_files(root)?;
+        create_folder(root, "system.slice")?;
         let path_to_system = root.clone().join("system.slice/");
 
         create_folder(&path_to_system, "slurmstepd.scope")?;
@@ -553,8 +567,8 @@ mod cgroupv2 {
     pub fn create_cgroupv2_tree_slurm_jobs(root: &PathBuf) -> anyhow::Result<()> {
         let job_name1 = "job_12345";
         let job_name2 = "job_67890";
-        create_files(&root)?;
-        create_folder(&root, "system.slice")?;
+        create_files(root)?;
+        create_folder(root, "system.slice")?;
         let path_to_system = root.clone().join("system.slice/");
 
         create_folder(&path_to_system, "slurmstepd.scope")?;
