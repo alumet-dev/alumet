@@ -3,6 +3,7 @@ name = "plugin-amd-gpu"
 version = "1.1.0"
 edition.workspace = true
 repository.workspace = true
+license.workspace = true
 
 [dependencies]
 alumet.workspace = true

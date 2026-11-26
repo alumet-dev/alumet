@@ -3,6 +3,7 @@ name = "plugin-energy-attribution"
 version = "0.1.1"
 edition.workspace = true
 repository.workspace = true
+license.workspace = true
 
 [dependencies]
 alumet.workspace = true

@@ -6,7 +6,7 @@ repository.workspace = true
 rust-version = "1.89"
 
 description = "Modular framework for hardware and software measurement (including energy consumption and more)."
-license = " EUPL-1.2"
+license.workspace = true
 homepage = "https://alumet.dev"
 keywords = ["rapl", "energy", "monitoring", "profiling"]
 

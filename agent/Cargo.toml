@@ -3,6 +3,7 @@ name = "alumet-agent"
 version = "0.9.5"
 edition.workspace = true
 repository.workspace = true
+license.workspace = true
 rust-version = "1.89"
 description = "Agent that collects energy and performance metrics."
 

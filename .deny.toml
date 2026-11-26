@@ -1,0 +1,59 @@
+# This section is considered when running `cargo deny check advisories`
+# More documentation for the advisories section can be found here:
+# https://embarkstudios.github.io/cargo-deny/checks/advisories/cfg.html
+[advisories]
+ignore = [
+    { id = "RUSTSEC-2026-0542", reason = "Cannot migrate to another lib that quickly, created https://github.com/alumet-dev/alumet/issues/526" },
+    { id = "RUSTSEC-2026-0543", reason = "Cannot migrate to another lib that quickly, created https://github.com/alumet-dev/alumet/issues/526" },
+    { id = "RUSTSEC-2026-0386", reason = "Error is about AsyncFd constructors from tokio, we are not using them." },
+    { id = "RUSTSEC-2026-0258", reason = "Need to rework the plugin prometheus-exporter in order to be able to update h2/hyper." }
+]
+
+# This section is considered when running `cargo deny check licenses`
+# More documentation for the licenses section can be found here:
+# https://embarkstudios.github.io/cargo-deny/checks/licenses/cfg.html
+[licenses]
+# List of explicitly allowed licenses
+# See https://spdx.org/licenses/ for list of possible licenses
+# [possible values: any SPDX 3.11 short identifier (+ optional exception)].
+#
+# Here is a non-exhaustive list of which license should never be allowed:
+# - GPLv2
+# - GPLv3
+# - AGPL
+# - NGPL
+# - OSL-*
+# - IPA font license
+# - Non-Profit Open Software License
+# - OCLC Research Public License
+# - Reciprocal Public License
+# - any licence that have a constraint on what we can do with the software
+# 
+# You can check on the EUPL website (https://interoperable-europe.ec.europa.eu/collection/eupl/matrix-eupl-compatible-open-source-licences)
+# to check if your license is compatible or not.
+allow = [
+    "Apache-2.0 WITH LLVM-exception",
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "EUPL-1.2",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Zlib"
+]
+
+# This section is considered when running `cargo deny check bans`.
+# More documentation about the 'bans' section can be found here:
+# https://embarkstudios.github.io/cargo-deny/checks/bans/cfg.html
+[bans]
+# TODO
+
+# This section is considered when running `cargo deny check sources`.
+# More documentation about the 'sources' section can be found here:
+# https://embarkstudios.github.io/cargo-deny/checks/sources/cfg.html
+[sources]
+# Needed until amd-smi-wrapper is published as a crate.
+allow-git = ["https://github.com/alumet-dev/amd-smi-wrapper.git",]
