@@ -10,6 +10,7 @@ use alumet::{
 
 use crate::counters::{Counters, GroupedEvent, PerfEventTarget};
 use crate::event::{ParsedEvent, Scope};
+use crate::group::OpenError;
 
 /// The source that measures a process, a cgroup or the whole machine.
 pub(super) struct PerfEventSource {
@@ -28,7 +29,7 @@ impl PerfEventSource {
         events: &[(GroupedEvent, TypedMetricId<u64>)],
         auto_scale: bool,
         consumer: ResourceConsumer,
-    ) -> anyhow::Result<Self> {
+    ) -> Result<Self, OpenError> {
         let grouped: Vec<GroupedEvent> = events.iter().map(|(e, _)| e.clone()).collect();
         Ok(Self {
             counters: Counters::open(observed, &grouped, auto_scale)?,

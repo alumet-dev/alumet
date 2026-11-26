@@ -8,6 +8,35 @@ use crate::multiplexing;
 
 pub use crate::multiplexing::Accuracy;
 
+/// Why counters could not be opened.
+#[derive(Debug, thiserror::Error)]
+pub enum OpenError {
+    /// The process or cgroup to count no longer exists: expected when it has ended meanwhile.
+    #[error("the counted process or cgroup no longer exists")]
+    TargetGone(#[source] io::Error),
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
+}
+
+impl OpenError {
+    /// Classifies a failed `perf_event_open`.
+    fn perf(e: io::Error, context: String) -> Self {
+        if e.raw_os_error() == Some(libc::ESRCH) {
+            Self::TargetGone(e)
+        } else {
+            Self::Other(anyhow::Error::new(e).context(context))
+        }
+    }
+
+    /// Adds `context` to an unexpected error.
+    pub fn context(self, context: String) -> Self {
+        match self {
+            Self::Other(e) => Self::Other(e.context(context)),
+            gone => gone,
+        }
+    }
+}
+
 /// What a group counts, and on which cpu. Every counter of a group shares it.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -63,7 +92,7 @@ pub struct EventGroup {
 
 impl EventGroupBuilder {
     /// Open an empty group. Add the counters with [`add`](Self::add), then [`build`](Self::build) it.
-    pub fn open(target: Target, auto_scale: bool) -> anyhow::Result<Self> {
+    pub fn open(target: Target, auto_scale: bool) -> Result<Self, OpenError> {
         let perf_group = {
             // A `DUMMY` software leader: its value is excluded from `Group::read`, it just anchors the
             // group and carries the read format shared by every counter of the group.
@@ -74,7 +103,7 @@ impl EventGroupBuilder {
             }
             leader
                 .build_group()
-                .with_context(|| format!("building perf group ({target:?})"))?
+                .map_err(|e| OpenError::perf(e, format!("building perf group ({target:?})")))?
         };
         Ok(Self {
             target,
@@ -87,13 +116,14 @@ impl EventGroupBuilder {
         })
     }
 
-    pub fn add(&mut self, event: &ParsedEvent) -> anyhow::Result<CounterId> {
+    pub fn add(&mut self, event: &ParsedEvent) -> Result<CounterId, OpenError> {
         let key = event.pmu_group_key();
         if self.pmu_key.is_some_and(|k| k != key) {
-            anyhow::bail!(
+            return Err(anyhow::anyhow!(
                 "event {} is not on the same PMU as the rest of the group (a perf group cannot span two PMUs)",
                 event.name()
-            );
+            )
+            .into());
         }
 
         let mut builder = perf_event::Builder::new(event.encoding());
@@ -110,13 +140,17 @@ impl EventGroupBuilder {
             // domain modifiers (`#u`/`#k`/`#h`) are meaningless for them anyway.
             (Scope::SystemWide { .. }, Target::Cpu { .. }) => include_all_domains(&mut builder),
             (Scope::SystemWide { .. }, _) => {
-                anyhow::bail!("system-wide event {} can only be counted on a cpu target", event.name())
+                return Err(
+                    anyhow::anyhow!("system-wide event {} can only be counted on a cpu target", event.name()).into(),
+                );
             }
         }
-        let counter = self
-            .perf_group
-            .add(&builder)
-            .with_context(|| format!("adding event {} to perf group ({:?})", event.name(), self.target))?;
+        let counter = self.perf_group.add(&builder).map_err(|e| {
+            OpenError::perf(
+                e,
+                format!("adding event {} to perf group ({:?})", event.name(), self.target),
+            )
+        })?;
 
         self.pmu_key = Some(key);
         self.counters.push(counter);

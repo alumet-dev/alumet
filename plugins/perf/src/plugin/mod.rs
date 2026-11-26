@@ -2,6 +2,7 @@ use rlimit::{Resource, getrlimit, setrlimit};
 use std::{
     collections::HashMap,
     fs::File,
+    io,
     path::PathBuf,
     sync::{Arc, Mutex},
     time::Duration,
@@ -28,13 +29,16 @@ use alumet::{
 use anyhow::Context;
 
 use crate::counters::{GroupedEvent, PerfEventTarget};
+use crate::group::OpenError;
 use alumet::resources::ResourceConsumer;
 use cgroup_via_processes::CgroupProcessesSource;
 use config::{CgroupCounting, Config, ParsedConfig, sanitize};
+use lazy_source::{LazySource, SourceFactory};
 use source::PerfEventSource;
 
 mod cgroup_via_processes;
 mod config;
+mod lazy_source;
 mod source;
 
 pub struct PerfPlugin {
@@ -120,9 +124,7 @@ impl AlumetPlugin for PerfPlugin {
             }
             // Not fatal: system-wide PMUs need CAP_PERFMON / perf_event_paranoid < 1, which
             // the per-process/cgroup events do not. Keep the rest of the plugin working.
-            Err(e) => log::warn!(
-                "could not open system-wide perf events (uncore/power/cstate): {e:#}; continuing without them"
-            ),
+            Err(e) => log::warn!("{e:#}; continuing without them"),
         }
 
         // Listen to start consumer events, starting sources.
@@ -191,23 +193,34 @@ impl PerfSourceFactory {
             false => TaskState::Run,
         };
 
-        let source = PerfEventSource::new(
-            &PerfEventTarget::Machine,
-            &system_events,
-            self.config.multiplexing_auto_scale,
-            ResourceConsumer::LocalMachine,
-        )?;
+        let auto_scale = self.config.multiplexing_auto_scale;
+        let source = self.build_source(Box::new(move || {
+            let source = PerfEventSource::new(
+                &PerfEventTarget::Machine,
+                &system_events,
+                auto_scale,
+                ResourceConsumer::LocalMachine,
+            )
+            .map_err(|e| e.context("could not open system-wide perf events (uncore/power/cstate)".to_owned()))?;
+            Ok(Box::new(source))
+        }))?;
 
         let trigger = self.trigger.clone();
-        let request = request::create_one().add_source_with_state(
-            "source-system-wide",
-            Box::new(source),
-            trigger,
-            init_source_state,
-        );
+        let request =
+            request::create_one().add_source_with_state("source-system-wide", source, trigger, init_source_state);
         log::info!("Prepared system-wide perf source with {n} event(s).");
 
         Ok(Some(request))
+    }
+
+    /// Opens the source now, or on its first poll if it starts paused: it may never be resumed,
+    /// and its counters would count (and multiplex) for nothing meanwhile.
+    fn build_source(&self, mut open: SourceFactory) -> anyhow::Result<Box<dyn Source>> {
+        if self.config.add_source_in_pause_state {
+            Ok(Box::new(LazySource::new(open)))
+        } else {
+            Ok(open()?)
+        }
     }
 
     fn create_consumer_source(&self, consumer: ResourceConsumer, requests: &mut MultiCreationRequestBuilder) -> () {
@@ -215,26 +228,23 @@ impl PerfSourceFactory {
         if consumer_events.is_empty() {
             return;
         }
-        let (source, source_name): (Box<dyn Source>, String) = match &consumer {
+        let auto_scale = self.config.multiplexing_auto_scale;
+        let (open, source_name): (SourceFactory, String) = match consumer.clone() {
             ResourceConsumer::Process { pid } => {
-                // The main thread of the process, whose tid is the pid.
-                let observed = PerfEventTarget::Task {
-                    tid: *pid,
-                    inherit: false,
-                };
-                log::info!("Starting to observe process {pid}...");
-                match PerfEventSource::new(
-                    &observed,
-                    &consumer_events,
-                    self.config.multiplexing_auto_scale,
-                    consumer.clone(),
-                ) {
-                    Ok(source) => (Box::new(source), process_source_name(*pid)),
-                    Err(e) => {
-                        log::warn!("cannot observe events {consumer_events:?} on process {pid}: {e:#}");
-                        return;
-                    }
-                }
+                let open: SourceFactory = Box::new(move || {
+                    // The main thread of the process, whose tid is the pid.
+                    let observed = PerfEventTarget::Task {
+                        tid: pid,
+                        inherit: false,
+                    };
+                    log::info!("Starting to observe process {pid}...");
+                    let source = PerfEventSource::new(&observed, &consumer_events, auto_scale, consumer.clone())
+                        .map_err(|e| {
+                            e.context(format!("cannot observe events {consumer_events:?} on process {pid}"))
+                        })?;
+                    Ok(Box::new(source))
+                });
+                (open, process_source_name(pid))
             }
             ResourceConsumer::ControlGroup { path } => {
                 // making an assumption about the cgroup mounting point here to be /sys/fs/cgroup
@@ -243,43 +253,49 @@ impl PerfSourceFactory {
                 // note that it will only work for cgroup v2
                 // TODO: make it dynamic or configurable
                 let absolute_path = format!("/sys/fs/cgroup{path}");
-                if let Some(scan_interval) = self.config.cgroup_via_processes {
-                    // Workaround for the kernels that miscount multiplexed cgroup events.
-                    match CgroupProcessesSource::new(
-                        PathBuf::from(&absolute_path),
-                        &consumer_events,
-                        self.config.multiplexing_auto_scale,
-                        consumer.clone(),
-                        scan_interval,
-                    ) {
-                        Ok(source) => (Box::new(source), cgroup_source_name(path.clone())),
-                        Err(e) => {
-                            log::warn!("cannot observe cgroup {absolute_path}: {e:#}");
-                            return;
-                        }
+                let via_processes = self.config.cgroup_via_processes;
+                let name = cgroup_source_name(path.clone());
+                let open: SourceFactory = Box::new(move || {
+                    if let Some(scan_interval) = via_processes {
+                        // Workaround for the kernels that miscount multiplexed cgroup events.
+                        let source = CgroupProcessesSource::new(
+                            PathBuf::from(&absolute_path),
+                            &consumer_events,
+                            auto_scale,
+                            consumer.clone(),
+                            scan_interval,
+                        )
+                        .with_context(|| format!("cannot observe cgroup {absolute_path}"))?;
+                        return Ok(Box::new(source));
                     }
-                } else {
                     log::info!("Starting to observe cgroup {path}...");
-                    let Ok(fd) = File::open(&absolute_path) else {
-                        log::error!("cgroup not found (or not readable) in filesystem: {absolute_path}");
-                        return;
+                    let fd = match File::open(&absolute_path) {
+                        Ok(fd) => fd,
+                        Err(e) if e.kind() == io::ErrorKind::NotFound => return Err(OpenError::TargetGone(e)),
+                        Err(e) => {
+                            let e = anyhow::Error::new(e).context(format!("cgroup not readable: {absolute_path}"));
+                            return Err(OpenError::Other(e));
+                        }
                     };
                     let observed = PerfEventTarget::Cgroup { fd: Arc::new(fd) };
-                    match PerfEventSource::new(
-                        &observed,
-                        &consumer_events,
-                        self.config.multiplexing_auto_scale,
-                        consumer.clone(),
-                    ) {
-                        Ok(source) => (Box::new(source), cgroup_source_name(path.clone())),
-                        Err(e) => {
-                            log::warn!("cannot observe events {consumer_events:?} on cgroup {absolute_path}: {e:#}");
-                            return;
-                        }
-                    }
-                }
+                    let source = PerfEventSource::new(&observed, &consumer_events, auto_scale, consumer.clone())
+                        .map_err(|e| {
+                            e.context(format!(
+                                "cannot observe events {consumer_events:?} on cgroup {absolute_path}"
+                            ))
+                        })?;
+                    Ok(Box::new(source))
+                });
+                (open, name)
             }
             _ => return,
+        };
+        let source = match self.build_source(open) {
+            Ok(source) => source,
+            Err(e) => {
+                log::warn!("{source_name}: {e:#}");
+                return;
+            }
         };
         let trigger = self.trigger.clone();
         let init_source_state = match self.config.add_source_in_pause_state {
