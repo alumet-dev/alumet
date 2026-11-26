@@ -7,7 +7,6 @@ ignore = [
     { id = "RUSTSEC-2026-0543", reason = "Cannot migrate to another lib that quickly, created https://github.com/alumet-dev/alumet/issues/526" },
     { id = "RUSTSEC-2026-0386", reason = "Error is about AsyncFd constructors from tokio, we are not using them." },
     { id = "RUSTSEC-2026-0258", reason = "Need to rework the plugin prometheus-exporter in order to be able to update h2/hyper." }
-
 ]
 
 # This section is considered when running `cargo deny check licenses`
@@ -44,22 +43,6 @@ allow = [
     "MPL-2.0",
     "Unicode-3.0",
     "Zlib"
-]
-
-[[licenses.clarify]]
-# Needed until amd-smi-wrapper gets a license defined in its Cargo.toml.
-name = "amd-smi-wrapper"
-expression = "Apache-2.0"
-license-files = [
-    { path = "../LICENSE-APACHE", hash = 0x8f10e49}
-]
-
-[[licenses.clarify]]
-# Needed until amd-smi-wrapper-sys gets a license defined in its Cargo.toml.
-name = "amd-smi-wrapper-sys"
-expression = "Apache-2.0"
-license-files = [
-    { path = "../LICENSE-APACHE", hash = 0x8f10e49}
 ]
 
 # This section is considered when running `cargo deny check bans`.
