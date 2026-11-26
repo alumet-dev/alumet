@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 alumet.workspace = true
 anyhow.workspace = true
+humantime-serde.workspace = true
 log.workspace = true
 serde = { workspace = true, features = ["derive"] }
 

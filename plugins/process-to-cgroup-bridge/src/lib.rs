@@ -7,6 +7,7 @@ use alumet::{
 };
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use transform::ProcessToCgroupBridgeTransform;
 
 #[cfg(test)]
@@ -43,6 +44,7 @@ impl AlumetPlugin for ProcessToCgroupBridgePlugin {
         let processes_metrics = self.config.processes_metrics.clone();
         let merge_similar_cgroups = self.config.merge_similar_cgroups;
         let keep_processed_measurements = self.config.keep_processed_measurements;
+        let fallback_ttl = self.config.fallback_ttl;
 
         #[cfg(test)]
         let proc_path = self.config.proc_path.clone();
@@ -63,6 +65,7 @@ impl AlumetPlugin for ProcessToCgroupBridgePlugin {
                 processes_metrics_ids,
                 merge_similar_cgroups,
                 keep_processed_measurements,
+                fallback_ttl,
 
                 #[cfg(test)]
                 proc_path,
@@ -85,6 +88,10 @@ pub struct Config {
     pub merge_similar_cgroups: bool,
     /// Will keep all the measurements that have been processed by the transformer. In case it's false only the measurements with a cgroup resource consumer will be kept.
     pub keep_processed_measurements: bool,
+    /// How long the last known cgroup of a process is still used once the process is gone.
+    /// It covers the measurements produced right before the process ended, that reach the transform after.
+    #[serde(with = "humantime_serde")]
+    pub fallback_ttl: Duration,
 
     #[cfg(test)]
     pub proc_path: PathBuf,
@@ -99,6 +106,7 @@ impl Default for Config {
             ],
             merge_similar_cgroups: true,
             keep_processed_measurements: true,
+            fallback_ttl: Duration::from_secs(60),
 
             #[cfg(test)]
             proc_path: PathBuf::from("/proc"),
