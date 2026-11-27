@@ -24,6 +24,8 @@ processes_metrics = [
 merge_similar_cgroups = true
 # Will keep all the measurements that have been processed by the transformer. In case it's false only the measurements with a cgroup resource consumer will be kept.
 keep_processed_measurements = true
+# How long the last known cgroup of a process is still used once the process is gone (0s disables it).
+fallback_ttl = "60s"
 ```
 
 ## More informations
@@ -31,6 +33,12 @@ keep_processed_measurements = true
 ### Cgroup not found
 
 In case the transform plugin doesn't find a cgroup for a process measurement, it will silently skip the transformation step for this measurement.
+
+### Process ended before its measurements are transformed
+
+A source may measure a process right before it ends, so that `/proc/<pid>` is gone when the measurement reaches the transform.
+In that case, the last cgroup seen for this pid is used, as long as it was seen less than `fallback_ttl` ago.
+`/proc` is always read first: the cache is never used for a running process.
 
 ### Cgroup v1
 

@@ -3396,6 +3396,7 @@ version = "0.1.0"
 dependencies = [
  "alumet",
  "anyhow",
+ "humantime-serde",
  "lazy_static",
  "log",
  "serde",
