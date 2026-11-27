@@ -1,5 +1,5 @@
 use std::{
-    fs::{self, File},
+    fs::File,
     io::{self, BufRead, Read, Seek},
     path::Path,
 };
@@ -316,7 +316,6 @@ impl SelectiveStatMapping {
 /// Unlike standard stat files (space-separated key-value pairs),
 /// io.pressure uses lines containing multiple space-separated key=value pairs,
 /// and the line prefix (some/full) indicates the pressure type.
-
 pub struct IoPressureFile {
     file: File,
     settings: IoPressureCollectorSettings,
@@ -326,20 +325,25 @@ impl IoPressureFile {
     pub fn new(file: File, settings: IoPressureCollectorSettings) -> Self {
         Self { file, settings }
     }
-    // pub fn open(path: impl AsRef<Path>) -> io::Result<Self> {
-    //     let f = File::open(path)?;
-    //     Ok(Self::new(f))
-    // }
 
-    /// Reads the io.pressure file and extracts the total values ​​for 'some' and 'full'
+    /// Reads the io.pressure file and extracts the total values for 'some' and 'full'.
+    ///
+    /// # Safety
+    /// The content of the file must be valid UTF-8.
     pub unsafe fn read(&mut self, io_buf: &mut Vec<u8>) -> io::Result<IoPressureStats> {
         read_fully(&mut self.file, io_buf)?;
+        // SAFETY: the caller guarantees that the content of the file is valid UTF-8
         unsafe { parse_io_pressure(io_buf, self.settings) }
     }
 }
 
+/// Parses the content of an io.pressure file.
+///
+/// # Safety
+/// The bytes passed in must be valid UTF-8.
 unsafe fn parse_io_pressure(io_buf: &[u8], settings: IoPressureCollectorSettings) -> io::Result<IoPressureStats> {
     let mut res = IoPressureStats::default();
+    // SAFETY: the caller guarantees that `io_buf` is valid UTF-8
     let content = unsafe { std::str::from_utf8_unchecked(io_buf) };
 
     for line in content.lines() {
@@ -565,7 +569,7 @@ burst_usec 0
         fn returns_error_on_invalid_total() {
             let input = br#"some avg10=0.00 avg60=0.00 avg300=0.00 total=not_a_number"#;
 
-            assert!(unsafe { parse_io_pressure(input, settings()) }.is_err());
+            assert!(unsafe { parse_io_pressure(input, settings()).is_err() });
         }
 
         #[test]
@@ -784,6 +788,21 @@ burst_usec 0
             // This should fail due to overflow
             assert!(result.is_err());
             assert_eq!(result.unwrap_err().kind(), ErrorKind::InvalidData);
+        }
+    }
+
+    mod stat_file_builder {
+        use super::*;
+
+        /// A file with too many lines for the BitSet is rejected.
+        #[test]
+        fn too_many_lines() {
+            let mut file = tempfile::tempfile().unwrap();
+            for i in 0..BitSet128::LIMIT as usize + 1 {
+                writeln!(file, "key{i} {i}").unwrap();
+            }
+            let res = StatFileBuilder::new(file, &["key0"]).build(&mut Vec::new());
+            assert!(res.is_err());
         }
     }
 }

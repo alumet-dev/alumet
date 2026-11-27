@@ -53,10 +53,10 @@ fn test_oar3() -> anyhow::Result<()> {
         tempfile::tempdir_in(&app_slice).with_context(|| format!("failed to create cgroup in {app_slice:?}"))?;
     let cgroup_dir_job = cgroup_dir_parent
         .path()
-        .join(format!("oar.slice/oar-u1000.scope/oar-u1000-j123456"));
+        .join("oar.slice/oar-u1000.scope/oar-u1000-j123456");
     std::fs::create_dir_all(&cgroup_dir_job)?;
 
-    let source_name = format!("oar-job-123456");
+    let source_name = String::from("oar-job-123456");
     log::info!("cgroup created at {cgroup_dir_job:?}");
     log::info!("source name: {source_name}");
 
@@ -136,10 +136,10 @@ fn test_oar2() -> anyhow::Result<()> {
     // create the cgroup
     let cgroup_dir_parent =
         tempfile::tempdir_in(&app_slice).with_context(|| format!("failed to create cgroup in {app_slice:?}"))?;
-    let cgroup_dir_job = cgroup_dir_parent.path().join(format!("oar/user_456789"));
+    let cgroup_dir_job = cgroup_dir_parent.path().join("oar/user_456789");
     std::fs::create_dir_all(&cgroup_dir_job)?;
 
-    let source_name = format!("oar-job-456789");
+    let source_name = String::from("oar-job-456789");
     log::info!("cgroup created at {cgroup_dir_job:?}");
     log::info!("source name: {source_name}");
 

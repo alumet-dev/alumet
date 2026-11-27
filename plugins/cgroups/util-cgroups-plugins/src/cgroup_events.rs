@@ -327,7 +327,7 @@ where
     }
 
     fn on_cgroups_removed(&mut self, cgroups: Vec<Cgroup>) -> anyhow::Result<()> {
-        if cgroups.len() > 0 {
+        if !cgroups.is_empty() {
             let mut resource_consumers = Vec::with_capacity(cgroups.len());
             for cgroup in &cgroups {
                 let resource_consumer = ResourceConsumer::ControlGroup {
@@ -375,6 +375,35 @@ mod tests {
                 on_removal: NoCallback,
                 on_fs_mount: NoCallback,
             };
+        }
+    }
+
+    mod reactor_config {
+        use super::*;
+
+        /// By default, the cgroupfs v1 events are coalesced for 1 second, and the sources are not paused.
+        #[test]
+        fn default() {
+            let config = ReactorConfig::default();
+            assert_eq!(config.v1_coalesce_delay, Some(Duration::from_secs(1)));
+            assert_eq!(config.v1_refresh_interval, None);
+            assert!(!config.add_source_in_pause_state);
+        }
+    }
+
+    mod noop_callbacks {
+        use super::*;
+
+        /// `NoCallback` ignores the removal of cgroups.
+        #[test]
+        fn on_cgroups_removed() {
+            assert!(NoCallback.on_cgroups_removed(vec![]).is_ok());
+        }
+
+        /// `NoCallback` ignores the mounting of a cgroupfs.
+        #[test]
+        fn on_cgroupfs_mounted() {
+            assert!(NoCallback.on_cgroupfs_mounted(&vec![]).is_ok());
         }
     }
 }

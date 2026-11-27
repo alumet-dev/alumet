@@ -118,4 +118,37 @@ mod tests {
 
         Ok(())
     }
+
+    mod in_single_hierarchy {
+        use super::*;
+        use crate::Cgroup;
+
+        /// The collector reads the files of the controllers of the hierarchy, in the cgroup directory.
+        #[test]
+        fn cpuacct_and_memory() {
+            let root = tempdir().unwrap();
+            let dir = root.path().join("my.cgroup");
+            std::fs::create_dir(&dir).unwrap();
+            std::fs::write(dir.join("cpuacct.usage"), "15\n").unwrap();
+            std::fs::write(dir.join("memory.usage_in_bytes"), "19\n").unwrap();
+
+            let hierarchy =
+                CgroupHierarchy::manually_unchecked(root.path(), CgroupVersion::V1, vec!["cpuacct", "memory"]);
+            let cgroup = Cgroup::from_fs_path(&hierarchy, dir);
+            let mut collector = V1Collector::in_single_hierarchy(cgroup).unwrap();
+
+            let stats = collector.measure(&mut Vec::new()).unwrap();
+            assert_eq!(stats.cpuacct_usage, Some(15));
+            assert_eq!(stats.memory_usage, Some(19));
+        }
+
+        /// A missing file is an error, because its controller is attached to the hierarchy.
+        #[test]
+        fn missing_file() {
+            let root = tempdir().unwrap();
+            let hierarchy = CgroupHierarchy::manually_unchecked(root.path(), CgroupVersion::V1, vec!["memory"]);
+            let cgroup = Cgroup::from_fs_path(&hierarchy, root.path().to_path_buf());
+            assert!(V1Collector::in_single_hierarchy(cgroup).is_err());
+        }
+    }
 }

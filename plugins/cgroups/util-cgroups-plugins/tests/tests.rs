@@ -45,10 +45,10 @@ impl JobTagger for Tagger {
         &mut self,
         _cgroup: &util_cgroups::Cgroup,
     ) -> Vec<(String, alumet::measurement::AttributeValue)> {
-        return vec![
+        vec![
             ("user_id".to_string(), AttributeValue::U64(1000)),
             ("job_id".to_string(), AttributeValue::String("123456".to_string())),
-        ];
+        ]
     }
 }
 
@@ -171,7 +171,7 @@ fn test_correct_transform() -> anyhow::Result<()> {
         tempfile::tempdir_in(&app_slice).with_context(|| format!("failed to create cgroup in {app_slice:?}"))?;
     let cgroup_dir_job = cgroup_dir_parent
         .path()
-        .join(format!("oar.slice/oar-u1000.scope/oar-u1000-j123456"));
+        .join("oar.slice/oar-u1000.scope/oar-u1000-j123456");
     std::fs::create_dir_all(&cgroup_dir_job)?;
 
     log::info!("cgroup created at {:?}", cgroup_dir_job);
@@ -241,7 +241,7 @@ fn test_cgroups_files_not_created() -> anyhow::Result<()> {
         .unwrap();
     let cgroup_dir_job = cgroup_dir_parent
         .path()
-        .join(format!("oar.slice/oar-u1000.scope/oar-u1000-j123456"));
+        .join("oar.slice/oar-u1000.scope/oar-u1000-j123456");
 
     let mut plugins = PluginSet::new();
 
@@ -307,7 +307,7 @@ fn test_cgroup_v2_hierarchy_not_created() -> anyhow::Result<()> {
         .unwrap();
     let cgroup_dir_job = cgroup_dir_parent
         .path()
-        .join(format!("oar.slice/oar-u1000.scope/oar-u1000-j123456"));
+        .join("oar.slice/oar-u1000.scope/oar-u1000-j123456");
 
     let mut plugins = PluginSet::new();
 
@@ -413,7 +413,7 @@ fn test_no_cgroupv2_at_all() -> anyhow::Result<()> {
 fn test_on_cgroupfs_mounted() {
     let Ok("true" | "yes" | "1") = std::env::var("RUN_CGROUPFS_TESTS").as_deref() else {
         println!("skipped because RUN_CGROUPFS_TESTS is not set");
-        return ();
+        return;
     };
 
     let app_slice = find_user_app_slice(Path::new(SYSFS_CGROUP)).unwrap();
@@ -423,7 +423,7 @@ fn test_on_cgroupfs_mounted() {
         .unwrap();
     let cgroup_dir_job = cgroup_dir_parent
         .path()
-        .join(format!("oar.slice/oar-u1000.scope/oar-u1000-j123456"));
+        .join("oar.slice/oar-u1000.scope/oar-u1000-j123456");
     std::fs::create_dir_all(&cgroup_dir_job).unwrap();
 
     let mut shared_hierarchy = OptionalSharedHierarchy::default();

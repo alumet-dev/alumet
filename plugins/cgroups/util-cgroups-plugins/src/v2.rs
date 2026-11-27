@@ -93,11 +93,11 @@ impl Source for CgroupV2Probe {
         let resource = Resource::LocalMachine;
 
         // CPU statistics
+        //in cgroupv2, unit is µs, so convert to ns.
         if let Some(cpu_stat) = data.cpu_stat {
             if let Some(value) = cpu_stat
                 .usage
-                .map(|v| self.cpu_delta_counters.usage.update(v * 1000).difference()) //in cgroupv2, unit is µs, so convert to ns.
-                .flatten()
+                .and_then(|v| self.cpu_delta_counters.usage.update(v * 1000).difference())
             {
                 measurements.push(
                     self.new_point(&self.metrics.cpu_time_delta, t, &resource, value)
@@ -116,10 +116,10 @@ impl Source for CgroupV2Probe {
                 }
             }
 
+            //in cgroupv2, unit is µs, so convert to ns.
             if let Some(value) = cpu_stat
                 .system
-                .map(|v| self.cpu_delta_counters.system.update(v * 1000).difference()) //in cgroupv2, unit is µs, so convert to ns.
-                .flatten()
+                .and_then(|v| self.cpu_delta_counters.system.update(v * 1000).difference())
             {
                 measurements.push(
                     self.new_point(&self.metrics.cpu_time_delta, t, &resource, value)
@@ -138,10 +138,10 @@ impl Source for CgroupV2Probe {
                 }
             }
 
+            //in cgroupv2, unit is µs, so convert to ns.
             if let Some(value) = cpu_stat
                 .user
-                .map(|v| self.cpu_delta_counters.user.update(v * 1000).difference()) //in cgroupv2, unit is µs, so convert to ns.
-                .flatten()
+                .and_then(|v| self.cpu_delta_counters.user.update(v * 1000).difference())
             {
                 measurements.push(
                     self.new_point(&self.metrics.cpu_time_delta, t, &resource, value)
@@ -192,22 +192,17 @@ impl Source for CgroupV2Probe {
             }
             if let Some(value) = mem_stat
                 .pswpin
-                .map(|v| self.memory_delta_counters.page_in.update(v).difference())
-                .flatten()
+                .and_then(|v| self.memory_delta_counters.page_in.update(v).difference())
             {
                 measurements.push(self.new_point(&self.metrics.pswpin, t, &resource, value));
                 measurements.push(self.new_point(&self.metrics.pswpin_bytes, t, &resource, value * page_size as u64));
             }
             if let Some(value) = mem_stat
                 .pswpout
-                .map(|v| self.memory_delta_counters.page_out.update(v).difference())
-                .flatten()
+                .and_then(|v| self.memory_delta_counters.page_out.update(v).difference())
             {
                 measurements.push(self.new_point(&self.metrics.pswpout, t, &resource, value));
                 measurements.push(self.new_point(&self.metrics.pswpout_bytes, t, &resource, value * page_size as u64));
-            }
-            if let Some(value) = mem_stat.pswpout {
-                measurements.push(self.new_point(&self.metrics.pswpout, t, &resource, value));
             }
         }
 
@@ -215,16 +210,14 @@ impl Source for CgroupV2Probe {
         if let Some(io_pressure) = data.io_pressure {
             if let Some(value) = io_pressure
                 .some_total
-                .map(|v| self.io_delta_counters.some.update(v).difference())
-                .flatten()
+                .and_then(|v| self.io_delta_counters.some.update(v).difference())
             {
                 measurements.push(self.new_point(&self.metrics.io_pressure_some_total, t, &resource, value));
             }
 
             if let Some(value) = io_pressure
                 .full_total
-                .map(|v| self.io_delta_counters.full.update(v).difference())
-                .flatten()
+                .and_then(|v| self.io_delta_counters.full.update(v).difference())
             {
                 measurements.push(self.new_point(&self.metrics.io_pressure_full_total, t, &resource, value));
             }
@@ -244,6 +237,7 @@ impl Source for CgroupV2Probe {
 
     fn reset(&mut self) -> anyhow::Result<()> {
         self.cpu_delta_counters.reset();
+        self.memory_delta_counters.reset();
         self.io_delta_counters.reset();
         self.last_timestamp = None;
         Ok(())

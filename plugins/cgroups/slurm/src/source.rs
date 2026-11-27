@@ -58,9 +58,7 @@ impl JobAttrs {
     }
 
     fn job_level(&self) -> Option<JobMonitoringLevel> {
-        if self.job_id.is_none() {
-            return None;
-        }
+        self.job_id?;
 
         let lvl = if self.task_id.is_some() {
             JobMonitoringLevel::Task
