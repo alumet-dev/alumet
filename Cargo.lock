@@ -3387,6 +3387,7 @@ dependencies = [
  "perf-event2",
  "rlimit",
  "serde",
+ "thiserror 2.0.21",
  "toml 0.9.12+spec-1.1.0",
 ]
 

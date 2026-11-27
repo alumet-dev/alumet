@@ -10,6 +10,7 @@ license.workspace = true
 [dependencies]
 alumet.workspace = true
 anyhow.workspace = true
+thiserror.workspace = true
 humantime-serde.workspace = true
 itertools.workspace = true
 libc = "0.2"

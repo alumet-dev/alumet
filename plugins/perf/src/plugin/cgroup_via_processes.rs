@@ -30,7 +30,7 @@ pub(super) struct CgroupProcessesSource {
 
 impl CgroupProcessesSource {
     /// `events`, each paired with its metric, in the order given to [`CgroupProcesses`]. The cgroup
-    /// `dir` is scanned once now, then every `scan_interval`, in a thread that stops with the source.
+    /// `dir` is scanned every `scan_interval`, starting now, in a thread that stops with the source.
     pub(super) fn new(
         dir: PathBuf,
         events: &[(GroupedEvent, TypedMetricId<u64>)],
@@ -44,7 +44,6 @@ impl CgroupProcessesSource {
             events.iter().map(|(e, _)| e.clone()).collect(),
             auto_scale,
         )));
-        processes.lock().unwrap().scan();
 
         // An uncounted process loses what it does before it is found: read cgroup.procs much more
         // often than the poll, in a thread that stops once the source is dropped.
@@ -53,9 +52,13 @@ impl CgroupProcessesSource {
             .name("perf-cgroup-scan".to_owned())
             .spawn(move || {
                 loop {
+                    // Not kept while sleeping, to let a paused source close its counters right away.
+                    if let Some(processes) = weak.upgrade() {
+                        processes.lock().unwrap().scan();
+                    } else {
+                        break;
+                    }
                     std::thread::sleep(scan_interval);
-                    let Some(processes) = weak.upgrade() else { break };
-                    processes.lock().unwrap().scan();
                 }
             })
             .context("spawning the cgroup scanner")?;

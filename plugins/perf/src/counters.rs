@@ -1,9 +1,9 @@
-use std::{fs::File, io, sync::Arc};
+use std::{fs::File, sync::Arc};
 
 use anyhow::Context;
 
 use crate::event::{ParsedEvent, Scope};
-use crate::group::{Accuracy, EventGroup, EventGroupBuilder, Target};
+use crate::group::{Accuracy, EventGroup, EventGroupBuilder, OpenError, Target};
 use crate::sysfs;
 
 /// What to count on: split into one [`Target`] per cpu when perf needs it.
@@ -55,12 +55,12 @@ pub struct Counters {
 
 impl Counters {
     /// Spreads `events` over perf groups, and opens and enables them on `observed`.
-    pub fn open(observed: &PerfEventTarget, events: &[GroupedEvent], auto_scale: bool) -> anyhow::Result<Self> {
+    pub fn open(observed: &PerfEventTarget, events: &[GroupedEvent], auto_scale: bool) -> Result<Self, OpenError> {
         let mut groups: Vec<(EventGroupBuilder, GroupMembers)> = Vec::new();
         for (i, GroupedEvent { event, group }) in events.iter().enumerate() {
             for (target, cpu) in targets(observed, event)? {
                 add_to_matching_group(&mut groups, target, cpu, event, i, group, auto_scale)
-                    .with_context(|| format!("could not configure event {}", event.name()))?;
+                    .map_err(|e| e.context(format!("could not configure event {}", event.name())))?;
             }
         }
         log::debug!(
@@ -69,8 +69,8 @@ impl Counters {
         );
         let groups = groups
             .into_iter()
-            .map(|(group, members)| Ok((group.build()?, members)))
-            .collect::<io::Result<_>>()?;
+            .map(|(group, members)| Ok((group.build().context("enabling perf group")?, members)))
+            .collect::<anyhow::Result<_>>()?;
         Ok(Self { groups })
     }
 
@@ -136,7 +136,7 @@ fn add_to_matching_group(
     index: usize,
     group: &Option<String>,
     auto_scale: bool,
-) -> anyhow::Result<()> {
+) -> Result<(), OpenError> {
     let pmu_key = event.pmu_group_key();
     let existing = groups
         .iter()

@@ -15,11 +15,10 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::counters::{Counters, GroupedEvent, PerfEventTarget, Reading};
-use crate::group::Accuracy;
+use crate::group::{Accuracy, OpenError};
 
 /// How a process of the cgroup is counted.
 enum ProcessCounting {
@@ -162,7 +161,7 @@ impl CgroupProcesses {
             match Counters::open(&target, &self.events, self.auto_scale) {
                 Ok(c) => threads.push(c),
                 // The thread exited meanwhile: nothing to count.
-                Err(e) if is_no_such_task(&e) => (),
+                Err(OpenError::TargetGone(_)) => (),
                 Err(e) => {
                     log::warn!(
                         "cannot count thread {tid} of process {pid} in {}, will retry: {e:#}",
@@ -295,12 +294,6 @@ fn last_pid() -> Option<u32> {
 
 fn tick_ns() -> u64 {
     1_000_000_000 / unsafe { libc::sysconf(libc::_SC_CLK_TCK) } as u64
-}
-
-fn is_no_such_task(e: &anyhow::Error) -> bool {
-    e.chain()
-        .filter_map(|c| c.downcast_ref::<io::Error>())
-        .any(|e| e.raw_os_error() == Some(libc::ESRCH))
 }
 
 #[cfg(test)]
